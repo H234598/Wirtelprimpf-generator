@@ -22,6 +22,7 @@ them.
 
 - Python 3.11 or newer.
 - `openai` Python package.
+- `Pillow` Python package for final output resizing.
 - `git` if Git publishing is enabled.
 - GitHub CLI `gh` if the configured repository should be cloned automatically.
 - An OpenAI API key that can call Images generation. Restricted keys need at
@@ -73,6 +74,20 @@ WIRTELPRIMPF_GIT_AUTHOR_EMAIL=wirtelprimpf@example.invalid
 
 If `WIRTELPRIMPF_REPO_PATH` is unset, the generator creates local files only
 and does not touch Git.
+
+### Resolution
+
+The OpenAI image API does not generate arbitrary 4K/2K frames directly. The
+generator therefore separates API input size from final output resolution:
+
+```bash
+WIRTELPRIMPF_IMAGE_SIZE=1536x1024
+WIRTELPRIMPF_OUTPUT_RESOLUTION=2k
+```
+
+`WIRTELPRIMPF_OUTPUT_RESOLUTION=2k` writes a final `2560x1440` PNG. Other
+supported aliases are `4k` (`3840x2160`), `qhd`, `1440p`, `uhd`, `2160p`,
+`original`, `source`, and `none`. Custom values like `1920x1080` are accepted.
 
 ## Manual Run
 

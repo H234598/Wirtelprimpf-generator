@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from openai import OpenAI
+from PIL import Image
 
 
 def env(name: str, default: str | None = None) -> str | None:
@@ -31,6 +32,7 @@ class Config:
     repo_branch: str
     image_model: str
     image_size: str
+    output_resolution: str
     commit_author_name: str
     commit_author_email: str
 
@@ -46,7 +48,8 @@ def load_config() -> Config:
         repo_subdir=env("WIRTELPRIMPF_REPO_SUBDIR", "Wirtelprimpf") or "Wirtelprimpf",
         repo_branch=env("WIRTELPRIMPF_REPO_BRANCH", "main") or "main",
         image_model=env("WIRTELPRIMPF_IMAGE_MODEL", "gpt-image-2") or "gpt-image-2",
-        image_size=env("WIRTELPRIMPF_IMAGE_SIZE", "1024x1024") or "1024x1024",
+        image_size=env("WIRTELPRIMPF_IMAGE_SIZE", "1536x1024") or "1536x1024",
+        output_resolution=env("WIRTELPRIMPF_OUTPUT_RESOLUTION", "2k") or "2k",
         commit_author_name=env("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Wirtelprimpf Bot") or "Wirtelprimpf Bot",
         commit_author_email=env("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "wirtelprimpf@example.invalid")
         or "wirtelprimpf@example.invalid",
@@ -104,6 +107,49 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
         cwd=config.repo_path,
     )
     run(["git", "push", "origin", config.repo_branch], cwd=config.repo_path)
+
+
+def parse_resolution(value: str) -> tuple[int, int] | None:
+    normalized = value.strip().lower()
+    aliases: dict[str, tuple[int, int] | None] = {
+        "": None,
+        "source": None,
+        "original": None,
+        "none": None,
+        "2k": (2560, 1440),
+        "qhd": (2560, 1440),
+        "1440p": (2560, 1440),
+        "4k": (3840, 2160),
+        "uhd": (3840, 2160),
+        "2160p": (3840, 2160),
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+
+    try:
+        width, height = normalized.split("x", 1)
+        return int(width), int(height)
+    except ValueError as exc:
+        raise ValueError(f"Invalid WIRTELPRIMPF_OUTPUT_RESOLUTION: {value!r}") from exc
+
+
+def resize_cover(path: Path, target_size: tuple[int, int] | None) -> None:
+    if target_size is None:
+        return
+
+    target_width, target_height = target_size
+    with Image.open(path) as image:
+        image = image.convert("RGB")
+        source_width, source_height = image.size
+        scale = max(target_width / source_width, target_height / source_height)
+        resized = image.resize(
+            (round(source_width * scale), round(source_height * scale)),
+            Image.Resampling.LANCZOS,
+        )
+        left = (resized.width - target_width) // 2
+        top = (resized.height - target_height) // 2
+        cropped = resized.crop((left, top, left + target_width, top + target_height))
+        cropped.save(path, format="PNG", optimize=True)
 
 
 SETTINGS = [
@@ -197,6 +243,7 @@ def main() -> None:
     )
 
     local_png.write_bytes(base64.b64decode(response.data[0].b64_json))
+    resize_cover(local_png, parse_resolution(config.output_resolution))
     local_prompt.write_text(prompt, encoding="utf-8")
     print(f"Local image: {local_png}")
     print(f"Local prompt: {local_prompt}")
