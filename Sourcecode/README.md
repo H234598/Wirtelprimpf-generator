@@ -12,6 +12,7 @@ them.
 ## Files
 
 - `wirtelprimpf_generator.py`: portable generator.
+- `wirtelprimpf_prompt_config.json`: default prompt building blocks and template.
 - `wirtelprimpf-set-openai-key`: helper that writes an API key to a private env file.
 - `env.example`: documented environment variables.
 - `requirements.txt`: Python dependency list.
@@ -40,6 +41,7 @@ python3 -m venv ~/.local/share/wirtelprimpf-venv
 
 install -Dm0755 Sourcecode/wirtelprimpf_generator.py ~/.local/bin/wirtelprimpf_generator.py
 install -Dm0755 Sourcecode/wirtelprimpf-set-openai-key ~/.local/bin/wirtelprimpf-set-openai-key
+install -Dm0644 Sourcecode/wirtelprimpf_prompt_config.json ~/.config/wirtelprimpf/prompt_config.json
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf.service ~/.config/systemd/user/wirtelprimpf.service
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf.timer ~/.config/systemd/user/wirtelprimpf.timer
 ```
@@ -74,6 +76,26 @@ WIRTELPRIMPF_GIT_AUTHOR_EMAIL=wirtelprimpf@example.invalid
 
 If `WIRTELPRIMPF_REPO_PATH` is unset, the generator creates local files only
 and does not touch Git.
+
+### Prompt Configuration
+
+Prompt construction is configured in a separate JSON file:
+
+```bash
+WIRTELPRIMPF_PROMPT_CONFIG=$HOME/.config/wirtelprimpf/prompt_config.json
+```
+
+The config contains the random pools for `settings`, `actions`, `jokes`,
+`moods`, and `styles`, plus the final `template`. The template can reference
+these placeholders:
+
+```text
+{setting}
+{action}
+{joke}
+{mood}
+{style}
+```
 
 ### Resolution
 

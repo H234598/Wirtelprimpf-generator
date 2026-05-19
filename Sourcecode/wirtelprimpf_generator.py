@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import random
 import shutil
@@ -33,12 +34,15 @@ class Config:
     image_model: str
     image_size: str
     output_resolution: str
+    prompt_config_path: Path
     commit_author_name: str
     commit_author_email: str
 
 
 def load_config() -> Config:
     default_outdir = Path.home() / "Pictures" / "Wirtelprimpf"
+    config_home = Path(env("XDG_CONFIG_HOME", str(Path.home() / ".config")) or str(Path.home() / ".config"))
+    default_prompt_config = config_home / "wirtelprimpf" / "prompt_config.json"
     repo_path = env("WIRTELPRIMPF_REPO_PATH")
 
     return Config(
@@ -50,6 +54,9 @@ def load_config() -> Config:
         image_model=env("WIRTELPRIMPF_IMAGE_MODEL", "gpt-image-2") or "gpt-image-2",
         image_size=env("WIRTELPRIMPF_IMAGE_SIZE", "1536x1024") or "1536x1024",
         output_resolution=env("WIRTELPRIMPF_OUTPUT_RESOLUTION", "2k") or "2k",
+        prompt_config_path=Path(
+            env("WIRTELPRIMPF_PROMPT_CONFIG", str(default_prompt_config)) or str(default_prompt_config)
+        ).expanduser(),
         commit_author_name=env("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Wirtelprimpf Bot") or "Wirtelprimpf Bot",
         commit_author_email=env("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "wirtelprimpf@example.invalid")
         or "wirtelprimpf@example.invalid",
@@ -152,85 +159,42 @@ def resize_cover(path: Path, target_size: tuple[int, int] | None) -> None:
         cropped.save(path, format="PNG", optimize=True)
 
 
-SETTINGS = [
-    "alte alpine Wetterstation bei Sonnenaufgang",
-    "verlassene Druckerei mit warmem Staublicht",
-    "Kartographenzimmer voller riesiger Landkarten",
-    "Opernhaus waehrend einer leeren Probe",
-    "Baeckerei am fruehen Morgen, Mehl auf dem Boden",
-    "Bibliothek eines exzentrischen Astronomen",
-    "Gewaechshaus nach einem Regenschauer",
-    "Bahnhofsvorsteherbuero in den Bergen",
-    "Uhrenmacherwerkstatt mit viel Messing und Staub",
-    "alter Lesesaal mit Kamin und einem einzigen offenen Fenster",
-    "Museumsmagazin voller falsch beschrifteter Artefakte",
-    "Fischmarkt kurz vor Oeffnung, noch fast menschenleer",
-    "Dachboden eines Naturkundemuseums",
-    "Schreibstube eines absurden Ministeriums",
-    "Kueche eines alten Gasthauses kurz vor dem Mittag",
-]
-
-ACTIONS = [
-    "die weisse Katze laeuft wachsam durchs Bild, die schwarze Katze schlaeft breit und zufrieden",
-    "die weisse Katze untersucht etwas, die schwarze Katze liegt faul daneben",
-    "beide Katzen laufen ruhig durch die Szene, als haetten sie einen wichtigen Termin",
-    "die weisse Katze frisst etwas Unverdaechtiges, die schwarze Katze beobachtet sie streng",
-    "die schwarze Katze schlaeft, waehrend die weisse Katze so tut, als sei alles unter Kontrolle",
-    "beide Katzen sitzen nicht irgendwo drin, sondern befinden sich sichtbar frei im Raum",
-    "die weisse Katze spielt mit einem kleinen Gegenstand, die schwarze Katze ignoriert das demonstrativ",
-    "die schwarze Katze liegt lang ausgestreckt auf dem Boden, die weisse Katze geht vorbei",
-]
-
-JOKES = [
-    "subtiler Humor auf den zweiten Blick",
-    "ein kleines Schild mit trockenem deutschen Unsinn im Hintergrund",
-    "nichts Slapstickhaftes, eher feiner visueller Witz",
-    "eine winzige absurde buerokratische Notiz irgendwo im Bild",
-    "ein Gegenstand ist offensichtlich fehl am Platz, aber niemand kommentiert es",
-    "die Szene wirkt serioes, bis man ein kleines Detail bemerkt",
-]
+def require_list(data: dict[str, object], key: str) -> list[str]:
+    values = data.get(key)
+    if not isinstance(values, list) or not values or not all(isinstance(value, str) for value in values):
+        raise ValueError(f"Prompt config key {key!r} must be a non-empty list of strings")
+    return values
 
 
-def build_prompt() -> str:
-    setting = random.choice(SETTINGS)
-    action = random.choice(ACTIONS)
-    joke = random.choice(JOKES)
+def load_prompt_config(path: Path) -> dict[str, object]:
+    with path.open("r", encoding="utf-8") as file:
+        data = json.load(file)
+    if not isinstance(data, dict):
+        raise ValueError("Prompt config must be a JSON object")
+    return data
 
-    return f"""
-Erzeuge ein einzelnes hochwertiges Bild im Wirtelprimpf-Stil.
 
-Zwingende Bildregeln:
-- Genau zwei normale, nicht-anthropomorphe Hauskatzen.
-- Eine kleinere weisse weibliche Katze.
-- Eine groessere schwarze maennliche Katze.
-- Beide haben gruene Augen.
-- Beide haben mittellanges Fell.
-- Die Katzen sind echte Tiere, keine Menschen, keine Kleidung, keine vermenschlichten Posen.
-- Keine Katze sitzt in einer Kiste, keinem Regal, keinem Schrank, keinem Topf, keiner Nische.
-- Die weisse Katze darf nicht uebertrieben suess, kawaii oder puppenhaft wirken.
-- Die schwarze Katze soll groesser, ruhig, wuerdevoll und etwas keck wirken.
-- Beide Katzen muessen klar sichtbar sein.
+def build_prompt(config_path: Path) -> str:
+    data = load_prompt_config(config_path)
+    template = data.get("template")
+    if not isinstance(template, str) or not template.strip():
+        raise ValueError("Prompt config key 'template' must be a non-empty string")
 
-Szene:
-{setting}.
-
-Handlung:
-{action}.
-
-Stimmung:
-Realistisch-painterly, edel, detailreich, warmes natuerliches Licht, klassisch komponiert.
-Die Szene soll wie eine kleine Geschichte wirken.
-{joke}.
-Keine Textlastigkeit; falls Text vorkommt, nur als kleines Hintergrunddetail.
-Jedes Bild soll ein komplett neues Setting haben und nicht wie das vorherige wirken.
-""".strip()
+    values = {
+        "setting": random.choice(require_list(data, "settings")),
+        "action": random.choice(require_list(data, "actions")),
+        "joke": random.choice(require_list(data, "jokes")),
+        "mood": random.choice(require_list(data, "moods")),
+        "style": random.choice(require_list(data, "styles")),
+    }
+    return template.format(**values).strip()
 
 
 def main() -> None:
     config = load_config()
     config.local_outdir.mkdir(parents=True, exist_ok=True)
 
-    prompt = build_prompt()
+    prompt = build_prompt(config.prompt_config_path)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     stem = f"wirtelprimpf_{timestamp}"
     local_png = config.local_outdir / f"{stem}.png"
