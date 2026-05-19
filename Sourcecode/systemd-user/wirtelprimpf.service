@@ -1,0 +1,9 @@
+[Unit]
+Description=Generate one Wirtelprimpf image
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/wirtelprimpf/openai.env
+ExecStart=%h/.local/share/wirtelprimpf-venv/bin/python %h/.local/bin/wirtelprimpf_generator.py
