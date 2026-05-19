@@ -1,4 +1,5 @@
 {
+  "_note": "Bei jedem Lauf wird aus jedem Baustein-Array genau eine zufaellige Zeile gewaehlt: settings, actions, jokes, moods und styles. Diese Werte werden dann in die Platzhalter des Templates eingesetzt.",
   "settings": [
     "Generiere ein komplett neues Setting, das nichts mit dem alten zu tun hat. Der Fantasie sind dabei keine Grenzen gesetzt."
   ],
