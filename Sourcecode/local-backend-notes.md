@@ -7,7 +7,9 @@ This host also has a small local CPU-only image generation test backend.
 ```text
 Virtual environment: ~/.local/share/local-imagegen-venv
 CLI wrapper:         ~/.local/bin/local-imagegen
-Default model:       segmind/tiny-sd
+Default model:       dreamlike-art/dreamlike-photoreal-2.0
+Default size:        1024x1024
+Default output:      2k
 Output folder:       ~/Hintergrundbilder/local-imagegen
 Device:              CPU
 ```
@@ -19,23 +21,32 @@ The first test image was generated successfully:
 512x512 PNG
 ```
 
+The current stronger-model test run produced:
+
+```text
+~/Hintergrundbilder/local-imagegen/local_imagegen_2026-05-19_16-41-38.png
+2560x1440 PNG
+```
+
 ## Usage
 
 ```bash
-LOCAL_IMAGEGEN_STEPS=6 \
-LOCAL_IMAGEGEN_WIDTH=512 \
-LOCAL_IMAGEGEN_HEIGHT=512 \
+LOCAL_IMAGEGEN_STEPS=25 \
+LOCAL_IMAGEGEN_WIDTH=1024 \
+LOCAL_IMAGEGEN_HEIGHT=1024 \
+LOCAL_IMAGEGEN_OUTPUT_RESOLUTION=2k \
 ~/.local/bin/local-imagegen 'two cats in a warm old library, painterly'
 ```
 
 Environment variables:
 
 ```text
-LOCAL_IMAGEGEN_MODEL    Hugging Face model id, default segmind/tiny-sd
-LOCAL_IMAGEGEN_OUTDIR   output directory
-LOCAL_IMAGEGEN_STEPS    inference steps, default 8
-LOCAL_IMAGEGEN_WIDTH    output width, default 512
-LOCAL_IMAGEGEN_HEIGHT   output height, default 512
+LOCAL_IMAGEGEN_MODEL             Hugging Face model id, default dreamlike-art/dreamlike-photoreal-2.0
+LOCAL_IMAGEGEN_WIDTH             Generate width, default 1024
+LOCAL_IMAGEGEN_HEIGHT            Generate height, default 1024
+LOCAL_IMAGEGEN_OUTPUT_RESOLUTION Final PNG size, default 2k
+LOCAL_IMAGEGEN_OUTDIR            output directory
+LOCAL_IMAGEGEN_STEPS             inference steps, default 25
 ```
 
 ## Practical Notes
@@ -43,6 +54,9 @@ LOCAL_IMAGEGEN_HEIGHT   output height, default 512
 The machine has Intel Iris Xe graphics but no NVIDIA/AMD compute GPU. This
 backend therefore runs on CPU. It is much slower and lower quality than the
 OpenAI Images API path, but it proves that fully local generation works.
+
+The stronger Hugging Face model is not bundled locally. On the first run it
+downloads roughly 2.1 GB from the Hub, then reuses the cache for later runs.
 
 Current footprint after installation:
 
