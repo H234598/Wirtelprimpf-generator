@@ -16,6 +16,9 @@ from pathlib import Path
 from openai import OpenAI
 from PIL import Image
 
+BIRTHDAY_BASE_YEAR = 2026
+BIRTHDAY_BASE_AGE = 15
+
 
 def env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
@@ -190,39 +193,100 @@ def build_prompt(config_path: Path) -> str:
     return template.format(**values).strip()
 
 
+def birthday_age(now: datetime) -> int:
+    return BIRTHDAY_BASE_AGE + (now.year - BIRTHDAY_BASE_YEAR)
+
+
+def is_birthday_run(now: datetime) -> bool:
+    force = os.environ.get("WIRTELPRIMPF_FORCE_BIRTHDAY", "").strip().lower()
+    if force in {"1", "true", "yes", "ja"}:
+        return True
+    return now.month == 5 and now.day == 22 and now.hour == 0
+
+
+def build_birthday_prompts(now: datetime) -> list[str]:
+    age = birthday_age(now)
+    shared_rules = f"""Erzeuge ein einzelnes hochwertiges Bild im Wirtelprimpf-Stil.
+
+Zwingende Bildregeln:
+- Genau zwei Hauskatzen: eine kleinere weisse weibliche Katze und eine groessere schwarze maennliche Katze.
+- Beide haben gruene Augen, mittellanges Fell und sind klar sichtbar.
+- Heute feiern sie ihren {age}. Geburtstag; die Zahl {age} muss als Geburtstagssignal erkennbar sein.
+- Ausgelassene Stimmung, aber nicht platt, nicht slapstickhaft, kein Klamauk.
+- Offene Muender wirken unsexy: hoechstens dezent, nie dominant.
+- Eine kleine Maus feiert sichtbar mit.
+- Eine kleine feiernde comichafte Karotte ist sichtbar und charmant absurd.
+- Ein leicht erkennbarer Hase ist im Bild versteckt und feiert mit; versteckt, aber beim genaueren Hinsehen eindeutig.
+- Der Mond muss sichtbar sein, stilistisch passend, eher rechts oben im Bild.
+- Viele Geschenke im Vordergrund; die Geschenke sind wichtiger und praesenter als das Armageddon.
+- Der Humor soll subtil sein und auf den zweiten oder dritten Blick funktionieren: doppelte und dreifache Bedeutungen, visuelle Wortspiele, leise Ironie, keine offensichtlichen Schilderwitze.
+- Falls Text vorkommt, dann nur winzig und als Hintergrunddetail.
+- Keine Katze sitzt in einer Kiste, keinem Regal, keinem Schrank, keinem Topf, keiner Nische.
+- Die weisse Katze darf nicht uebertrieben suess, kawaii oder puppenhaft wirken.
+- Die schwarze Katze soll groesser, ruhig, wuerdevoll und etwas keck wirken."""
+
+    return [
+        f"""{shared_rules}
+
+Szene:
+Die beiden Wirtelprimpfe feiern vor einer antiken Stadt, die im Armageddon vergeht, eine Geburtstagsparty. Im Hintergrund gehen Tempel, Saeulen, Aquaedukte und Sternwarten dramatisch unter, aber der Vordergrund bleibt eine elegante, vielschichtige Partylandschaft voller Geschenke, Schleifen, seltsam bedeutungsvoller kleiner Objekte und feiner visueller Witze. Die Apokalypse ist Kulisse, nicht Hauptdarsteller.
+
+Stil:
+Realistisch-painterly, edel, detailreich, warmes Festlicht gegen kosmisches Katastrophenlicht, klassisch komponiert, humorvolle Feinheiten in jeder Bildecke.""",
+        f"""{shared_rules}
+
+Szene:
+Vor einem verwandten, aber eigenstaendigen Hintergrund deiner Wahl: eine halb versunkene antike Hafenstadt unter Sternen, ein zerbrochenes Observatorium, ein Festplatz zwischen Ruinen und leuchtenden Himmelszeichen. Es soll sich wie dieselbe Geburtstagsnacht anfuehlen, aber nicht wie eine Wiederholung. Die Party, die Geschenke und die feinen Nebenbedeutungen dominieren; das Armageddon bleibt elegant im Hintergrund.
+
+Stil:
+Hochwertiger westlicher Comic-Painterly-Mix, kein Manga, kein Superheldenlook; dicht komponiert, witzig, festlich, mit vielen kleinen Details, die erst beim zweiten Hinschauen Sinn ergeben.""",
+    ]
+
+
+def build_prompts(config_path: Path, now: datetime) -> list[str]:
+    if is_birthday_run(now):
+        return build_birthday_prompts(now)
+    return [build_prompt(config_path)]
+
+
 def main() -> None:
     config = load_config()
     config.local_outdir.mkdir(parents=True, exist_ok=True)
 
-    prompt = build_prompt(config.prompt_config_path)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    stem = f"wirtelprimpf_{timestamp}"
-    local_png = config.local_outdir / f"{stem}.png"
-    local_prompt = config.local_outdir / f"{stem}.txt"
-
-    response = OpenAI().images.generate(
-        model=config.image_model,
-        prompt=prompt,
-        size=config.image_size,
-    )
-
-    local_png.write_bytes(base64.b64decode(response.data[0].b64_json))
-    resize_cover(local_png, parse_resolution(config.output_resolution))
-    local_prompt.write_text(prompt, encoding="utf-8")
-    print(f"Local image: {local_png}")
-    print(f"Local prompt: {local_prompt}")
-
+    now = datetime.now()
+    prompts = build_prompts(config.prompt_config_path, now)
+    client = OpenAI()
     repo_outdir = ensure_repo(config)
-    if repo_outdir is None:
-        return
 
-    repo_png = repo_outdir / local_png.name
-    repo_prompt = repo_outdir / local_prompt.name
-    shutil.copy2(local_png, repo_png)
-    shutil.copy2(local_prompt, repo_prompt)
-    commit_and_push(config, [repo_png, repo_prompt], stem)
-    print(f"Repository image: {repo_png}")
-    print(f"Repository prompt: {repo_prompt}")
+    for index, prompt in enumerate(prompts, start=1):
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        suffix = f"_geburtstag-{index:02d}" if len(prompts) > 1 else ""
+        stem = f"wirtelprimpf_{timestamp}{suffix}"
+        local_png = config.local_outdir / f"{stem}.png"
+        local_prompt = config.local_outdir / f"{stem}.txt"
+
+        response = client.images.generate(
+            model=config.image_model,
+            prompt=prompt,
+            size=config.image_size,
+        )
+
+        local_png.write_bytes(base64.b64decode(response.data[0].b64_json))
+        resize_cover(local_png, parse_resolution(config.output_resolution))
+        local_prompt.write_text(prompt, encoding="utf-8")
+        print(f"Local image: {local_png}")
+        print(f"Local prompt: {local_prompt}")
+
+        if repo_outdir is None:
+            continue
+
+        repo_png = repo_outdir / local_png.name
+        repo_prompt = repo_outdir / local_prompt.name
+        shutil.copy2(local_png, repo_png)
+        shutil.copy2(local_prompt, repo_prompt)
+        commit_and_push(config, [repo_png, repo_prompt], stem)
+        print(f"Repository image: {repo_png}")
+        print(f"Repository prompt: {repo_prompt}")
 
 
 if __name__ == "__main__":
