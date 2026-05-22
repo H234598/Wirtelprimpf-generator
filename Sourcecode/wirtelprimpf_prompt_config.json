@@ -1,5 +1,24 @@
 {
-  "_note": "Bei jedem Lauf wird aus jedem Baustein-Array genau eine zufaellige Zeile gewaehlt: settings, actions, jokes, moods und styles. Diese Werte werden dann in die Platzhalter des Templates eingesetzt.",
+  "_note": "Bei jedem normalen Lauf wird aus jedem Baustein-Array genau eine zufaellige Zeile gewaehlt. Feste Bildregeln stehen in fixed_image_rules. Geburtstagsbilder am konfigurierten Datum werden aus birthday gebaut.",
+  "fixed_image_rules": [
+    "Genau zwei Hauskatzen.",
+    "Eine kleinere weisse weibliche Katze.",
+    "Eine groessere schwarze maennliche Katze.",
+    "Beide haben gruene Augen.",
+    "Beide haben mittellanges Fell.",
+    "Die Katzen sind meistens echte Tiere, keine Menschen, keine Kleidung, keine vermenschlichten Posen.",
+    "Wenn die Katzen vermenschlicht werden, dann mit Humor.",
+    "Keine Katze sitzt in einer Kiste, keinem Regal, keinem Schrank, keinem Topf, keiner Nische.",
+    "Die weisse Katze darf nicht uebertrieben suess, kawaii oder puppenhaft wirken.",
+    "Die schwarze Katze soll groesser, ruhig, wuerdevoll und etwas keck wirken.",
+    "Beide Katzen muessen klar sichtbar sein.",
+    "Subtiler Humor auf den zweiten Blick.",
+    "Nichts Slapstickhaftes, eher feiner visueller Witz.",
+    "Jedes Bild soll ein komplett neues Setting haben und nicht wie das vorherige wirken.",
+    "Der Stil kann alles beinhalten.",
+    "Der Stil soll sich, wenn moeglich, an grossen Kunsttraditionen orientieren.",
+    "Irgendwo auf dem Bild ist eine kleine Maus versteckt. Es gibt eine 1/5 Chance, dass sie etwas Witziges tut oder sonst irgendwie lustig ist."
+  ],
   "settings": [
     "Generiere ein komplett neues Setting, das nichts mit dem alten zu tun hat. Der Fantasie sind dabei keine Grenzen gesetzt."
   ],
@@ -33,5 +52,40 @@
     "Comic-Stil. Westlich, kein Manga. Kein DC oder Marvel.",
     "Oelgemaelde. Gut erhalten. Sehr detailliert."
   ],
-  "template": "Erzeuge ein einzelnes hochwertiges Bild im Wirtelprimpf-Stil.\n\nZwingende Bildregeln:\n- Genau zwei Hauskatzen.\n- Eine kleinere weisse weibliche Katze.\n- Eine groessere schwarze maennliche Katze.\n- Beide haben gruene Augen.\n- Beide haben mittellanges Fell.\n- Die Katzen sind meistens echte Tiere, keine Menschen, keine Kleidung, keine vermenschlichten Posen.\n- Wenn die Katzen vermenschlicht werden, dann mit Humor.\n- Keine Katze sitzt in einer Kiste, keinem Regal, keinem Schrank, keinem Topf, keiner Nische.\n- Die weisse Katze darf nicht uebertrieben suess, kawaii oder puppenhaft wirken.\n- Die schwarze Katze soll groesser, ruhig, wuerdevoll und etwas keck wirken.\n- Beide Katzen muessen klar sichtbar sein.\n- Subtiler Humor auf den zweiten Blick.\n- Nichts Slapstickhaftes, eher feiner visueller Witz.\n- Jedes Bild soll ein komplett neues Setting haben und nicht wie das vorherige wirken.\n- Der Stil kann alles beinhalten.\n- Der Stil soll sich, wenn moeglich, an grossen Kunsttraditionen orientieren.\n- Irgendwo auf dem Bild ist eine kleine Maus versteckt. Es gibt eine 1/5 Chance, dass sie etwas Witziges tut oder sonst irgendwie lustig ist.\n\nSzene:\n{setting}\n\nHandlung:\n{action}\n\nStimmung:\n{mood}\n\nStil:\n{style}\n\nDie Szene soll wie eine kleine Geschichte wirken.\nKeine Textlastigkeit; falls Text vorkommt, nur als kleines Hintergrunddetail.\n\nFeinheiten/Jokes:\n{joke}"
+  "template": "Erzeuge ein einzelnes hochwertiges Bild im Wirtelprimpf-Stil.\n\nZwingende Bildregeln:\n{fixed_image_rules}\n\nSzene:\n{setting}\n\nHandlung:\n{action}\n\nStimmung:\n{mood}\n\nStil:\n{style}\n\nDie Szene soll wie eine kleine Geschichte wirken.\nKeine Textlastigkeit; falls Text vorkommt, nur als kleines Hintergrunddetail.\n\nFeinheiten/Jokes:\n{joke}",
+  "birthday": {
+    "month": 5,
+    "day": 22,
+    "hour": 0,
+    "base_year": 2026,
+    "base_age": 15,
+    "shared_rules": [
+      "Genau zwei Hauskatzen: eine kleinere weisse weibliche Katze und eine groessere schwarze maennliche Katze.",
+      "Beide haben gruene Augen, mittellanges Fell und sind klar sichtbar.",
+      "Heute feiern sie ihren {age}. Geburtstag; die Zahl {age} muss als Geburtstagssignal erkennbar sein.",
+      "Ausgelassene Stimmung, aber nicht platt, nicht slapstickhaft, kein Klamauk.",
+      "Offene Muender wirken unsexy: hoechstens dezent, nie dominant.",
+      "Eine kleine Maus feiert sichtbar mit.",
+      "Eine kleine feiernde comichafte Karotte ist sichtbar und charmant absurd.",
+      "Ein leicht erkennbarer Hase ist im Bild versteckt und feiert mit; versteckt, aber beim genaueren Hinsehen eindeutig.",
+      "Der Mond muss sichtbar sein, stilistisch passend, eher rechts oben im Bild.",
+      "Viele Geschenke im Vordergrund; die Geschenke sind wichtiger und praesenter als das Armageddon.",
+      "Der Humor soll subtil sein und auf den zweiten oder dritten Blick funktionieren: doppelte und dreifache Bedeutungen, visuelle Wortspiele, leise Ironie, keine offensichtlichen Schilderwitze.",
+      "Falls Text vorkommt, dann nur winzig und als Hintergrunddetail.",
+      "Keine Katze sitzt in einer Kiste, keinem Regal, keinem Schrank, keinem Topf, keiner Nische.",
+      "Die weisse Katze darf nicht uebertrieben suess, kawaii oder puppenhaft wirken.",
+      "Die schwarze Katze soll groesser, ruhig, wuerdevoll und etwas keck wirken."
+    ],
+    "variants": [
+      {
+        "scene": "Die beiden Wirtelprimpfe feiern vor einer antiken Stadt, die im Armageddon vergeht, eine Geburtstagsparty. Im Hintergrund gehen Tempel, Saeulen, Aquaedukte und Sternwarten dramatisch unter, aber der Vordergrund bleibt eine elegante, vielschichtige Partylandschaft voller Geschenke, Schleifen, seltsam bedeutungsvoller kleiner Objekte und feiner visueller Witze. Die Apokalypse ist Kulisse, nicht Hauptdarsteller.",
+        "style": "Realistisch-painterly, edel, detailreich, warmes Festlicht gegen kosmisches Katastrophenlicht, klassisch komponiert, humorvolle Feinheiten in jeder Bildecke."
+      },
+      {
+        "scene": "Vor einem verwandten, aber eigenstaendigen Hintergrund deiner Wahl: eine halb versunkene antike Hafenstadt unter Sternen, ein zerbrochenes Observatorium, ein Festplatz zwischen Ruinen und leuchtenden Himmelszeichen. Es soll sich wie dieselbe Geburtstagsnacht anfuehlen, aber nicht wie eine Wiederholung. Die Party, die Geschenke und die feinen Nebenbedeutungen dominieren; das Armageddon bleibt elegant im Hintergrund.",
+        "style": "Hochwertiger westlicher Comic-Painterly-Mix, kein Manga, kein Superheldenlook; dicht komponiert, witzig, festlich, mit vielen kleinen Details, die erst beim zweiten Hinschauen Sinn ergeben."
+      }
+    ],
+    "template": "Erzeuge ein einzelnes hochwertiges Bild im Wirtelprimpf-Stil.\n\nZwingende Bildregeln:\n{birthday_rules}\n\nSzene:\n{scene}\n\nStil:\n{style}"
+  }
 }

@@ -16,9 +16,6 @@ from pathlib import Path
 from openai import OpenAI
 from PIL import Image
 
-BIRTHDAY_BASE_YEAR = 2026
-BIRTHDAY_BASE_AGE = 15
-
 
 def env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
@@ -169,6 +166,31 @@ def require_list(data: dict[str, object], key: str) -> list[str]:
     return values
 
 
+def require_dict(data: dict[str, object], key: str) -> dict[str, object]:
+    value = data.get(key)
+    if not isinstance(value, dict):
+        raise ValueError(f"Prompt config key {key!r} must be an object")
+    return value
+
+
+def require_int(data: dict[str, object], key: str) -> int:
+    value = data.get(key)
+    if not isinstance(value, int):
+        raise ValueError(f"Prompt config key {key!r} must be an integer")
+    return value
+
+
+def require_string(data: dict[str, object], key: str) -> str:
+    value = data.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Prompt config key {key!r} must be a non-empty string")
+    return value
+
+
+def bullet_list(values: list[str]) -> str:
+    return "\n".join(f"- {value}" for value in values)
+
+
 def load_prompt_config(path: Path) -> dict[str, object]:
     with path.open("r", encoding="utf-8") as file:
         data = json.load(file)
@@ -177,13 +199,10 @@ def load_prompt_config(path: Path) -> dict[str, object]:
     return data
 
 
-def build_prompt(config_path: Path) -> str:
-    data = load_prompt_config(config_path)
-    template = data.get("template")
-    if not isinstance(template, str) or not template.strip():
-        raise ValueError("Prompt config key 'template' must be a non-empty string")
-
+def build_prompt(data: dict[str, object]) -> str:
+    template = require_string(data, "template")
     values = {
+        "fixed_image_rules": bullet_list(require_list(data, "fixed_image_rules")),
         "setting": random.choice(require_list(data, "settings")),
         "action": random.choice(require_list(data, "actions")),
         "joke": random.choice(require_list(data, "jokes")),
@@ -193,60 +212,52 @@ def build_prompt(config_path: Path) -> str:
     return template.format(**values).strip()
 
 
-def birthday_age(now: datetime) -> int:
-    return BIRTHDAY_BASE_AGE + (now.year - BIRTHDAY_BASE_YEAR)
+def birthday_config(data: dict[str, object]) -> dict[str, object]:
+    return require_dict(data, "birthday")
 
 
-def is_birthday_run(now: datetime) -> bool:
+def birthday_age(now: datetime, birthday: dict[str, object]) -> int:
+    return require_int(birthday, "base_age") + (now.year - require_int(birthday, "base_year"))
+
+
+def is_birthday_run(now: datetime, birthday: dict[str, object]) -> bool:
     force = os.environ.get("WIRTELPRIMPF_FORCE_BIRTHDAY", "").strip().lower()
     if force in {"1", "true", "yes", "ja"}:
         return True
-    return now.month == 5 and now.day == 22 and now.hour == 0
+    return (
+        now.month == require_int(birthday, "month")
+        and now.day == require_int(birthday, "day")
+        and now.hour == require_int(birthday, "hour")
+    )
 
 
-def build_birthday_prompts(now: datetime) -> list[str]:
-    age = birthday_age(now)
-    shared_rules = f"""Erzeuge ein einzelnes hochwertiges Bild im Wirtelprimpf-Stil.
+def build_birthday_prompts(now: datetime, birthday: dict[str, object]) -> list[str]:
+    template = require_string(birthday, "template")
+    age = birthday_age(now, birthday)
+    birthday_rules = bullet_list([rule.format(age=age) for rule in require_list(birthday, "shared_rules")])
+    variants = birthday.get("variants")
+    if not isinstance(variants, list) or not variants or not all(isinstance(variant, dict) for variant in variants):
+        raise ValueError("Prompt config key 'birthday.variants' must be a non-empty list of objects")
 
-Zwingende Bildregeln:
-- Genau zwei Hauskatzen: eine kleinere weisse weibliche Katze und eine groessere schwarze maennliche Katze.
-- Beide haben gruene Augen, mittellanges Fell und sind klar sichtbar.
-- Heute feiern sie ihren {age}. Geburtstag; die Zahl {age} muss als Geburtstagssignal erkennbar sein.
-- Ausgelassene Stimmung, aber nicht platt, nicht slapstickhaft, kein Klamauk.
-- Offene Muender wirken unsexy: hoechstens dezent, nie dominant.
-- Eine kleine Maus feiert sichtbar mit.
-- Eine kleine feiernde comichafte Karotte ist sichtbar und charmant absurd.
-- Ein leicht erkennbarer Hase ist im Bild versteckt und feiert mit; versteckt, aber beim genaueren Hinsehen eindeutig.
-- Der Mond muss sichtbar sein, stilistisch passend, eher rechts oben im Bild.
-- Viele Geschenke im Vordergrund; die Geschenke sind wichtiger und praesenter als das Armageddon.
-- Der Humor soll subtil sein und auf den zweiten oder dritten Blick funktionieren: doppelte und dreifache Bedeutungen, visuelle Wortspiele, leise Ironie, keine offensichtlichen Schilderwitze.
-- Falls Text vorkommt, dann nur winzig und als Hintergrunddetail.
-- Keine Katze sitzt in einer Kiste, keinem Regal, keinem Schrank, keinem Topf, keiner Nische.
-- Die weisse Katze darf nicht uebertrieben suess, kawaii oder puppenhaft wirken.
-- Die schwarze Katze soll groesser, ruhig, wuerdevoll und etwas keck wirken."""
-
-    return [
-        f"""{shared_rules}
-
-Szene:
-Die beiden Wirtelprimpfe feiern vor einer antiken Stadt, die im Armageddon vergeht, eine Geburtstagsparty. Im Hintergrund gehen Tempel, Saeulen, Aquaedukte und Sternwarten dramatisch unter, aber der Vordergrund bleibt eine elegante, vielschichtige Partylandschaft voller Geschenke, Schleifen, seltsam bedeutungsvoller kleiner Objekte und feiner visueller Witze. Die Apokalypse ist Kulisse, nicht Hauptdarsteller.
-
-Stil:
-Realistisch-painterly, edel, detailreich, warmes Festlicht gegen kosmisches Katastrophenlicht, klassisch komponiert, humorvolle Feinheiten in jeder Bildecke.""",
-        f"""{shared_rules}
-
-Szene:
-Vor einem verwandten, aber eigenstaendigen Hintergrund deiner Wahl: eine halb versunkene antike Hafenstadt unter Sternen, ein zerbrochenes Observatorium, ein Festplatz zwischen Ruinen und leuchtenden Himmelszeichen. Es soll sich wie dieselbe Geburtstagsnacht anfuehlen, aber nicht wie eine Wiederholung. Die Party, die Geschenke und die feinen Nebenbedeutungen dominieren; das Armageddon bleibt elegant im Hintergrund.
-
-Stil:
-Hochwertiger westlicher Comic-Painterly-Mix, kein Manga, kein Superheldenlook; dicht komponiert, witzig, festlich, mit vielen kleinen Details, die erst beim zweiten Hinschauen Sinn ergeben.""",
-    ]
+    prompts = []
+    for variant in variants:
+        prompts.append(
+            template.format(
+                age=age,
+                birthday_rules=birthday_rules,
+                scene=require_string(variant, "scene").format(age=age),
+                style=require_string(variant, "style").format(age=age),
+            ).strip()
+        )
+    return prompts
 
 
 def build_prompts(config_path: Path, now: datetime) -> list[str]:
-    if is_birthday_run(now):
-        return build_birthday_prompts(now)
-    return [build_prompt(config_path)]
+    data = load_prompt_config(config_path)
+    birthday = birthday_config(data)
+    if is_birthday_run(now, birthday):
+        return build_birthday_prompts(now, birthday)
+    return [build_prompt(data)]
 
 
 def main() -> None:
