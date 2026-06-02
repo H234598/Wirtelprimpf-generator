@@ -238,9 +238,22 @@ run_check_to_file() {
     return 1
   fi
 
-  if ! run_check "$label" "$@"; then
+  local output_tmp
+  output_tmp="${output}.tmp.$$"
+  if ! run_check "$label" "$@" > "$output_tmp"; then
+    rm -f "$output_tmp"
     return 1
-  fi > "$output"
+  fi
+  if ! is_regular_file "$output_tmp"; then
+    echo "Temp output file must be regular: $output_tmp" >&2
+    rm -f "$output_tmp"
+    return 1
+  fi
+  if ! mv -f -- "$output_tmp" "$output"; then
+    echo "Failed to move temp output file into place: $output" >&2
+    rm -f "$output_tmp"
+    return 1
+  fi
 }
 
 assert_file_non_empty() {
