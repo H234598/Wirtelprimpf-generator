@@ -109,12 +109,10 @@ validate_json() {
   local file="$1"
   local mode="${2}"
   local strategy="${3:-any}"
-  case "$file" in
-    *$'\n'* | *$'\r'* | *$'\t'*)
-      echo "Invalid path contains control characters: $file" >&2
-      return 1
-      ;;
-  esac
+  if [[ ! "$file" =~ ^[A-Za-z0-9._/\-]+$ ]]; then
+    echo "Invalid path contains unsafe character: $file" >&2
+    return 1
+  fi
   case "$mode" in
     status|check_config|dry_run|run) ;;
     *) echo "Invalid mode argument: $mode" >&2; return 1 ;;
