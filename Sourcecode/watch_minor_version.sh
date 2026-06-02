@@ -540,6 +540,9 @@ DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_META=""
 DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE=""
 DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS=0
 DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META=""
+TIMESTAMP_EPOCH_CACHE=""
+TIMESTAMP_EPOCH_CACHE_MTIME=0
+TIMESTAMP_EPOCH_CACHE_PATH=""
 
 dependency_signature() {
   local path="$1"
@@ -898,6 +901,7 @@ write_state() {
 }
 
 refresh_state_timestamp() {
+  local value
   if [[ -e "$TIMESTAMP_FILE" ]] && ! is_regular_file "$TIMESTAMP_FILE"; then
     log "timestamp file must be regular file (no symlink or special file): $TIMESTAMP_FILE"
     return 1
@@ -944,7 +948,8 @@ refresh_state_timestamp() {
     rm -f "$timestamp_tmp" 2>/dev/null || true
     return 1
   fi
-  if ! date +%s > "$timestamp_tmp"; then
+  value="$(date +%s)"
+  if ! printf '%s\n' "$value" > "$timestamp_tmp"; then
     log "failed to refresh timestamp file: $TIMESTAMP_FILE"
     rm -f "$timestamp_tmp" 2>/dev/null || true
     return 1
@@ -954,12 +959,29 @@ refresh_state_timestamp() {
     rm -f "$timestamp_tmp" 2>/dev/null || true
     return 1
   fi
+  if ! TIMESTAMP_EPOCH_CACHE_MTIME="$(stat -c '%Y' "$TIMESTAMP_FILE" 2>/dev/null)"; then
+    TIMESTAMP_EPOCH_CACHE=""
+    TIMESTAMP_EPOCH_CACHE_MTIME=0
+    TIMESTAMP_EPOCH_CACHE_PATH=""
+    return 1
+  fi
+  TIMESTAMP_EPOCH_CACHE="$value"
+  TIMESTAMP_EPOCH_CACHE_PATH="$TIMESTAMP_FILE"
 }
 
 read_timestamp_epoch() {
   local value
+  local timestamp_mtime
   if ! validate_runtime_file_for_read "$TIMESTAMP_FILE" "Timestamp file"; then
     return 1
+  fi
+  if ! timestamp_mtime="$(stat -c '%Y' "$TIMESTAMP_FILE" 2>/dev/null)"; then
+    log "failed to read timestamp mtime: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if [[ "$TIMESTAMP_EPOCH_CACHE_PATH" == "$TIMESTAMP_FILE" && "$TIMESTAMP_EPOCH_CACHE_MTIME" == "$timestamp_mtime" && -n "$TIMESTAMP_EPOCH_CACHE" ]]; then
+    echo "$TIMESTAMP_EPOCH_CACHE"
+    return 0
   fi
   if [[ -L "$TIMESTAMP_FILE" ]]; then
     log "timestamp file must not be a symlink: $TIMESTAMP_FILE"
@@ -1000,6 +1022,9 @@ read_timestamp_epoch() {
     log "timestamp file is not numeric: $TIMESTAMP_FILE"
     return 1
   fi
+  TIMESTAMP_EPOCH_CACHE="$value"
+  TIMESTAMP_EPOCH_CACHE_MTIME="$timestamp_mtime"
+  TIMESTAMP_EPOCH_CACHE_PATH="$TIMESTAMP_FILE"
   echo "$value"
 }
 
