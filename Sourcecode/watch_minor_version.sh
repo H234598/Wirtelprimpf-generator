@@ -112,7 +112,7 @@ validate_python_binary() {
     return 1
   fi
   case "$resolved" in
-    /usr/bin/*|/usr/local/bin/*|/bin/*|/opt/*|/nix/store/*)
+    /usr/local/sbin/*|/usr/local/bin/*|/usr/sbin/*|/usr/bin/*|/sbin/*|/bin/*)
       ;;
     *)
       PYTHON_BINARY_CACHE_RESULT=1
