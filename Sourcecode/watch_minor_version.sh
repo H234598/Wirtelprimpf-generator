@@ -142,6 +142,10 @@ acquire_lock() {
       local lock_mtime age
       lock_mtime=$(stat -c '%Y' "$LOCK_FILE" 2>/dev/null || echo "$now")
       age=$((now - lock_mtime))
+      if [[ -n "$pid" && ! "$pid" =~ ^[0-9]+$ ]]; then
+        log "fallback lock file has invalid pid value (${pid}), refusing to steal fresh lock"
+        exit 0
+      fi
       if [[ "$age" -lt "$MAX_STALE_LOCK_SECONDS" ]] && is_running_pid "$pid"; then
         log "another watcher instance is running (fallback lock), exiting"
         exit 0
