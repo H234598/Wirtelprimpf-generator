@@ -532,9 +532,34 @@ parse_positive_int() {
   echo "$value"
 }
 
+DEPENDENCY_SIGNATURE_CACHE_TTL="${DEPENDENCY_SIGNATURE_CACHE_TTL:-2}"
+DEPENDENCY_SIGNATURE_CACHE_TTL="$(parse_positive_int "$DEPENDENCY_SIGNATURE_CACHE_TTL" 2 1)"
+DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT=""
+DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_TS=0
+DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE=""
+DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS=0
+
 dependency_signature() {
   local path="$1"
   local canonical parent
+  local cache_key now cache_value cache_ts
+  local signature
+  local parent_mode
+  now="$(date +%s)"
+  cache_key=""
+  if [[ "$path" == "$PY_SCRIPT" ]]; then
+    cache_key="PY_SCRIPT"
+    cache_value="$DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT"
+    cache_ts="$DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_TS"
+  elif [[ "$path" == "$PUBLISH_STATE_FILE" ]]; then
+    cache_key="PUBLISH_STATE"
+    cache_value="$DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE"
+    cache_ts="$DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS"
+  fi
+  if [[ -n "$cache_key" ]] && (( now - cache_ts <= DEPENDENCY_SIGNATURE_CACHE_TTL )) && [[ -n "$cache_value" ]]; then
+    echo "$cache_value"
+    return 0
+  fi
   if [[ -z "$path" ]]; then
     return 1
   fi
@@ -593,7 +618,15 @@ dependency_signature() {
   if (( 10#$mode & 022 )); then
     return 1
   fi
-  printf '%s:%s:%s:%s:%s:%s\n' "$owner" "$group" "$mode" "$mtime" "$inode" "$size"
+  signature="$(printf '%s:%s:%s:%s:%s:%s\n' "$owner" "$group" "$mode" "$mtime" "$inode" "$size")"
+  if [[ "$cache_key" == "PY_SCRIPT" ]]; then
+    DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT="$signature"
+    DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_TS="$now"
+  elif [[ "$cache_key" == "PUBLISH_STATE" ]]; then
+    DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE="$signature"
+    DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS="$now"
+  fi
+  echo "$signature"
   return 0
 }
 
