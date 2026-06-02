@@ -121,6 +121,10 @@ validate_json() {
     any|first) ;;
     *) echo "Invalid strategy argument: $strategy" >&2; return 1 ;;
   esac
+  if [[ -z "${file-}" ]]; then
+    echo "No file supplied to validate_json" >&2
+    return 1
+  fi
   if [[ ! -f "$file" || ! -r "$file" ]]; then
     echo "JSON file missing or unreadable: $file" >&2
     return 1
