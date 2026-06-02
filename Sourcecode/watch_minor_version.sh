@@ -90,6 +90,20 @@ validate_publish_state_path() {
   fi
 }
 
+validate_publish_state_file() {
+  local publish_state_file="$1"
+  if [[ -e "$publish_state_file" ]]; then
+    if ! is_regular_file "$publish_state_file"; then
+      log "publish state file must be a regular file: ${publish_state_file}"
+      exit 1
+    fi
+    if [[ ! -r "$publish_state_file" ]]; then
+      log "publish state file is not readable: ${publish_state_file}"
+      exit 1
+    fi
+  fi
+}
+
 REPO_PATH="$(validate_repo_path "${WIRTELPRIMPF_REPO_PATH:-$ROOT_DIR}")"
 if [[ "$(basename "$REPO_PATH")" == ".git" ]]; then
   if [[ -L "$REPO_PATH" ]]; then
@@ -113,6 +127,7 @@ else
   PUBLISH_STATE_FILE="$REPO_PATH/.git/wirtelprimpf_publish_state.json"
 fi
 validate_publish_state_path "$PUBLISH_STATE_FILE"
+validate_publish_state_file "$PUBLISH_STATE_FILE"
 STATE_FILE="$ROOT_DIR/Sourcecode/.minor_version_state"
 require_directory "$(dirname "$STATE_FILE")" "State directory" "rwx"
 LOCK_FILE="$ROOT_DIR/Sourcecode/.minor_version_watch.lock"
