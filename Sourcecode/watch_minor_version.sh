@@ -219,6 +219,15 @@ is_regular_file() {
   [[ -f "$path" ]]
 }
 
+is_owned_by_current_user() {
+  local path="$1"
+  local owner
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  [[ "$owner" == "$(id -u)" ]]
+}
+
 require_file() {
   local path="$1"
   local label="$2"
@@ -316,6 +325,10 @@ acquire_lock() {
     log "invalid lock file type (symlink or non-regular): $LOCK_FILE"
     return 1
   fi
+  if [[ -e "$LOCK_FILE" ]] && ! is_owned_by_current_user "$LOCK_FILE"; then
+    log "invalid lock file ownership (must be current user): $LOCK_FILE"
+    return 1
+  fi
 
   if command -v -- flock >/dev/null 2>&1; then
     exec 9>"$LOCK_FILE"
@@ -334,6 +347,10 @@ acquire_lock() {
       fi
       if [[ -n "$pid" && ! "$pid" =~ ^[0-9]+$ ]]; then
         log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
+        return 1
+      fi
+      if ! is_owned_by_current_user "$LOCK_FILE"; then
+        log "lock file not owned by current user: $LOCK_FILE"
         return 1
       fi
       log "another watcher instance is running (flock), exiting (holder=${pid:-unknown})"
