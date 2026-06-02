@@ -178,7 +178,7 @@ require_directory() {
     log "${label} must be writable: $path"
     exit 1
   fi
-  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null || true)"; then
     log "${label} failed to read owner: $path"
     exit 1
   fi
@@ -186,7 +186,7 @@ require_directory() {
     log "${label} must be owned by current user: $path"
     exit 1
   fi
-  if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
+  if ! perm="$(stat -c '%a' "$path" 2>/dev/null || true)"; then
     log "${label} failed to read permissions: $path"
     exit 1
   fi
