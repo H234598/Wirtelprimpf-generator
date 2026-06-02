@@ -180,6 +180,33 @@ SLEEP_SECONDS="$(parse_positive_int "$SLEEP_SECONDS" 300 1)"
 MAX_STALE_LOCK_SECONDS="$(parse_positive_int "$MAX_STALE_LOCK_SECONDS" 900 10)"
 DEFAULT_RETRY_DELAY_SECONDS="$(parse_positive_int "$DEFAULT_RETRY_DELAY_SECONDS" 5 1)"
 
+validate_runtime_env() {
+  local value
+  local name
+  value="${WIRTELPRIMPF_PATCHES_PER_MINOR:-100}"
+  if [[ ! "$value" =~ ^[0-9]+$ ]] || [[ "$value" -ne 100 ]]; then
+    log "invalid WIRTELPRIMPF_PATCHES_PER_MINOR (must be 100): ${value}"
+    exit 1
+  fi
+
+  value="${WIRTELPRIMPF_MAJOR_VERSION_BUMP:-0}"
+  if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+    log "invalid WIRTELPRIMPF_MAJOR_VERSION_BUMP: ${value}"
+    exit 1
+  fi
+
+  value="${WIRTELPRIMPF_BREAKING_CHANGE:-0}"
+  case "${value,,}" in
+    1|true|yes|on|enabled|enable|0|false|no|off|disabled|disable) ;;
+    *)
+      log "invalid WIRTELPRIMPF_BREAKING_CHANGE: ${value}"
+      exit 1
+      ;;
+  esac
+}
+
+validate_runtime_env
+
 is_regular_file() {
   local path="$1"
   if [[ ! -e "$path" ]]; then
