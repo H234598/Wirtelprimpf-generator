@@ -856,6 +856,9 @@ refresh_state_timestamp() {
 
 read_timestamp_epoch() {
   local value
+  if ! validate_runtime_file_for_read "$TIMESTAMP_FILE" "Timestamp file"; then
+    return 1
+  fi
   if [[ -L "$TIMESTAMP_FILE" ]]; then
     log "timestamp file must not be a symlink: $TIMESTAMP_FILE"
     return 1
@@ -938,6 +941,41 @@ validate_lock_file() {
     fi
   fi
   return 0
+}
+
+validate_runtime_file_for_read() {
+  local path="$1"
+  local label="$2"
+  local canonical parent
+
+  if [[ -z "$path" ]]; then
+    log "${label} path is empty"
+    return 1
+  fi
+  if ! canonical="$(readlink -f -- "$path" 2>/dev/null || true)"; then
+    log "${label} path is not canonicalizable: $path"
+    return 1
+  fi
+  if [[ -z "$canonical" || "$canonical" != "$path" ]]; then
+    log "${label} path must be canonical and non-symlinked: $path"
+    return 1
+  fi
+  if [[ -L "$canonical" ]]; then
+    log "${label} must not be a symlink: $path"
+    return 1
+  fi
+  parent="$(dirname -- "$canonical")"
+  if [[ "$parent" == /tmp || "$parent" == /var/tmp || "$parent" == /run || "$parent" == /dev ]]; then
+    log "${label} points into transient/unsafe location: $path"
+    return 1
+  fi
+  if [[ -L "$parent" ]]; then
+    log "${label} parent directory must not be a symlink: $parent"
+    return 1
+  fi
+  if ! require_directory "$parent" "${label} parent directory" "rwx"; then
+    return 1
+  fi
 }
 
 acquire_lock() {
@@ -1181,6 +1219,10 @@ PY
 
 read_state_version() {
   local value
+  if ! validate_runtime_file_for_read "$STATE_FILE" "State file"; then
+    echo ""
+    return
+  fi
   if [[ -e "$STATE_FILE" ]] && ! is_regular_file "$STATE_FILE"; then
     log "state file is not a regular file: $STATE_FILE"
     echo ""
