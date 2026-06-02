@@ -636,6 +636,37 @@ is_regular_file() {
   [[ -f "$path" ]]
 }
 
+is_secure_regular_file() {
+  local path="$1"
+  local owner perm
+
+  if [[ -z "$path" ]]; then
+    return 1
+  fi
+  if [[ -L "$path" ]]; then
+    return 1
+  fi
+  if ! is_regular_file "$path"; then
+    return 1
+  fi
+  if [[ ! -r "$path" || ! -w "$path" || ! -x "$path" ]]; then
+    return 1
+  fi
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if [[ "$owner" != "$CURRENT_UID" ]]; then
+    return 1
+  fi
+  if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if (( 10#$perm & 022 )); then
+    return 1
+  fi
+  return 0
+}
+
 is_owned_by_current_user() {
   local path="$1"
   local owner
@@ -657,12 +688,8 @@ require_file() {
     log "${label} must not be a symlink: $path"
     exit 1
   fi
-  if ! is_regular_file "$path"; then
-    log "${label} is not a regular file: $path"
-    exit 1
-  fi
-  if ! is_owned_by_current_user "$path"; then
-    log "${label} must be owned by current user: $path"
+  if ! is_secure_regular_file "$path"; then
+    log "${label} must be a secure regular file owned by current user: $path"
     exit 1
   fi
   if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
@@ -951,16 +978,8 @@ validate_lock_file() {
     return 1
   fi
   if [[ -e "$path" ]]; then
-    if ! is_regular_file "$path"; then
-      log "lock file must be a regular file: $path"
-      return 1
-    fi
-    if ! is_owned_by_current_user "$path"; then
-      log "lock file must be owned by current user: $path"
-      return 1
-    fi
-    if [[ ! -r "$path" || ! -w "$path" ]]; then
-      log "lock file must be readable and writable: $path"
+    if ! is_secure_regular_file "$path"; then
+      log "lock file must be a secure regular file: $path"
       return 1
     fi
     if ! mode="$(stat -c '%a' "$path" 2>/dev/null)"; then
