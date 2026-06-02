@@ -1018,6 +1018,7 @@ is_stale_lock_file() {
   local now
   local lock_mtime
   local age
+  LOCK_FILE_AGE_SECONDS=""
 
   if [[ -z "$lock_path" || ! -e "$lock_path" ]]; then
     return 1
@@ -1033,6 +1034,7 @@ is_stale_lock_file() {
     return 1
   fi
   age=$((now - lock_mtime))
+  LOCK_FILE_AGE_SECONDS="$age"
   if (( age < 0 )); then
     return 1
   fi
@@ -1203,14 +1205,14 @@ acquire_lock() {
     fi
     if ! is_strict_positive_pid "$pid"; then
       if is_stale_lock_file "$LOCK_FILE"; then
-        log "stale invalid fallback lock detected (${LOCK_FILE}), removing"
+        log "stale invalid fallback lock detected (${LOCK_FILE}, age=${LOCK_FILE_AGE_SECONDS:-unknown}s), removing"
         if ! safe_unlink_runtime_file "$LOCK_FILE"; then
           log "failed to remove stale invalid fallback lock: $LOCK_FILE"
           return 1
         fi
         continue
       fi
-      log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
+      log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, skipping stale cleanup; age=${LOCK_FILE_AGE_SECONDS:-unknown}, exiting"
       return 1
     fi
     if ! validate_lock_file "$LOCK_FILE"; then

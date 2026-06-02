@@ -83,7 +83,7 @@ ENV_BLACKLIST: Final = frozenset(
 OPENAI_ENV_PREFIXES: Final = ("OPENAI_", "AZURE_OPENAI_")
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.5.35-hardening"
+VERSION: Final = "0.5.36-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -1594,19 +1594,36 @@ def main() -> None:
         output_resolution_size = parse_resolution(config.output_resolution)
 
         if args.dry_run:
+            fallback_version = resolve_runtime_version(
+                patch_count=0,
+                patches_per_minor=config.patches_per_minor,
+                major_version_base=effective_major_base,
+            )
             dry_run_details = publish_state_summary(config)
             if (
                 isinstance(dry_run_details, dict)
                 and isinstance(dry_run_details.get("publish_state_error"), str)
             ):
-                _die(f"Invalid publish state: {dry_run_details['publish_state_error']}")
+                error_message = dry_run_details["publish_state_error"]
+                if args.json:
+                    print(
+                        format_json(
+                            build_status_envelope(
+                                ok=False,
+                                mode=MODE_DRY_RUN,
+                                status=STATUS_ERROR,
+                                exit_code=1,
+                                version=fallback_version,
+                                details=dry_run_details,
+                                message=f"Invalid publish state: {error_message}",
+                            ),
+                            compact=True,
+                        )
+                    )
+                    raise SystemExit(1)
+                _die(f"Invalid publish state: {error_message}")
             current_version = (
                 dry_run_details.get("version") if isinstance(dry_run_details, dict) else None
-            )
-            fallback_version = resolve_runtime_version(
-                patch_count=0,
-                patches_per_minor=config.patches_per_minor,
-                major_version_base=effective_major_base,
             )
             if current_version is None:
                 current_version = fallback_version
