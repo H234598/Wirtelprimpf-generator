@@ -14,6 +14,16 @@ Output folder:       ~/Hintergrundbilder/local-imagegen
 Device:              CPU
 ```
 
+## Quick safety check
+
+Before running commands below, confirm the local backend wrapper is on PATH:
+
+```bash
+command -v ~/.local/bin/local-imagegen
+```
+
+If this prints no path, install the wrapper first before trying image generation.
+
 The first test image was generated successfully:
 
 ```text

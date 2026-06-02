@@ -929,6 +929,108 @@ print(f"ok:{data['ok']} exit:{data['exit_code']} mode:{data['mode']} version:{da
 PY
 }
 
+validate_json_bundle() {
+  local status_file="$1"
+  local check_config_file="$2"
+  local dry_run_file="$3"
+
+  if [[ -z "$status_file" || -z "$check_config_file" || -z "$dry_run_file" ]]; then
+    echo "Missing required JSON path for bundle validation" >&2
+    return 1
+  fi
+  if [[ "$status_file" != "$CHECK_TMPDIR/status.json" ]]; then
+    echo "Unexpected status path in bundle validation: $status_file" >&2
+    return 1
+  fi
+  if [[ "$check_config_file" != "$CHECK_TMPDIR/check-config.json" ]]; then
+    echo "Unexpected check-config path in bundle validation: $check_config_file" >&2
+    return 1
+  fi
+  if [[ "$dry_run_file" != "$CHECK_TMPDIR/dry-run.json" ]]; then
+    echo "Unexpected dry-run path in bundle validation: $dry_run_file" >&2
+    return 1
+  fi
+
+  run_python_sandbox "$PY" - "$status_file" "$check_config_file" "$dry_run_file" <<'PY'
+import json
+import sys
+
+required = {"ok", "version", "timestamp", "mode", "status", "exit_code"}
+
+
+def load_and_validate(path, mode, strategy):
+    try:
+        with open(path, encoding="utf-8") as f:
+            payload = json.load(f)
+    except json.JSONDecodeError:
+        payload = None
+
+    if isinstance(payload, dict):
+        records = [payload]
+    elif isinstance(payload, list):
+        records = payload
+    else:
+        with open(path, encoding="utf-8") as f:
+            records = []
+            for line in f:
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                records.append(json.loads(line))
+
+    if not records:
+        raise SystemExit(f"No JSON records in {path}")
+
+    matched = None
+    for record in records:
+        if not isinstance(record, dict):
+            raise SystemExit(f"JSON record is not an object in {path}")
+        if record.get("mode") == mode and matched is None:
+            matched = record
+
+    data = records[-1]
+    if strategy == "any":
+        if matched is None:
+            raise SystemExit(f"Expected mode {mode!r} in at least one record from {path}")
+        data = matched
+    elif data.get("mode") != mode:
+        raise SystemExit(f"Expected trailing mode {mode!r} in {path}, got {data.get('mode')!r}")
+
+    missing = sorted(required - set(data))
+    if missing:
+        raise SystemExit(f"Missing fields {missing} in {path}")
+
+    if not isinstance(data.get("ok"), bool):
+        raise SystemExit(f"'ok' must be bool in {path}: {data.get('ok')!r}")
+    if not isinstance(data.get("status"), str):
+        raise SystemExit(f"'status' must be string in {path}: {data.get('status')!r}")
+    if data.get("status") not in {"ok", "error"}:
+        raise SystemExit(f"invalid status value in {path}: {data.get('status')!r}")
+    if data.get("mode") not in {"status", "check_config", "dry_run", "run"}:
+        raise SystemExit(f"invalid mode value in {path}: {data.get('mode')!r}")
+    if not isinstance(data.get("exit_code"), int):
+        raise SystemExit(f"exit_code must be int in {path}: {data.get('exit_code')!r}")
+    if not isinstance(data.get("timestamp"), str) or not data.get("timestamp"):
+        raise SystemExit(f"'timestamp' must be non-empty string in {path}")
+
+    version = data.get("version")
+    if not isinstance(version, str) or not version.strip():
+        raise SystemExit(f"'version' must be non-empty string in {path}: {version!r}")
+    parts = version.split("-", 1)[0].split("+", 1)[0].split(".")
+    if len(parts) != 3 or not all(segment.isdigit() for segment in parts):
+        raise SystemExit(f"'version' must be semantic version in {path}: {version!r}")
+
+    return f"ok:{data['ok']} exit:{data['exit_code']} mode:{data['mode']} version:{data['version']}"
+
+
+status_file, check_config_file, dry_run_file = sys.argv[1], sys.argv[2], sys.argv[3]
+
+print(load_and_validate(status_file, "status", "first"))
+print(load_and_validate(check_config_file, "check_config", "first"))
+print(load_and_validate(dry_run_file, "dry_run", "any"))
+PY
+}
+
 log "Running full check suite for Wirtelprimpf"
 
 status_json="$CHECK_TMPDIR/status.json"
@@ -976,8 +1078,6 @@ for file in "${required_files[@]}"; do
   fi
 done
 
-validate_json "$status_json" status first
-validate_json "$check_config_json" check_config first
-validate_json "$dry_run_json" dry_run any
+validate_json_bundle "$status_json" "$check_config_json" "$dry_run_json"
 
 log "Checks completed"
