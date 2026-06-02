@@ -48,6 +48,9 @@ resolve_python() {
     if ! resolved="$(env PATH="$SECURITY_PATHS" command -v -- "$candidate" 2>/dev/null || true)"; then
       continue
     fi
+    if [[ "$resolved" != /* ]]; then
+      continue
+    fi
     if [[ -n "$resolved" ]]; then
       echo "$resolved"
       return 0
