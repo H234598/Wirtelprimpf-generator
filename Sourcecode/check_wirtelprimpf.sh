@@ -276,6 +276,15 @@ validate_json() {
     echo "validate_json path is outside check tempdir: $file" >&2
     return 1
   fi
+  local file_real
+  if ! file_real="$(realpath -m "$file")"; then
+    echo "Unable to resolve validate_json path: $file" >&2
+    return 1
+  fi
+  if [[ "$file_real" != "$CHECK_TMPDIR"/* ]]; then
+    echo "validate_json resolved path escapes check tempdir: $file (resolved $file_real)" >&2
+    return 1
+  fi
   if ! is_regular_file "$file"; then
     echo "Expected regular JSON file: $file" >&2
     return 1
