@@ -435,7 +435,10 @@ while true; do
 
   if [[ -f "$TIMESTAMP_FILE" ]]; then
     now_epoch="$(date +%s)"
-    last_epoch="$(cat "$TIMESTAMP_FILE" 2>/dev/null || true)"
+    if ! last_epoch="$(cat "$TIMESTAMP_FILE" 2>/dev/null || true)"; then
+      log "failed to read timestamp file: $TIMESTAMP_FILE"
+      last_epoch=""
+    fi
     if [[ ! "$last_epoch" =~ ^[0-9]+$ ]]; then
       log "invalid timestamp file content, refreshing: $last_epoch"
       if ! refresh_state_timestamp; then
