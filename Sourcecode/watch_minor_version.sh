@@ -217,6 +217,11 @@ run_python_sandbox() {
   env -i \
     PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     HOME="${HOME:-/tmp}" \
+    PYTHONSTARTUP= \
+    PYTHONPATH= \
+    PYTHONHOME= \
+    PYTHONSAFEPATH=1 \
+    PYTHONUSERBASE= \
     PYTHONNOUSERSITE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
