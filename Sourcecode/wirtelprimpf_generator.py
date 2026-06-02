@@ -1134,9 +1134,11 @@ def main() -> None:
             prompts = build_prompts(config.prompt_config_path, datetime.now())
         except Exception as exc:
             runtime_version = resolve_runtime_version(
-                patch_count=read_publish_state(publish_state_path(config.repo_path)).patch_count
-                if config.repo_path
-                else 0,
+                patch_count=(
+                    read_publish_state(publish_state_path(config.repo_path)).patch_count
+                    if config.repo_path
+                    else 0
+                ),
                 patches_per_minor=config.patches_per_minor,
                 major_version_base=BASE_VERSION_MAJOR + config.major_version_bump,
             )
