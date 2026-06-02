@@ -699,9 +699,18 @@ require_file() {
 require_executable() {
   local path="$1"
   local label="$2"
+  local perm
   require_file "$path" "$label"
   if [[ ! -x "$path" ]]; then
     log "${label} is not executable: $path"
+    exit 1
+  fi
+  if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
+    log "${label} failed to read permissions: $path"
+    exit 1
+  fi
+  if (( 10#$perm & 06000 )); then
+    log "${label} must not have setuid/setgid bits: $path"
     exit 1
   fi
 }
