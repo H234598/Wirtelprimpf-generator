@@ -312,29 +312,31 @@ def read_publish_state(path: Path) -> PublishState:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return PublishState()
+        raise RuntimeError(f"invalid publish state file: {path}")
 
     if not isinstance(payload, dict):
-        return PublishState()
+        raise RuntimeError(f"invalid publish state: expected object in {path}")
 
     if "patch_count" in payload:
         raw_patch_count = payload["patch_count"]
     elif "patch_version" in payload:
         raw_patch_count = payload["patch_version"]
     else:
-        return PublishState()
+        raise RuntimeError(f"invalid publish state: missing patch_count and patch_version in {path}")
     if not isinstance(raw_patch_count, int) or isinstance(raw_patch_count, bool):
-        return PublishState()
+        raise RuntimeError(f"invalid publish state: patch_count must be a non-boolean integer in {path}: {raw_patch_count!r}")
     patch_count = raw_patch_count
     minor_push_count = payload.get("minor_push_count", 0)
     if patch_count < 0:
-        return PublishState()
+        raise RuntimeError(f"invalid publish state: patch_count must be >= 0 in {path}: {patch_count!r}")
     if (
         not isinstance(minor_push_count, int)
         or isinstance(minor_push_count, bool)
         or minor_push_count < 0
     ):
-        return PublishState()
+        raise RuntimeError(
+            f"invalid publish state: minor_push_count must be a non-boolean integer >= 0 in {path}: {minor_push_count!r}"
+        )
     return PublishState(patch_count=patch_count, minor_push_count=minor_push_count)
 
 
