@@ -39,10 +39,52 @@ if ! PY="$(resolve_python)"; then
   exit 1
 fi
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
-REPO_PATH="${WIRTELPRIMPF_REPO_PATH:-$ROOT_DIR}"
+validate_repo_path() {
+  local path="$1"
+  if [[ -z "$path" ]]; then
+    log "repository path is empty"
+    exit 1
+  fi
+  if [[ "$path" == *[[:space:]]* ]]; then
+    log "repository path contains whitespace: ${path}"
+    exit 1
+  fi
+  if [[ -L "$path" ]]; then
+    log "repository path must not be a symlink: ${path}"
+    exit 1
+  fi
+  if [[ ! -d "$path" ]]; then
+    log "repository path is not a directory: ${path}"
+    exit 1
+  fi
+  if [[ ! -w "$path" && ! -r "$path" ]]; then
+    log "repository path is not accessible: ${path}"
+    exit 1
+  fi
+  cd -- "$path" >/dev/null 2>&1
+  printf '%s\n' "$(pwd)"
+}
+
+REPO_PATH="$(validate_repo_path "${WIRTELPRIMPF_REPO_PATH:-$ROOT_DIR}")"
 if [[ "$(basename "$REPO_PATH")" == ".git" ]]; then
+  if [[ -L "$REPO_PATH" ]]; then
+    log "publish state path must not be a symlink directory: ${REPO_PATH}"
+    exit 1
+  fi
+  if [[ -L "$REPO_PATH/wirtelprimpf_publish_state.json" ]]; then
+    log "publish state path must not be a symlink file: ${REPO_PATH}/wirtelprimpf_publish_state.json"
+    exit 1
+  fi
   PUBLISH_STATE_FILE="$REPO_PATH/wirtelprimpf_publish_state.json"
 else
+  if [[ -L "$REPO_PATH/.git" ]]; then
+    log ".git path must not be a symlink: ${REPO_PATH}/.git"
+    exit 1
+  fi
+  if [[ -L "$REPO_PATH/.git/wirtelprimpf_publish_state.json" ]]; then
+    log "publish state path must not be a symlink file: ${REPO_PATH}/.git/wirtelprimpf_publish_state.json"
+    exit 1
+  fi
   PUBLISH_STATE_FILE="$REPO_PATH/.git/wirtelprimpf_publish_state.json"
 fi
 STATE_FILE="$ROOT_DIR/Sourcecode/.minor_version_state"
