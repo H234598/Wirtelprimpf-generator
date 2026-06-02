@@ -34,6 +34,7 @@ is_valid_python_binary_name() {
   local candidate="$1"
   local base_name
   base_name="$(basename -- "$candidate")"
+  [[ "$candidate" != */* ]]
   [[ "$base_name" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]
 }
 
@@ -49,7 +50,7 @@ resolve_python() {
   local candidate
   for candidate in "${candidates[@]}"; do
     local resolved
-    if [[ "$candidate" =~ [[:space:]] || "$candidate" == -* ]]; then
+    if [[ "$candidate" == *[[:space:]]* || "$candidate" == -* || "$candidate" == */* ]]; then
       continue
     fi
     resolved="$(env PATH="$SECURITY_PATHS" command -v -- "$candidate" 2>/dev/null || true)"
