@@ -95,6 +95,10 @@ WIRTELPRIMPF_BREAKING_CHANGE=false
 
 If `WIRTELPRIMPF_REPO_PATH` is unset, the generator creates local files only
 and does not touch Git.
+If `WIRTELPRIMPF_REPO_PATH` points to a non-repository directory, set
+`WIRTELPRIMPF_REPO_SLUG` as `OWNER/REPOSITORY` so the generator can clone it.
+`WIRTELPRIMPF_REPO_SLUG` is optional when `WIRTELPRIMPF_REPO_PATH` already
+contains a valid local Git repository.
 
 Git-Publish policy:
 

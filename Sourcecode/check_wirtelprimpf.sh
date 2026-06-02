@@ -364,7 +364,7 @@ cleanup_checks() {
     fi
   fi
 }
-trap cleanup_checks EXIT
+trap cleanup_checks EXIT INT TERM HUP
 
 run_python_sandbox() {
   "$CHECK_TIMEOUT_COMMAND" "$CHECK_TIMEOUT_SECONDS" env -i \

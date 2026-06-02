@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+declare -r SAFE_EXEC_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$SAFE_EXEC_PATH"
 
 env_file="${1:-${HOME}/.config/wirtelprimpf/openai.env}"
 if [[ -z "$env_file" ]]; then
