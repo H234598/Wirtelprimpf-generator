@@ -219,6 +219,11 @@ Ein einmaliger Check kann auch unabhängig laufen:
 `watch_minor_version.sh` beobachtet den in der Generator-Logik berechneten Minor-Release-Fortschritt.
 Standard ist: 100 Patches -> minor+, 100 Minors -> major+ (mit Patch-Suffix/Prefix).
 
+Fehlertoleranzverhalten:
+- Der Watcher beendet sich mit `exit 1`, wenn keine nutzbare Python-Interpretation gefunden wird.
+- Er fällt auf einen sicher reparierten lokalen Stand zurück, wenn die State-Datei fehlt oder ungültig ist, und bricht ab, wenn diese Reparatur nicht geschrieben werden kann.
+- Er bricht bei fehlerhafter Versionsberechnung (`get_minor_version`) und beim Timestamp-Schreiben nicht still, sondern mit klarer Logmeldung.
+
 ### Dauerstart via systemd --user
 
 Du kannst den Watcher auch automatisch beim Benutzerstart laufen lassen:
