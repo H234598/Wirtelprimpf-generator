@@ -1001,21 +1001,23 @@ refresh_state_timestamp() {
 
 read_timestamp_epoch() {
   local value
-  local timestamp_mtime
+  local timestamp_meta
+  local timestamp_mtime timestamp_perm
   if ! validate_runtime_file_for_read "$TIMESTAMP_FILE" "Timestamp file"; then
     return 1
   fi
-  if ! timestamp_mtime="$(stat -c '%Y' "$TIMESTAMP_FILE" 2>/dev/null)"; then
+  if ! timestamp_meta="$(stat -c '%Y %a' "$TIMESTAMP_FILE" 2>/dev/null)"; then
     log "failed to read timestamp mtime: $TIMESTAMP_FILE"
+    return 1
+  fi
+  IFS=' ' read -r timestamp_mtime timestamp_perm <<< "$timestamp_meta"
+  if [[ -z "$timestamp_mtime" || -z "$timestamp_perm" ]]; then
+    log "failed to parse timestamp metadata: $TIMESTAMP_FILE"
     return 1
   fi
   if [[ "$TIMESTAMP_EPOCH_CACHE_PATH" == "$TIMESTAMP_FILE" && "$TIMESTAMP_EPOCH_CACHE_MTIME" == "$timestamp_mtime" && -n "$TIMESTAMP_EPOCH_CACHE" ]]; then
     echo "$TIMESTAMP_EPOCH_CACHE"
     return 0
-  fi
-  if [[ -L "$TIMESTAMP_FILE" ]]; then
-    log "timestamp file must not be a symlink: $TIMESTAMP_FILE"
-    return 1
   fi
   if [[ -e "$TIMESTAMP_FILE" ]] && ! is_regular_file "$TIMESTAMP_FILE"; then
     log "timestamp file is not a regular file: $TIMESTAMP_FILE"
@@ -1029,16 +1031,9 @@ read_timestamp_epoch() {
     log "timestamp file not readable: $TIMESTAMP_FILE"
     return 1
   fi
-  if [[ -e "$TIMESTAMP_FILE" ]]; then
-    local timestamp_perm
-    if ! timestamp_perm="$(stat -c '%a' "$TIMESTAMP_FILE" 2>/dev/null)"; then
-      log "failed to read timestamp file permissions: $TIMESTAMP_FILE"
-      return 1
-    fi
-    if (( 10#$timestamp_perm & 022 )); then
-      log "timestamp file has insecure permissions (group/world writable): $TIMESTAMP_FILE"
-      return 1
-    fi
+  if (( 10#$timestamp_perm & 022 )); then
+    log "timestamp file has insecure permissions (group/world writable): $TIMESTAMP_FILE"
+    return 1
   fi
   if ! value="$(cat "$TIMESTAMP_FILE" 2>/dev/null || true)"; then
     log "failed to read timestamp file: $TIMESTAMP_FILE"
