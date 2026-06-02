@@ -61,11 +61,14 @@ resolve_python() {
     fi
     for search_path in "${SECURITY_PATHS_ARRAY[@]}"; do
       resolved="${search_path}/${candidate}"
+      if ! [[ -x "$resolved" && ! -L "$resolved" ]]; then
+        continue
+      fi
       resolved_canonical=""
       if ! resolved_canonical="$(readlink -f -- "$resolved" 2>/dev/null)"; then
         continue
       fi
-      if [[ "$resolved_canonical" != "$resolved" || ! -f "$resolved_canonical" || ! -x "$resolved_canonical" || -L "$resolved_canonical" ]]; then
+      if [[ "$resolved_canonical" != "$resolved" || ! -x "$resolved_canonical" || -L "$resolved_canonical" ]]; then
         continue
       fi
       case "$resolved_canonical" in
