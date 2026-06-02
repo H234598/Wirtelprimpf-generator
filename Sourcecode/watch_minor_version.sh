@@ -399,6 +399,38 @@ cleanup_lock_fd() {
   exec 9>&- 2>/dev/null || true
 }
 
+validate_lock_file() {
+  local path="$1"
+  local mode
+  if [[ -L "$path" ]]; then
+    log "lock file must not be a symlink: $path"
+    return 1
+  fi
+  if [[ -e "$path" ]]; then
+    if ! is_regular_file "$path"; then
+      log "lock file must be a regular file: $path"
+      return 1
+    fi
+    if ! is_owned_by_current_user "$path"; then
+      log "lock file must be owned by current user: $path"
+      return 1
+    fi
+    if [[ ! -r "$path" || ! -w "$path" ]]; then
+      log "lock file must be readable and writable: $path"
+      return 1
+    fi
+    if ! mode="$(stat -c '%a' "$path" 2>/dev/null)"; then
+      log "lock file metadata unavailable: $path"
+      return 1
+    fi
+    if (( 10#$mode & 022 )); then
+      log "lock file must not be group/world writable: $path"
+      return 1
+    fi
+  fi
+  return 0
+}
+
 acquire_lock() {
   is_running_pid() {
     local candidate="$1"
@@ -406,12 +438,8 @@ acquire_lock() {
     kill -0 "$candidate" 2>/dev/null
   }
 
-  if [[ -L "$LOCK_FILE" || ( -e "$LOCK_FILE" && ! -f "$LOCK_FILE" ) ]]; then
-    log "invalid lock file type (symlink or non-regular): $LOCK_FILE"
-    return 1
-  fi
-  if [[ -e "$LOCK_FILE" ]] && ! is_owned_by_current_user "$LOCK_FILE"; then
-    log "invalid lock file ownership (must be current user): $LOCK_FILE"
+  if ! validate_lock_file "$LOCK_FILE"; then
+    log "invalid lock file for watcher: $LOCK_FILE"
     return 1
   fi
 
