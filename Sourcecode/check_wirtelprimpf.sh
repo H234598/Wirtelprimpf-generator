@@ -83,10 +83,60 @@ run_check() {
     echo "No command supplied for check: $label" >&2
     exit 1
   fi
+  case "$label" in
+    py_compile)
+      if [[ "${#cmd[@]}" -ne 4 || "${cmd[0]}" != "$PY" || "${cmd[1]}" != -m || "${cmd[2]}" != py_compile || "${cmd[3]}" != "$PY_SCRIPT" ]]; then
+        echo "Invalid command for ${label}: ${cmd[*]-}" >&2
+        return 1
+      fi
+      ;;
+    compileall)
+      if [[ "${#cmd[@]}" -ne 5 || "${cmd[0]}" != "$PY" || "${cmd[1]}" != -m || "${cmd[2]}" != compileall || "${cmd[3]}" != -q || "${cmd[4]}" != "$ROOT_DIR/Sourcecode" ]]; then
+        echo "Invalid command for ${label}: ${cmd[*]-}" >&2
+        return 1
+      fi
+      ;;
+    version)
+      if [[ "${#cmd[@]}" -ne 3 || "${cmd[0]}" != "$PY" || "${cmd[1]}" != "$PY_SCRIPT" || "${cmd[2]}" != --version ]]; then
+        echo "Invalid command for ${label}: ${cmd[*]-}" >&2
+        return 1
+      fi
+      ;;
+    status-json|check-config-json|dry-run-json|status-text|check-config-text|dry-run-text)
+      if [[ "${#cmd[@]}" -ne 3 || "${cmd[0]}" != "$PY" || "${cmd[1]}" != "$PY_SCRIPT" ]]; then
+        echo "Invalid command for ${label}: ${cmd[*]-}" >&2
+        return 1
+      fi
+      case "$label" in
+        status-json|status-text)
+          if [[ "${cmd[2]}" != --status ]]; then
+            echo "Invalid command for ${label}: ${cmd[*]-}" >&2
+            return 1
+          fi
+          ;;
+        check-config-json|check-config-text)
+          if [[ "${cmd[2]}" != --check-config ]]; then
+            echo "Invalid command for ${label}: ${cmd[*]-}" >&2
+            return 1
+          fi
+          ;;
+        dry-run-json|dry-run-text)
+          if [[ "${cmd[2]}" != --dry-run ]]; then
+            echo "Invalid command for ${label}: ${cmd[*]-}" >&2
+            return 1
+          fi
+          ;;
+      esac
+      ;;
+  esac
   for arg in "${cmd[@]}"; do
     case "$arg" in
       *$'\n'* | *$'\r'* | *$'\t'*)
         echo "Invalid control character in command argument for ${label}: ${arg}" >&2
+        return 1
+        ;;
+      [!a-zA-Z0-9._/\-]*)
+        echo "Invalid command argument for ${label}: ${arg}" >&2
         return 1
         ;;
     esac
