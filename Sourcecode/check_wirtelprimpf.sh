@@ -39,7 +39,7 @@ if ! PY="$(resolve_python)"; then
 fi
 validate_python_binary() {
   local path="$1"
-  local resolved owner mode mountpoint mount_opts
+  local resolved owner mode mountpoint mount_opts file_type
   if [[ -z "$path" || ! -x "$path" ]]; then
     return 1
   fi
@@ -77,6 +77,14 @@ validate_python_binary() {
   if command -v findmnt >/dev/null 2>&1; then
     mount_opts="$(findmnt -n -o OPTIONS "$mountpoint" 2>/dev/null || true)"
     if [[ ",${mount_opts}," == *",noexec,"* ]]; then
+      return 1
+    fi
+  fi
+  if command -v file >/dev/null 2>&1; then
+    if ! file_type="$(file -b -- "$resolved" 2>/dev/null || true)"; then
+      return 1
+    fi
+    if [[ "$file_type" != *ELF* && "$file_type" != *"Python script"* ]]; then
       return 1
     fi
   fi
