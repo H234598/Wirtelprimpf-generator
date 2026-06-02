@@ -192,17 +192,24 @@ dependency_signature() {
     return 1
   fi
   local sig
+  local owner
+  local group
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if ! group="$(stat -c '%g' "$path" 2>/dev/null)"; then
+    return 1
+  fi
   if ! sig="$(stat -c '%Y:%i:%s:%a' "$path" 2>/dev/null)"; then
     return 1
   fi
-  local perm
-  if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
+  if (( 10#${owner} != CURRENT_UID )); then
     return 1
   fi
-  if (( 10#$perm & 022 )); then
+  if (( 10#${owner} < 1 )); then
     return 1
   fi
-  printf '%s\n' "$sig"
+  printf '%s:%s:%s\n' "$owner" "$group" "$sig"
   return 0
 }
 
