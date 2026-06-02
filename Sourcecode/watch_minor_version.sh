@@ -569,6 +569,16 @@ if [[ -z "$state_file_value" ]]; then
   log "state synchronization produced empty version"
   exit 1
 fi
+
+if [[ -e "$PUBLISH_STATE_FILE" ]]; then
+  if ! last_state_mtime="$(stat -c '%Y' "$PUBLISH_STATE_FILE" 2>/dev/null)"; then
+    log "failed to read publish state mtime: $PUBLISH_STATE_FILE"
+    exit 1
+  fi
+else
+  last_state_mtime="0"
+fi
+
 if [[ "${1:-}" == "--once" ]]; then
   require_file "$CHECKS_SCRIPT" "Checks script"
   require_executable "$CHECKS_SCRIPT" "Checks script"
@@ -605,10 +615,19 @@ while true; do
 	  log "invalid previous version in state: $prev"
 	  exit 1
 	fi
+	if ! now_state_mtime="$(stat -c '%Y' "$PUBLISH_STATE_FILE" 2>/dev/null)"; then
+		log "failed to read publish state mtime: $PUBLISH_STATE_FILE"
+		exit 1
+	fi
+	if [[ "$now_state_mtime" == "$last_state_mtime" ]]; then
+		sleep "$SLEEP_SECONDS"
+		continue
+	fi
 	if ! current="$(get_minor_version)"; then
 		log "failed to compute current minor version"
 		exit 1
 	fi
+	last_state_mtime="$now_state_mtime"
 	if [[ -z "$current" ]]; then
 		log "current minor version is empty"
 		exit 1
