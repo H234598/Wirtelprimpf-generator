@@ -168,6 +168,7 @@ if not parsed:
 major_str, minor_str, _patch_str, suffix = parsed.groups()
 patches_per_minor_raw = os.environ.get("WIRTELPRIMPF_PATCHES_PER_MINOR", "100")
 major_bump_raw = os.environ.get("WIRTELPRIMPF_MAJOR_VERSION_BUMP", "0")
+breaking_raw = os.environ.get("WIRTELPRIMPF_BREAKING_CHANGE", "0")
 try:
     patches_per_minor = int(patches_per_minor_raw)
     if patches_per_minor < 1:
@@ -176,12 +177,21 @@ except ValueError:
     raise SystemExit(f"invalid WIRTELPRIMPF_PATCHES_PER_MINOR value: {patches_per_minor_raw!r}")
 if patches_per_minor != PATCHES_PER_MINOR:
     raise SystemExit(f"invalid WIRTELPRIMPF_PATCHES_PER_MINOR value: {patches_per_minor!r}, expected {PATCHES_PER_MINOR}")
+def parse_bool(name, value):
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on", "enabled", "enable"}:
+        return True
+    if normalized in {"0", "false", "no", "off", "disabled", "disable"}:
+        return False
+    raise SystemExit(f"invalid {name} value: {value!r}")
+
 try:
     major_bump = int(major_bump_raw)
     if major_bump < 0:
         raise ValueError
 except ValueError:
     raise SystemExit(f"invalid WIRTELPRIMPF_MAJOR_VERSION_BUMP value: {major_bump_raw!r}")
+breaking_change = parse_bool("WIRTELPRIMPF_BREAKING_CHANGE", breaking_raw)
 
 if state_patch_count == 0:
     print(f"{major_str}.{minor_str}.0{suffix}")
@@ -193,7 +203,7 @@ if patch_version == 0:
 
 minor_increments = state_patch_count // patches_per_minor
 major_addition, minor_offset = divmod(int(minor_str) + minor_increments, MINORS_PER_MAJOR)
-major_version = int(major_str) + major_addition + major_bump
+major_version = int(major_str) + major_addition + major_bump + (1 if breaking_change else 0)
 print(f"{major_version}.{minor_offset}.{patch_version}{suffix}")
 
 PY
