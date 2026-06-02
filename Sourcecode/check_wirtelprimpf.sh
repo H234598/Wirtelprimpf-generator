@@ -16,7 +16,10 @@ resolve_python() {
 
   local candidate resolved
   for candidate in "${candidates[@]}"; do
-    if ! resolved="$(command -v "$candidate" 2>/dev/null || true)"; then
+    if [[ "$candidate" =~ [[:space:]] || "$candidate" == -* ]]; then
+      continue
+    fi
+    if ! resolved="$(command -v -- "$candidate" 2>/dev/null || true)"; then
       continue
     fi
     if [[ -n "$resolved" && -x "$resolved" ]]; then
