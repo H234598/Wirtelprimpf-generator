@@ -364,7 +364,18 @@ cleanup_checks() {
     fi
   fi
 }
-trap cleanup_checks EXIT INT TERM HUP
+
+on_signal_cleanup_exit() {
+  local exit_code="$1"
+  trap - EXIT INT TERM HUP
+  cleanup_checks
+  exit "$exit_code"
+}
+
+trap cleanup_checks EXIT
+trap 'on_signal_cleanup_exit 130' INT
+trap 'on_signal_cleanup_exit 143' TERM
+trap 'on_signal_cleanup_exit 129' HUP
 
 run_python_sandbox() {
   "$CHECK_TIMEOUT_COMMAND" "$CHECK_TIMEOUT_SECONDS" env -i \

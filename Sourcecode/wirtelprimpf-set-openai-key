@@ -38,11 +38,13 @@ cleanup_tmp_file() {
   if [[ -n "${tmp_file:-}" && -e "$tmp_file" ]]; then
     rm -f -- "$tmp_file"
   fi
+  unset -v api_key
 }
 trap cleanup_tmp_file EXIT HUP INT TERM
 printf 'OPENAI_API_KEY=%q\n' "$api_key" > "$tmp_file"
 mv -- "$tmp_file" "$env_file"
 tmp_file=""
 chmod 600 -- "$env_file"
+unset -v api_key
 
 printf 'Saved: %s\n' "$env_file"
