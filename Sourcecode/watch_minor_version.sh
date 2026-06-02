@@ -5,6 +5,12 @@ IFS=$'\n\t'
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY=${PYTHON_BIN:-python3}
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
+REPO_PATH="${WIRTELPRIMPF_REPO_PATH:-$ROOT_DIR/.git}"
+if [[ "$(basename "$REPO_PATH")" == ".git" ]]; then
+  PUBLISH_STATE_FILE="$REPO_PATH/wirtelprimpf_publish_state.json"
+else
+  PUBLISH_STATE_FILE="$REPO_PATH/.git/wirtelprimpf_publish_state.json"
+fi
 STATE_FILE="$ROOT_DIR/Sourcecode/.minor_version_state"
 LOCK_FILE="$ROOT_DIR/Sourcecode/.minor_version_watch.lock"
 LOCK_TMP="${LOCK_FILE}.tmp.$$"
@@ -114,7 +120,7 @@ acquire_lock() {
 }
 
 get_minor_version() {
-  "$PY" - "$PY_SCRIPT" "$ROOT_DIR/.git/wirtelprimpf_publish_state.json" <<'PY'
+  "$PY" - "$PY_SCRIPT" "$PUBLISH_STATE_FILE" <<'PY'
 import json
 import os
 import re
