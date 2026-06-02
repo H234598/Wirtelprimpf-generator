@@ -367,6 +367,10 @@ def publish_state_path(repo_path: Path) -> Path:
     return repo_path / ".git" / PUBLISH_STATE_FILE
 
 
+def effective_major_version_base(config: Config) -> int:
+    return BASE_VERSION_MAJOR + config.major_version_bump + (1 if config.breaking_change else 0)
+
+
 @dataclass(frozen=True)
 class Config:
     local_outdir: Path
@@ -520,9 +524,7 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
     runtime_version = resolve_runtime_version(
         patch_count=next_patch_count,
         patches_per_minor=config.patches_per_minor,
-        major_version_base=BASE_VERSION_MAJOR
-        + config.major_version_bump
-        + (1 if config.breaking_change else 0),
+        major_version_base=effective_major_version_base(config),
     )
     next_minor_push_count = publish_state.minor_push_count
     push_performed = False
@@ -1039,9 +1041,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
                 publish_state.patch_count,
                 patches_per_minor=config.patches_per_minor,
                 minors_per_major=MINORS_PER_MAJOR,
-                major_version_base=BASE_VERSION_MAJOR
-                + config.major_version_bump
-                + (1 if config.breaking_change else 0),
+                major_version_base=effective_major_version_base(config),
             )
         except Exception as exc:
             report["ok"] = False
@@ -1086,9 +1086,7 @@ def publish_state_summary(config: Config) -> dict[str, object] | None:
         publish_state.patch_count,
         patches_per_minor=config.patches_per_minor,
         minors_per_major=MINORS_PER_MAJOR,
-        major_version_base=BASE_VERSION_MAJOR
-        + config.major_version_bump
-        + (1 if config.breaking_change else 0),
+        major_version_base=effective_major_version_base(config),
     )
     return {
         "patch_version": patch_version,
@@ -1164,9 +1162,7 @@ def main() -> None:
                     else 0
                 ),
                 patches_per_minor=config.patches_per_minor,
-                major_version_base=BASE_VERSION_MAJOR
-                + config.major_version_bump
-                + (1 if config.breaking_change else 0),
+                major_version_base=effective_major_version_base(config),
             )
             if args.check_config and args.json:
                 print(
@@ -1220,9 +1216,7 @@ def main() -> None:
                 current_version = resolve_runtime_version(
                     patch_count=0,
                     patches_per_minor=config.patches_per_minor,
-                    major_version_base=BASE_VERSION_MAJOR
-                    + config.major_version_bump
-                    + (1 if config.breaking_change else 0),
+                    major_version_base=effective_major_version_base(config),
                 )
             if args.json:
                 print(
@@ -1286,9 +1280,7 @@ def main() -> None:
                                 version=current_version or resolve_runtime_version(
                                     patch_count=0,
                                     patches_per_minor=config.patches_per_minor,
-                                    major_version_base=BASE_VERSION_MAJOR
-                                    + config.major_version_bump
-                                    + (1 if config.breaking_change else 0),
+                                    major_version_base=effective_major_version_base(config),
                                 ),
                                 details=dry_run_details,
                                 type="dry_run",
