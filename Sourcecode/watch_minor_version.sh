@@ -127,7 +127,7 @@ acquire_lock() {
     kill -0 "$candidate" 2>/dev/null
   }
 
-  if command -v flock >/dev/null 2>&1; then
+  if command -v -- flock >/dev/null 2>&1; then
     exec 9>"$LOCK_FILE"
     if ! flock -n 9; then
       local pid
