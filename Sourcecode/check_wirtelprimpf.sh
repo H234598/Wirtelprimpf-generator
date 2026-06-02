@@ -75,7 +75,7 @@ validate_python_binary() {
   fi
 
   local resolved mountpoint mount_opts file_type parent_dir
-  local resolved_mode resolved_owner parent_mode parent_owner
+  local resolved_mode resolved_owner parent_mode parent_owner mountpoint_owner mountpoint_mode
   if [[ -z "$path" ]]; then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
@@ -142,21 +142,23 @@ validate_python_binary() {
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
-  if ! parent_owner="$(stat -c '%a %u' "$parent_dir" 2>/dev/null)"; then
+  local parent_mount_stats
+  if ! parent_mount_stats=($(stat -c '%a %u' "$parent_dir" "$mountpoint" 2>/dev/null)); then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
-  parent_mode="${parent_owner%% *}"
-  parent_owner="${parent_owner##* }"
-  local mountpoint_owner mountpoint_mode
-  if ! mountpoint_mode="$(stat -c '%a %u' "$mountpoint" 2>/dev/null)"; then
+  if (( ${#parent_mount_stats[@]} != 2 )); then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
-  mountpoint_owner="${mountpoint_mode##* }"
-  mountpoint_mode="${mountpoint_mode%% *}"
+  local parent_stat="${parent_mount_stats[0]}"
+  local mountpoint_stat="${parent_mount_stats[1]}"
+  parent_mode="${parent_stat%% *}"
+  parent_owner="${parent_stat##* }"
+  mountpoint_owner="${mountpoint_stat##* }"
+  mountpoint_mode="${mountpoint_stat%% *}"
   if [[ "$resolved_owner" != "$CURRENT_UID" && "$resolved_owner" != 0 ]]; then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
