@@ -972,6 +972,16 @@ acquire_lock() {
     log "failed to create temporary lock file under $(dirname "$LOCK_FILE")"
     return 1
   fi
+  if [[ "$LOCK_TMP" != "$(dirname -- "$LOCK_FILE")"/* ]]; then
+    log "fallback lock temporary file escaped lock directory: $LOCK_TMP"
+    cleanup_lock_tmp
+    return 1
+  fi
+  if [[ -L "$LOCK_TMP" ]]; then
+    log "fallback lock temporary file must not be a symlink: $LOCK_TMP"
+    cleanup_lock_tmp
+    return 1
+  fi
   if ! printf '%s\n' "$$" > "$LOCK_TMP"; then
     log "failed to write temporary lock holder pid: $LOCK_TMP"
     cleanup_lock_tmp
@@ -1026,6 +1036,20 @@ acquire_lock() {
   if ! mv "$LOCK_TMP" "$LOCK_FILE"; then
     log "failed to acquire fallback lock file via rename: $LOCK_TMP -> $LOCK_FILE"
     cleanup_lock_tmp
+    return 1
+  fi
+  if [[ ! -f "$LOCK_TMP" && ! -f "$LOCK_FILE" ]]; then
+    log "lock file not materialized after rename: $LOCK_FILE"
+    return 1
+  fi
+  if [[ -L "$LOCK_FILE" ]]; then
+    log "lock file became symlink: $LOCK_FILE"
+    rm -f "$LOCK_FILE" 2>/dev/null || true
+    return 1
+  fi
+  if ! is_owned_by_current_user "$LOCK_FILE"; then
+    log "lock file not owned by current user after acquisition: $LOCK_FILE"
+    rm -f "$LOCK_FILE" 2>/dev/null || true
     return 1
   fi
   trap 'cleanup_lock_tmp; rm -f "$LOCK_FILE" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
