@@ -15,7 +15,6 @@ log() {
   printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"
 }
 
-declare -r SECURITY_PATHS="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 declare -ar SECURITY_PATHS_ARRAY=(/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin)
 declare -r SECURITY_BIN_NAME_PATTERNS="python3|python3\.[0-9]+"
 declare -ar SECURITY_PYTHON_CANDIDATES=("python3")
