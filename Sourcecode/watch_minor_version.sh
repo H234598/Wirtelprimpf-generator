@@ -4,6 +4,30 @@ IFS=$'\n\t'
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY=${PYTHON_BIN:-python3}
+
+resolve_python() {
+  local candidates=("${PYTHON_BIN:-}")
+  if [[ -z "${candidates[0]:-}" ]]; then
+    candidates=("python3" "python")
+  fi
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    local resolved
+    resolved="$(command -v "$candidate" 2>/dev/null || true)"
+    if [[ -n "$resolved" && -x "$resolved" ]]; then
+      echo "$resolved"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+if ! PY="$(resolve_python)"; then
+  log "no usable python interpreter found (tried: ${PYTHON_BIN:+$PYTHON_BIN }python3 python)"
+  exit 1
+fi
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
 REPO_PATH="${WIRTELPRIMPF_REPO_PATH:-$ROOT_DIR}"
 if [[ "$(basename "$REPO_PATH")" == ".git" ]]; then
@@ -61,7 +85,6 @@ require_executable() {
   fi
 }
 
-require_executable "$PY" "Python interpreter"
 require_file "$PY_SCRIPT" "Generator script"
 
 write_state() {
