@@ -44,16 +44,6 @@ readonly CHECK_TMPDIR
 readonly PY_SCRIPT
 readonly PY
 
-if [[ ! -x "$PY" ]]; then
-  echo "Python path is not executable: ${PY}" >&2
-  exit 1
-fi
-
-if [[ ! -f "$PY_SCRIPT" ]]; then
-  echo "Generator script missing: $PY_SCRIPT" >&2
-  exit 1
-fi
-
 cleanup_checks() {
   if [[ -n "${CHECK_TMPDIR-}" && -d "$CHECK_TMPDIR" ]]; then
     rm -rf "$CHECK_TMPDIR"
@@ -75,6 +65,38 @@ is_regular_file() {
   fi
   [[ -f "$path" ]]
 }
+
+require_file() {
+  local path="$1"
+  local label="$2"
+  if [[ -L "$path" ]]; then
+    echo "${label} must not be a symlink: ${path}" >&2
+    return 1
+  fi
+  if ! is_regular_file "$path"; then
+    echo "${label} missing or not a regular file: ${path}" >&2
+    return 1
+  fi
+}
+
+require_executable() {
+  local path="$1"
+  local label="$2"
+  if ! require_file "$path" "$label"; then
+    return 1
+  fi
+  if ! [[ -x "$path" ]]; then
+    echo "${label} is not executable: ${path}" >&2
+    return 1
+  fi
+}
+
+if ! require_executable "$PY" "Python interpreter"; then
+  exit 1
+fi
+if ! require_file "$PY_SCRIPT" "Generator script"; then
+  exit 1
+fi
 
 run_check() {
   local label="$1"
