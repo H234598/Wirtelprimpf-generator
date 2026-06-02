@@ -203,6 +203,13 @@ dependency_signature() {
   if ! sig="$(stat -c '%Y:%i:%s:%a' "$path" 2>/dev/null)"; then
     return 1
   fi
+  local mode
+  if ! mode="$(stat -c '%a' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if (( 10#$mode & 022 )); then
+    return 1
+  fi
   if (( 10#${owner} != CURRENT_UID )); then
     return 1
   fi
