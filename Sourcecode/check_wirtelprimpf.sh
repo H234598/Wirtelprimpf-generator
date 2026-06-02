@@ -162,18 +162,6 @@ run_check() {
       esac
       ;;
   esac
-  for arg in "${cmd[@]}"; do
-    case "$arg" in
-      *$'\n'* | *$'\r'* | *$'\t'*)
-        echo "Invalid control character in command argument for ${label}: ${arg}" >&2
-        return 1
-        ;;
-      [!a-zA-Z0-9._/\-]*)
-        echo "Invalid command argument for ${label}: ${arg}" >&2
-        return 1
-        ;;
-    esac
-  done
   if ! "${cmd[@]}"; then
     echo "Check failed: ${label}" >&2
     return 1
