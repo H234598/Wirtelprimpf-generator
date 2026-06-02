@@ -76,6 +76,10 @@ DEFAULT_RETRY_DELAY_SECONDS="$(parse_positive_int "$DEFAULT_RETRY_DELAY_SECONDS"
 require_file() {
   local path="$1"
   local label="$2"
+  if [[ -L "$path" ]]; then
+    log "${label} must not be a symlink: $path"
+    exit 1
+  fi
   if [[ ! -f "$path" ]]; then
     log "${label} missing: $path"
     exit 1
@@ -85,6 +89,7 @@ require_file() {
 require_executable() {
   local path="$1"
   local label="$2"
+  require_file "$path" "$label"
   if [[ ! -x "$path" ]]; then
     log "${label} is not executable: $path"
     exit 1
@@ -126,6 +131,11 @@ acquire_lock() {
     [[ -n "$candidate" && "$candidate" =~ ^[0-9]+$ ]] || return 1
     kill -0 "$candidate" 2>/dev/null
   }
+
+  if [[ -L "$LOCK_FILE" || ( -e "$LOCK_FILE" && ! -f "$LOCK_FILE" ) ]]; then
+    log "invalid lock file type (symlink or non-regular): $LOCK_FILE"
+    exit 0
+  fi
 
   if command -v -- flock >/dev/null 2>&1; then
     exec 9>"$LOCK_FILE"
