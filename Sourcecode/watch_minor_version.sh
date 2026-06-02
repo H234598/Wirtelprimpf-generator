@@ -510,6 +510,9 @@ require_directory "$(dirname "$LOCK_FILE")" "Lock directory" "rwx"
 LOCK_TMP=""
 TIMESTAMP_FILE="$STATE_FILE.started_at"
 CHECKS_SCRIPT="$ROOT_DIR/Sourcecode/check_wirtelprimpf.sh"
+validate_watch_runtime_file_path "$STATE_FILE" "State file"
+validate_watch_runtime_file_path "$LOCK_FILE" "Lock file"
+validate_watch_runtime_file_path "$TIMESTAMP_FILE" "Timestamp file"
 SLEEP_SECONDS="${SLEEP_SECONDS:-300}"
 MAX_STALE_LOCK_SECONDS="${MAX_STALE_LOCK_SECONDS:-900}"
 DEFAULT_RETRY_DELAY_SECONDS="${DEFAULT_RETRY_DELAY_SECONDS:-5}"
@@ -689,6 +692,38 @@ require_executable() {
     log "${label} is not executable: $path"
     exit 1
   fi
+}
+
+validate_watch_runtime_file_path() {
+  local path="$1"
+  local label="$2"
+  local parent
+  if [[ -z "$path" ]]; then
+    log "${label} path is empty"
+    exit 1
+  fi
+  if [[ "$path" == *[[:space:]]* ]]; then
+    log "${label} path contains whitespace: ${path}"
+    exit 1
+  fi
+  if [[ "$path" != "${ROOT_DIR}/Sourcecode/"* ]]; then
+    log "${label} path must be under ${ROOT_DIR}/Sourcecode/: $path"
+    exit 1
+  fi
+  if [[ "$path" == /tmp/* || "$path" == /var/tmp/* || "$path" == /run/* || "$path" == /dev/* ]]; then
+    log "${label} path points into transient/unsafe location: $path"
+    exit 1
+  fi
+  if ! readlink -f -- "$path" >/dev/null 2>&1; then
+    log "${label} path is not canonicalizable: $path"
+    exit 1
+  fi
+  parent="$(dirname -- "$path")"
+  if [[ -L "$parent" ]]; then
+    log "${label} parent directory must not be a symlink: $parent"
+    exit 1
+  fi
+  require_directory "$parent" "${label} parent directory" "rwx"
 }
 
 require_file "$PY_SCRIPT" "Generator script"
