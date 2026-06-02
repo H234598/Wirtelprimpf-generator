@@ -250,7 +250,6 @@ if [[ -z "$state_file_value" ]]; then
 		log "state file missing or invalid; repaired with computed version $init_state"
 	fi
 	state_file_value="$init_state"
-	write_state "$init_state"
 elif [[ "$state_file_value" != "$init_state" ]]; then
 	log "state file stale; repaired to current version $init_state"
 	state_file_value="$init_state"
