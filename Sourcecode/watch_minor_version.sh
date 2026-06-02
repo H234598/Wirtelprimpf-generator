@@ -291,7 +291,14 @@ acquire_lock() {
     local pid
     if ! pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"; then
       log "failed to read lock file, exiting: $LOCK_FILE"
-      exit 0
+      return 1
+    fi
+    pid="${pid//$'\r'/}"
+    pid="${pid//$'\n'/}"
+    pid="$(printf '%s' "$pid")"
+    if [[ "$pid" == *[[:space:]]* ]]; then
+      log "invalid lock holder pid in $LOCK_FILE: whitespace-containing value, exiting"
+      return 1
     fi
     if [[ -f "$LOCK_FILE" ]]; then
       local now
@@ -301,20 +308,33 @@ acquire_lock() {
       age=$((now - lock_mtime))
       if [[ -n "$pid" && ! "$pid" =~ ^[0-9]+$ ]]; then
         log "fallback lock file has invalid pid value (${pid}), refusing to steal fresh lock"
-        exit 0
+        return 1
       fi
       if [[ "$age" -lt "$MAX_STALE_LOCK_SECONDS" ]] && is_running_pid "$pid"; then
         log "another watcher instance is running (fallback lock), exiting"
         exit 0
       fi
       log "stale fallback lock detected (${age}s), stealing lock"
-      rm -f "$LOCK_FILE"
+      if ! rm -f "$LOCK_FILE"; then
+        log "failed to remove stale fallback lock: $LOCK_FILE"
+        return 1
+      fi
     fi
-    mkdir "$LOCK_TMP"
+    if ! mkdir "$LOCK_TMP"; then
+      log "failed to re-create lock temporary dir: $LOCK_TMP"
+      return 1
+    fi
   fi
 
-  mv "$LOCK_TMP" "$LOCK_FILE"
-  printf '%s\n' "$$" > "$LOCK_FILE"
+  if ! mv "$LOCK_TMP" "$LOCK_FILE"; then
+    log "failed to acquire fallback lock file via rename: $LOCK_TMP -> $LOCK_FILE"
+    return 1
+  fi
+  if ! printf '%s\n' "$$" > "$LOCK_FILE"; then
+    log "failed to write fallback lock holder pid: $LOCK_FILE"
+    rm -f "$LOCK_TMP" "$LOCK_FILE" 2>/dev/null || true
+    return 1
+  fi
   trap 'rm -f "$LOCK_TMP" "$LOCK_FILE" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
 }
 
