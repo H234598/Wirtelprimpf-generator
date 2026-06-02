@@ -536,13 +536,16 @@ DEPENDENCY_SIGNATURE_CACHE_TTL="${DEPENDENCY_SIGNATURE_CACHE_TTL:-2}"
 DEPENDENCY_SIGNATURE_CACHE_TTL="$(parse_positive_int "$DEPENDENCY_SIGNATURE_CACHE_TTL" 2 1)"
 DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT=""
 DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_TS=0
+DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_META=""
 DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE=""
 DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS=0
+DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META=""
 
 dependency_signature() {
   local path="$1"
   local canonical parent
   local cache_key now cache_value cache_ts
+  local cache_meta current_meta
   local signature
   local parent_mode
   now="$(date +%s)"
@@ -557,8 +560,33 @@ dependency_signature() {
     cache_ts="$DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS"
   fi
   if [[ -n "$cache_key" ]] && (( now - cache_ts <= DEPENDENCY_SIGNATURE_CACHE_TTL )) && [[ -n "$cache_value" ]]; then
-    echo "$cache_value"
-    return 0
+    if [[ -L "$path" || ! -f "$path" || ! -r "$path" ]]; then
+      return 1
+    fi
+    if ! current_meta="$(stat -c '%u:%g:%a:%Y:%i:%s' "$path" 2>/dev/null)"; then
+      return 1
+    fi
+    if [[ "$cache_key" == "PY_SCRIPT" ]]; then
+      cache_meta="$DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_META"
+    elif [[ "$cache_key" == "PUBLISH_STATE" ]]; then
+      cache_meta="$DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META"
+    fi
+    if [[ "$cache_meta" == "$current_meta" ]]; then
+      echo "$cache_value"
+      return 0
+    fi
+  fi
+  if [[ -n "$cache_key" ]] && (( now - cache_ts <= DEPENDENCY_SIGNATURE_CACHE_TTL )) && [[ -n "$cache_value" ]]; then
+    # invalidate stale cache on metadata change
+    if [[ "$cache_key" == "PY_SCRIPT" ]]; then
+      DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT=""
+      DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_TS=0
+      DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_META=""
+    elif [[ "$cache_key" == "PUBLISH_STATE" ]]; then
+      DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE=""
+      DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS=0
+      DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META=""
+    fi
   fi
   if [[ -z "$path" ]]; then
     return 1
@@ -618,9 +646,11 @@ dependency_signature() {
   if [[ "$cache_key" == "PY_SCRIPT" ]]; then
     DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT="$signature"
     DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_TS="$now"
+    DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_META="$meta"
   elif [[ "$cache_key" == "PUBLISH_STATE" ]]; then
     DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE="$signature"
     DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS="$now"
+    DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META="$meta"
   fi
   echo "$signature"
   return 0
