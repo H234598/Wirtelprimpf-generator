@@ -40,12 +40,11 @@ resolve_python() {
     candidates=("${SECURITY_PYTHON_CANDIDATES[@]}")
   fi
 
-  local candidate resolved
+  local candidate resolved search_path
   for candidate in "${candidates[@]}"; do
     if [[ "$candidate" == *[[:space:]]* || "$candidate" == -* || "$candidate" == */* ]]; then
       continue
     fi
-    local search_path
     for search_path in "${SECURITY_PATHS_ARRAY[@]}"; do
       resolved="${search_path}/${candidate}"
       if [[ -f "$resolved" && -x "$resolved" && ! -L "$resolved" ]]; then
