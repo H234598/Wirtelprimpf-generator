@@ -171,6 +171,14 @@ run_check_to_file() {
     echo "Output path must be under check tmpdir: $output" >&2
     return 1
   fi
+  if [[ ! "$output" =~ ^[A-Za-z0-9._/\-]+$ ]]; then
+    echo "Invalid output path characters: $output" >&2
+    return 1
+  fi
+  if [[ "${output##*/}" == "." || "${output##*/}" == ".." || "${output##*/}" == "" ]]; then
+    echo "Output path must include filename: $output" >&2
+    return 1
+  fi
   local output_dir
   output_dir="$(dirname "$output")"
   if [[ ! -d "$output_dir" ]]; then
@@ -181,7 +189,7 @@ run_check_to_file() {
     echo "Invalid output directory for check: $output_dir" >&2
     return 1
   fi
-  if [[ -e "$output" && ! is_regular_file "$output" ]]; then
+  if [[ -e "$output" ]] && ! is_regular_file "$output"; then
     echo "Output file must be regular: $output" >&2
     return 1
   fi
