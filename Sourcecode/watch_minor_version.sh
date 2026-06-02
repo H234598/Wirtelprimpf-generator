@@ -214,7 +214,7 @@ if [[ -z "$WATCH_BASH_PATH" ]]; then
 fi
 readonly WATCH_BASH_PATH
 
-run_python_sandbox() {
+run_isolated_env() {
   env -i \
     PATH="/usr/local/bin:/usr/bin:/bin" \
     HOME="/tmp" \
@@ -226,6 +226,10 @@ run_python_sandbox() {
     SHELL="/bin/bash" \
     BASH_ENV="" \
     ENV="" \
+    BASH_XTRACEFD="" \
+    HISTFILE="/dev/null" \
+    SHLVL="0" \
+    PROMPT_COMMAND="" \
     LD_PRELOAD="" \
     LD_LIBRARY_PATH="" \
     PYTHONINSPECT="" \
@@ -240,7 +244,14 @@ run_python_sandbox() {
     PYTHONNOUSERSITE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
+    LC_ALL="C.UTF-8" \
+    LANG="C.UTF-8" \
+    TERM="xterm-256color" \
     "$@"
+}
+
+run_python_sandbox() {
+  run_isolated_env "$@"
 }
 
 run_check_script_sandboxed() {
@@ -326,27 +337,7 @@ run_check_script_sandboxed() {
     log "required bash interpreter must not have setuid/setgid bits: ${WATCH_BASH_PATH}"
     return 1
   fi
-  if ! env -i \
-    PATH="/usr/local/bin:/usr/bin:/bin" \
-    HOME="/tmp" \
-    TMPDIR="/tmp" \
-    TMP="/tmp" \
-    TEMP="/tmp" \
-    USER="" \
-    LOGNAME="" \
-    SHELL="/bin/bash" \
-    BASH_ENV="" \
-    ENV="" \
-    LD_PRELOAD="" \
-    LD_LIBRARY_PATH="" \
-    PYTHONINSPECT="" \
-    PYTHONOPTIMIZE="" \
-    PYTHONFAULTHANDLER="" \
-    PYTHONMALLOC="" \
-    TERM="xterm-256color" \
-    LANG="C.UTF-8" \
-    LC_ALL="C.UTF-8" \
-    "$bash_canonical" --noprofile --norc "$script_canonical"; then
+  if ! run_isolated_env "$bash_canonical" --noprofile --norc "$script_canonical"; then
     log "checks script execution failed: ${script_path}"
     return 1
   fi
