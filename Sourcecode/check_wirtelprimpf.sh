@@ -3,6 +3,8 @@ set -euo pipefail
 umask 077
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CURRENT_UID="$(id -u)"
+readonly CURRENT_UID
 if [[ -n "${PYTHON_BIN:-}" && "${PYTHON_BIN}" == *[[:space:]]* ]]; then
   echo "PYTHON_BIN must not contain whitespace: ${PYTHON_BIN}" >&2
   exit 1
@@ -35,9 +37,30 @@ if ! PY="$(resolve_python)"; then
   echo "Python executable not found: ${PYTHON_BIN:-python3/python}" >&2
   exit 1
 fi
+validate_python_binary() {
+  local path="$1"
+  if [[ -z "$path" || -L "$path" || ! -f "$path" || ! -x "$path" || ! -r "$path" ]]; then
+    return 1
+  fi
+  local owner mode
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if [[ "$owner" != "$CURRENT_UID" ]]; then
+    return 1
+  fi
+  if ! mode="$(stat -c '%a' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if (( 10#$mode & 022 )); then
+    return 1
+  fi
+}
+if ! validate_python_binary "$PY"; then
+  echo "Invalid/insecure Python interpreter: ${PY}" >&2
+  exit 1
+fi
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
-CURRENT_UID="$(id -u)"
-readonly CURRENT_UID
 if ! CHECK_TMPDIR="$(mktemp -d -t wirtelprimpf-check-XXXXXX)"; then
   echo "Failed to create temporary directory" >&2
   exit 1

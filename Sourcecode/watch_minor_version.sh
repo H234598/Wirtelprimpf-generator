@@ -4,6 +4,8 @@ umask 077
 IFS=$'\n\t'
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CURRENT_UID="$(id -u)"
+readonly CURRENT_UID
 if [[ -n "${PYTHON_BIN:-}" && "${PYTHON_BIN}" == *[[:space:]]* ]]; then
   log "PYTHON_BIN must not contain whitespace: ${PYTHON_BIN}"
   exit 1
@@ -35,13 +37,38 @@ resolve_python() {
   return 1
 }
 
+validate_python_binary() {
+  local path="$1"
+  if [[ -z "$path" || -L "$path" || ! -f "$path" || ! -x "$path" ]]; then
+    return 1
+  fi
+  if [[ ! -r "$path" ]]; then
+    return 1
+  fi
+  local owner mode
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if [[ "$owner" != "$CURRENT_UID" ]]; then
+    return 1
+  fi
+  if ! mode="$(stat -c '%a' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if (( 10#$mode & 022 )); then
+    return 1
+  fi
+}
+
 if ! PY="$(resolve_python)"; then
   log "no usable python interpreter found (tried: ${PYTHON_BIN:+$PYTHON_BIN }python3 python)"
   exit 1
 fi
+if ! validate_python_binary "$PY"; then
+  log "invalid or insecure python interpreter: ${PY}"
+  exit 1
+fi
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
-CURRENT_UID="$(id -u)"
-readonly CURRENT_UID
 
 run_python_sandbox() {
   env -i \
