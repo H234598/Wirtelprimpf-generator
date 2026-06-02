@@ -105,6 +105,7 @@ def _derive_version_numbers(
     *,
     patches_per_minor: int = DEFAULT_PATCHES_PER_MINOR,
     minors_per_major: int = MINORS_PER_MAJOR,
+    major_version_base: int = BASE_VERSION_MAJOR,
 ) -> tuple[int, int, int]:
     if patch_count < 0:
         raise ValueError(f"patch_count must be >= 0, got {patch_count!r}")
@@ -117,7 +118,7 @@ def _derive_version_numbers(
     patch_version = patch_units % PATCHES_PER_MINOR_FOR_MINOR
     minor_increments = patch_units // PATCHES_PER_MINOR_FOR_MINOR
     major_addition, minor_offset = divmod(BASE_VERSION_MINOR + minor_increments, minors_per_major)
-    major_version = BASE_VERSION_MAJOR + major_addition
+    major_version = major_version_base + major_addition
     return major_version, minor_offset, patch_version
 
 
@@ -126,20 +127,23 @@ def derive_version_from_patch_count(
     *,
     patches_per_minor: int = DEFAULT_PATCHES_PER_MINOR,
     minors_per_major: int = MINORS_PER_MAJOR,
+    major_version_base: int = BASE_VERSION_MAJOR,
 ) -> str:
     major_version, minor_version, patch_version = _derive_version_numbers(
         patch_count,
         patches_per_minor=patches_per_minor,
         minors_per_major=minors_per_major,
+        major_version_base=major_version_base,
     )
     return f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}"
 
 
-def resolve_runtime_version(*, patch_count: int, patches_per_minor: int) -> str:
+def resolve_runtime_version(*, patch_count: int, patches_per_minor: int, major_version_base: int) -> str:
     return derive_version_from_patch_count(
         patch_count,
         patches_per_minor=patches_per_minor,
         minors_per_major=MINORS_PER_MAJOR,
+        major_version_base=major_version_base,
     )
 
 
@@ -228,6 +232,18 @@ def parse_positive_int(name: str, value: str | None, *, default: int) -> int:
         raise RuntimeError(f"Invalid {name} value: {value!r}. Expected an integer >= 1") from exc
     if parsed < 1:
         raise RuntimeError(f"Invalid {name} value: {value!r}. Expected an integer >= 1")
+    return parsed
+
+
+def parse_non_negative_int(name: str, value: str | None, *, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        parsed = int(value.strip())
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid {name} value: {value!r}. Expected an integer >= 0") from exc
+    if parsed < 0:
+        raise RuntimeError(f"Invalid {name} value: {value!r}. Expected an integer >= 0")
     return parsed
 
 
@@ -330,6 +346,7 @@ class Config:
     prompt_config_path: Path
     commit_author_name: str
     commit_author_email: str
+    major_version_bump: int
     patches_per_minor: int
     minor_pushes_per_release: int
 
@@ -358,6 +375,11 @@ def load_config() -> Config:
         commit_author_name=env("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Wirtelprimpf Bot") or "Wirtelprimpf Bot",
         commit_author_email=env("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "wirtelprimpf@example.invalid")
         or "wirtelprimpf@example.invalid",
+        major_version_bump=parse_non_negative_int(
+            "WIRTELPRIMPF_MAJOR_VERSION_BUMP",
+            env("WIRTELPRIMPF_MAJOR_VERSION_BUMP"),
+            default=0,
+        ),
         patches_per_minor=parse_positive_int(
             "WIRTELPRIMPF_PATCHES_PER_MINOR",
             env("WIRTELPRIMPF_PATCHES_PER_MINOR"),
@@ -451,6 +473,7 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
     runtime_version = resolve_runtime_version(
         patch_count=next_patch_count,
         patches_per_minor=config.patches_per_minor,
+        major_version_base=BASE_VERSION_MAJOR + config.major_version_bump,
     )
     next_minor_push_count = publish_state.minor_push_count
     push_performed = False
@@ -966,6 +989,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             publish_state.patch_count,
             patches_per_minor=config.patches_per_minor,
             minors_per_major=MINORS_PER_MAJOR,
+            major_version_base=BASE_VERSION_MAJOR + config.major_version_bump,
         )
         details = dict(report["details"])
         details.update(
@@ -1003,6 +1027,7 @@ def publish_state_summary(config: Config) -> dict[str, object] | None:
         publish_state.patch_count,
         patches_per_minor=config.patches_per_minor,
         minors_per_major=MINORS_PER_MAJOR,
+        major_version_base=BASE_VERSION_MAJOR + config.major_version_bump,
     )
     return {
         "patch_version": patch_version,
@@ -1071,6 +1096,7 @@ def main() -> None:
                 if config.repo_path
                 else 0,
                 patches_per_minor=config.patches_per_minor,
+                major_version_base=BASE_VERSION_MAJOR + config.major_version_bump,
             )
             if args.check_config and args.json:
                 print(
@@ -1099,6 +1125,7 @@ def main() -> None:
                 current_version = resolve_runtime_version(
                     patch_count=0,
                     patches_per_minor=config.patches_per_minor,
+                    major_version_base=BASE_VERSION_MAJOR + config.major_version_bump,
                 )
             if args.json:
                 print(
@@ -1157,6 +1184,7 @@ def main() -> None:
                                 version=current_version or resolve_runtime_version(
                                     patch_count=0,
                                     patches_per_minor=config.patches_per_minor,
+                                    major_version_base=BASE_VERSION_MAJOR + config.major_version_bump,
                                 ),
                                 details=dry_run_details,
                                 type="dry_run",

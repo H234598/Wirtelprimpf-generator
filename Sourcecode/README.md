@@ -74,6 +74,7 @@ WIRTELPRIMPF_GIT_AUTHOR_NAME="Wirtelprimpf Bot"
 WIRTELPRIMPF_GIT_AUTHOR_EMAIL=wirtelprimpf@example.invalid
 WIRTELPRIMPF_PATCHES_PER_MINOR=100
 WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE=10
+WIRTELPRIMPF_MAJOR_VERSION_BUMP=0
 
 # Optional: local publishing policy for commit cadence.
 # Default behavior in this repository documentation:
@@ -83,6 +84,7 @@ WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE=10
 # - 100 minors advance major by 1
 # - release is prepared every 10 minor pushes
 # - for breaking changes or new API features, bump major manually
+# - configure WIRTELPRIMPF_MAJOR_VERSION_BUMP=N to add a manual major offset
 #
 # Every committed patch is also the patch version number.
 ```
