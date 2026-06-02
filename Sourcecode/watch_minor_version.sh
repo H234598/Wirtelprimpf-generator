@@ -135,7 +135,10 @@ acquire_lock() {
 
   if ! mkdir "$LOCK_TMP" 2>/dev/null; then
     local pid
-    pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+    if ! pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"; then
+      log "failed to read lock file, exiting: $LOCK_FILE"
+      exit 0
+    fi
     if [[ -f "$LOCK_FILE" ]]; then
       local now
       now=$(date +%s)
