@@ -1165,6 +1165,31 @@ def main() -> None:
             current_version = (
                 check_config_details.get("version") if isinstance(check_config_details, dict) else None
             )
+            publish_state_error = (
+                isinstance(check_config_details, dict)
+                and isinstance(check_config_details.get("publish_state_error"), str)
+            )
+            if publish_state_error:
+                error_message = check_config_details["publish_state_error"]
+                if args.json:
+                    print(
+                        format_json(
+                            build_status_envelope(
+                                ok=False,
+                                mode=MODE_CHECK_CONFIG,
+                                status=STATUS_ERROR,
+                                exit_code=1,
+                                version=current_version or VERSION,
+                                check_config=True,
+                                message=error_message,
+                                details=check_config_details,
+                            ),
+                            compact=True,
+                        )
+                    )
+                    raise SystemExit(1)
+                _die(f"Invalid publish state: {error_message}")
+
             if not isinstance(current_version, str):
                 current_version = resolve_runtime_version(
                     patch_count=0,
@@ -1213,6 +1238,11 @@ def main() -> None:
 
         if args.dry_run:
             dry_run_details = publish_state_summary(config)
+            if (
+                isinstance(dry_run_details, dict)
+                and isinstance(dry_run_details.get("publish_state_error"), str)
+            ):
+                _die(f"Invalid publish state: {dry_run_details['publish_state_error']}")
             current_version = (
                 dry_run_details.get("version") if isinstance(dry_run_details, dict) else None
             )
@@ -1312,6 +1342,12 @@ def main() -> None:
                 continue
 
         publish_details = publish_state_summary(config)
+        if (
+            isinstance(publish_details, dict)
+            and isinstance(publish_details.get("publish_state_error"), str)
+            and summary.exit_code == 0
+        ):
+            summary.exit_code = 1
         if summary.exit_code:
             if not args.json:
                 print(f"Completed with {summary.failed} failure(s)", file=sys.stderr)
