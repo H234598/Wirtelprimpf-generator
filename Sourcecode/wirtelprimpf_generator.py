@@ -83,7 +83,7 @@ ENV_BLACKLIST: Final = frozenset(
 OPENAI_ENV_PREFIXES: Final = ("OPENAI_", "AZURE_OPENAI_")
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.5.41-hardening"
+VERSION: Final = "0.5.42-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -989,6 +989,10 @@ def bullet_list(values: list[str]) -> str:
 
 
 def load_prompt_config(path: Path) -> dict[str, object]:
+    if path.is_symlink():
+        raise ValueError(f"Invalid prompt config path (symlink): {path}")
+    if not path.is_file():
+        raise ValueError(f"Prompt config path must be a regular file: {path}")
     try:
         with path.open("r", encoding="utf-8") as file:
             data = json.load(file)
