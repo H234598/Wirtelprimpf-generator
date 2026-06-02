@@ -149,12 +149,30 @@ validate_python_binary() {
   fi
   parent_mode="${parent_owner%% *}"
   parent_owner="${parent_owner##* }"
+  local mountpoint_owner mountpoint_mode
+  if ! mountpoint_mode="$(stat -c '%a %u' "$mountpoint" 2>/dev/null)"; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
+    return 1
+  fi
+  mountpoint_owner="${mountpoint_mode##* }"
+  mountpoint_mode="${mountpoint_mode%% *}"
   if [[ "$resolved_owner" != "$CURRENT_UID" && "$resolved_owner" != 0 ]]; then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
+  if [[ "$mountpoint_owner" != "$CURRENT_UID" && "$mountpoint_owner" != 0 ]]; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
+    return 1
+  fi
   if [[ "$parent_owner" != "$CURRENT_UID" && "$parent_owner" != 0 ]]; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
+    return 1
+  fi
+  if (( 10#$mountpoint_mode & 022 )); then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
