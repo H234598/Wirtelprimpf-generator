@@ -533,17 +533,7 @@ parse_positive_int() {
   echo "$value"
 }
 
-DEPENDENCY_SIGNATURE_CACHE_TTL="${DEPENDENCY_SIGNATURE_CACHE_TTL:-2}"
-DEPENDENCY_SIGNATURE_CACHE_TTL="$(parse_positive_int "$DEPENDENCY_SIGNATURE_CACHE_TTL" 2 1)"
-DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT=""
-DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_TS=0
-DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_META=""
-DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE=""
-DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS=0
-DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META=""
-TIMESTAMP_EPOCH_CACHE=""
-TIMESTAMP_EPOCH_CACHE_MTIME=0
-TIMESTAMP_EPOCH_CACHE_PATH=""
+TIMESTAMP_FILE="${TIMESTAMP_FILE:-$STATE_FILE.started_at}"
 
 dependency_signature() {
   local path="$1"
@@ -858,11 +848,6 @@ refresh_state_timestamp() {
     log "timestamp file must be owned by current user: $TIMESTAMP_FILE"
     return 1
   fi
-  if [[ -n "$TIMESTAMP_EPOCH_CACHE_PATH" ]] && [[ "$TIMESTAMP_EPOCH_CACHE_PATH" == "$TIMESTAMP_FILE" ]] && ! [[ -f "$TIMESTAMP_FILE" ]]; then
-    TIMESTAMP_EPOCH_CACHE=""
-    TIMESTAMP_EPOCH_CACHE_MTIME=0
-    TIMESTAMP_EPOCH_CACHE_PATH=""
-  fi
   if [[ -e "$TIMESTAMP_FILE" ]] && [[ ! -w "$TIMESTAMP_FILE" ]]; then
     log "timestamp file not writable: $TIMESTAMP_FILE"
     return 1
@@ -908,14 +893,6 @@ refresh_state_timestamp() {
     rm -f "$timestamp_tmp" 2>/dev/null || true
     return 1
   fi
-  if ! TIMESTAMP_EPOCH_CACHE_MTIME="$(stat -c '%Y' "$TIMESTAMP_FILE" 2>/dev/null)"; then
-    TIMESTAMP_EPOCH_CACHE=""
-    TIMESTAMP_EPOCH_CACHE_MTIME=0
-    TIMESTAMP_EPOCH_CACHE_PATH=""
-    return 1
-  fi
-  TIMESTAMP_EPOCH_CACHE="$value"
-  TIMESTAMP_EPOCH_CACHE_PATH="$TIMESTAMP_FILE"
 }
 
 read_timestamp_epoch() {
