@@ -2,10 +2,20 @@
 set -euo pipefail
 
 env_file="${1:-${HOME}/.config/wirtelprimpf/openai.env}"
-config_dir="$(dirname "$env_file")"
+if [[ -z "$env_file" ]]; then
+  printf 'Environment file path must not be empty.\n' >&2
+  exit 1
+fi
+
+config_dir="$(dirname -- "$env_file")"
 
 mkdir -p -- "$config_dir"
 chmod 700 -- "$config_dir"
+
+if [[ -L "$env_file" || ( -e "$env_file" && ! -f "$env_file" ) ]]; then
+  printf 'Refusing to overwrite non-regular env file: %s\n' "$env_file" >&2
+  exit 1
+fi
 
 printf 'OpenAI API key with Images permission (api.model.images.request): '
 IFS= read -r -s api_key
