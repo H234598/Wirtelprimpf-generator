@@ -173,7 +173,7 @@ breaking_raw = os.environ.get("WIRTELPRIMPF_BREAKING_CHANGE", "0")
 def parse_positive_int(name, value):
     try:
         parsed = int(value)
-    except ValueError:
+    except (ValueError, TypeError):
         raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 1")
     if parsed < 1:
         raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 1")
@@ -182,7 +182,7 @@ def parse_positive_int(name, value):
 def parse_non_negative_int(name, value):
     try:
         parsed = int(value)
-    except ValueError:
+    except (ValueError, TypeError):
         raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 0")
     if parsed < 0:
         raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 0")
