@@ -138,19 +138,25 @@ if state_path.exists():
     try:
         payload = json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        raise SystemExit(f"invalid publish state file: {state_path}: {exc}")
+        print(f"invalid publish state file: {state_path}: {exc}", file=sys.stderr)
+        payload = None
     if not isinstance(payload, dict):
-        raise SystemExit(f"invalid publish state: expected JSON object in {state_path}")
-    if "patch_count" in payload:
-        state_patch_count = payload["patch_count"]
-    elif "patch_version" in payload:
-        state_patch_count = payload["patch_version"]
-    else:
-        raise SystemExit("invalid publish state: missing patch_count and patch_version")
+        print(f"invalid publish state: expected JSON object in {state_path}", file=sys.stderr)
+        payload = None
+    if payload is not None:
+        if "patch_count" in payload:
+            state_patch_count = payload["patch_count"]
+        elif "patch_version" in payload:
+            state_patch_count = payload["patch_version"]
+        else:
+            print("invalid publish state: missing patch_count and patch_version", file=sys.stderr)
+            state_patch_count = 0
     if not isinstance(state_patch_count, int) or isinstance(state_patch_count, bool):
-        raise SystemExit(f"invalid publish state: patch_count must be a non-boolean integer, got {state_patch_count!r}")
+        print(f"invalid publish state: patch_count must be a non-boolean integer, got {state_patch_count!r}", file=sys.stderr)
+        state_patch_count = 0
     if state_patch_count < 0:
-        raise SystemExit(f"invalid publish state: patch_count must be >= 0, got {state_patch_count!r}")
+        print(f"invalid publish state: patch_count must be >= 0, got {state_patch_count!r}", file=sys.stderr)
+        state_patch_count = 0
 
 try:
     text = script_path.read_text(encoding="utf-8")
