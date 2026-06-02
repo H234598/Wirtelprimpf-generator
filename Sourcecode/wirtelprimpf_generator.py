@@ -34,6 +34,20 @@ GENERATION_RETRIES: Final = 3
 GENERATION_RETRY_BASE_SECONDS: Final = 2
 
 
+@dataclass
+class RunSummary:
+    success: int = 0
+    failed: int = 0
+    skipped: int = 0
+    prompts: int = 0
+    total: int = 0
+    exit_code: int = 0
+
+
+def format_json(value: object, *, indent: int = 2) -> str:
+    return json.dumps(value, indent=indent, ensure_ascii=False)
+
+
 def env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
     if value is None or value == "":
@@ -432,7 +446,27 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Generate prompts and print them, but do not call OpenAI API or publish to git.",
     )
+    parser.add_argument("--json", action="store_true", help="Emit machine-readable status output.")
     return parser.parse_args()
+
+
+def emit_summary(summary: RunSummary, args: argparse.Namespace) -> None:
+    if args.json:
+        print(
+            format_json(
+                {
+                    "ok": summary.exit_code == 0,
+                    "summary": {
+                        "success": summary.success,
+                        "failed": summary.failed,
+                        "skipped": summary.skipped,
+                        "prompts": summary.prompts,
+                        "total": summary.total,
+                        "exit_code": summary.exit_code,
+                    },
+                }
+            )
+        )
 
 
 def _die(message: str, *, exit_code: int = 1) -> None:
@@ -456,6 +490,22 @@ def main() -> None:
         _die(f"Prompt config validation failed: {exc}")
 
     if args.check_config:
+        if args.json:
+            print(
+                format_json(
+                    {
+                        "ok": True,
+                        "check_config": True,
+                        "local_outdir": str(config.local_outdir),
+                        "prompt_count": len(prompts),
+                        "model": config.image_model,
+                        "image_size": config.image_size,
+                        "output_resolution": config.output_resolution,
+                        "repo_path": str(config.repo_path) if config.repo_path else None,
+                    }
+                )
+            )
+            return
         print("Prompt configuration is valid.")
         print(f"Resolved config: local_outdir={config.local_outdir}")
         print(f"model={config.image_model} size={config.image_size} output_resolution={config.output_resolution}")
@@ -469,11 +519,17 @@ def main() -> None:
     config.local_outdir.mkdir(parents=True, exist_ok=True)
     client = OpenAI()
     repo_outdir = ensure_repo(config)
-    failures = 0
+    summary = RunSummary(total=len(prompts))
 
     if args.dry_run:
         for index, prompt in enumerate(prompts, start=1):
-            print(f"[DRY-RUN {index}/{len(prompts)}] {prompt[:140]}...")
+            if args.json:
+                print(format_json({"type": "dry_run", "index": index, "prompt_preview": prompt[:140]}))
+            else:
+                print(f"[DRY-RUN {index}/{len(prompts)}] {prompt[:140]}...")
+            summary.skipped += 1
+        summary.exit_code = 0
+        emit_summary(summary, args)
         return
 
     for index, prompt in enumerate(prompts, start=1):
@@ -495,12 +551,16 @@ def main() -> None:
             image_b64 = generate_image_with_retries(client, request)
         except Exception as exc:
             print(f"Generation failed for {stem}: {exc}", file=sys.stderr)
-            failures += 1
+            summary.failed += 1
+            summary.prompts += 1
+            summary.exit_code = 2
             continue
 
         if image_b64 is None:
             print(f"Generation failed for {stem}: no base64 image data", file=sys.stderr)
-            failures += 1
+            summary.failed += 1
+            summary.prompts += 1
+            summary.exit_code = 2
             continue
 
         try:
@@ -509,8 +569,12 @@ def main() -> None:
             local_prompt.write_text(prompt, encoding="utf-8")
         except Exception as exc:
             print(f"Write/transform failed for {stem}: {exc}", file=sys.stderr)
-            failures += 1
+            summary.failed += 1
+            summary.prompts += 1
+            summary.exit_code = 2
             continue
+        summary.success += 1
+        summary.prompts += 1
         print(f"Local image: {local_png}")
         print(f"Local prompt: {local_prompt}")
 
@@ -527,10 +591,18 @@ def main() -> None:
             print(f"Repository prompt: {repo_prompt}")
         except Exception as exc:
             print(f"Repository publish failed for {stem}: {exc}", file=sys.stderr)
-            failures += 1
+            summary.failed += 1
+            summary.exit_code = 2
+            continue
 
-    if failures:
-        _die(f"Completed with {failures} failure(s)", exit_code=2)
+    if summary.exit_code:
+        if not args.json:
+            print(f"Completed with {summary.failed} failure(s)", file=sys.stderr)
+        emit_summary(summary, args)
+        _die(f"Completed with {summary.failed} failure(s)", exit_code=summary.exit_code)
+
+    emit_summary(summary, args)
+    return
 
 
 if __name__ == "__main__":
