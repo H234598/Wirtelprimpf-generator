@@ -85,6 +85,11 @@ validate_python_binary() {
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
+  if [[ -L "$path" ]]; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
+    return 1
+  fi
   if ! resolved="$(readlink -f -- "$path" 2>/dev/null)"; then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
