@@ -254,7 +254,10 @@ run_check_to_file() {
   fi
 
   local output_tmp
-  output_tmp="${output}.tmp.$$"
+  if ! output_tmp="$(mktemp "${output}.tmp.XXXXXX")"; then
+    echo "Failed to create temporary output file for ${label}" >&2
+    return 1
+  fi
   if ! run_check "$label" "$@" > "$output_tmp"; then
     rm -f "$output_tmp"
     return 1
