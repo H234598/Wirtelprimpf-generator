@@ -288,6 +288,10 @@ sync_state_file() {
 acquire_lock
 
 init_state=$(get_minor_version)
+if [[ -z "$init_state" ]]; then
+  log "failed to derive initial minor version from publish state"
+  exit 1
+fi
 
 state_file_value="$(sync_state_file "$init_state")"
 if [[ "${1:-}" == "--once" ]]; then
