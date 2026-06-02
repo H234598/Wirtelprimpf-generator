@@ -94,8 +94,8 @@ and does not touch Git.
 
 Git-Publish policy:
 
-- `WIRTELPRIMPF_PATCHES_PER_MINOR` controls the patch count threshold for push.
-  Default: `100`.
+- `WIRTELPRIMPF_PATCHES_PER_MINOR` is fixed to `100`; the runtime
+  rejects any other value.
 - `WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE` controls how many pushed minor
   boundaries should be grouped before a release should be prepared. Default:
   `10`.
