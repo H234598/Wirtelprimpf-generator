@@ -730,6 +730,7 @@ def main() -> None:
             else:
                 print(f"[DRY-RUN {index}/{len(prompts)}] {prompt[:140]}...")
             summary.skipped += 1
+            summary.prompts += 1
         summary.exit_code = 0
         emit_summary(summary, args)
         return
