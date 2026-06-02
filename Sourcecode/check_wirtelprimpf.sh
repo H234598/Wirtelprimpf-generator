@@ -7,7 +7,7 @@ CURRENT_UID="$(id -u)"
 readonly CURRENT_UID
 declare -r SECURITY_PATHS="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 declare -r SECURITY_BIN_NAME_PATTERNS="python3|python3\.[0-9]+"
-declare -ar SECURITY_PYTHON_CANDIDATES=("python3" "python")
+declare -ar SECURITY_PYTHON_CANDIDATES=("python3")
 if [[ -n "${PYTHON_BIN:-}" && "${PYTHON_BIN}" == *[[:space:]]* ]]; then
   echo "PYTHON_BIN must not contain whitespace: ${PYTHON_BIN}" >&2
   exit 1
