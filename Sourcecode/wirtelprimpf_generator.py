@@ -712,7 +712,21 @@ def main() -> None:
     if args.dry_run:
         for index, prompt in enumerate(prompts, start=1):
             if args.json:
-                print(format_json({"type": "dry_run", "index": index, "prompt_preview": prompt[:140]}))
+                print(
+                    format_json(
+                        {
+                            "ok": True,
+                            "version": VERSION,
+                            "timestamp": build_status_timestamp(),
+                            "status": STATUS_OK,
+                            "exit_code": 0,
+                            "type": "dry_run",
+                            "index": index,
+                            "total": len(prompts),
+                            "prompt_preview": prompt[:140],
+                        }
+                    )
+                )
             else:
                 print(f"[DRY-RUN {index}/{len(prompts)}] {prompt[:140]}...")
             summary.skipped += 1

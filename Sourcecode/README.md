@@ -180,6 +180,10 @@ The JSON form can be used for automation:
 }
 ```
 
+`--dry-run --json` also emits machine-readable records using the same top-level
+fields (`ok`, `version`, `timestamp`, `status`, `exit_code`) per rendered prompt
+record.
+
 ### Exit codes
 
 - `0`: success
