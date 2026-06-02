@@ -548,6 +548,7 @@ dependency_signature() {
   local cache_meta current_meta
   local signature
   local parent_mode
+  local do_invalidate_cache=0
   now="$(date +%s)"
   cache_key=""
   if [[ "$path" == "$PY_SCRIPT" ]]; then
@@ -561,9 +562,11 @@ dependency_signature() {
   fi
   if [[ -n "$cache_key" ]] && (( now - cache_ts <= DEPENDENCY_SIGNATURE_CACHE_TTL )) && [[ -n "$cache_value" ]]; then
     if [[ -L "$path" || ! -f "$path" || ! -r "$path" ]]; then
+      do_invalidate_cache=1
       return 1
     fi
     if ! current_meta="$(stat -c '%u:%g:%a:%Y:%i:%s' "$path" 2>/dev/null)"; then
+      do_invalidate_cache=1
       return 1
     fi
     if [[ "$cache_key" == "PY_SCRIPT" ]]; then
@@ -575,9 +578,10 @@ dependency_signature() {
       echo "$cache_value"
       return 0
     fi
+    do_invalidate_cache=1
   fi
-  if [[ -n "$cache_key" ]] && (( now - cache_ts <= DEPENDENCY_SIGNATURE_CACHE_TTL )) && [[ -n "$cache_value" ]]; then
-    # invalidate stale cache on metadata change
+
+  if (( do_invalidate_cache == 1 )) || [[ -n "$cache_key" ]] && (( now - cache_ts <= DEPENDENCY_SIGNATURE_CACHE_TTL )) && [[ -n "$cache_value" ]]; then
     if [[ "$cache_key" == "PY_SCRIPT" ]]; then
       DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT=""
       DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_TS=0
