@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY=${PYTHON_BIN:-python3}
@@ -8,7 +9,6 @@ if ! CHECK_TMPDIR="$(mktemp -d)"; then
   echo "Failed to create temporary directory" >&2
   exit 1
 fi
-trap '[[ -n "${CHECK_TMPDIR-}" && -d "$CHECK_TMPDIR" ]] && rm -rf "$CHECK_TMPDIR"' EXIT
 
 if ! command -v "$PY" >/dev/null 2>&1; then
   echo "Python executable not found: ${PY}" >&2
@@ -26,7 +26,9 @@ if [[ ! -f "$PY_SCRIPT" ]]; then
 fi
 
 cleanup_checks() {
-  [[ -n "${CHECK_TMPDIR-}" && -d "$CHECK_TMPDIR" ]] && rm -rf "$CHECK_TMPDIR"
+  if [[ -n "${CHECK_TMPDIR-}" && -d "$CHECK_TMPDIR" ]]; then
+    rm -rf "$CHECK_TMPDIR"
+  fi
 }
 trap cleanup_checks EXIT
 
