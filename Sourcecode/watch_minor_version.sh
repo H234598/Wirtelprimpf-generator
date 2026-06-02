@@ -32,8 +32,7 @@ readonly HAS_FINDMNT_CMD HAS_FILE_CMD
 
 is_valid_python_binary_name() {
   local candidate="$1"
-  local base_name
-  base_name="$(basename -- "$candidate")"
+  local base_name="${candidate##*/}"
   [[ "$candidate" != */* ]]
   [[ "$base_name" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]
 }
