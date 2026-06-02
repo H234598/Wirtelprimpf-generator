@@ -187,6 +187,9 @@ chmod +x Sourcecode/check_wirtelprimpf.sh Sourcecode/watch_minor_version.sh
 
 # Mit anderem Intervall (Sekunden):
 SLEEP_SECONDS=120 ./Sourcecode/watch_minor_version.sh
+
+# Optional: aggressive/robuste Lock- und Retry-Parameter
+MAX_STALE_LOCK_SECONDS=1200 DEFAULT_RETRY_DELAY_SECONDS=10 ./Sourcecode/watch_minor_version.sh --once
 ```
 
 Ein einmaliger Check kann auch unabhängig laufen:
@@ -195,11 +198,13 @@ Ein einmaliger Check kann auch unabhängig laufen:
 ./Sourcecode/check_wirtelprimpf.sh
 ```
 
-Die Skripte schreiben standardmäßig JSON-Checkausgaben in `/tmp/`:
+`watch_minor_version.sh` erzwingt einen einzelnen aktiven Lauf über Locking. Parallel-Starts werden auf demselben Host/Workdir abgeblockt.
 
-- `/tmp/wirtelprimpf-status.json`
-- `/tmp/wirtelprimpf-check-config.json`
-- `/tmp/wirtelprimpf-dry-run.json`
+`check_wirtelprimpf.sh` verwendet temporäre Dateien mit automatischer Aufräumung.
+
+`watch_minor_version.sh` liest die aktuelle Minor-Version aus dem `VERSION`-Wert in
+`Sourcecode/wirtelprimpf_generator.py` direkt und reagiert nur auf echte
+`major.minor`-Änderungen.
 
 ### Dauerstart via systemd --user
 
