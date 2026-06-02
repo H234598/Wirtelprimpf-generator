@@ -926,6 +926,17 @@ cleanup_lock_tmp() {
   fi
 }
 
+cleanup_timestamp_if_lock_owned_by_self() {
+  local lock_pid
+  if ! lock_pid="$(read_pid_from_file "$LOCK_FILE")"; then
+    return
+  fi
+  if [[ "$lock_pid" != "$$" ]]; then
+    return
+  fi
+  safe_unlink_runtime_file "$TIMESTAMP_FILE" || true
+}
+
 read_pid_from_file() {
   local path="$1"
   local pid
@@ -1074,7 +1085,7 @@ acquire_lock() {
       cleanup_lock_fd
       return 1
     fi
-    trap 'flock -u 9 2>/dev/null || true; exec 9>&- 2>/dev/null || true; safe_unlink_runtime_file "$LOCK_FILE" || true; safe_unlink_runtime_file "$TIMESTAMP_FILE" || true' EXIT
+    trap 'flock -u 9 2>/dev/null || true; exec 9>&- 2>/dev/null || true; cleanup_timestamp_if_lock_owned_by_self; safe_unlink_runtime_file "$LOCK_FILE" || true' EXIT
     printf '%s\n' "$$" 1>&9
     return
   fi
@@ -1104,7 +1115,7 @@ acquire_lock() {
     fi
 
     if ln "$LOCK_TMP" "$LOCK_FILE" 2>/dev/null; then
-      trap 'cleanup_lock_tmp; safe_unlink_runtime_file "$LOCK_FILE" || true; safe_unlink_runtime_file "$TIMESTAMP_FILE" || true' EXIT
+      trap 'cleanup_lock_tmp; cleanup_timestamp_if_lock_owned_by_self; safe_unlink_runtime_file "$LOCK_FILE" || true' EXIT
       if ! rm -f "$LOCK_TMP" 2>/dev/null; then
         safe_unlink_runtime_file "$LOCK_FILE" || true
         log "failed to clean up lock temp file: $LOCK_TMP"
