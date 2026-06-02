@@ -31,6 +31,7 @@ IMAGE_SIZE_PATTERN: Final = r"^\d+x\d+$"
 RESOLUTION_MAX_DIM: Final = 8192
 IMAGE_PAYLOAD_MAX_BYTES: Final = 80 * 1024 * 1024
 REPO_SLUG_PATTERN: Final = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+REPO_BRANCH_PATTERN: Final = re.compile(r"^[A-Za-z0-9._/-]{1,120}$")
 GIT_TIMEOUT_SECONDS: Final = 120
 GENERATION_RETRIES: Final = 3
 GENERATION_RETRY_BASE_SECONDS: Final = 2
@@ -192,6 +193,15 @@ def normalize_repo_slug(value: str | None) -> str | None:
     return normalized
 
 
+def normalize_repo_branch(value: str | None) -> str:
+    branch = (value or "main").strip() or "main"
+    if not REPO_BRANCH_PATTERN.match(branch):
+        raise RuntimeError(
+            "Invalid WIRTELPRIMPF_REPO_BRANCH value. Allowed characters: letters, digits, ., _, -, and /"
+        )
+    return branch
+
+
 def read_publish_state(path: Path) -> PublishState:
     if not path.exists():
         return PublishState()
@@ -259,7 +269,7 @@ def load_config() -> Config:
         repo_path=resolved_repo_path,
         repo_slug=repo_slug,
         repo_subdir=env("WIRTELPRIMPF_REPO_SUBDIR", "Wirtelprimpf") or "Wirtelprimpf",
-        repo_branch=env("WIRTELPRIMPF_REPO_BRANCH", "main") or "main",
+        repo_branch=normalize_repo_branch(env("WIRTELPRIMPF_REPO_BRANCH", "main")),
         image_model=env("WIRTELPRIMPF_IMAGE_MODEL", "gpt-image-2") or "gpt-image-2",
         image_size=parse_image_size(env("WIRTELPRIMPF_IMAGE_SIZE", "1536x1024") or "1536x1024"),
         output_resolution=parse_output_resolution(env("WIRTELPRIMPF_OUTPUT_RESOLUTION", "2k") or "2k"),
@@ -306,6 +316,9 @@ def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProc
 def ensure_repo(config: Config) -> Path | None:
     if config.repo_path is None:
         return None
+
+    if not shutil.which("git"):
+        raise RuntimeError("git is required for repository operations")
 
     if (config.repo_path / ".git").is_dir():
         run(["git", "fetch", "origin", config.repo_branch], cwd=config.repo_path)
