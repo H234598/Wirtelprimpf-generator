@@ -540,7 +540,6 @@ dependency_signature() {
   local parent
   local signature
   local parent_mode parent_meta owner group mode mtime inode size
-  local parent_perm owner_perm
   if [[ "$path" != "$PY_SCRIPT" && "$path" != "$PUBLISH_STATE_FILE" ]]; then
     return 1
   fi
