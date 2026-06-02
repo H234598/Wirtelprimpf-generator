@@ -15,10 +15,9 @@ MAX_STALE_LOCK_SECONDS="${MAX_STALE_LOCK_SECONDS:-900}"
 DEFAULT_RETRY_DELAY_SECONDS="${DEFAULT_RETRY_DELAY_SECONDS:-5}"
 
 parse_positive_int() {
-  local name="$1"
-  local value="$2"
-  local fallback="$3"
-  local min="${4:-1}"
+  local value="$1"
+  local fallback="$2"
+  local min="${3:-1}"
   if [[ -z "$value" || ! "$value" =~ ^[0-9]+$ ]]; then
     echo "$fallback"
     return
@@ -30,12 +29,30 @@ parse_positive_int() {
   echo "$value"
 }
 
-SLEEP_SECONDS="$(parse_positive_int "SLEEP_SECONDS" "$SLEEP_SECONDS" 300 1)"
-MAX_STALE_LOCK_SECONDS="$(parse_positive_int "MAX_STALE_LOCK_SECONDS" "$MAX_STALE_LOCK_SECONDS" 900 10)"
-DEFAULT_RETRY_DELAY_SECONDS="$(parse_positive_int "DEFAULT_RETRY_DELAY_SECONDS" "$DEFAULT_RETRY_DELAY_SECONDS" 5 1)"
+SLEEP_SECONDS="$(parse_positive_int "$SLEEP_SECONDS" 300 1)"
+MAX_STALE_LOCK_SECONDS="$(parse_positive_int "$MAX_STALE_LOCK_SECONDS" 900 10)"
+DEFAULT_RETRY_DELAY_SECONDS="$(parse_positive_int "$DEFAULT_RETRY_DELAY_SECONDS" 5 1)"
 
 log() {
   printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"
+}
+
+require_file() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -f "$path" ]]; then
+    log "${label} missing: $path"
+    exit 1
+  fi
+}
+
+require_executable() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -x "$path" ]]; then
+    log "${label} is not executable: $path"
+    exit 1
+  fi
 }
 
 write_state() {
@@ -99,7 +116,7 @@ try:
 except OSError as exc:
     raise SystemExit(f"cannot read script: {exc}") from exc
 
-match = re.search(r'VERSION:\s*Final\s*=\s*"([^"]+)"', text)
+match = re.search(r'VERSION:\\s*Final\\s*=\\s*"([^"]+)"', text)
 if not match:
     raise SystemExit("VERSION constant not found")
 
@@ -114,12 +131,16 @@ PY
 
 acquire_lock
 
+require_file "$PY_SCRIPT" "Generator script"
+
 init_state=$(get_minor_version)
 if [[ ! -f "$STATE_FILE" ]]; then
   write_state "$init_state"
 fi
 
 if [[ "${1:-}" == "--once" ]]; then
+  require_file "$CHECKS_SCRIPT" "Checks script"
+  require_executable "$CHECKS_SCRIPT" "Checks script"
   prev="$(cat "$STATE_FILE")"
   current="$(get_minor_version)"
   if [[ "$current" != "$prev" ]]; then
@@ -139,6 +160,8 @@ while true; do
   current="$(get_minor_version)"
 
   if [[ "$current" != "$prev" ]]; then
+    require_file "$CHECKS_SCRIPT" "Checks script"
+    require_executable "$CHECKS_SCRIPT" "Checks script"
     log "minor version changed: $prev -> $current"
     write_state "$current"
     if "$CHECKS_SCRIPT"; then
