@@ -55,6 +55,9 @@ require_executable() {
   fi
 }
 
+require_executable "$PY" "Python interpreter"
+require_file "$PY_SCRIPT" "Generator script"
+
 write_state() {
   local value="$1"
   mkdir -p "$(dirname "$STATE_FILE")"
@@ -130,8 +133,6 @@ PY
 }
 
 acquire_lock
-
-require_file "$PY_SCRIPT" "Generator script"
 
 init_state=$(get_minor_version)
 if [[ ! -f "$STATE_FILE" ]]; then
