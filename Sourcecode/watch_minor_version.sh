@@ -20,6 +20,15 @@ declare -r SECURITY_BIN_NAME_PATTERNS="python3|python3\.[0-9]+"
 declare -ar SECURITY_PYTHON_CANDIDATES=("python3")
 declare -g PYTHON_BINARY_CACHE_PATH=""
 declare -gi PYTHON_BINARY_CACHE_RESULT=-1
+declare -i HAS_FINDMNT_CMD=0
+declare -i HAS_FILE_CMD=0
+if command -v findmnt >/dev/null 2>&1; then
+  HAS_FINDMNT_CMD=1
+fi
+if command -v file >/dev/null 2>&1; then
+  HAS_FILE_CMD=1
+fi
+readonly HAS_FINDMNT_CMD HAS_FILE_CMD
 
 is_valid_python_binary_name() {
   local candidate="$1"
@@ -149,7 +158,7 @@ validate_python_binary() {
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
-  if command -v findmnt >/dev/null 2>&1; then
+  if (( HAS_FINDMNT_CMD )); then
     mount_opts="$(findmnt -n -o OPTIONS "$mountpoint" 2>/dev/null || true)"
     if [[ ",${mount_opts}," == *",noexec,"* ]]; then
       PYTHON_BINARY_CACHE_RESULT=1
@@ -157,7 +166,7 @@ validate_python_binary() {
       return 1
     fi
   fi
-  if command -v file >/dev/null 2>&1; then
+  if (( HAS_FILE_CMD )); then
     if ! file_type="$(file -b -- "$resolved" 2>/dev/null || true)"; then
       PYTHON_BINARY_CACHE_RESULT=1
       PYTHON_BINARY_CACHE_PATH="$path"
