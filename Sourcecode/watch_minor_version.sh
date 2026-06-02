@@ -116,12 +116,12 @@ try:
 except OSError as exc:
     raise SystemExit(f"cannot read script: {exc}") from exc
 
-match = re.search(r'VERSION:\\s*Final\\s*=\\s*"([^"]+)"', text)
+match = re.search(r'VERSION:\s*Final\s*=\s*"([^"]+)"', text)
 if not match:
     raise SystemExit("VERSION constant not found")
 
 version = match.group(1).strip()
-parsed = re.match(r"^(\\d+)\\.(\\d+)\\.(\\d+)", version)
+parsed = re.match(r"^(\d+)\.(\d+)\.(\d+)", version)
 if not parsed:
     raise SystemExit(f"invalid version format: {version!r}")
 
