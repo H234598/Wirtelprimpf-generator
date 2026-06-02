@@ -400,8 +400,17 @@ while true; do
 
   if [[ -f "$TIMESTAMP_FILE" ]]; then
     now_epoch="$(date +%s)"
-    last_epoch="$(cat "$TIMESTAMP_FILE")"
-    if [[ -n "$last_epoch" && $((now_epoch - last_epoch)) -lt 1 ]]; then
+    last_epoch="$(cat "$TIMESTAMP_FILE" 2>/dev/null || true)"
+    if [[ ! "$last_epoch" =~ ^[0-9]+$ ]]; then
+      log "invalid timestamp file content, refreshing: $last_epoch"
+      if ! refresh_state_timestamp; then
+        log "failed to refresh timestamp file: $TIMESTAMP_FILE"
+        exit 1
+      fi
+      sleep "$DEFAULT_RETRY_DELAY_SECONDS"
+      continue
+    fi
+    if ((now_epoch - last_epoch < 1)); then
       sleep "$DEFAULT_RETRY_DELAY_SECONDS"
       continue
     fi
