@@ -133,12 +133,13 @@ PATCHES_PER_MINOR_FOR_MINOR = PATCHES_PER_MINOR
 
 script_path = Path(sys.argv[1])
 state_path = Path(sys.argv[2])
-state_patch_count = 0
 if state_path.exists():
     try:
         payload = json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         raise SystemExit(f"invalid publish state file: {state_path}: {exc}")
+    if not isinstance(payload, dict):
+        raise SystemExit(f"invalid publish state: expected JSON object in {state_path}")
     if "patch_count" in payload:
         state_patch_count = payload["patch_count"]
     elif "patch_version" in payload:
