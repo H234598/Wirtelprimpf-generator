@@ -30,6 +30,7 @@ FLEX_PROCESSING_DISABLED_VALUES = {"0", "false", "no", "off", "disabled", "disab
 IMAGE_SIZE_PATTERN: Final = r"^\d+x\d+$"
 RESOLUTION_MAX_DIM: Final = 8192
 IMAGE_PAYLOAD_MAX_BYTES: Final = 80 * 1024 * 1024
+REPO_SLUG_PATTERN: Final = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 GIT_TIMEOUT_SECONDS: Final = 120
 GENERATION_RETRIES: Final = 3
 GENERATION_RETRY_BASE_SECONDS: Final = 2
@@ -146,14 +147,19 @@ def env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
     if value is None or value == "":
         return default
-    return value
+    cleaned = value.strip()
+    if cleaned == "":
+        return default
+    if "\x00" in cleaned:
+        raise RuntimeError(f"Invalid {name} value contains a NUL byte")
+    return cleaned
 
 
 def parse_positive_int(name: str, value: str | None, *, default: int) -> int:
     if value is None:
         return default
     try:
-        parsed = int(value)
+        parsed = int(value.strip())
     except ValueError as exc:
         raise RuntimeError(f"Invalid {name} value: {value!r}. Expected an integer >= 1") from exc
     if parsed < 1:
@@ -165,6 +171,25 @@ def normalize_repo_path(path: Path) -> Path:
     if path.name == ".git" and (path / "config").is_file() and (path / "HEAD").is_file() and path.parent.is_dir():
         return path.parent
     return path
+
+
+def normalize_repo_slug(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    cleaned = value.strip()
+    if cleaned == "":
+        return None
+    normalized = cleaned.replace("https://github.com/", "").replace("http://github.com/", "")
+    if normalized.endswith(".git"):
+        normalized = normalized[:-4]
+
+    if not REPO_SLUG_PATTERN.match(normalized):
+        raise RuntimeError(
+            "Invalid WIRTELPRIMPF_REPO_SLUG value. Expected format: <owner>/<repository> ("
+            "for example: exampleuser/example-repo)"
+        )
+    return normalized
 
 
 def read_publish_state(path: Path) -> PublishState:
@@ -227,11 +252,12 @@ def load_config() -> Config:
     default_prompt_config = config_home / "wirtelprimpf" / "prompt_config.json"
     repo_path = env("WIRTELPRIMPF_REPO_PATH")
     resolved_repo_path = normalize_repo_path(Path(repo_path).expanduser()) if repo_path else None
+    repo_slug = normalize_repo_slug(env("WIRTELPRIMPF_REPO_SLUG"))
 
     return Config(
         local_outdir=Path(env("WIRTELPRIMPF_LOCAL_OUTDIR", str(default_outdir))).expanduser(),
         repo_path=resolved_repo_path,
-        repo_slug=env("WIRTELPRIMPF_REPO_SLUG"),
+        repo_slug=repo_slug,
         repo_subdir=env("WIRTELPRIMPF_REPO_SUBDIR", "Wirtelprimpf") or "Wirtelprimpf",
         repo_branch=env("WIRTELPRIMPF_REPO_BRANCH", "main") or "main",
         image_model=env("WIRTELPRIMPF_IMAGE_MODEL", "gpt-image-2") or "gpt-image-2",
@@ -288,8 +314,15 @@ def ensure_repo(config: Config) -> Path | None:
     else:
         if not config.repo_slug:
             raise RuntimeError("WIRTELPRIMPF_REPO_PATH is not a Git checkout and WIRTELPRIMPF_REPO_SLUG is unset")
+        if config.repo_path.exists() and not config.repo_path.is_dir():
+            raise RuntimeError(f"WIRTELPRIMPF_REPO_PATH is not a directory: {config.repo_path}")
         if not shutil.which("gh"):
             raise RuntimeError("gh is required to clone WIRTELPRIMPF_REPO_SLUG")
+        if config.repo_path.exists() and any(config.repo_path.iterdir()):
+            raise RuntimeError(
+                "WIRTELPRIMPF_REPO_PATH exists but is not a git checkout. "
+                f"Refusing to clone into non-empty directory: {config.repo_path}"
+            )
 
         config.repo_path.parent.mkdir(parents=True, exist_ok=True)
         run(["gh", "repo", "clone", config.repo_slug, str(config.repo_path)])
