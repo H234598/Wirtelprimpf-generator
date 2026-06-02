@@ -18,8 +18,6 @@ log() {
 declare -ar SECURITY_PATHS_ARRAY=(/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin)
 declare -r SECURITY_BIN_NAME_PATTERNS="python3|python3\.[0-9]+"
 declare -ar SECURITY_PYTHON_CANDIDATES=("python3")
-declare -g PYTHON_BINARY_CACHE_PATH=""
-declare -gi PYTHON_BINARY_CACHE_RESULT=-1
 declare -i HAS_FINDMNT_CMD=0
 declare -i HAS_FILE_CMD=0
 if command -v findmnt >/dev/null 2>&1; then
@@ -91,170 +89,107 @@ resolve_python() {
 
 validate_python_binary() {
   local path="$1"
-  if [[ "$path" == "$PYTHON_BINARY_CACHE_PATH" && $PYTHON_BINARY_CACHE_RESULT -ge 0 ]]; then
-    return "$PYTHON_BINARY_CACHE_RESULT"
-  fi
 
   local resolved mountpoint mount_opts parent_dir
   local resolved_mode resolved_owner parent_mode parent_owner mountpoint_owner mountpoint_mode
   local file_type
 
   if [[ -z "$path" ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ "$path" != /* ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ -L "$path" ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if ! resolved="$(readlink -f -- "$path" 2>/dev/null)"; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ ! -f "$resolved" || ! -r "$resolved" ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   parent_dir="$(dirname -- "$resolved")"
   if [[ -L "$parent_dir" || ! -d "$parent_dir" ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   case "$resolved" in
     /usr/local/sbin/*|/usr/local/bin/*|/usr/sbin/*|/usr/bin/*|/sbin/*|/bin/*)
       ;;
     *)
-      PYTHON_BINARY_CACHE_RESULT=1
-      PYTHON_BINARY_CACHE_PATH="$path"
       return 1
       ;;
   esac
   local base_name="${resolved##*/}"
   if [[ ! "$base_name" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ "$resolved" == /tmp/* || "$resolved" == /var/tmp/* || "$resolved" == /run/* || "$resolved" == /dev/* ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if ! read -r resolved_mode resolved_owner mountpoint <<<"$(stat -c '%a %u %m' "$resolved" 2>/dev/null)"; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ ! -d "$mountpoint" ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ -L "$mountpoint" ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if ! read -r parent_mode parent_owner <<<"$(stat -c '%a %u' "$parent_dir" 2>/dev/null)"; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if ! read -r mountpoint_mode mountpoint_owner <<<"$(stat -c '%a %u' "$mountpoint" 2>/dev/null)"; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ "$resolved_owner" != "$CURRENT_UID" && "$resolved_owner" != 0 ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ "$mountpoint_owner" != "$CURRENT_UID" && "$mountpoint_owner" != 0 ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ "$parent_owner" != "$CURRENT_UID" && "$parent_owner" != 0 ]]; then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if (( 10#$mountpoint_mode & 022 )); then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if (( 10#$parent_mode & 022 )); then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if (( 10#$resolved_mode & 022 )); then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if (( 10#$resolved_mode & 06000 )); then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if (( (10#$resolved_mode & 0111) == 0 )); then
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if (( HAS_FINDMNT_CMD )); then
     mount_opts="$(findmnt -n -o OPTIONS "$mountpoint" 2>/dev/null || true)"
     if [[ ",${mount_opts}," == *",noexec,"* ]]; then
-      PYTHON_BINARY_CACHE_RESULT=1
-      PYTHON_BINARY_CACHE_PATH="$path"
       return 1
     fi
     if [[ ",${mount_opts}," == *",nosuid,"* ]]; then
-      PYTHON_BINARY_CACHE_RESULT=1
-      PYTHON_BINARY_CACHE_PATH="$path"
       return 1
     fi
     if [[ ",${mount_opts}," == *",nodev,"* ]]; then
-      PYTHON_BINARY_CACHE_RESULT=1
-      PYTHON_BINARY_CACHE_PATH="$path"
       return 1
     fi
   else
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if (( HAS_FILE_CMD )); then
     if ! file_type="$(file -b -- "$resolved" 2>/dev/null || true)"; then
-      PYTHON_BINARY_CACHE_RESULT=1
-      PYTHON_BINARY_CACHE_PATH="$path"
       return 1
     fi
     if [[ "$file_type" != *ELF* && "$file_type" != *"Python script"* ]]; then
-      PYTHON_BINARY_CACHE_RESULT=1
-      PYTHON_BINARY_CACHE_PATH="$path"
       return 1
     fi
   else
-    PYTHON_BINARY_CACHE_RESULT=1
-    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
-  PYTHON_BINARY_CACHE_PATH="$path"
-  PYTHON_BINARY_CACHE_RESULT=0
   return 0
 }
 
