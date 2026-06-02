@@ -201,6 +201,24 @@ run_check_to_file() {
     echo "Output path must include filename: $output" >&2
     return 1
   fi
+  case "$label" in
+    status-json|check-config-json|dry-run-json)
+      if [[ "$output" != *.json ]]; then
+        echo "JSON label requires .json output path: $output" >&2
+        return 1
+      fi
+      ;;
+    status-text|check-config-text|dry-run-text)
+      if [[ "$output" != *.txt ]]; then
+        echo "Text label requires .txt output path: $output" >&2
+        return 1
+      fi
+      ;;
+    *)
+      echo "Unknown check label for output validation: $label" >&2
+      return 1
+      ;;
+  esac
   local output_dir
   output_dir="$(dirname "$output")"
   if [[ ! -d "$output_dir" ]]; then
