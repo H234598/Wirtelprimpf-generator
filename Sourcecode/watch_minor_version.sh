@@ -549,8 +549,12 @@ dependency_signature() {
   local signature
   local parent_mode
   local do_invalidate_cache=0
+  local cache_hit_failed=0
   now="$(date +%s)"
   cache_key=""
+  if [[ -z "$path" ]]; then
+    return 1
+  fi
   if [[ "$path" == "$PY_SCRIPT" ]]; then
     cache_key="PY_SCRIPT"
     cache_value="$DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT"
@@ -563,22 +567,24 @@ dependency_signature() {
   if [[ -n "$cache_key" ]] && (( now - cache_ts <= DEPENDENCY_SIGNATURE_CACHE_TTL )) && [[ -n "$cache_value" ]]; then
     if [[ -L "$path" || ! -f "$path" || ! -r "$path" ]]; then
       do_invalidate_cache=1
-      return 1
+      cache_hit_failed=1
+    else
+      if ! current_meta="$(stat -c '%u:%g:%a:%Y:%i:%s' "$path" 2>/dev/null)"; then
+        do_invalidate_cache=1
+        cache_hit_failed=1
+      else
+        if [[ "$cache_key" == "PY_SCRIPT" ]]; then
+          cache_meta="$DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_META"
+        elif [[ "$cache_key" == "PUBLISH_STATE" ]]; then
+          cache_meta="$DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META"
+        fi
+        if [[ "$cache_meta" == "$current_meta" ]]; then
+          echo "$cache_value"
+          return 0
+        fi
+        do_invalidate_cache=1
+      fi
     fi
-    if ! current_meta="$(stat -c '%u:%g:%a:%Y:%i:%s' "$path" 2>/dev/null)"; then
-      do_invalidate_cache=1
-      return 1
-    fi
-    if [[ "$cache_key" == "PY_SCRIPT" ]]; then
-      cache_meta="$DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_META"
-    elif [[ "$cache_key" == "PUBLISH_STATE" ]]; then
-      cache_meta="$DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META"
-    fi
-    if [[ "$cache_meta" == "$current_meta" ]]; then
-      echo "$cache_value"
-      return 0
-    fi
-    do_invalidate_cache=1
   fi
 
   if (( do_invalidate_cache == 1 )) || [[ -n "$cache_key" ]] && (( now - cache_ts <= DEPENDENCY_SIGNATURE_CACHE_TTL )) && [[ -n "$cache_value" ]]; then
@@ -592,7 +598,7 @@ dependency_signature() {
       DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META=""
     fi
   fi
-  if [[ -z "$path" ]]; then
+  if (( cache_hit_failed == 1 )); then
     return 1
   fi
   if ! canonical="$(readlink -f -- "$path" 2>/dev/null || true)"; then
