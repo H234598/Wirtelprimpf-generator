@@ -563,10 +563,10 @@ dependency_signature() {
   if [[ ! -r "$parent" || ! -x "$parent" || ! -w "$parent" ]]; then
     return 1
   fi
-  if ! parent_meta="$(stat -c '%a:%u:%Y:%i:%s' "$parent" 2>/dev/null)"; then
+  if ! parent_meta="$(stat -c '%a:%u' "$parent" 2>/dev/null)"; then
     return 1
   fi
-  if ! IFS=':' read -r parent_mode parent_owner parent_mtime parent_ino parent_size <<< "$parent_meta"; then
+  if ! IFS=':' read -r parent_mode parent_owner <<< "$parent_meta"; then
     return 1
   fi
   if [[ "$parent_owner" != "$CURRENT_UID" ]]; then
@@ -596,6 +596,9 @@ dependency_signature() {
     return 1
   fi
   if (( 10#$mode & 022 )); then
+    return 1
+  fi
+  if (( 10#$mode & 06000 )); then
     return 1
   fi
   signature="$(printf '%s:%s:%s:%s:%s:%s\n' "$owner" "$group" "$mode" "$mtime" "$inode" "$size")"
