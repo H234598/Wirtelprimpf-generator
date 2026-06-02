@@ -7,7 +7,7 @@ ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURRENT_UID="$(id -u)"
 readonly CURRENT_UID
 if [[ -n "${PYTHON_BIN:-}" && ("${PYTHON_BIN}" == *[[:space:]]* || "${PYTHON_BIN}" == *[$'\r\n\t\v\f']* || "${PYTHON_BIN}" != "${PYTHON_BIN//[^a-zA-Z0-9._-]/}") ]]; then
-  log "PYTHON_BIN must not contain whitespace: ${PYTHON_BIN}"
+  log "PYTHON_BIN contains invalid characters: ${PYTHON_BIN}"
   exit 1
 fi
 
