@@ -355,6 +355,10 @@ if [[ -z "$init_state" ]]; then
   log "failed to derive initial minor version from publish state"
   exit 1
 fi
+if ! is_valid_version "$init_state"; then
+  log "invalid initial version from publish state: $init_state"
+  exit 1
+fi
 
 if ! state_file_value="$(sync_state_file "$init_state")"; then
   log "failed to sync minor version state file"
