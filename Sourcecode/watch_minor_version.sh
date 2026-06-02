@@ -65,6 +65,31 @@ validate_repo_path() {
   printf '%s\n' "$(pwd)"
 }
 
+validate_publish_state_path() {
+  local publish_state_file="$1"
+  local parent_dir
+  parent_dir="$(dirname "$publish_state_file")"
+
+  if [[ -L "$publish_state_file" ]]; then
+    log "publish state file must not be a symlink: ${publish_state_file}"
+    exit 1
+  fi
+  if [[ -e "$publish_state_file" ]]; then
+    if ! is_regular_file "$publish_state_file"; then
+      log "publish state file must be a regular file: ${publish_state_file}"
+      exit 1
+    fi
+  fi
+  if [[ -L "$parent_dir" ]]; then
+    log "publish state directory must not be a symlink: ${parent_dir}"
+    exit 1
+  fi
+  if [[ -e "$parent_dir" && ! -d "$parent_dir" ]]; then
+    log "publish state parent path is not a directory: ${parent_dir}"
+    exit 1
+  fi
+}
+
 REPO_PATH="$(validate_repo_path "${WIRTELPRIMPF_REPO_PATH:-$ROOT_DIR}")"
 if [[ "$(basename "$REPO_PATH")" == ".git" ]]; then
   if [[ -L "$REPO_PATH" ]]; then
@@ -87,6 +112,7 @@ else
   fi
   PUBLISH_STATE_FILE="$REPO_PATH/.git/wirtelprimpf_publish_state.json"
 fi
+validate_publish_state_path "$PUBLISH_STATE_FILE"
 STATE_FILE="$ROOT_DIR/Sourcecode/.minor_version_state"
 LOCK_FILE="$ROOT_DIR/Sourcecode/.minor_version_watch.lock"
 LOCK_TMP="${LOCK_FILE}.tmp.$$"
