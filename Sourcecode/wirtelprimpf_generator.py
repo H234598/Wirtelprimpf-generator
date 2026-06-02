@@ -481,7 +481,6 @@ def emit_summary(summary: RunSummary, args: argparse.Namespace) -> None:
                         "skipped": summary.skipped,
                         "prompts": summary.prompts,
                         "total": summary.total,
-                        "exit_code": summary.exit_code,
                     },
                 }
             )

@@ -184,6 +184,10 @@ The JSON form can be used for automation:
 fields (`ok`, `version`, `timestamp`, `status`, `exit_code`) per rendered prompt
 record.
 
+`exit_code` is treated as a top-level field for command-level results; nested
+`summary` payloads intentionally only carry metric counters (`success`, `failed`,
+`skipped`, `prompts`, `total`).
+
 For non-JSON `--status`, the command prints an explicit `exit_code` line in its
 text output.
 
