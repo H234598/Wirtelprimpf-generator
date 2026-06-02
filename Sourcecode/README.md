@@ -80,9 +80,10 @@ WIRTELPRIMPF_BREAKING_CHANGE=0
 # Optional: local publishing policy for commit cadence.
 # Default behavior in this repository documentation:
 # - every patch change is committed
-# - patch numbers increase on every committed patch
-# - 100 patches advance minor by 1
-# - 100 minors advance major by 1
+# - patch number equals patch count inside the current minor window
+#   (after each commit: .1, .2, ... .99, .100)
+# - exactly every 100 committed patches, minor increases by 1
+# - exactly every 100 minor increases, major increases by 1
 # - release is prepared every 10 minor pushes
 # - for breaking changes or new API features, bump major manually
 # - configure WIRTELPRIMPF_MAJOR_VERSION_BUMP=N to add a manual major offset
