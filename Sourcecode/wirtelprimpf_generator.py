@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Final
 import re
+from datetime import timezone
 import time
 
 from openai import OpenAI
@@ -33,6 +34,8 @@ GIT_TIMEOUT_SECONDS: Final = 120
 GENERATION_RETRIES: Final = 3
 GENERATION_RETRY_BASE_SECONDS: Final = 2
 VERSION: Final = "0.5.6-hardening"
+STATUS_OK: Final = "ok"
+STATUS_ERROR: Final = "error"
 
 
 @dataclass
@@ -256,6 +259,10 @@ def build_timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
 
 
+def build_status_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
 def decode_image_bytes(data: str) -> bytes:
     try:
         decoded = base64.b64decode(data, validate=True)
@@ -444,6 +451,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     parser.add_argument("--check-config", action="store_true", help="Validate config and prompt config, no API call.")
     parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Emit machine-readable runtime status and configuration checks without making API calls.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Generate prompts and print them, but do not call OpenAI API or publish to git.",
@@ -459,6 +471,8 @@ def emit_summary(summary: RunSummary, args: argparse.Namespace) -> None:
                 {
                     "ok": summary.exit_code == 0,
                     "version": VERSION,
+                    "timestamp": build_status_timestamp(),
+                    "status": STATUS_OK if summary.exit_code == 0 else STATUS_ERROR,
                     "summary": {
                         "success": summary.success,
                         "failed": summary.failed,
@@ -472,6 +486,125 @@ def emit_summary(summary: RunSummary, args: argparse.Namespace) -> None:
         )
 
 
+def emit_status(payload: dict[str, object], *, as_json: bool) -> int:
+    if as_json:
+        status = bool(payload.get("ok"))
+        payload = dict(payload)
+        payload.setdefault("timestamp", build_status_timestamp())
+        payload.setdefault("status", STATUS_OK if status else STATUS_ERROR)
+        payload.setdefault("version", VERSION)
+        payload.setdefault("ok", status)
+        print(format_json(payload))
+        return 0 if status else 1
+
+    print(f"wirtelprimpf_generator.py status: {payload.get('status', STATUS_ERROR)}")
+    print(f"version: {payload.get('version', VERSION)}")
+    print(f"timestamp: {payload.get('timestamp', build_status_timestamp())}")
+    for key, value in payload.items():
+        if key in {"ok", "status", "version", "timestamp"}:
+            continue
+        print(f"{key}: {value}")
+    return 0 if bool(payload.get("ok")) else 1
+
+
+def status_report(config: Config | None = None) -> dict[str, object]:
+    timestamp = build_status_timestamp()
+    report = {
+        "ok": True,
+        "version": VERSION,
+        "timestamp": timestamp,
+        "status": STATUS_OK,
+        "checks": [],
+        "details": {
+            "git_available": bool(shutil.which("git")),
+            "gh_available": bool(shutil.which("gh")),
+            "openai_key_present": bool(env("OPENAI_API_KEY")),
+        },
+    }
+    checks = report["checks"]
+
+    if config is None:
+        checks.append({"name": "load_config", "ok": False, "message": "Configuration loading failed"})
+        report["ok"] = False
+        report["status"] = STATUS_ERROR
+        return report
+
+    prompt_config = config.prompt_config_path
+    checks.append({"name": "prompt_config_file", "ok": prompt_config.exists(), "path": str(prompt_config)})
+    if not prompt_config.exists():
+        report["ok"] = False
+        report["status"] = STATUS_ERROR
+        checks.append({"name": "prompt_config_parse", "ok": False, "message": "Prompt config file missing"})
+        return report
+
+    try:
+        prompts = build_prompts(prompt_config, datetime.now())
+    except Exception as exc:
+        report["ok"] = False
+        report["status"] = STATUS_ERROR
+        checks.append({"name": "prompt_config_parse", "ok": False, "message": str(exc)})
+    else:
+        checks.append(
+            {
+                "name": "prompt_config_parse",
+                "ok": True,
+                "prompt_count": len(prompts),
+            }
+        )
+        local_outdir_exists = config.local_outdir.exists()
+        if local_outdir_exists:
+            checks.append({"name": "local_outdir", "ok": config.local_outdir.is_dir(), "path": str(config.local_outdir)})
+            if not config.local_outdir.is_dir():
+                report["ok"] = False
+                report["status"] = STATUS_ERROR
+        else:
+            parent = config.local_outdir.parent
+            parent_is_dir = parent.is_dir()
+            parent_writable = parent_is_dir and os.access(parent, os.W_OK | os.X_OK)
+            checks.append(
+                {
+                    "name": "local_outdir",
+                    "ok": parent_is_dir and parent_writable,
+                    "path": str(config.local_outdir),
+                    "parent": str(parent),
+                    "parent_is_dir": parent_is_dir,
+                    "writable": parent_writable,
+                }
+            )
+            if not parent_is_dir or not parent_writable:
+                report["ok"] = False
+                report["status"] = STATUS_ERROR
+
+    if config.repo_path is None:
+        checks.append({"name": "repo", "ok": True, "enabled": False})
+    else:
+        repo_checks = {"name": "repo", "ok": True, "path": str(config.repo_path), "slug": config.repo_slug}
+        if config.repo_path.exists():
+            if not (config.repo_path / ".git").is_dir():
+                repo_checks["ok"] = False
+                repo_checks["message"] = "Configured repo path is not a git repository"
+                report["ok"] = False
+                report["status"] = STATUS_ERROR
+        elif not config.repo_slug:
+            repo_checks["ok"] = False
+            repo_checks["message"] = "Repo path does not exist and WIRTELPRIMPF_REPO_SLUG is not configured"
+            report["ok"] = False
+            report["status"] = STATUS_ERROR
+        elif not shutil.which("gh"):
+            repo_checks["ok"] = False
+            repo_checks["message"] = "gh CLI is required to auto-clone missing repo path"
+            report["ok"] = False
+            report["status"] = STATUS_ERROR
+        checks.append(repo_checks)
+
+    if not env("OPENAI_API_KEY"):
+        checks.append({"name": "openai_key", "ok": False, "message": "OPENAI_API_KEY not set"})
+        report["ok"] = False
+        report["status"] = STATUS_ERROR
+
+    return report
+
+
 def _die(message: str, *, exit_code: int = 1) -> None:
     print(f"ERROR: {message}", file=sys.stderr)
     raise SystemExit(exit_code)
@@ -479,6 +612,17 @@ def _die(message: str, *, exit_code: int = 1) -> None:
 
 def main() -> None:
     args = parse_args()
+
+    if args.status:
+        try:
+            cfg = load_config()
+        except Exception as exc:
+            payload = status_report(None)
+            payload["checks"].append({"name": "load_config", "ok": False, "message": str(exc)})
+            _code = emit_status(payload, as_json=args.json)
+        else:
+            _code = emit_status(status_report(cfg), as_json=args.json)
+        raise SystemExit(_code)
 
     if not os.environ.get("OPENAI_API_KEY") and not args.check_config and not args.dry_run:
         _die("OPENAI_API_KEY environment variable is required")
@@ -499,6 +643,8 @@ def main() -> None:
                     {
                         "ok": True,
                         "version": VERSION,
+                        "timestamp": build_status_timestamp(),
+                        "status": STATUS_OK,
                         "check_config": True,
                         "local_outdir": str(config.local_outdir),
                         "prompt_count": len(prompts),

@@ -147,9 +147,35 @@ Validation helpers:
 
 ```bash
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --check-config
+~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --status --json
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --dry-run
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --json
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --version
+```
+
+### Machine-readable status
+
+`--status` prints structured diagnostics and exits `0` on success, `1` on failure.
+The JSON form can be used for automation:
+
+```json
+{
+  "ok": true,
+  "version": "0.5.6-hardening",
+  "timestamp": "2026-06-02T19:23:00Z",
+  "status": "ok",
+  "details": {
+    "git_available": true,
+    "gh_available": false,
+    "openai_key_present": true
+  },
+  "checks": [
+    {"name": "prompt_config_file", "ok": true, "path": "..."},
+    {"name": "prompt_config_parse", "ok": true, "prompt_count": 1},
+    {"name": "local_outdir", "ok": true, "path": "..."},
+    {"name": "repo", "ok": false, "path": "...", "message": "..."}
+  ]
+}
 ```
 
 ### Exit codes
