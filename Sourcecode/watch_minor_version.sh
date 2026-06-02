@@ -61,10 +61,15 @@ resolve_python() {
     fi
     for search_path in "${SECURITY_PATHS_ARRAY[@]}"; do
       resolved="${search_path}/${candidate}"
-      if [[ -f "$resolved" && -x "$resolved" && ! -L "$resolved" ]]; then
-        echo "$resolved"
-        return 0
+      local resolved_canonical
+      if ! resolved_canonical="$(readlink -f -- "$resolved" 2>/dev/null)"; then
+        continue
       fi
+      if [[ "$resolved_canonical" != "$resolved" || ! -f "$resolved_canonical" || ! -x "$resolved_canonical" || -L "$resolved_canonical" ]]; then
+        continue
+      fi
+      echo "$resolved_canonical"
+      return 0
     done
     if (( fallback_set == 1 )); then
       break
