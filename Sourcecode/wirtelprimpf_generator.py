@@ -1013,25 +1013,32 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             report["exit_code"] = 1
         checks.append(repo_checks)
     if config.repo_path is not None and repo_checks.get("ok", True):
-        publish_state = read_publish_state(publish_state_path(config.repo_path))
-        major_version, minor_version, patch_version = _derive_version_numbers(
-            publish_state.patch_count,
-            patches_per_minor=config.patches_per_minor,
-            minors_per_major=MINORS_PER_MAJOR,
-            major_version_base=BASE_VERSION_MAJOR + config.major_version_bump,
-        )
-        details = dict(report["details"])
-        details.update(
-            {
-                "major_version": major_version,
-                "minor_version": minor_version,
-                "patch_count": publish_state.patch_count,
-                "patch_version": patch_version,
-                "minor_push_count": publish_state.minor_push_count,
-            }
-        )
-        report["version"] = f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}"
-        report["details"] = details
+        try:
+            publish_state = read_publish_state(publish_state_path(config.repo_path))
+            major_version, minor_version, patch_version = _derive_version_numbers(
+                publish_state.patch_count,
+                patches_per_minor=config.patches_per_minor,
+                minors_per_major=MINORS_PER_MAJOR,
+                major_version_base=BASE_VERSION_MAJOR + config.major_version_bump,
+            )
+        except Exception as exc:
+            report["ok"] = False
+            report["status"] = STATUS_ERROR
+            report["exit_code"] = 1
+            checks.append({"name": "publish_state", "ok": False, "message": str(exc)})
+        else:
+            details = dict(report["details"])
+            details.update(
+                {
+                    "major_version": major_version,
+                    "minor_version": minor_version,
+                    "patch_count": publish_state.patch_count,
+                    "patch_version": patch_version,
+                    "minor_push_count": publish_state.minor_push_count,
+                }
+            )
+            report["version"] = f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}"
+            report["details"] = details
 
     checks.append(
         {
@@ -1103,7 +1110,12 @@ def main() -> None:
             payload["checks"].append({"name": "load_config", "ok": False, "message": str(exc)})
             _code = emit_status(payload, as_json=args.json)
         else:
-            _code = emit_status(status_report(cfg), as_json=args.json)
+            payload = status_report(cfg)
+            if args.json:
+                payload = dict(payload)
+                if not payload.get("ok"):
+                    payload["message"] = payload.get("message", "status report validation failed")
+            _code = emit_status(payload, as_json=args.json)
         raise SystemExit(_code)
 
     if not args.json:
