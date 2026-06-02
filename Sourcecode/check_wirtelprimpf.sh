@@ -704,6 +704,16 @@ run_check_to_file() {
     echo "Output path must be under check tmpdir: $output" >&2
     return 1
   fi
+  local output_parent
+  if [[ "$output" == *[[:space:]]* ]]; then
+    echo "Output path contains whitespace: $output" >&2
+    return 1
+  fi
+  output_parent="$(dirname -- "$output")"
+  if [[ ! -d "$output_parent" || -L "$output_parent" || "$output_parent" != "$CHECK_TMPDIR" ]]; then
+    echo "Invalid output parent directory: $output_parent" >&2
+    return 1
+  fi
   if [[ -e "$output" ]] && ! is_regular_file "$output"; then
     echo "Output file must be regular: $output" >&2
     return 1
@@ -716,6 +726,11 @@ run_check_to_file() {
   local output_tmp
   if ! output_tmp="$(mktemp "${output}.tmp.XXXXXX")"; then
     echo "Failed to create temporary output file for ${label}" >&2
+    return 1
+  fi
+  if [[ -L "$output_tmp" || ! -e "$output_tmp" || ! -f "$output_tmp" ]]; then
+    echo "Temporary output file is not a valid regular file: $output_tmp" >&2
+    rm -f "$output_tmp"
     return 1
   fi
   if [[ ! "$output_tmp" == "$CHECK_TMPDIR"/* ]]; then
