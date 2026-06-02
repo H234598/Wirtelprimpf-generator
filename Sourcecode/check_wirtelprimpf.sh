@@ -201,6 +201,15 @@ run_check_to_file() {
     echo "Output path must include filename: $output" >&2
     return 1
   fi
+  local output_real
+  if ! output_real="$(realpath -m "$output")"; then
+    echo "Unable to resolve output path: $output" >&2
+    return 1
+  fi
+  if [[ "$output_real" != "$CHECK_TMPDIR"/* ]]; then
+    echo "Resolved output path escapes check tmpdir: $output (resolved $output_real)" >&2
+    return 1
+  fi
   case "$label" in
     status-json|check-config-json|dry-run-json)
       if [[ "$output" != *.json ]]; then
