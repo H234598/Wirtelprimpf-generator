@@ -17,8 +17,20 @@ declare -i HAS_FINDMNT_CMD=0
 declare -i HAS_FILE_CMD=0
 declare -g FINDMNT_COMMAND=""
 declare -g FILE_COMMAND=""
-declare -r CHECK_TIMEOUT_SECONDS=30
+CHECK_TIMEOUT_SECONDS="${CHECK_TIMEOUT_SECONDS:-30}"
 declare -g CHECK_TIMEOUT_COMMAND=""
+
+case "$CHECK_TIMEOUT_SECONDS" in
+  ''|*[!0-9]*)
+    echo "CHECK_TIMEOUT_SECONDS must be a positive integer" >&2
+    exit 1
+    ;;
+esac
+if (( CHECK_TIMEOUT_SECONDS < 10 || CHECK_TIMEOUT_SECONDS > 900 )); then
+  echo "CHECK_TIMEOUT_SECONDS must be between 10 and 900" >&2
+  exit 1
+fi
+readonly CHECK_TIMEOUT_SECONDS
 
 is_secure_tool_path() {
   local path="$1"
