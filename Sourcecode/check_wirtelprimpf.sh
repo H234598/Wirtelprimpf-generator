@@ -39,7 +39,7 @@ if ! PY="$(resolve_python)"; then
 fi
 validate_python_binary() {
   local path="$1"
-  local resolved owner mode
+  local resolved owner mode mountpoint mount_opts
   if [[ -z "$path" || ! -x "$path" ]]; then
     return 1
   fi
@@ -59,8 +59,7 @@ validate_python_binary() {
   if [[ "$resolved" == /tmp/* || "$resolved" == /var/tmp/* || "$resolved" == /run/* || "$resolved" == /dev/* ]]; then
     return 1
   fi
-  local owner mode
-  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+  if ! owner="$(stat -c '%u' "$resolved" 2>/dev/null)"; then
     return 1
   fi
   if [[ "$owner" != "$CURRENT_UID" && "$owner" != 0 ]]; then
@@ -71,6 +70,15 @@ validate_python_binary() {
   fi
   if (( 10#$mode & 022 )); then
     return 1
+  fi
+  if ! mountpoint="$(stat -c '%m' "$resolved" 2>/dev/null)"; then
+    return 1
+  fi
+  if command -v findmnt >/dev/null 2>&1; then
+    mount_opts="$(findmnt -n -o OPTIONS "$mountpoint" 2>/dev/null || true)"
+    if [[ ",${mount_opts}," == *",noexec,"* ]]; then
+      return 1
+    fi
   fi
 }
 if ! validate_python_binary "$PY"; then
