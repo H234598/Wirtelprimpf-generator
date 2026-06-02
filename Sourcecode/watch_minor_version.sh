@@ -54,14 +54,14 @@ resolve_python() {
     fallback_set=0
   fi
 
-  local candidate resolved search_path
+  local candidate resolved search_path resolved_canonical
   for candidate in "${candidates[@]}"; do
     if ! is_valid_python_candidate "$candidate"; then
       continue
     fi
     for search_path in "${SECURITY_PATHS_ARRAY[@]}"; do
       resolved="${search_path}/${candidate}"
-      local resolved_canonical
+      resolved_canonical=""
       if ! resolved_canonical="$(readlink -f -- "$resolved" 2>/dev/null)"; then
         continue
       fi
