@@ -264,14 +264,20 @@ sync_state_file() {
     if [[ -f "$STATE_FILE" ]]; then
       log "state file missing or invalid; repaired with computed version $computed"
     fi
-    write_state "$computed"
+    if ! write_state "$computed"; then
+      log "refusing to continue without state file: $STATE_FILE"
+      return 1
+    fi
     echo "$computed"
     return
   fi
 
   if [[ "$current" != "$computed" ]]; then
     log "state file stale; repaired to current version $computed"
-    write_state "$computed"
+    if ! write_state "$computed"; then
+      log "refusing to continue without state file: $STATE_FILE"
+      return 1
+    fi
     echo "$computed"
     return
   fi
