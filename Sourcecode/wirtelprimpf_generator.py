@@ -466,13 +466,15 @@ def parse_args() -> argparse.Namespace:
 
 def emit_summary(summary: RunSummary, args: argparse.Namespace) -> None:
     if args.json:
+        ok = summary.exit_code == 0
         print(
             format_json(
                 {
-                    "ok": summary.exit_code == 0,
+                    "ok": ok,
                     "version": VERSION,
                     "timestamp": build_status_timestamp(),
-                    "status": STATUS_OK if summary.exit_code == 0 else STATUS_ERROR,
+                    "status": STATUS_OK if ok else STATUS_ERROR,
+                    "exit_code": summary.exit_code,
                     "summary": {
                         "success": summary.success,
                         "failed": summary.failed,
@@ -654,6 +656,21 @@ def main() -> None:
     try:
         prompts = build_prompts(config.prompt_config_path, datetime.now())
     except Exception as exc:
+        if args.check_config and args.json:
+            print(
+                format_json(
+                    {
+                        "ok": False,
+                        "version": VERSION,
+                        "timestamp": build_status_timestamp(),
+                        "status": STATUS_ERROR,
+                        "exit_code": 1,
+                        "check_config": True,
+                        "message": f"Prompt config validation failed: {exc}",
+                    }
+                )
+            )
+            raise SystemExit(1)
         _die(f"Prompt config validation failed: {exc}")
 
     if args.check_config:
@@ -665,6 +682,7 @@ def main() -> None:
                         "version": VERSION,
                         "timestamp": build_status_timestamp(),
                         "status": STATUS_OK,
+                        "exit_code": 0,
                         "check_config": True,
                         "local_outdir": str(config.local_outdir),
                         "prompt_count": len(prompts),

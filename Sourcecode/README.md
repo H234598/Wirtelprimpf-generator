@@ -155,7 +155,8 @@ Validation helpers:
 
 ### Machine-readable status
 
-`--status` prints structured diagnostics and exits `0` on success, `1` on failure.
+`--status` and `--check-config --json` print structured diagnostics and use the
+same stable envelope:
 The JSON form can be used for automation:
 
 ```json
