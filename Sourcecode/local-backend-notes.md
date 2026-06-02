@@ -16,13 +16,20 @@ Device:              CPU
 
 ## Quick safety check
 
-Before running commands below, confirm the local backend wrapper is on PATH:
+Before running commands below, confirm the local backend prerequisites:
 
 ```bash
-command -v ~/.local/bin/local-imagegen
+if ! [[ -x "$HOME/.local/bin/local-imagegen" ]]; then
+  echo "local-imagegen wrapper not found or not executable: $HOME/.local/bin/local-imagegen"
+  exit 1
+fi
+if ! [[ -d "$HOME/.local/share/local-imagegen-venv" ]]; then
+  echo "local-imagegen virtualenv missing: $HOME/.local/share/local-imagegen-venv"
+  exit 1
+fi
 ```
 
-If this prints no path, install the wrapper first before trying image generation.
+If this exits with code 0, wrapper is present and linked to its local environment.
 
 The first test image was generated successfully:
 

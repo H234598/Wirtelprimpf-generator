@@ -82,7 +82,7 @@ ENV_BLACKLIST: Final = frozenset(
 )
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.5.18-hardening"
+VERSION: Final = "0.5.19-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -1584,12 +1584,13 @@ def main() -> None:
             current_version = (
                 dry_run_details.get("version") if isinstance(dry_run_details, dict) else None
             )
+            fallback_version = resolve_runtime_version(
+                patch_count=0,
+                patches_per_minor=config.patches_per_minor,
+                major_version_base=effective_major_base,
+            )
             if current_version is None:
-                current_version = resolve_runtime_version(
-                    patch_count=0,
-                    patches_per_minor=config.patches_per_minor,
-                    major_version_base=effective_major_base,
-                )
+                current_version = fallback_version
 
             for index, prompt in enumerate(prompts, start=1):
                 if args.json:
@@ -1600,11 +1601,7 @@ def main() -> None:
                                 mode=MODE_DRY_RUN,
                                 status=STATUS_OK,
                                 exit_code=0,
-                                version=current_version or resolve_runtime_version(
-                                    patch_count=0,
-                                    patches_per_minor=config.patches_per_minor,
-                                    major_version_base=effective_major_base,
-                                ),
+                                version=current_version or fallback_version,
                                 details=dry_run_details,
                                 type="dry_run",
                                 index=index,
