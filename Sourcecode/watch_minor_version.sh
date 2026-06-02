@@ -1022,7 +1022,15 @@ validate_runtime_file_for_read() {
 acquire_lock() {
   is_running_pid() {
     local candidate="$1"
-    [[ -n "$candidate" && "$candidate" =~ ^[0-9]+$ ]] || return 1
+    if ! is_strict_positive_pid "$candidate"; then
+      return 1
+    fi
+    if [[ ! -r "/proc/$candidate" ]]; then
+      return 1
+    fi
+    if [[ "$(stat -c '%u' "/proc/$candidate" 2>/dev/null)" != "$CURRENT_UID" ]]; then
+      return 1
+    fi
     kill -0 "$candidate" 2>/dev/null
   }
 
