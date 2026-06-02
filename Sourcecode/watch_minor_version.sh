@@ -903,6 +903,33 @@ cleanup_lock_tmp() {
   fi
 }
 
+safe_unlink_runtime_file() {
+  local path="$1"
+  local owner perm
+  if [[ -z "$path" ]]; then
+    return 1
+  fi
+  if [[ -L "$path" ]]; then
+    return 1
+  fi
+  if [[ ! -e "$path" ]]; then
+    return 0
+  fi
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if [[ "$owner" != "$CURRENT_UID" ]]; then
+    return 1
+  fi
+  if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if (( 10#$perm & 022 )); then
+    return 1
+  fi
+  rm -f "$path" 2>/dev/null || return 1
+}
+
 cleanup_lock_fd() {
   exec 9>&- 2>/dev/null || true
 }
@@ -1018,7 +1045,7 @@ acquire_lock() {
       return 1
     fi
     printf '%s\n' "$$" 1>&9
-    trap 'flock -u 9 2>/dev/null || true; exec 9>&- 2>/dev/null || true; rm -f "$LOCK_FILE" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
+    trap 'flock -u 9 2>/dev/null || true; exec 9>&- 2>/dev/null || true; safe_unlink_runtime_file "$LOCK_FILE" || true; safe_unlink_runtime_file "$TIMESTAMP_FILE" || true' EXIT
     return
   fi
 
@@ -1084,7 +1111,7 @@ acquire_lock() {
         return 1
       fi
       log "stale fallback lock detected (${age}s), stealing lock"
-      if ! rm -f "$LOCK_FILE"; then
+      if ! safe_unlink_runtime_file "$LOCK_FILE"; then
         log "failed to remove stale fallback lock: $LOCK_FILE"
         cleanup_lock_tmp
         return 1
@@ -1103,15 +1130,15 @@ acquire_lock() {
   fi
   if [[ -L "$LOCK_FILE" ]]; then
     log "lock file became symlink: $LOCK_FILE"
-    rm -f "$LOCK_FILE" 2>/dev/null || true
+    safe_unlink_runtime_file "$LOCK_FILE" || true
     return 1
   fi
   if ! is_owned_by_current_user "$LOCK_FILE"; then
     log "lock file not owned by current user after acquisition: $LOCK_FILE"
-    rm -f "$LOCK_FILE" 2>/dev/null || true
+    safe_unlink_runtime_file "$LOCK_FILE" || true
     return 1
   fi
-  trap 'cleanup_lock_tmp; rm -f "$LOCK_FILE" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
+  trap 'cleanup_lock_tmp; safe_unlink_runtime_file "$LOCK_FILE" || true; safe_unlink_runtime_file "$TIMESTAMP_FILE" || true' EXIT
 }
 
 get_minor_version() {
