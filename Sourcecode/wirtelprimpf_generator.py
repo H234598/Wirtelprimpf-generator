@@ -950,6 +950,14 @@ def status_report(config: Config | None = None) -> dict[str, object]:
         report["exit_code"] = 1
         return report
 
+    report["details"].update(
+        {
+            "major_version_bump": config.major_version_bump,
+            "breaking_change": config.breaking_change,
+            "effective_major_version_base": effective_major_version_base(config),
+        }
+    )
+
     prompt_config = config.prompt_config_path
     checks.append({"name": "prompt_config_file", "ok": prompt_config.exists(), "path": str(prompt_config)})
     if not prompt_config.exists():
