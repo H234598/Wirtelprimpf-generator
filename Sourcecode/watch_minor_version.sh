@@ -927,6 +927,9 @@ safe_unlink_runtime_file() {
   if (( 10#$perm & 022 )); then
     return 1
   fi
+  if ! is_regular_file "$path"; then
+    return 1
+  fi
   rm -f "$path" 2>/dev/null || return 1
 }
 
