@@ -218,8 +218,20 @@ run_python_sandbox() {
   env -i \
     PATH="/usr/local/bin:/usr/bin:/bin" \
     HOME="/tmp" \
+    TMPDIR="/tmp" \
+    TMP="/tmp" \
+    TEMP="/tmp" \
     USER="" \
     LOGNAME="" \
+    SHELL="/bin/bash" \
+    BASH_ENV="" \
+    ENV="" \
+    LD_PRELOAD="" \
+    LD_LIBRARY_PATH="" \
+    PYTHONINSPECT="" \
+    PYTHONOPTIMIZE="" \
+    PYTHONFAULTHANDLER="" \
+    PYTHONMALLOC="" \
     PYTHONSTARTUP= \
     PYTHONPATH= \
     PYTHONHOME= \
@@ -317,12 +329,24 @@ run_check_script_sandboxed() {
   if ! env -i \
     PATH="/usr/local/bin:/usr/bin:/bin" \
     HOME="/tmp" \
+    TMPDIR="/tmp" \
+    TMP="/tmp" \
+    TEMP="/tmp" \
     USER="" \
     LOGNAME="" \
+    SHELL="/bin/bash" \
+    BASH_ENV="" \
+    ENV="" \
+    LD_PRELOAD="" \
+    LD_LIBRARY_PATH="" \
+    PYTHONINSPECT="" \
+    PYTHONOPTIMIZE="" \
+    PYTHONFAULTHANDLER="" \
+    PYTHONMALLOC="" \
     TERM="xterm-256color" \
     LANG="C.UTF-8" \
     LC_ALL="C.UTF-8" \
-    "$bash_canonical" "$script_canonical"; then
+    "$bash_canonical" --noprofile --norc "$script_canonical"; then
     log "checks script execution failed: ${script_path}"
     return 1
   fi
