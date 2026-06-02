@@ -401,14 +401,6 @@ def load_config() -> Config:
     )
 
 
-def ensure_config_consistency(config: Config) -> Config:
-    if config.patches_per_minor != DEFAULT_PATCHES_PER_MINOR:
-        raise RuntimeError(
-            "WIRTELPRIMPF_PATCHES_PER_MINOR must be 100; other values are not supported."
-        )
-    return config
-
-
 def parse_patches_per_minor(name: str, value: str | None) -> int:
     parsed = parse_positive_int(name, value, default=DEFAULT_PATCHES_PER_MINOR)
     if parsed != DEFAULT_PATCHES_PER_MINOR:
@@ -1091,7 +1083,7 @@ def main() -> None:
 
     if args.status:
         try:
-            cfg = ensure_config_consistency(load_config())
+            cfg = load_config()
         except Exception as exc:
             payload = status_report(None)
             payload["checks"].append({"name": "load_config", "ok": False, "message": str(exc)})
@@ -1107,7 +1099,7 @@ def main() -> None:
         if not os.environ.get("OPENAI_API_KEY") and not args.check_config and not args.dry_run:
             _die("OPENAI_API_KEY environment variable is required")
 
-        config = ensure_config_consistency(load_config())
+        config = load_config()
         if not config.prompt_config_path.exists():
             _die(f"Prompt config file not found: {config.prompt_config_path}")
 
