@@ -914,6 +914,11 @@ refresh_state_timestamp() {
     log "timestamp file must be owned by current user: $TIMESTAMP_FILE"
     return 1
   fi
+  if [[ -n "$TIMESTAMP_EPOCH_CACHE_PATH" ]] && [[ "$TIMESTAMP_EPOCH_CACHE_PATH" == "$TIMESTAMP_FILE" ]] && ! [[ -f "$TIMESTAMP_FILE" ]]; then
+    TIMESTAMP_EPOCH_CACHE=""
+    TIMESTAMP_EPOCH_CACHE_MTIME=0
+    TIMESTAMP_EPOCH_CACHE_PATH=""
+  fi
   if [[ -e "$TIMESTAMP_FILE" ]] && [[ ! -w "$TIMESTAMP_FILE" ]]; then
     log "timestamp file not writable: $TIMESTAMP_FILE"
     return 1
