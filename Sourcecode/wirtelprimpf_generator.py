@@ -553,8 +553,18 @@ def status_report(config: Config | None = None) -> dict[str, object]:
         )
         local_outdir_exists = config.local_outdir.exists()
         if local_outdir_exists:
-            checks.append({"name": "local_outdir", "ok": config.local_outdir.is_dir(), "path": str(config.local_outdir)})
-            if not config.local_outdir.is_dir():
+            is_dir = config.local_outdir.is_dir()
+            writable = os.access(config.local_outdir, os.W_OK | os.X_OK) if is_dir else False
+            checks.append(
+                {
+                    "name": "local_outdir",
+                    "ok": is_dir and writable,
+                    "path": str(config.local_outdir),
+                    "is_dir": is_dir,
+                    "writable": writable,
+                }
+            )
+            if not (is_dir and writable):
                 report["ok"] = False
                 report["status"] = STATUS_ERROR
         else:
