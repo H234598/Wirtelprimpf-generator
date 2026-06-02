@@ -585,14 +585,10 @@ dependency_signature() {
   if [[ ! -r "$parent" || ! -x "$parent" || ! -w "$parent" ]]; then
     return 1
   fi
-  local parent_mode
   if ! parent_mode="$(stat -c '%a' "$parent" 2>/dev/null)"; then
     return 1
   fi
   if (( 10#$parent_mode & 022 )); then
-    return 1
-  fi
-  if [[ -L "$path" ]]; then
     return 1
   fi
   if [[ ! -f "$path" ]]; then
