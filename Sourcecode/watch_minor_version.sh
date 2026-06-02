@@ -231,6 +231,7 @@ is_owned_by_current_user() {
 require_file() {
   local path="$1"
   local label="$2"
+  local perm
   if [[ ! -f "$path" ]]; then
     log "${label} missing: $path"
     exit 1
@@ -241,6 +242,18 @@ require_file() {
   fi
   if ! is_regular_file "$path"; then
     log "${label} is not a regular file: $path"
+    exit 1
+  fi
+  if ! is_owned_by_current_user "$path"; then
+    log "${label} must be owned by current user: $path"
+    exit 1
+  fi
+  if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
+    log "${label} failed to read permissions: $path"
+    exit 1
+  fi
+  if (( 10#$perm & 022 )); then
+    log "${label} must not be group/world writable: $path"
     exit 1
   fi
 }
