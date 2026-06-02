@@ -80,9 +80,10 @@ ENV_BLACKLIST: Final = frozenset(
         "PYTHONUSERBASE",
     }
 )
+OPENAI_SECRET_ENV_SUFFIXES: Final = frozenset({"API_KEY", "ACCESS_TOKEN"})
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.5.25-hardening"
+VERSION: Final = "0.5.26-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -447,7 +448,15 @@ def _command_env() -> dict[str, str]:
     for key in list(environment):
         if key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
             environment.pop(key, None)
-    environment.pop("OPENAI_API_KEY", None)
+    for key in list(environment):
+        if key in {"OPENAI_API_KEY", "AZURE_OPENAI_API_KEY"}:
+            environment.pop(key, None)
+        elif any(
+            key.startswith(prefix) and key.endswith(suffix)
+            for prefix in ("OPENAI_", "AZURE_OPENAI_")
+            for suffix in OPENAI_SECRET_ENV_SUFFIXES
+        ):
+            environment.pop(key, None)
     environment["PATH"] = ":".join(COMMAND_PATHS)
     environment.setdefault("LANG", "C.UTF-8")
     environment.setdefault("LC_ALL", "C.UTF-8")

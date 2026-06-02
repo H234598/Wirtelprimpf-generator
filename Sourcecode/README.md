@@ -258,6 +258,8 @@ Fehlertoleranzverhalten:
 
 Du kannst den Watcher auch automatisch beim Benutzerstart laufen lassen:
 
+Watcher-Feintuning (`SLEEP_SECONDS`, `DEFAULT_RETRY_DELAY_SECONDS`, `MAX_STALE_LOCK_SECONDS`) erfolgt ausschließlich über Service-Overrides (z. B. `systemctl --user edit wirtelprimpf-version-watch.service`) und nicht über `openai.env`.
+
 ```bash
 mkdir -p ~/.config/systemd/user
 cp Sourcecode/systemd-user/wirtelprimpf-version-watch.service ~/.config/systemd/user/wirtelprimpf-version-watch.service
