@@ -317,6 +317,8 @@ fi
 readonly CHECK_TMPDIR
 readonly PY_SCRIPT
 readonly PY
+BASH_PATH="$(command -v bash 2>/dev/null || true)"
+readonly BASH_PATH
 
 cleanup_checks() {
   if [[ -n "${CHECK_TMPDIR-}" && -d "$CHECK_TMPDIR" ]]; then
@@ -354,8 +356,54 @@ run_command_sandboxed() {
   elif [[ -L "${cmd[0]}" || ! -x "${cmd[0]}" ]]; then
     echo "Sandboxed command must be an executable non-symlink file: ${cmd[0]}" >&2
     return 1
+  elif ! is_owned_by_current_user "${cmd[0]}"; then
+    echo "Sandboxed command must be owned by current user: ${cmd[0]}" >&2
+    return 1
+  elif [[ -z "${BASH_PATH}" || -L "${BASH_PATH}" || ! -x "${BASH_PATH}" ]]; then
+    echo "Required bash interpreter unavailable or insecure: ${BASH_PATH:-not-found}" >&2
+    return 1
   else
-    "${cmd[@]}"
+    local command_path_dir
+    command_path_dir="$(dirname -- "${cmd[0]}")"
+    if [[ -L "$command_path_dir" ]]; then
+      echo "Sandboxed command directory must not be a symlink: ${command_path_dir}" >&2
+      return 1
+    fi
+    if ! is_owned_by_current_user "$command_path_dir"; then
+      echo "Sandboxed command directory must be owned by current user: ${command_path_dir}" >&2
+      return 1
+    fi
+    local command_dir_mode
+    if ! command_dir_mode="$(stat -c '%a' "$command_path_dir" 2>/dev/null)"; then
+      echo "Failed to read sandboxed command directory permissions: ${command_path_dir}" >&2
+      return 1
+    fi
+    if (( 10#$command_dir_mode & 022 )); then
+      echo "Sandboxed command directory must not be group/world writable: ${command_path_dir}" >&2
+      return 1
+    fi
+    local command_mode
+    if ! command_mode="$(stat -c '%a' "${cmd[0]}" 2>/dev/null)"; then
+      echo "Failed to read sandboxed command permissions: ${cmd[0]}" >&2
+      return 1
+    fi
+    if (( 10#$command_mode & 022 )); then
+      echo "Sandboxed command must not be group/world writable: ${cmd[0]}" >&2
+      return 1
+    fi
+    if (( 10#$command_mode & 06000 )); then
+      echo "Sandboxed command must not have setuid/setgid bits: ${cmd[0]}" >&2
+      return 1
+    fi
+    env -i \
+      PATH="/usr/local/bin:/usr/bin:/bin" \
+      HOME="/tmp" \
+      LANG="C.UTF-8" \
+      LC_ALL="C.UTF-8" \
+      TERM="xterm-256color" \
+      USER="" \
+      LOGNAME="" \
+      "${BASH_PATH}" "${cmd[@]}"
   fi
 }
 
