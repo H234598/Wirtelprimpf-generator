@@ -211,27 +211,47 @@ if patch_version == 0:
     patch_version = PATCHES_PER_MINOR_FOR_MINOR
 
 minor_increments = state_patch_count // patches_per_minor
-major_addition, minor_offset = divmod(int(minor_str) + minor_increments, MINORS_PER_MAJOR)
-major_version = int(major_str) + major_addition + major_bump + (1 if breaking_change else 0)
-print(f"{major_version}.{minor_offset}.{patch_version}{suffix}")
+    major_addition, minor_offset = divmod(int(minor_str) + minor_increments, MINORS_PER_MAJOR)
+    major_version = int(major_str) + major_addition + major_bump + (1 if breaking_change else 0)
+    print(f"{major_version}.{minor_offset}.{patch_version}{suffix}")
 
 PY
+}
+
+read_state_version() {
+  local value
+  value="$(cat "$STATE_FILE" 2>/dev/null || true)"
+  if [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$ ]]; then
+    echo "$value"
+    return
+  fi
+  echo ""
 }
 
 acquire_lock
 
 init_state=$(get_minor_version)
-if [[ ! -f "$STATE_FILE" ]]; then
-  write_state "$init_state"
+
+state_file_value="$(read_state_version)"
+if [[ -z "$state_file_value" ]]; then
+	write_state "$init_state"
+	if [[ -f "$STATE_FILE" ]]; then
+		log "state file missing or invalid; repaired with computed version $init_state"
+	fi
+	state_file_value="$init_state"
+elif [[ "$state_file_value" != "$init_state" ]]; then
+	log "state file stale; repaired to current version $init_state"
+	state_file_value="$init_state"
+	write_state "$init_state"
 fi
 
 if [[ "${1:-}" == "--once" ]]; then
   require_file "$CHECKS_SCRIPT" "Checks script"
   require_executable "$CHECKS_SCRIPT" "Checks script"
-  prev="$(cat "$STATE_FILE")"
-  current="$(get_minor_version)"
-  if [[ "$current" != "$prev" ]]; then
-    write_state "$current"
+	prev="$state_file_value"
+	current="$(get_minor_version)"
+	if [[ "$current" != "$prev" ]]; then
+		write_state "$current"
     if "$CHECKS_SCRIPT"; then
       refresh_state_timestamp
       log "checks completed for version $current"
@@ -243,10 +263,13 @@ if [[ "${1:-}" == "--once" ]]; then
 fi
 
 while true; do
-  prev="$(cat "$STATE_FILE")"
-  current="$(get_minor_version)"
+	prev="$(read_state_version)"
+	if [[ -z "$prev" ]]; then
+		prev="$state_file_value"
+	fi
+	current="$(get_minor_version)"
 
-  if [[ "$current" != "$prev" ]]; then
+	if [[ "$current" != "$prev" ]]; then
     require_file "$CHECKS_SCRIPT" "Checks script"
     require_executable "$CHECKS_SCRIPT" "Checks script"
     log "minor version changed: $prev -> $current"
