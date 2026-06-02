@@ -82,6 +82,8 @@ if not isinstance(data.get("status"), str):
     raise SystemExit(f"'status' must be string in {path}: {data.get('status')!r}")
 if data.get("status") not in {"ok", "error"}:
     raise SystemExit(f"invalid status value in {path}: {data.get('status')!r}")
+if data.get("mode") not in {"status", "check_config", "dry_run", "run"}:
+    raise SystemExit(f"invalid mode value in {path}: {data.get('mode')!r}")
 if not isinstance(data.get("exit_code"), int):
     raise SystemExit(f"exit_code must be int in {path}: {data.get('exit_code')!r}")
 if not isinstance(data.get("timestamp"), str) or not data.get("timestamp"):
