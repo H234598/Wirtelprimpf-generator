@@ -301,6 +301,9 @@ run_command_sandboxed() {
   fi
   if [[ "${cmd[0]}" == "$PY" ]]; then
     run_python_sandbox "${cmd[@]}"
+  elif [[ "${cmd[0]}" != /* ]]; then
+    echo "Only absolute command paths are allowed in sandboxed execution: ${cmd[0]}" >&2
+    return 1
   else
     "${cmd[@]}"
   fi
