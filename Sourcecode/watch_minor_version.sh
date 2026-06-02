@@ -15,10 +15,13 @@ log() {
   printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"
 }
 
+declare -r SECURITY_PATHS="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+declare -ar SECURITY_PYTHON_CANDIDATES=("python3" "python")
+
 resolve_python() {
   local candidates=("${PYTHON_BIN:-}")
   if [[ -z "${candidates[0]:-}" ]]; then
-    candidates=("python3" "python")
+    candidates=("${SECURITY_PYTHON_CANDIDATES[@]}")
   fi
 
   local candidate
@@ -27,7 +30,7 @@ resolve_python() {
     if [[ "$candidate" =~ [[:space:]] || "$candidate" == -* ]]; then
       continue
     fi
-    resolved="$(command -v -- "$candidate" 2>/dev/null || true)"
+    resolved="$(env PATH="$SECURITY_PATHS" command -v -- "$candidate" 2>/dev/null || true)"
     if [[ -n "$resolved" && -x "$resolved" ]]; then
       echo "$resolved"
       return 0

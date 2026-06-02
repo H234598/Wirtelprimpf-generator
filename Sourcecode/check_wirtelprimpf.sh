@@ -5,6 +5,8 @@ umask 077
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURRENT_UID="$(id -u)"
 readonly CURRENT_UID
+declare -r SECURITY_PATHS="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+declare -ar SECURITY_PYTHON_CANDIDATES=("python3" "python")
 if [[ -n "${PYTHON_BIN:-}" && "${PYTHON_BIN}" == *[[:space:]]* ]]; then
   echo "PYTHON_BIN must not contain whitespace: ${PYTHON_BIN}" >&2
   exit 1
@@ -13,7 +15,7 @@ fi
 resolve_python() {
   local candidates=("${PYTHON_BIN:-}")
   if [[ -z "${candidates[0]:-}" ]]; then
-    candidates=("python3" "python")
+    candidates=("${SECURITY_PYTHON_CANDIDATES[@]}")
   fi
 
   local candidate resolved
@@ -21,7 +23,7 @@ resolve_python() {
     if [[ "$candidate" =~ [[:space:]] || "$candidate" == -* ]]; then
       continue
     fi
-    if ! resolved="$(command -v -- "$candidate" 2>/dev/null || true)"; then
+    if ! resolved="$(env PATH="$SECURITY_PATHS" command -v -- "$candidate" 2>/dev/null || true)"; then
       continue
     fi
     if [[ -n "$resolved" && -x "$resolved" ]]; then
