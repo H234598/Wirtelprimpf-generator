@@ -284,6 +284,11 @@ is_valid_version() {
 
 sync_state_file() {
   local computed="$1"
+  if ! is_valid_version "$computed"; then
+    log "invalid computed version supplied to sync_state_file: $computed"
+    return 1
+  fi
+
   local current
   current="$(read_state_version)"
 
