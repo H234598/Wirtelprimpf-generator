@@ -314,6 +314,10 @@ cleanup_lock_tmp() {
   fi
 }
 
+cleanup_lock_fd() {
+  exec 9>&- 2>/dev/null || true
+}
+
 acquire_lock() {
   is_running_pid() {
     local candidate="$1"
@@ -336,6 +340,7 @@ acquire_lock() {
       local pid
       if ! pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"; then
         log "failed to read lock holder pid, exiting: $LOCK_FILE"
+        cleanup_lock_fd
         return 1
       fi
       pid="${pid//$'\r'/}"
@@ -343,17 +348,21 @@ acquire_lock() {
       pid="$(printf '%s' "$pid")"
       if [[ "$pid" == *[[:space:]]* ]]; then
         log "invalid lock holder pid in $LOCK_FILE: whitespace-containing value, exiting"
+        cleanup_lock_fd
         return 1
       fi
       if [[ -n "$pid" && ! "$pid" =~ ^[0-9]+$ ]]; then
         log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
+        cleanup_lock_fd
         return 1
       fi
       if ! is_owned_by_current_user "$LOCK_FILE"; then
         log "lock file not owned by current user: $LOCK_FILE"
+        cleanup_lock_fd
         return 1
       fi
       log "another watcher instance is running (flock), exiting (holder=${pid:-unknown})"
+      cleanup_lock_fd
       return 1
     fi
     printf '%s\n' "$$" 1>&9
