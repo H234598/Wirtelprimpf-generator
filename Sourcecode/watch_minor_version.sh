@@ -679,25 +679,8 @@ is_owned_by_current_user() {
 require_file() {
   local path="$1"
   local label="$2"
-  local perm
-  if [[ ! -f "$path" ]]; then
-    log "${label} missing: $path"
-    exit 1
-  fi
-  if [[ -L "$path" ]]; then
-    log "${label} must not be a symlink: $path"
-    exit 1
-  fi
   if ! is_secure_regular_file "$path"; then
     log "${label} must be a secure regular file owned by current user: $path"
-    exit 1
-  fi
-  if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
-    log "${label} failed to read permissions: $path"
-    exit 1
-  fi
-  if (( 10#$perm & 022 )); then
-    log "${label} must not be group/world writable: $path"
     exit 1
   fi
 }
@@ -972,7 +955,6 @@ is_strict_positive_pid() {
 
 validate_lock_file() {
   local path="$1"
-  local mode
   if [[ -L "$path" ]]; then
     log "lock file must not be a symlink: $path"
     return 1
@@ -980,14 +962,6 @@ validate_lock_file() {
   if [[ -e "$path" ]]; then
     if ! is_secure_regular_file "$path"; then
       log "lock file must be a secure regular file: $path"
-      return 1
-    fi
-    if ! mode="$(stat -c '%a' "$path" 2>/dev/null)"; then
-      log "lock file metadata unavailable: $path"
-      return 1
-    fi
-    if (( 10#$mode & 022 )); then
-      log "lock file must not be group/world writable: $path"
       return 1
     fi
   fi
