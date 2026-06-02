@@ -80,7 +80,9 @@ ENV_BLACKLIST: Final = frozenset(
         "PYTHONUSERBASE",
     }
 )
-VERSION: Final = "0.5.13-hardening"
+_COMMAND_ENV_CACHE: dict[str, str] | None = None
+_SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
+VERSION: Final = "0.5.14-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -384,7 +386,61 @@ def _resolve_secure_executable(name: str, *, required: bool = True) -> str | Non
     return None
 
 
+def _resolve_secure_executable_cached(name: str, *, required: bool = True) -> str | None:
+    cached = _SECURE_EXECUTABLE_CACHE.get(name)
+    if cached is not None:
+        if _is_cached_secure_executable(cached):
+            return cached
+        _SECURE_EXECUTABLE_CACHE.pop(name, None)
+
+    resolved = _resolve_secure_executable(name, required=required)
+    if resolved is not None:
+        _SECURE_EXECUTABLE_CACHE[name] = resolved
+    return resolved
+
+
+def _is_cached_secure_executable(path: str) -> bool:
+    candidate = Path(path)
+    if candidate.is_symlink():
+        return False
+
+    try:
+        status = candidate.lstat()
+    except OSError:
+        return False
+
+    if not candidate.is_file() or not os.access(candidate, os.X_OK):
+        return False
+    if status.st_uid not in {0, os.getuid()}:
+        return False
+    if status.st_gid not in {0, os.getgid()}:
+        return False
+    if _is_world_or_group_writable(status.st_mode):
+        return False
+    if status.st_mode & (stat.S_ISUID | stat.S_ISGID):
+        return False
+
+    parent = candidate.parent
+    if parent.is_symlink() or not parent.is_dir():
+        return False
+
+    try:
+        parent_status = parent.lstat()
+    except OSError:
+        return False
+
+    if parent_status.st_uid not in {0, os.getuid()}:
+        return False
+    if _is_world_or_group_writable(parent_status.st_mode):
+        return False
+    return True
+
+
 def _command_env() -> dict[str, str]:
+    global _COMMAND_ENV_CACHE
+    if _COMMAND_ENV_CACHE is not None:
+        return _COMMAND_ENV_CACHE.copy()
+
     environment = os.environ.copy()
     for key in ENV_BLACKLIST:
         environment.pop(key, None)
@@ -394,7 +450,8 @@ def _command_env() -> dict[str, str]:
     environment["PATH"] = ":".join(COMMAND_PATHS)
     environment.setdefault("LANG", "C.UTF-8")
     environment.setdefault("LC_ALL", "C.UTF-8")
-    return environment
+    _COMMAND_ENV_CACHE = environment
+    return environment.copy()
 
 
 def _assert_private_directory(path: Path, *, label: str) -> None:
@@ -612,7 +669,7 @@ def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProc
     if not command:
         raise RuntimeError("No command supplied")
 
-    command_path = _resolve_secure_executable(command[0], required=True)
+    command_path = _resolve_secure_executable_cached(command[0], required=True)
     secure_command = [command_path, *command[1:]]
 
     try:
@@ -641,7 +698,7 @@ def ensure_repo(config: Config) -> Path | None:
     if config.repo_path.is_symlink():
         raise RuntimeError(f"WIRTELPRIMPF_REPO_PATH must not be a symlink: {config.repo_path}")
 
-    if not _resolve_secure_executable("git", required=False):
+    if not _resolve_secure_executable_cached("git", required=False):
         raise RuntimeError("git is required for repository operations")
 
     if (config.repo_path / ".git").is_dir():
@@ -653,7 +710,7 @@ def ensure_repo(config: Config) -> Path | None:
             raise RuntimeError("WIRTELPRIMPF_REPO_PATH is not a Git checkout and WIRTELPRIMPF_REPO_SLUG is unset")
         if config.repo_path.exists() and not config.repo_path.is_dir():
             raise RuntimeError(f"WIRTELPRIMPF_REPO_PATH is not a directory: {config.repo_path}")
-        if not _resolve_secure_executable("gh", required=False):
+        if not _resolve_secure_executable_cached("gh", required=False):
             raise RuntimeError("gh is required to clone WIRTELPRIMPF_REPO_SLUG")
         if config.repo_path.exists() and any(config.repo_path.iterdir()):
             raise RuntimeError(
@@ -1117,8 +1174,8 @@ def status_report(config: Config | None = None) -> dict[str, object]:
         "exit_code": 0,
         "checks": [],
         "details": {
-            "git_available": bool(_resolve_secure_executable("git", required=False)),
-            "gh_available": bool(_resolve_secure_executable("gh", required=False)),
+            "git_available": bool(_resolve_secure_executable_cached("git", required=False)),
+            "gh_available": bool(_resolve_secure_executable_cached("gh", required=False)),
             "openai_key_present": bool(env("OPENAI_API_KEY")),
         },
     }
@@ -1254,7 +1311,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             report["ok"] = False
             report["status"] = STATUS_ERROR
             report["exit_code"] = 1
-        elif not _resolve_secure_executable("gh", required=False):
+        elif not _resolve_secure_executable_cached("gh", required=False):
             repo_checks["ok"] = False
             repo_checks["message"] = "gh CLI is required to auto-clone missing repo path"
             report["ok"] = False

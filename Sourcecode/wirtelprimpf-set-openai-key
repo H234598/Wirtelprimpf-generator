@@ -4,8 +4,8 @@ set -euo pipefail
 env_file="${1:-${HOME}/.config/wirtelprimpf/openai.env}"
 config_dir="$(dirname "$env_file")"
 
-mkdir -p "$config_dir"
-chmod 700 "$config_dir"
+mkdir -p -- "$config_dir"
+chmod 700 -- "$config_dir"
 
 printf 'OpenAI API key with Images permission (api.model.images.request): '
 IFS= read -r -s api_key
@@ -17,9 +17,16 @@ if [[ -z "$api_key" ]]; then
 fi
 
 umask 077
-tmp_file="$(mktemp "${env_file}.XXXXXX")"
+tmp_file="$(mktemp -- "${env_file}.XXXXXX")"
+cleanup_tmp_file() {
+  if [[ -n "${tmp_file:-}" && -e "$tmp_file" ]]; then
+    rm -f -- "$tmp_file"
+  fi
+}
+trap cleanup_tmp_file EXIT HUP INT TERM
 printf 'OPENAI_API_KEY=%q\n' "$api_key" > "$tmp_file"
-mv "$tmp_file" "$env_file"
-chmod 600 "$env_file"
+mv -- "$tmp_file" "$env_file"
+tmp_file=""
+chmod 600 -- "$env_file"
 
 printf 'Saved: %s\n' "$env_file"

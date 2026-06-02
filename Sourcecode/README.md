@@ -75,7 +75,7 @@ WIRTELPRIMPF_GIT_AUTHOR_EMAIL=wirtelprimpf@example.invalid
 WIRTELPRIMPF_PATCHES_PER_MINOR=100
 WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE=10
 WIRTELPRIMPF_MAJOR_VERSION_BUMP=0
-WIRTELPRIMPF_BREAKING_CHANGE=0
+WIRTELPRIMPF_BREAKING_CHANGE=false
 
 # Optional: local publishing policy for commit cadence.
 # Default behavior in this repository documentation:
@@ -103,8 +103,8 @@ Git-Publish policy:
 - `WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE` controls how many pushed minor
   boundaries should be grouped before a release should be prepared. Default:
   `10`.
-- Set `WIRTELPRIMPF_BREAKING_CHANGE=true` for a one-time major bump on this
-  execution (in addition to `WIRTELPRIMPF_MAJOR_VERSION_BUMP`).
+- Set `WIRTELPRIMPF_BREAKING_CHANGE=true` (or `on`/`1`) for a one-time major
+  bump on this execution (in addition to `WIRTELPRIMPF_MAJOR_VERSION_BUMP`).
 
 Patch commits below the minor boundary are recorded locally only. At the
 100-patch minor boundary, the generator attempts the remote push and advances
