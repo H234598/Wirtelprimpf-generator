@@ -68,6 +68,13 @@ resolve_python() {
       if [[ "$resolved_canonical" != "$resolved" || ! -f "$resolved_canonical" || ! -x "$resolved_canonical" || -L "$resolved_canonical" ]]; then
         continue
       fi
+      case "$resolved_canonical" in
+        /usr/local/sbin/*|/usr/local/bin/*|/usr/sbin/*|/usr/bin/*|/sbin/*|/bin/*)
+          ;;
+        *)
+          continue
+          ;;
+      esac
       echo "$resolved_canonical"
       return 0
     done
