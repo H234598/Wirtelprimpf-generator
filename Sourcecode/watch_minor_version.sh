@@ -70,6 +70,12 @@ refresh_state_timestamp() {
 }
 
 acquire_lock() {
+  is_running_pid() {
+    local candidate="$1"
+    [[ -n "$candidate" && "$candidate" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$candidate" 2>/dev/null
+  }
+
   if command -v flock >/dev/null 2>&1; then
     exec 9>"$LOCK_FILE"
     if ! flock -n 9; then
@@ -92,7 +98,7 @@ acquire_lock() {
       local lock_mtime age
       lock_mtime=$(stat -c '%Y' "$LOCK_FILE" 2>/dev/null || echo "$now")
       age=$((now - lock_mtime))
-      if [[ "$age" -lt "$MAX_STALE_LOCK_SECONDS" ]]; then
+      if [[ "$age" -lt "$MAX_STALE_LOCK_SECONDS" ]] && is_running_pid "$pid"; then
         log "another watcher instance is running (fallback lock), exiting"
         exit 0
       fi
