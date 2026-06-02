@@ -928,7 +928,19 @@ cleanup_lock_tmp() {
 
 cleanup_timestamp_if_lock_owned_by_self() {
   local lock_pid
+  if [[ -L "$LOCK_FILE" ]]; then
+    return
+  fi
+  if ! is_secure_mutable_regular_file "$LOCK_FILE"; then
+    return
+  fi
+  if ! is_owned_by_current_user "$LOCK_FILE"; then
+    return
+  fi
   if ! lock_pid="$(read_pid_from_file "$LOCK_FILE")"; then
+    return
+  fi
+  if ! is_strict_positive_pid "$lock_pid"; then
     return
   fi
   if [[ "$lock_pid" != "$$" ]]; then
