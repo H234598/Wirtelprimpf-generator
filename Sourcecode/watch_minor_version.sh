@@ -102,8 +102,7 @@ validate_python_binary() {
       return 1
       ;;
   esac
-  local base_name
-  base_name="$(basename -- "$resolved")"
+  local base_name="${resolved##*/}"
   if [[ ! "$base_name" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]; then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
