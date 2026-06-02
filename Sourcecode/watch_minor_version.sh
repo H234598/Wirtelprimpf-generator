@@ -326,11 +326,6 @@ apply_version_change() {
 
   log "minor version changed: $previous -> $current"
 
-  if ! write_state "$current"; then
-    log "refusing to continue because state update for version $current failed"
-    return 1
-  fi
-
   if "$CHECKS_SCRIPT"; then
     if ! refresh_state_timestamp; then
       log "failed to refresh state timestamp; aborting"
@@ -339,6 +334,11 @@ apply_version_change() {
     log "checks completed for version $current"
   else
     log "checks failed for version $current"
+    return 1
+  fi
+
+  if ! write_state "$current"; then
+    log "refusing to continue because state update for version $current failed"
     return 1
   fi
 
