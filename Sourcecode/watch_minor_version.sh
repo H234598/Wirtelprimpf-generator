@@ -319,12 +319,15 @@ if [[ "${1:-}" == "--once" ]]; then
 		prev="$current"
 	fi
 	if [[ "$current" != "$prev" ]]; then
-		if ! write_state "$current"; then
-			log "refusing to continue because state update for version $current failed"
-			exit 1
-		fi
+    if ! write_state "$current"; then
+      log "refusing to continue because state update for version $current failed"
+      exit 1
+    fi
     if "$CHECKS_SCRIPT"; then
-      refresh_state_timestamp
+      if ! refresh_state_timestamp; then
+        log "failed to refresh state timestamp; aborting"
+        exit 1
+      fi
       log "checks completed for version $current"
     else
       log "checks failed for version $current"
@@ -356,6 +359,10 @@ while true; do
 		exit 1
 	fi
     if "$CHECKS_SCRIPT"; then
+      if ! refresh_state_timestamp; then
+        log "failed to refresh state timestamp; aborting"
+        exit 1
+      fi
       log "checks completed for version $current"
     else
       log "checks failed for version $current"
