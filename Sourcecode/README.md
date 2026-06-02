@@ -78,8 +78,11 @@ WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE=10
 # Optional: local publishing policy for commit cadence.
 # Default behavior in this repository documentation:
 # - every patch change is committed
-# - push only on minor-version boundaries (every 100 patches)
-# - release only every 10 minor pushes
+# - patch numbers increase on every committed patch
+# - 100 patches advance minor by 1
+# - 100 minors advance major by 1
+# - release is prepared every 10 minor pushes
+# - for breaking changes or new API features, bump major manually
 #
 # Every committed patch is also the patch version number.
 ```
@@ -207,9 +210,8 @@ Ein einmaliger Check kann auch unabhängig laufen:
 
 `check_wirtelprimpf.sh` verwendet temporäre Dateien mit automatischer Aufräumung.
 
-`watch_minor_version.sh` liest die aktuelle Minor-Version aus dem `VERSION`-Wert in
-`Sourcecode/wirtelprimpf_generator.py` direkt und reagiert nur auf echte
-`major.minor`-Änderungen.
+`watch_minor_version.sh` beobachtet den in der Generator-Logik berechneten Minor-Release-Fortschritt.
+Standard ist: 100 Patches -> minor+, 100 Minors -> major+ (mit Patch-Suffix/Prefix).
 
 ### Dauerstart via systemd --user
 
