@@ -190,6 +190,11 @@ validate_python_binary() {
       PYTHON_BINARY_CACHE_PATH="$path"
       return 1
     fi
+    if [[ ",${mount_opts}," == *",nosuid,"* ]]; then
+      PYTHON_BINARY_CACHE_RESULT=1
+      PYTHON_BINARY_CACHE_PATH="$path"
+      return 1
+    fi
   fi
   if (( HAS_FILE_CMD )); then
     if ! file_type="$(file -b -- "$resolved" 2>/dev/null || true)"; then
