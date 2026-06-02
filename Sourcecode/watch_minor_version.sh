@@ -161,6 +161,7 @@ require_directory() {
   local path="$1"
   local label="$2"
   local mode="${3:-rx}"
+  local perm owner
   if [[ ! -d "$path" ]]; then
     log "${label} must be a directory: $path"
     exit 1
@@ -175,6 +176,22 @@ require_directory() {
   fi
   if [[ "$mode" == *w* && ! -w "$path" ]]; then
     log "${label} must be writable: $path"
+    exit 1
+  fi
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null || true)"; then
+    log "${label} failed to read owner: $path"
+    exit 1
+  fi
+  if [[ "$owner" != "$(id -u)" ]]; then
+    log "${label} must be owned by current user: $path"
+    exit 1
+  fi
+  if ! perm="$(stat -c '%a' "$path" 2>/dev/null || true)"; then
+    log "${label} failed to read permissions: $path"
+    exit 1
+  fi
+  if (( 10#$perm & 022 )); then
+    log "${label} must not be group/world writable: $path"
     exit 1
   fi
 }
