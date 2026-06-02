@@ -269,7 +269,7 @@ read_state_version() {
     echo ""
     return
   fi
-  if [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$ ]]; then
+  if is_valid_version "$value"; then
     echo "$value"
     return
   fi
@@ -382,9 +382,6 @@ if [[ "${1:-}" == "--once" ]]; then
 	if ! is_valid_version "$current"; then
 	  log "invalid derived current version: $current"
 	  exit 1
-	fi
-	if [[ -z "$prev" ]]; then
-		prev="$current"
 	fi
 	if [[ "$current" != "$prev" ]]; then
 	    if ! apply_version_change "$prev" "$current"; then
