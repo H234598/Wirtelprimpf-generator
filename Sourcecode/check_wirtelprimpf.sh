@@ -263,6 +263,10 @@ validate_json() {
     echo "No file supplied to validate_json" >&2
     return 1
   fi
+  if [[ "$file" != *.json ]]; then
+    echo "validate_json expects .json file: $file" >&2
+    return 1
+  fi
   if [[ ! "$file" =~ ^[A-Za-z0-9._/\-]+$ ]]; then
     echo "Invalid path contains unsafe character: $file" >&2
     return 1
