@@ -57,8 +57,8 @@ validate_repo_path() {
     log "repository path is not a directory: ${path}"
     exit 1
   fi
-  if [[ ! -w "$path" && ! -r "$path" ]]; then
-    log "repository path is not accessible: ${path}"
+  if [[ ! -r "$path" || ! -x "$path" ]]; then
+    log "repository path is not accessible (must be readable and searchable): ${path}"
     exit 1
   fi
   cd -- "$path" >/dev/null 2>&1
@@ -114,9 +114,9 @@ else
 fi
 validate_publish_state_path "$PUBLISH_STATE_FILE"
 STATE_FILE="$ROOT_DIR/Sourcecode/.minor_version_state"
-require_directory "$(dirname "$STATE_FILE")" "State directory"
+require_directory "$(dirname "$STATE_FILE")" "State directory" "rwx"
 LOCK_FILE="$ROOT_DIR/Sourcecode/.minor_version_watch.lock"
-require_directory "$(dirname "$LOCK_FILE")" "Lock directory"
+require_directory "$(dirname "$LOCK_FILE")" "Lock directory" "rwx"
 LOCK_TMP="${LOCK_FILE}.tmp.$$"
 TIMESTAMP_FILE="$STATE_FILE.started_at"
 CHECKS_SCRIPT="$ROOT_DIR/Sourcecode/check_wirtelprimpf.sh"
@@ -142,6 +142,7 @@ parse_positive_int() {
 require_directory() {
   local path="$1"
   local label="$2"
+  local mode="${3:-rx}"
   if [[ ! -d "$path" ]]; then
     log "${label} must be a directory: $path"
     exit 1
@@ -150,8 +151,12 @@ require_directory() {
     log "${label} must not be a symlink: $path"
     exit 1
   fi
-  if [[ ! -w "$path" && ! -r "$path" ]]; then
-    log "${label} is not accessible: $path"
+  if [[ ! -r "$path" || ! -x "$path" ]]; then
+    log "${label} must be readable and searchable: $path"
+    exit 1
+  fi
+  if [[ "$mode" == *w* && ! -w "$path" ]]; then
+    log "${label} must be writable: $path"
     exit 1
   fi
 }
