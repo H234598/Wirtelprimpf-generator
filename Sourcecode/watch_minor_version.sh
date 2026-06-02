@@ -54,7 +54,7 @@ resolve_python() {
       continue
     fi
     resolved="$(env PATH="$SECURITY_PATHS" command -v -- "$candidate" 2>/dev/null || true)"
-    if [[ -n "$resolved" && -x "$resolved" ]]; then
+    if [[ -n "$resolved" ]]; then
       echo "$resolved"
       return 0
     fi
@@ -73,7 +73,7 @@ validate_python_binary() {
   local resolved_mode resolved_owner parent_mode parent_owner
   local file_type
 
-  if [[ -z "$path" || ! -x "$path" ]]; then
+  if [[ -z "$path" ]]; then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
@@ -142,6 +142,11 @@ validate_python_binary() {
     return 1
   fi
   if (( 10#$resolved_mode & 022 )); then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
+    return 1
+  fi
+  if (( 10#$resolved_mode & 0111 == 0 )); then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
