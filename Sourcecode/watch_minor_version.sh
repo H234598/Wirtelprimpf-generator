@@ -227,10 +227,15 @@ PY
 read_state_version() {
   local value
   value="$(cat "$STATE_FILE" 2>/dev/null || true)"
+  if [[ -z "$value" ]]; then
+    echo ""
+    return
+  fi
   if [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$ ]]; then
     echo "$value"
     return
   fi
+  log "state file contains invalid version: $value"
   echo ""
 }
 
