@@ -453,6 +453,50 @@ refresh_state_timestamp() {
   fi
 }
 
+read_timestamp_epoch() {
+  local value
+  if [[ -L "$TIMESTAMP_FILE" ]]; then
+    log "timestamp file must not be a symlink: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if [[ -e "$TIMESTAMP_FILE" ]] && ! is_regular_file "$TIMESTAMP_FILE"; then
+    log "timestamp file is not a regular file: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if [[ -e "$TIMESTAMP_FILE" ]] && ! is_owned_by_current_user "$TIMESTAMP_FILE"; then
+    log "timestamp file not owned by current user: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if [[ -e "$TIMESTAMP_FILE" ]] && [[ ! -r "$TIMESTAMP_FILE" ]]; then
+    log "timestamp file not readable: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if [[ -e "$TIMESTAMP_FILE" ]]; then
+    local timestamp_perm
+    if ! timestamp_perm="$(stat -c '%a' "$TIMESTAMP_FILE" 2>/dev/null)"; then
+      log "failed to read timestamp file permissions: $TIMESTAMP_FILE"
+      return 1
+    fi
+    if (( 10#$timestamp_perm & 022 )); then
+      log "timestamp file has insecure permissions (group/world writable): $TIMESTAMP_FILE"
+      return 1
+    fi
+  fi
+  if ! value="$(cat "$TIMESTAMP_FILE" 2>/dev/null || true)"; then
+    log "failed to read timestamp file: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if [[ -z "$value" ]]; then
+    log "timestamp file is empty: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+    log "timestamp file is not numeric: $TIMESTAMP_FILE"
+    return 1
+  fi
+  echo "$value"
+}
+
 cleanup_lock_tmp() {
   if [[ -n "$LOCK_TMP" ]]; then
     rm -f "$LOCK_TMP" 2>/dev/null || true
@@ -953,12 +997,17 @@ while true; do
 
   if [[ -f "$TIMESTAMP_FILE" ]]; then
     now_epoch="$(date +%s)"
-    if ! last_epoch="$(cat "$TIMESTAMP_FILE" 2>/dev/null || true)"; then
-      log "failed to read timestamp file: $TIMESTAMP_FILE"
-      last_epoch=""
+    if ! last_epoch="$(read_timestamp_epoch)"; then
+      log "failed to read timestamp epoch from file: $TIMESTAMP_FILE"
+      if ! refresh_state_timestamp; then
+        log "failed to refresh timestamp file: $TIMESTAMP_FILE"
+        exit 1
+      fi
+      sleep "$DEFAULT_RETRY_DELAY_SECONDS"
+      continue
     fi
     if [[ ! "$last_epoch" =~ ^[0-9]+$ ]]; then
-      log "invalid timestamp file content, refreshing: $last_epoch"
+      log "invalid timestamp epoch from file: $last_epoch"
       if ! refresh_state_timestamp; then
         log "failed to refresh timestamp file: $TIMESTAMP_FILE"
         exit 1
