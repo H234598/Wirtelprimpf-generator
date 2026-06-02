@@ -26,9 +26,8 @@ fi
 
 is_valid_python_binary_name() {
   local candidate="$1"
-  local base_name="${candidate##*/}"
   [[ "$candidate" != */* ]]
-  [[ "$base_name" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]
+  [[ "$candidate" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]
 }
 
 resolve_python() {
