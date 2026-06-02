@@ -274,6 +274,8 @@ if ! validate_python_binary "$PY"; then
   exit 1
 fi
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
+WATCH_BASH_PATH="$(command -v bash 2>/dev/null || true)"
+readonly WATCH_BASH_PATH
 
 run_python_sandbox() {
   env -i \
@@ -310,10 +312,8 @@ run_check_script_sandboxed() {
     log "checks script directory must not be a symlink: ${script_dir}"
     return 1
   fi
-  local bash_path
-  bash_path="$(command -v bash 2>/dev/null || true)"
-  if [[ -z "$bash_path" || -L "$bash_path" || ! -x "$bash_path" ]]; then
-    log "required bash interpreter unavailable or insecure: ${bash_path:-not-found}"
+  if [[ -z "$WATCH_BASH_PATH" || -L "$WATCH_BASH_PATH" || ! -x "$WATCH_BASH_PATH" ]]; then
+    log "required bash interpreter unavailable or insecure: ${WATCH_BASH_PATH:-not-found}"
     return 1
   fi
   if ! env -i \
@@ -324,7 +324,7 @@ run_check_script_sandboxed() {
     TERM="xterm-256color" \
     LANG="C.UTF-8" \
     LC_ALL="C.UTF-8" \
-    "$bash_path" "$script_path"; then
+    "$WATCH_BASH_PATH" "$script_path"; then
     log "checks script execution failed: ${script_path}"
     return 1
   fi
