@@ -347,7 +347,7 @@ record.
 
 Praktische Fehlerauswertung:
 
-- `exit_code == 0` => Kommando erfolgreich (auch bei `ok=false` nur möglich, wenn es nur optionale Checks betrifft).
+- `exit_code == 0` => Kein command-wide Fehler; bei `--status` können Einzelchecks (`checks`) fehlerhaft sein, ohne dass der Kommando-Exitcode steigt.
 - `exit_code == 1` => kritische Setup/Config- oder Repo-Fehler, keine erfolgreiche Ausführung.
 - `exit_code == 2` => partielle Ausführung; suche `checks` mit `"ok": false` und die zugehörigen `message`-Felder.
 - Für `dry_run`-Events gilt: `status` spiegelt den Laufstatus pro Block, `checks` enthält die Einzelbewertung je Prüfungspunkt.

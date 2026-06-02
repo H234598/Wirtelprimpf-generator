@@ -83,7 +83,7 @@ ENV_BLACKLIST: Final = frozenset(
 OPENAI_ENV_PREFIXES: Final = ("OPENAI_", "AZURE_OPENAI_")
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.5.37-hardening"
+VERSION: Final = "0.5.38-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -1477,11 +1477,19 @@ def main() -> None:
 
     try:
         if not os.environ.get("OPENAI_API_KEY") and not args.check_config and not args.dry_run:
+            if args.json:
+                emit_unexpected_failure("OPENAI_API_KEY environment variable is required", args, runtime_mode)
             _die("OPENAI_API_KEY environment variable is required")
 
         config = load_config()
         effective_major_base = effective_major_version_base(config)
         if not config.prompt_config_path.exists():
+            if args.json:
+                emit_unexpected_failure(
+                    f"Prompt config file not found: {config.prompt_config_path}",
+                    args,
+                    runtime_mode,
+                )
             _die(f"Prompt config file not found: {config.prompt_config_path}")
 
         try:
@@ -1512,6 +1520,12 @@ def main() -> None:
                     )
                 )
                 raise SystemExit(1)
+            if args.json:
+                emit_unexpected_failure(
+                    f"Prompt config validation failed: {exc}",
+                    args,
+                    runtime_mode,
+                )
             _die(f"Prompt config validation failed: {exc}")
 
         total_prompts = len(prompts)
@@ -1588,7 +1602,7 @@ def main() -> None:
             repo_outdir = ensure_repo(config)
         except Exception as exc:
             if args.json:
-                raise
+                emit_unexpected_failure(f"Failed to prepare repository: {exc}", args, runtime_mode)
             _die(f"Failed to prepare repository: {exc}")
         summary = RunSummary(total=len(prompts))
         output_resolution_size = parse_resolution(config.output_resolution)
