@@ -232,22 +232,6 @@ run_check_to_file() {
     echo "Output path must be under check tmpdir: $output" >&2
     return 1
   fi
-  case "$label" in
-    status-json|check-config-json|dry-run-json)
-      if [[ "$output" != *.json ]]; then
-        echo "JSON label requires .json output path: $output" >&2
-        return 1
-      fi
-      ;;
-    status-text|check-config-text|dry-run-text)
-      if [[ "$output" != *.txt ]]; then
-        echo "Text label requires .txt output path: $output" >&2
-        return 1
-      fi
-      ;;
-    *)
-      : ;;
-  esac
   if [[ -e "$output" ]] && ! is_regular_file "$output"; then
     echo "Output file must be regular: $output" >&2
     return 1
