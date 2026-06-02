@@ -41,6 +41,15 @@ if ! CHECK_TMPDIR="$(mktemp -d -t wirtelprimpf-check-XXXXXX)"; then
   exit 1
 fi
 
+is_owned_by_current_user() {
+  local path="$1"
+  local owner
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  [[ "$owner" == "$(id -u)" ]]
+}
+
 is_strict_secure_directory() {
   local path="$1"
   local label="$2"
@@ -63,6 +72,10 @@ is_strict_secure_directory() {
   fi
   if (( 10#$perm & 022 )); then
     echo "${label} must not be group/world writable: ${path}" >&2
+    return 1
+  fi
+  if ! is_owned_by_current_user "$path"; then
+    echo "${label} must be owned by current user: ${path}" >&2
     return 1
   fi
   return 0
@@ -268,6 +281,10 @@ run_check_to_file() {
     echo "Output file must be regular: $output" >&2
     return 1
   fi
+  if [[ -e "$output" ]] && ! is_owned_by_current_user "$output"; then
+    echo "Output file must be owned by current user: $output" >&2
+    return 1
+  fi
 
   local output_tmp
   if ! output_tmp="$(mktemp "${output}.tmp.XXXXXX")"; then
@@ -281,6 +298,11 @@ run_check_to_file() {
   fi
   if ! is_regular_file "$output_tmp"; then
     echo "Temp output file must be regular: $output_tmp" >&2
+    rm -f "$output_tmp"
+    return 1
+  fi
+  if ! is_owned_by_current_user "$output_tmp"; then
+    echo "Temporary output file must be owned by current user: $output_tmp" >&2
     rm -f "$output_tmp"
     return 1
   fi
