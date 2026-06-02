@@ -117,6 +117,10 @@ validate_json() {
     echo "Invalid path contains unsafe character: $file" >&2
     return 1
   fi
+  if [[ "$file" != "$CHECK_TMPDIR"/* ]]; then
+    echo "validate_json path is outside check tempdir: $file" >&2
+    return 1
+  fi
   case "$mode" in
     status|check_config|dry_run|run) ;;
     *) echo "Invalid mode argument: $mode" >&2; return 1 ;;
