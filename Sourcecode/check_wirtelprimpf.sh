@@ -184,25 +184,52 @@ run_check_to_file() {
     echo "No output path for check: $label" >&2
     return 1
   fi
-  if [[ "$output" != "$CHECK_TMPDIR/"* ]]; then
+
+  case "$label" in
+    status-json)
+      if [[ "$output" != "$CHECK_TMPDIR/status.json" ]]; then
+        echo "Unexpected output path for status-json: $output" >&2
+        return 1
+      fi
+      ;;
+    check-config-json)
+      if [[ "$output" != "$CHECK_TMPDIR/check-config.json" ]]; then
+        echo "Unexpected output path for check-config-json: $output" >&2
+        return 1
+      fi
+      ;;
+    dry-run-json)
+      if [[ "$output" != "$CHECK_TMPDIR/dry-run.json" ]]; then
+        echo "Unexpected output path for dry-run-json: $output" >&2
+        return 1
+      fi
+      ;;
+    status-text)
+      if [[ "$output" != "$CHECK_TMPDIR/status.txt" ]]; then
+        echo "Unexpected output path for status-text: $output" >&2
+        return 1
+      fi
+      ;;
+    check-config-text)
+      if [[ "$output" != "$CHECK_TMPDIR/check-config.txt" ]]; then
+        echo "Unexpected output path for check-config-text: $output" >&2
+        return 1
+      fi
+      ;;
+    dry-run-text)
+      if [[ "$output" != "$CHECK_TMPDIR/dry-run.txt" ]]; then
+        echo "Unexpected output path for dry-run-text: $output" >&2
+        return 1
+      fi
+      ;;
+    *)
+      echo "Unknown check label for output validation: $label" >&2
+      return 1
+      ;;
+  esac
+
+  if [[ "$output" != "$CHECK_TMPDIR"/* ]]; then
     echo "Output path must be under check tmpdir: $output" >&2
-    return 1
-  fi
-  if [[ ! "$output" =~ ^[A-Za-z0-9._/\-]+$ ]]; then
-    echo "Invalid output path characters: $output" >&2
-    return 1
-  fi
-  if [[ "${output##*/}" == "." || "${output##*/}" == ".." || "${output##*/}" == "" ]]; then
-    echo "Output path must include filename: $output" >&2
-    return 1
-  fi
-  local output_real
-  if ! output_real="$(realpath -m "$output")"; then
-    echo "Unable to resolve output path: $output" >&2
-    return 1
-  fi
-  if [[ "$output_real" != "$CHECK_TMPDIR"/* ]]; then
-    echo "Resolved output path escapes check tmpdir: $output (resolved $output_real)" >&2
     return 1
   fi
   case "$label" in
@@ -219,20 +246,8 @@ run_check_to_file() {
       fi
       ;;
     *)
-      echo "Unknown check label for output validation: $label" >&2
-      return 1
-      ;;
+      : ;;
   esac
-  local output_dir
-  output_dir="$(dirname "$output")"
-  if [[ ! -d "$output_dir" ]]; then
-    echo "Output directory missing for check: $output_dir" >&2
-    return 1
-  fi
-  if [[ -L "$output_dir" || ( -e "$output_dir" && ! -d "$output_dir" ) ]]; then
-    echo "Invalid output directory for check: $output_dir" >&2
-    return 1
-  fi
   if [[ -e "$output" ]] && ! is_regular_file "$output"; then
     echo "Output file must be regular: $output" >&2
     return 1
