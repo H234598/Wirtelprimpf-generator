@@ -278,35 +278,33 @@ validate_json() {
     echo "No file supplied to validate_json" >&2
     return 1
   fi
-  if [[ "$file" != *.json ]]; then
-    echo "validate_json expects .json file: $file" >&2
-    return 1
-  fi
-  if [[ ! "$file" =~ ^[A-Za-z0-9._/\-]+$ ]]; then
-    echo "Invalid path contains unsafe character: $file" >&2
-    return 1
-  fi
-  if [[ "$file" != "$CHECK_TMPDIR"/* ]]; then
-    echo "validate_json path is outside check tempdir: $file" >&2
-    return 1
-  fi
-  local file_real
-  if ! file_real="$(realpath -m "$file")"; then
-    echo "Unable to resolve validate_json path: $file" >&2
-    return 1
-  fi
-  if [[ "$file_real" != "$CHECK_TMPDIR"/* ]]; then
-    echo "validate_json resolved path escapes check tempdir: $file (resolved $file_real)" >&2
+  local expected_json
+  case "$mode" in
+    status)
+      expected_json="$CHECK_TMPDIR/status.json"
+      ;;
+    check_config)
+      expected_json="$CHECK_TMPDIR/check-config.json"
+      ;;
+    dry_run)
+      expected_json="$CHECK_TMPDIR/dry-run.json"
+      ;;
+    run)
+      expected_json="$CHECK_TMPDIR/status.json"
+      ;;
+    *)
+      echo "Invalid mode argument: $mode" >&2
+      return 1
+      ;;
+  esac
+  if [[ "$file" != "$expected_json" ]]; then
+    echo "validate_json path mismatch for mode ${mode}: ${file} != ${expected_json}" >&2
     return 1
   fi
   if ! is_regular_file "$file"; then
     echo "Expected regular JSON file: $file" >&2
     return 1
   fi
-  case "$mode" in
-    status|check_config|dry_run|run) ;;
-    *) echo "Invalid mode argument: $mode" >&2; return 1 ;;
-  esac
   case "$strategy" in
     any|first) ;;
     *) echo "Invalid strategy argument: $strategy" >&2; return 1 ;;
