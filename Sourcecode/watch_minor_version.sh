@@ -582,30 +582,35 @@ fi
 if [[ "${1:-}" == "--once" ]]; then
   require_file "$CHECKS_SCRIPT" "Checks script"
   require_executable "$CHECKS_SCRIPT" "Checks script"
-	prev="$(read_state_version)"
-	if [[ -z "$prev" ]]; then
-		prev="$state_file_value"
-	fi
-	if ! is_valid_version "$prev"; then
-	  log "invalid previous version in state: $prev"
-	  exit 1
-	fi
-	if ! current="$(get_minor_version)"; then
-		log "failed to compute current minor version"
-		exit 1
-	fi
-	if ! is_valid_version "$current"; then
-	  log "invalid derived current version: $current"
-	  exit 1
-	fi
-	if [[ "$current" != "$prev" ]]; then
-	    if ! apply_version_change "$prev" "$current"; then
-	      exit 1
-	    fi
-	  fi
-	  exit 0
-	fi
-
+  prev="$state_file_value"
+  if ! is_valid_version "$prev"; then
+    log "invalid previous version in state: $prev"
+    exit 1
+  fi
+  if ! now_state_mtime="$(stat -c '%Y' "$PUBLISH_STATE_FILE" 2>/dev/null)"; then
+    log "failed to read publish state mtime: $PUBLISH_STATE_FILE"
+    exit 1
+  fi
+  if [[ "$now_state_mtime" == "$last_state_mtime" ]]; then
+    log "publish state unchanged; skipping recomputation"
+    exit 0
+  fi
+  last_state_mtime="$now_state_mtime"
+  if ! current="$(get_minor_version)"; then
+    log "failed to compute current minor version"
+    exit 1
+  fi
+  if ! is_valid_version "$current"; then
+    log "invalid derived current version: $current"
+    exit 1
+  fi
+  if [[ "$current" != "$prev" ]]; then
+    if ! apply_version_change "$prev" "$current"; then
+      exit 1
+    fi
+  fi
+  exit 0
+fi
 while true; do
 	if ! now_state_mtime="$(stat -c '%Y' "$PUBLISH_STATE_FILE" 2>/dev/null)"; then
 		log "failed to read publish state mtime: $PUBLISH_STATE_FILE"
