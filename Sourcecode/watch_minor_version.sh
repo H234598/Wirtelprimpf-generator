@@ -277,6 +277,11 @@ read_state_version() {
   echo ""
 }
 
+is_valid_version() {
+  local value="$1"
+  [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$ ]]
+}
+
 sync_state_file() {
   local computed="$1"
   local current
@@ -310,6 +315,11 @@ sync_state_file() {
 apply_version_change() {
   local previous="$1"
   local current="$2"
+
+  if ! is_valid_version "$previous" || ! is_valid_version "$current"; then
+    log "invalid version value in apply_version_change: $previous -> $current"
+    return 1
+  fi
 
   require_file "$CHECKS_SCRIPT" "Checks script"
   require_executable "$CHECKS_SCRIPT" "Checks script"
@@ -361,9 +371,17 @@ if [[ "${1:-}" == "--once" ]]; then
 	if [[ -z "$prev" ]]; then
 		prev="$state_file_value"
 	fi
+	if ! is_valid_version "$prev"; then
+	  log "invalid previous version in state: $prev"
+	  exit 1
+	fi
 	if ! current="$(get_minor_version)"; then
 		log "failed to compute current minor version"
 		exit 1
+	fi
+	if ! is_valid_version "$current"; then
+	  log "invalid derived current version: $current"
+	  exit 1
 	fi
 	if [[ -z "$prev" ]]; then
 		prev="$current"
@@ -381,6 +399,10 @@ while true; do
 	if [[ -z "$prev" ]]; then
 		prev="$state_file_value"
 	fi
+	if ! is_valid_version "$prev"; then
+	  log "invalid previous version in state: $prev"
+	  exit 1
+	fi
 	if ! current="$(get_minor_version)"; then
 		log "failed to compute current minor version"
 		exit 1
@@ -388,6 +410,10 @@ while true; do
 	if [[ -z "$current" ]]; then
 		log "current minor version is empty"
 		exit 1
+	fi
+	if ! is_valid_version "$current"; then
+	  log "invalid derived current version: $current"
+	  exit 1
 	fi
 
   if [[ "$current" != "$prev" ]]; then
