@@ -125,8 +125,8 @@ WIRTELPRIMPF_PROMPT_CONFIG=$HOME/.config/wirtelprimpf/prompt_config.json
 ```
 
 The config contains the random pools for `settings`, `actions`, `jokes`,
-`moods`, and `styles`, plus the final `template`. The template can reference
-these placeholders:
+`moods`, and `styles`, plus `fixed_image_rules`, plus the final `template`. The
+template can reference these placeholders:
 
 ```text
 {setting}
@@ -134,6 +134,11 @@ these placeholders:
 {joke}
 {mood}
 {style}
+{fixed_image_rules}
+
+Birthday variants also use:
+{birthday_rules}
+{age}
 ```
 
 The local mirror file is intentionally separate from the repository default. If you changed
