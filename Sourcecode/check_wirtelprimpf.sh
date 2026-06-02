@@ -163,6 +163,8 @@ run_check() {
   shift
   log "running: $label"
   local -a cmd=("$@")
+  local command
+  local i
   case "$label" in
     py_compile|compileall|version|status-json|check-config-json|dry-run-json|status-text|check-config-text|dry-run-text)
       ;;
@@ -175,6 +177,13 @@ run_check() {
     echo "No command supplied for check: $label" >&2
     return 1
   fi
+  for i in "${!cmd[@]}"; do
+    command="${cmd[$i]}"
+    if [[ -z "$command" ]]; then
+      echo "Invalid command element at index ${i} for ${label}" >&2
+      return 1
+    fi
+  done
   case "$label" in
     py_compile)
       if [[ "${#cmd[@]}" -ne 4 || "${cmd[0]}" != "$PY" || "${cmd[1]}" != -m || "${cmd[2]}" != py_compile || "${cmd[3]}" != "$PY_SCRIPT" ]]; then
