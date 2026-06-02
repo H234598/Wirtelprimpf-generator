@@ -6,7 +6,7 @@ IFS=$'\n\t'
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURRENT_UID="$(id -u)"
 readonly CURRENT_UID
-if [[ -n "${PYTHON_BIN:-}" && "${PYTHON_BIN}" == *[[:space:]]* ]]; then
+if [[ -n "${PYTHON_BIN:-}" && ("${PYTHON_BIN}" == *[[:space:]]* || "${PYTHON_BIN}" == *[$'\r\n\t\v\f']*) ]]; then
   log "PYTHON_BIN must not contain whitespace: ${PYTHON_BIN}"
   exit 1
 fi

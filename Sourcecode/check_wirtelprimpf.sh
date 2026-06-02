@@ -19,7 +19,7 @@ if command -v file >/dev/null 2>&1; then
   HAS_FILE_CMD=1
 fi
 readonly HAS_FINDMNT_CMD HAS_FILE_CMD
-if [[ -n "${PYTHON_BIN:-}" && "${PYTHON_BIN}" == *[[:space:]]* ]]; then
+if [[ -n "${PYTHON_BIN:-}" && ("${PYTHON_BIN}" == *[[:space:]]* || "${PYTHON_BIN}" == *[$'\r\n\t\v\f']*) ]]; then
   echo "PYTHON_BIN must not contain whitespace: ${PYTHON_BIN}" >&2
   exit 1
 fi
