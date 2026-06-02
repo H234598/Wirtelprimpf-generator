@@ -188,6 +188,10 @@ record.
 `summary` payloads intentionally only carry metric counters (`success`, `failed`,
 `skipped`, `prompts`, `total`).
 
+`--status` includes a non-required `openai_key` check entry when no API key is
+present; it reports diagnostics without marking the command as failed, because API
+credentials are only required for actual generation calls.
+
 For non-JSON `--status`, the command prints an explicit `exit_code` line in its
 text output.
 

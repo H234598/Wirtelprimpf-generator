@@ -622,11 +622,13 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             report["exit_code"] = 1
         checks.append(repo_checks)
 
-    if not env("OPENAI_API_KEY"):
-        checks.append({"name": "openai_key", "ok": False, "message": "OPENAI_API_KEY not set"})
-        report["ok"] = False
-        report["status"] = STATUS_ERROR
-        report["exit_code"] = 1
+    checks.append(
+        {
+            "name": "openai_key",
+            "ok": bool(env("OPENAI_API_KEY")),
+            "required": False,
+        }
+    )
 
     return report
 
