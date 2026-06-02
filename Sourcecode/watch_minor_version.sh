@@ -934,6 +934,21 @@ cleanup_lock_fd() {
   exec 9>&- 2>/dev/null || true
 }
 
+is_strict_positive_pid() {
+  local candidate="$1"
+
+  if [[ -z "$candidate" ]]; then
+    return 1
+  fi
+  if [[ "$candidate" == *[[:space:]]* ]]; then
+    return 1
+  fi
+  if ! [[ "$candidate" =~ ^[1-9][0-9]*$ ]]; then
+    return 1
+  fi
+  return 0
+}
+
 validate_lock_file() {
   local path="$1"
   local mode
@@ -1025,12 +1040,7 @@ acquire_lock() {
       pid="${pid//$'\r'/}"
       pid="${pid//$'\n'/}"
       pid="$(printf '%s' "$pid")"
-      if [[ "$pid" == *[[:space:]]* ]]; then
-        log "invalid lock holder pid in $LOCK_FILE: whitespace-containing value, exiting"
-        cleanup_lock_fd
-        return 1
-      fi
-      if [[ -z "$pid" || ! "$pid" =~ ^[0-9]+$ || "$pid" -eq 0 ]]; then
+      if ! is_strict_positive_pid "$pid"; then
         log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
         cleanup_lock_fd
         return 1
@@ -1079,12 +1089,7 @@ acquire_lock() {
     pid="${pid//$'\r'/}"
     pid="${pid//$'\n'/}"
     pid="$(printf '%s' "$pid")"
-    if [[ "$pid" == *[[:space:]]* ]]; then
-      log "invalid lock holder pid in $LOCK_FILE: whitespace-containing value, exiting"
-      cleanup_lock_tmp
-      return 1
-    fi
-    if [[ -z "$pid" || ! "$pid" =~ ^[0-9]+$ || "$pid" -eq 0 ]]; then
+    if ! is_strict_positive_pid "$pid"; then
       log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
       cleanup_lock_tmp
       return 1
@@ -1100,8 +1105,8 @@ acquire_lock() {
       local lock_mtime age
       lock_mtime=$(stat -c '%Y' "$LOCK_FILE" 2>/dev/null || echo "$now")
       age=$((now - lock_mtime))
-      if [[ -z "$pid" || ! "$pid" =~ ^[0-9]+$ || "$pid" -eq 0 ]]; then
-        log "fallback lock file has invalid pid value (${pid}), refusing to steal fresh lock"
+      if ! is_strict_positive_pid "$pid"; then
+        log "fallback lock file has invalid pid value (${pid:-unknown}), refusing to steal fresh lock"
         cleanup_lock_tmp
         return 1
       fi
