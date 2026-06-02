@@ -570,7 +570,7 @@ dependency_signature() {
   local cache_key now cache_value cache_ts
   local cache_meta current_meta
   local signature
-  local parent_mode
+  local parent_mode parent_meta
   local do_invalidate_cache=0
   local cache_hit_failed=0
   now="$(date +%s)"
@@ -651,7 +651,11 @@ dependency_signature() {
   if [[ ! -r "$parent" || ! -x "$parent" || ! -w "$parent" ]]; then
     return 1
   fi
-  if ! parent_mode="$(stat -c '%a' "$parent" 2>/dev/null)"; then
+  if ! parent_meta="$(stat -c '%a:%u:%Y:%i:%s' "$parent" 2>/dev/null)"; then
+    return 1
+  fi
+  IFS=':' read -r parent_mode parent_owner parent_mtime parent_ino parent_size <<< "$parent_meta"
+  if [[ -z "$parent_mode" || -z "$parent_owner" || -z "$parent_mtime" || -z "$parent_ino" || -z "$parent_size" ]]; then
     return 1
   fi
   if (( 10#$parent_mode & 022 )); then
