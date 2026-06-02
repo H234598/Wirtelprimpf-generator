@@ -180,29 +180,37 @@ run_check_to_file() {
       return 1
       ;;
   esac
+  local expected_output
+  case "$label" in
+    status-json)
+      expected_output="$CHECK_TMPDIR/status.json"
+      ;;
+    check-config-json)
+      expected_output="$CHECK_TMPDIR/check-config.json"
+      ;;
+    dry-run-json)
+      expected_output="$CHECK_TMPDIR/dry-run.json"
+      ;;
+    status-text)
+      expected_output="$CHECK_TMPDIR/status.txt"
+      ;;
+    check-config-text)
+      expected_output="$CHECK_TMPDIR/check-config.txt"
+      ;;
+    dry-run-text)
+      expected_output="$CHECK_TMPDIR/dry-run.txt"
+      ;;
+  esac
+  if [[ "$output" != "$expected_output" ]]; then
+    echo "Unexpected output path for ${label}: $output" >&2
+    return 1
+  fi
   if [[ -z "$output" ]]; then
     echo "No output path for check: $label" >&2
     return 1
   fi
-  if [[ "$output" != "$CHECK_TMPDIR/"* ]]; then
+  if [[ "$output" != "$CHECK_TMPDIR"/* ]]; then
     echo "Output path must be under check tmpdir: $output" >&2
-    return 1
-  fi
-  if [[ ! "$output" =~ ^[A-Za-z0-9._/\-]+$ ]]; then
-    echo "Invalid output path characters: $output" >&2
-    return 1
-  fi
-  if [[ "${output##*/}" == "." || "${output##*/}" == ".." || "${output##*/}" == "" ]]; then
-    echo "Output path must include filename: $output" >&2
-    return 1
-  fi
-  local output_real
-  if ! output_real="$(realpath -m "$output")"; then
-    echo "Unable to resolve output path: $output" >&2
-    return 1
-  fi
-  if [[ "$output_real" != "$CHECK_TMPDIR"/* ]]; then
-    echo "Resolved output path escapes check tmpdir: $output (resolved $output_real)" >&2
     return 1
   fi
   case "$label" in
@@ -223,14 +231,12 @@ run_check_to_file() {
       return 1
       ;;
   esac
-  local output_dir
-  output_dir="$(dirname "$output")"
-  if [[ ! -d "$output_dir" ]]; then
-    echo "Output directory missing for check: $output_dir" >&2
+  if [[ -L "$output" ]]; then
+    echo "Output path must not be a symlink: $output" >&2
     return 1
   fi
-  if [[ -L "$output_dir" || ( -e "$output_dir" && ! -d "$output_dir" ) ]]; then
-    echo "Invalid output directory for check: $output_dir" >&2
+  if [[ ! -d "$CHECK_TMPDIR" || ! -w "$CHECK_TMPDIR" ]]; then
+    echo "Output temp directory unavailable for write: $CHECK_TMPDIR" >&2
     return 1
   fi
   if [[ -e "$output" ]] && ! is_regular_file "$output"; then
