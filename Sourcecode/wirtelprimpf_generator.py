@@ -82,7 +82,7 @@ ENV_BLACKLIST: Final = frozenset(
 )
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.5.16-hardening"
+VERSION: Final = "0.5.17-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -1052,10 +1052,12 @@ def build_prompts(config_path: Path, now: datetime) -> list[str]:
 
 
 def is_retryable_generation_error(exc: Exception) -> bool:
+    if isinstance(exc, (TimeoutError, OSError)):
+        return True
+
     message = str(exc).lower()
     return (
-        isinstance(exc, (TimeoutError, OSError))
-        or "timeout" in message
+        "timeout" in message
         or "rate limit" in message
         or "temporarily" in message
         or "connection" in message
