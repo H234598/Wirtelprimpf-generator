@@ -19,12 +19,21 @@ Device:              CPU
 Before running commands below, confirm the local backend prerequisites:
 
 ```bash
+LOCAL_IMAGEGEN_OUTDIR="${LOCAL_IMAGEGEN_OUTDIR:-$HOME/Hintergrundbilder/local-imagegen}"
 if ! [[ -x "$HOME/.local/bin/local-imagegen" ]]; then
   echo "local-imagegen wrapper not found or not executable: $HOME/.local/bin/local-imagegen"
   exit 1
 fi
 if ! [[ -d "$HOME/.local/share/local-imagegen-venv" ]]; then
   echo "local-imagegen virtualenv missing: $HOME/.local/share/local-imagegen-venv"
+  exit 1
+fi
+if ! mkdir -p -- "$LOCAL_IMAGEGEN_OUTDIR"; then
+  echo "output directory unavailable: $LOCAL_IMAGEGEN_OUTDIR"
+  exit 1
+fi
+if ! [[ -w "$LOCAL_IMAGEGEN_OUTDIR" ]]; then
+  echo "output directory is not writable: $LOCAL_IMAGEGEN_OUTDIR"
   exit 1
 fi
 ```

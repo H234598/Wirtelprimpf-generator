@@ -1013,6 +1013,24 @@ is_strict_positive_pid() {
   return 0
 }
 
+is_stale_lock_file() {
+  local lock_path="$1"
+  local now
+  local lock_mtime
+  local age
+
+  if [[ -z "$lock_path" || ! -e "$lock_path" ]]; then
+    return 1
+  fi
+  now=$(date +%s)
+  lock_mtime="$(stat -c '%Y' "$lock_path" 2>/dev/null || echo "$now")"
+  age=$((now - lock_mtime))
+  if (( age >= MAX_STALE_LOCK_SECONDS )); then
+    return 0
+  fi
+  return 1
+}
+
 validate_lock_file() {
   local path="$1"
   if [[ -L "$path" ]]; then
@@ -1173,6 +1191,14 @@ acquire_lock() {
       return 1
     fi
     if ! is_strict_positive_pid "$pid"; then
+      if is_stale_lock_file "$LOCK_FILE"; then
+        log "stale invalid fallback lock detected (${LOCK_FILE}), removing"
+        if ! safe_unlink_runtime_file "$LOCK_FILE"; then
+          log "failed to remove stale invalid fallback lock: $LOCK_FILE"
+          return 1
+        fi
+        continue
+      fi
       log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
       return 1
     fi
