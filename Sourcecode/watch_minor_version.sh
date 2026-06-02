@@ -649,7 +649,7 @@ is_secure_regular_file() {
   if ! is_regular_file "$path"; then
     return 1
   fi
-  if [[ ! -r "$path" || ! -w "$path" ]]; then
+  if [[ ! -r "$path" ]]; then
     return 1
   fi
   if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
@@ -662,6 +662,17 @@ is_secure_regular_file() {
     return 1
   fi
   if (( 10#$perm & 022 )); then
+    return 1
+  fi
+  return 0
+}
+
+is_secure_mutable_regular_file() {
+  local path="$1"
+  if ! is_secure_regular_file "$path"; then
+    return 1
+  fi
+  if [[ ! -w "$path" ]]; then
     return 1
   fi
   return 0
@@ -960,7 +971,7 @@ validate_lock_file() {
     return 1
   fi
   if [[ -e "$path" ]]; then
-    if ! is_secure_regular_file "$path"; then
+    if ! is_secure_mutable_regular_file "$path"; then
       log "lock file must be a secure regular file: $path"
       return 1
     fi
