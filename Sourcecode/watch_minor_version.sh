@@ -100,8 +100,25 @@ validate_publish_state_file() {
       log "publish state file must be a regular file: ${publish_state_file}"
       exit 1
     fi
+    if [[ -L "$publish_state_file" ]]; then
+      log "publish state file must not be a symlink: ${publish_state_file}"
+      exit 1
+    fi
+    if ! is_owned_by_current_user "$publish_state_file"; then
+      log "publish state file must be owned by current user: ${publish_state_file}"
+      exit 1
+    fi
     if [[ ! -r "$publish_state_file" ]]; then
       log "publish state file is not readable: ${publish_state_file}"
+      exit 1
+    fi
+    local publish_state_perm
+    if ! publish_state_perm="$(stat -c '%a' "$publish_state_file" 2>/dev/null)"; then
+      log "publish state file metadata unavailable: ${publish_state_file}"
+      exit 1
+    fi
+    if (( 10#$publish_state_perm & 022 )); then
+      log "publish state file must not be group/world writable: ${publish_state_file}"
       exit 1
     fi
   fi
@@ -159,15 +176,31 @@ parse_positive_int() {
 
 dependency_signature() {
   local path="$1"
-  if [[ -e "$path" ]]; then
-    local sig
-    if ! sig="$(stat -c '%Y:%i:%s:%a' "$path" 2>/dev/null)"; then
-      return 1
-    fi
-    printf '%s\n' "$sig"
-    return 0
+  if [[ -L "$path" ]]; then
+    return 1
   fi
-  echo "missing"
+  if [[ ! -f "$path" ]]; then
+    return 1
+  fi
+  if [[ ! -r "$path" ]]; then
+    return 1
+  fi
+  if ! is_owned_by_current_user "$path"; then
+    return 1
+  fi
+  local sig
+  if ! sig="$(stat -c '%Y:%i:%s:%a' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  local perm
+  if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if (( 10#$perm & 022 )); then
+    return 1
+  fi
+  printf '%s\n' "$sig"
+  return 0
 }
 
 require_directory() {
