@@ -3,15 +3,38 @@ set -euo pipefail
 umask 077
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PY=${PYTHON_BIN:-python3}
-PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
-if ! CHECK_TMPDIR="$(mktemp -d)"; then
-  echo "Failed to create temporary directory" >&2
+if [[ -n "${PYTHON_BIN:-}" && "${PYTHON_BIN}" == *[[:space:]]* ]]; then
+  echo "PYTHON_BIN must not contain whitespace: ${PYTHON_BIN}" >&2
   exit 1
 fi
 
-if ! command -v "$PY" >/dev/null 2>&1; then
-  echo "Python executable not found: ${PY}" >&2
+resolve_python() {
+  local candidates=("${PYTHON_BIN:-}")
+  if [[ -z "${candidates[0]:-}" ]]; then
+    candidates=("python3" "python")
+  fi
+
+  local candidate resolved
+  for candidate in "${candidates[@]}"; do
+    if ! resolved="$(command -v "$candidate" 2>/dev/null || true)"; then
+      continue
+    fi
+    if [[ -n "$resolved" && -x "$resolved" ]]; then
+      echo "$resolved"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+if ! PY="$(resolve_python)"; then
+  echo "Python executable not found: ${PYTHON_BIN:-python3/python}" >&2
+  exit 1
+fi
+PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
+if ! CHECK_TMPDIR="$(mktemp -d)"; then
+  echo "Failed to create temporary directory" >&2
   exit 1
 fi
 
