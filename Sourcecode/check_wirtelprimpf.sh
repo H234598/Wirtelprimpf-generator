@@ -30,6 +30,13 @@ is_valid_python_binary_name() {
   [[ "$candidate" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]
 }
 
+is_valid_python_candidate() {
+  local candidate="$1"
+  [[ -n "$candidate" ]]
+  [[ "$candidate" != -* ]]
+  is_valid_python_binary_name "$candidate"
+}
+
 resolve_python() {
   local candidates=("${PYTHON_BIN:-}")
   if [[ -n "${PYTHON_BIN:-}" ]] && ! is_valid_python_binary_name "$PYTHON_BIN"; then
@@ -43,10 +50,7 @@ resolve_python() {
 
   local candidate resolved search_path
   for candidate in "${candidates[@]}"; do
-    if [[ -z "$candidate" ]]; then
-      continue
-    fi
-    if [[ "$candidate" == *[[:space:]]* || "$candidate" == -* || "$candidate" == */* ]]; then
+    if ! is_valid_python_candidate "$candidate"; then
       continue
     fi
     for search_path in "${SECURITY_PATHS_ARRAY[@]}"; do
