@@ -65,6 +65,17 @@ log(){
   printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*" >&2
 }
 
+is_regular_file() {
+  local path="$1"
+  if [[ ! -e "$path" ]]; then
+    return 1
+  fi
+  if [[ -L "$path" ]]; then
+    return 1
+  fi
+  [[ -f "$path" ]]
+}
+
 run_check() {
   local label="$1"
   shift
@@ -149,7 +160,11 @@ run_check() {
 
 assert_file_non_empty() {
   local file="$1"
-  if [[ ! -f "$file" || ! -s "$file" ]]; then
+  if ! is_regular_file "$file"; then
+    echo "Expected regular output file in $file" >&2
+    return 1
+  fi
+  if [[ ! -s "$file" ]]; then
     echo "Expected non-empty output in $file" >&2
     return 1
   fi
@@ -171,6 +186,10 @@ validate_json() {
     echo "validate_json path is outside check tempdir: $file" >&2
     return 1
   fi
+  if ! is_regular_file "$file"; then
+    echo "Expected regular JSON file: $file" >&2
+    return 1
+  fi
   case "$mode" in
     status|check_config|dry_run|run) ;;
     *) echo "Invalid mode argument: $mode" >&2; return 1 ;;
@@ -179,7 +198,7 @@ validate_json() {
     any|first) ;;
     *) echo "Invalid strategy argument: $strategy" >&2; return 1 ;;
   esac
-  if [[ ! -f "$file" || ! -r "$file" ]]; then
+  if [[ ! -r "$file" ]]; then
     echo "JSON file missing or unreadable: $file" >&2
     return 1
   fi
