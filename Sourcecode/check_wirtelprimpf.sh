@@ -350,6 +350,28 @@ run_command_sandboxed() {
     return 1
   fi
   if [[ "${cmd[0]}" == "$PY" ]]; then
+    command_canonical="$(readlink -f -- "${cmd[0]}" 2>/dev/null || true)"
+    if [[ -z "$command_canonical" || "$command_canonical" != "${cmd[0]}" ]]; then
+      echo "Python command path must be canonical and non-symlinked: ${cmd[0]}" >&2
+      return 1
+    fi
+    if ! is_owned_by_current_user "$command_canonical"; then
+      echo "Python command must be owned by current user: ${cmd[0]}" >&2
+      return 1
+    fi
+    local command_mode
+    if ! command_mode="$(stat -c '%a' "$command_canonical" 2>/dev/null)"; then
+      echo "Failed to read python command permissions: ${cmd[0]}" >&2
+      return 1
+    fi
+    if (( 10#$command_mode & 022 )); then
+      echo "Python command must not be group/world writable: ${cmd[0]}" >&2
+      return 1
+    fi
+    if (( 10#$command_mode & 06000 )); then
+      echo "Python command must not have setuid/setgid bits: ${cmd[0]}" >&2
+      return 1
+    fi
     run_python_sandbox "${cmd[@]}"
   elif [[ "${cmd[0]}" != /* ]]; then
     echo "Only absolute command paths are allowed in sandboxed execution: ${cmd[0]}" >&2
@@ -431,7 +453,7 @@ run_command_sandboxed() {
       TERM="xterm-256color" \
       USER="" \
       LOGNAME="" \
-      "${BASH_PATH}" "${cmd[@]}"
+      "$command_canonical" "${cmd[@]}"
   fi
 }
 
