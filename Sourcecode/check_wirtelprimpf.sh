@@ -4,7 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY=${PYTHON_BIN:-python3}
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
-CHECK_TMPDIR="$(mktemp -d)"
+if ! CHECK_TMPDIR="$(mktemp -d)"; then
+  echo "Failed to create temporary directory" >&2
+  exit 1
+fi
+trap '[[ -n "${CHECK_TMPDIR-}" && -d "$CHECK_TMPDIR" ]] && rm -rf "$CHECK_TMPDIR"' EXIT
 
 if ! command -v "$PY" >/dev/null 2>&1; then
   echo "Python executable not found: ${PY}" >&2
@@ -22,7 +26,7 @@ if [[ ! -f "$PY_SCRIPT" ]]; then
 fi
 
 cleanup_checks() {
-  rm -rf "$CHECK_TMPDIR"
+  [[ -n "${CHECK_TMPDIR-}" && -d "$CHECK_TMPDIR" ]] && rm -rf "$CHECK_TMPDIR"
 }
 trap cleanup_checks EXIT
 
