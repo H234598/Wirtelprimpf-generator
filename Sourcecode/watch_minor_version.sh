@@ -160,7 +160,7 @@ version = match.group(1).strip()
 parsed = re.match(r"^(\d+)\.(\d+)\.(\d+)(.*)$", version)
 if not parsed:
     raise SystemExit(f"invalid version format: {version!r}")
-major_str, minor_str, patch_str, suffix = parsed.groups()
+major_str, minor_str, _patch_str, suffix = parsed.groups()
 patches_per_minor_raw = os.environ.get("WIRTELPRIMPF_PATCHES_PER_MINOR", "100")
 major_bump_raw = os.environ.get("WIRTELPRIMPF_MAJOR_VERSION_BUMP", "0")
 try:
