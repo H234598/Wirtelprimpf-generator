@@ -263,7 +263,11 @@ PY
 
 read_state_version() {
   local value
-  value="$(cat "$STATE_FILE" 2>/dev/null || true)"
+  if ! value="$(cat "$STATE_FILE" 2>/dev/null || true)"; then
+    log "failed to read state file: $STATE_FILE"
+    echo ""
+    return
+  fi
   if [[ -z "$value" ]]; then
     echo ""
     return
