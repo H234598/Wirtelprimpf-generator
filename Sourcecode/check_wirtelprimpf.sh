@@ -44,6 +44,7 @@ fi
 is_strict_secure_directory() {
   local path="$1"
   local label="$2"
+  local perm
   if [[ -L "$path" ]]; then
     echo "${label} must not be a symlink: ${path}" >&2
     return 1
@@ -56,7 +57,11 @@ is_strict_secure_directory() {
     echo "${label} must be readable/writable/searchable: ${path}" >&2
     return 1
   fi
-  if (( 10#$(stat -c '%a' "$path") & 022 )); then
+  if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
+    echo "${label} failed to read permissions: ${path}" >&2
+    return 1
+  fi
+  if (( 10#$perm & 022 )); then
     echo "${label} must not be group/world writable: ${path}" >&2
     return 1
   fi
