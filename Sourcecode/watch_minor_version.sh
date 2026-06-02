@@ -514,23 +514,6 @@ validate_watch_runtime_file_path "$STATE_FILE" "State file"
 validate_watch_runtime_file_path "$LOCK_FILE" "Lock file"
 validate_watch_runtime_file_path "$TIMESTAMP_FILE" "Timestamp file"
 
-if ! DEPENDENCY_SIGNATURE_CANONICAL_PY_SCRIPT="$(readlink -f -- "$PY_SCRIPT" 2>/dev/null || true)"; then
-  log "failed to canonicalize dependency path: $PY_SCRIPT"
-  exit 1
-fi
-if ! DEPENDENCY_SIGNATURE_CANONICAL_PUBLISH_STATE="$(readlink -f -- "$PUBLISH_STATE_FILE" 2>/dev/null || true)"; then
-  log "failed to canonicalize dependency path: $PUBLISH_STATE_FILE"
-  exit 1
-fi
-if [[ "$DEPENDENCY_SIGNATURE_CANONICAL_PY_SCRIPT" != "$PY_SCRIPT" || -z "$DEPENDENCY_SIGNATURE_CANONICAL_PY_SCRIPT" ]]; then
-  log "generator script path must be canonical and non-symlinked: $PY_SCRIPT"
-  exit 1
-fi
-if [[ "$DEPENDENCY_SIGNATURE_CANONICAL_PUBLISH_STATE" != "$PUBLISH_STATE_FILE" || -z "$DEPENDENCY_SIGNATURE_CANONICAL_PUBLISH_STATE" ]]; then
-  log "publish state path must be canonical and non-symlinked: $PUBLISH_STATE_FILE"
-  exit 1
-fi
-
 SLEEP_SECONDS="${SLEEP_SECONDS:-300}"
 MAX_STALE_LOCK_SECONDS="${MAX_STALE_LOCK_SECONDS:-900}"
 DEFAULT_RETRY_DELAY_SECONDS="${DEFAULT_RETRY_DELAY_SECONDS:-5}"
@@ -561,81 +544,23 @@ DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META=""
 TIMESTAMP_EPOCH_CACHE=""
 TIMESTAMP_EPOCH_CACHE_MTIME=0
 TIMESTAMP_EPOCH_CACHE_PATH=""
-DEPENDENCY_SIGNATURE_CANONICAL_PY_SCRIPT=""
-DEPENDENCY_SIGNATURE_CANONICAL_PUBLISH_STATE=""
 
 dependency_signature() {
   local path="$1"
-  local canonical parent
-  local cache_key now cache_value cache_ts
-  local cache_meta current_meta
+  local parent
   local signature
-  local parent_mode parent_meta
-  local do_invalidate_cache=0
-  local cache_hit_failed=0
-  now="$(date +%s)"
-  cache_key=""
+  local parent_mode parent_meta owner group mode mtime inode size
+  local parent_perm owner_perm
   if [[ "$path" != "$PY_SCRIPT" && "$path" != "$PUBLISH_STATE_FILE" ]]; then
     return 1
   fi
   if [[ -z "$path" ]]; then
     return 1
   fi
-  if [[ "$path" == "$PY_SCRIPT" ]]; then
-    cache_key="PY_SCRIPT"
-    cache_value="$DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT"
-    cache_ts="$DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_TS"
-  elif [[ "$path" == "$PUBLISH_STATE_FILE" ]]; then
-    cache_key="PUBLISH_STATE"
-    cache_value="$DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE"
-    cache_ts="$DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS"
-  fi
-  if [[ -n "$cache_key" ]] && (( now - cache_ts <= DEPENDENCY_SIGNATURE_CACHE_TTL )) && [[ -n "$cache_value" ]]; then
-    if [[ -L "$path" || ! -f "$path" || ! -r "$path" ]]; then
-      do_invalidate_cache=1
-      cache_hit_failed=1
-    else
-      if ! current_meta="$(stat -c '%u:%g:%a:%Y:%i:%s' "$path" 2>/dev/null)"; then
-        do_invalidate_cache=1
-        cache_hit_failed=1
-      else
-        if [[ "$cache_key" == "PY_SCRIPT" ]]; then
-          cache_meta="$DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_META"
-        elif [[ "$cache_key" == "PUBLISH_STATE" ]]; then
-          cache_meta="$DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META"
-        fi
-        if [[ "$cache_meta" == "$current_meta" ]]; then
-          echo "$cache_value"
-          return 0
-        fi
-        do_invalidate_cache=1
-      fi
-    fi
-  fi
-
-  if (( do_invalidate_cache == 1 )) || [[ -n "$cache_key" ]] && (( now - cache_ts <= DEPENDENCY_SIGNATURE_CACHE_TTL )) && [[ -n "$cache_value" ]]; then
-    if [[ "$cache_key" == "PY_SCRIPT" ]]; then
-      DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT=""
-      DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_TS=0
-      DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_META=""
-    elif [[ "$cache_key" == "PUBLISH_STATE" ]]; then
-      DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE=""
-      DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS=0
-      DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META=""
-    fi
-  fi
-  if (( cache_hit_failed == 1 )); then
+  if [[ -L "$path" || ! -f "$path" || ! -r "$path" ]]; then
     return 1
   fi
-  if [[ "$path" == "$PY_SCRIPT" ]]; then
-    canonical="$DEPENDENCY_SIGNATURE_CANONICAL_PY_SCRIPT"
-  else
-    canonical="$DEPENDENCY_SIGNATURE_CANONICAL_PUBLISH_STATE"
-  fi
-  if [[ -z "$canonical" || "$canonical" != "$path" ]]; then
-    return 1
-  fi
-  parent="$(dirname -- "$canonical")"
+  parent="$(dirname -- "$path")"
   if [[ "$parent" == /tmp/* || "$parent" == /var/tmp/* || "$parent" == /run/* || "$parent" == /dev/* ]]; then
     return 1
   fi
@@ -648,11 +573,10 @@ dependency_signature() {
   if [[ ! -r "$parent" || ! -x "$parent" || ! -w "$parent" ]]; then
     return 1
   fi
-  if ! parent_meta="$(stat -c '%a:%u' "$parent" 2>/dev/null)"; then
+  if ! parent_meta="$(stat -c '%a:%u:%Y:%i:%s' "$parent" 2>/dev/null)"; then
     return 1
   fi
-  IFS=':' read -r parent_mode parent_owner <<< "$parent_meta"
-  if [[ -z "$parent_mode" || -z "$parent_owner" ]]; then
+  if ! IFS=':' read -r parent_mode parent_owner parent_mtime parent_ino parent_size <<< "$parent_meta"; then
     return 1
   fi
   if [[ "$parent_owner" != "$CURRENT_UID" ]]; then
@@ -685,15 +609,6 @@ dependency_signature() {
     return 1
   fi
   signature="$(printf '%s:%s:%s:%s:%s:%s\n' "$owner" "$group" "$mode" "$mtime" "$inode" "$size")"
-  if [[ "$cache_key" == "PY_SCRIPT" ]]; then
-    DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT="$signature"
-    DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_TS="$now"
-    DEPENDENCY_SIGNATURE_CACHE_PY_SCRIPT_META="$meta"
-  elif [[ "$cache_key" == "PUBLISH_STATE" ]]; then
-    DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE="$signature"
-    DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_TS="$now"
-    DEPENDENCY_SIGNATURE_CACHE_PUBLISH_STATE_META="$meta"
-  fi
   echo "$signature"
   return 0
 }
@@ -1005,23 +920,13 @@ refresh_state_timestamp() {
 
 read_timestamp_epoch() {
   local value
-  local timestamp_meta
-  local timestamp_mtime timestamp_perm
+  local timestamp_perm
   if ! validate_runtime_file_for_read "$TIMESTAMP_FILE" "Timestamp file"; then
     return 1
   fi
-  if ! timestamp_meta="$(stat -c '%Y %a' "$TIMESTAMP_FILE" 2>/dev/null)"; then
-    log "failed to read timestamp mtime: $TIMESTAMP_FILE"
+  if ! timestamp_perm="$(stat -c '%a' "$TIMESTAMP_FILE" 2>/dev/null)"; then
+    log "failed to read timestamp metadata: $TIMESTAMP_FILE"
     return 1
-  fi
-  IFS=' ' read -r timestamp_mtime timestamp_perm <<< "$timestamp_meta"
-  if [[ -z "$timestamp_mtime" || -z "$timestamp_perm" ]]; then
-    log "failed to parse timestamp metadata: $TIMESTAMP_FILE"
-    return 1
-  fi
-  if [[ "$TIMESTAMP_EPOCH_CACHE_PATH" == "$TIMESTAMP_FILE" && "$TIMESTAMP_EPOCH_CACHE_MTIME" == "$timestamp_mtime" && -n "$TIMESTAMP_EPOCH_CACHE" ]]; then
-    echo "$TIMESTAMP_EPOCH_CACHE"
-    return 0
   fi
   if [[ -e "$TIMESTAMP_FILE" ]] && ! is_regular_file "$TIMESTAMP_FILE"; then
     log "timestamp file is not a regular file: $TIMESTAMP_FILE"
@@ -1051,9 +956,6 @@ read_timestamp_epoch() {
     log "timestamp file is not numeric: $TIMESTAMP_FILE"
     return 1
   fi
-  TIMESTAMP_EPOCH_CACHE="$value"
-  TIMESTAMP_EPOCH_CACHE_MTIME="$timestamp_mtime"
-  TIMESTAMP_EPOCH_CACHE_PATH="$TIMESTAMP_FILE"
   echo "$value"
 }
 
