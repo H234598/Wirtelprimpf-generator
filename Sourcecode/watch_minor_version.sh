@@ -264,7 +264,7 @@ acquire_lock() {
 
   if [[ -L "$LOCK_FILE" || ( -e "$LOCK_FILE" && ! -f "$LOCK_FILE" ) ]]; then
     log "invalid lock file type (symlink or non-regular): $LOCK_FILE"
-    exit 0
+    return 1
   fi
 
   if command -v -- flock >/dev/null 2>&1; then
@@ -273,14 +273,21 @@ acquire_lock() {
       local pid
       if ! pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"; then
         log "failed to read lock holder pid, exiting: $LOCK_FILE"
-        exit 0
+        return 1
+      fi
+      pid="${pid//$'\r'/}"
+      pid="${pid//$'\n'/}"
+      pid="$(printf '%s' "$pid")"
+      if [[ "$pid" == *[[:space:]]* ]]; then
+        log "invalid lock holder pid in $LOCK_FILE: whitespace-containing value, exiting"
+        return 1
       fi
       if [[ -n "$pid" && ! "$pid" =~ ^[0-9]+$ ]]; then
         log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
-        exit 0
+        return 1
       fi
       log "another watcher instance is running (flock), exiting (holder=${pid:-unknown})"
-      exit 0
+      return 1
     fi
     printf '%s\n' "$$" 1>&9
     trap 'flock -u 9 2>/dev/null || true; exec 9>&- 2>/dev/null || true; rm -f "$LOCK_FILE" "$LOCK_TMP" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
@@ -312,7 +319,7 @@ acquire_lock() {
       fi
       if [[ "$age" -lt "$MAX_STALE_LOCK_SECONDS" ]] && is_running_pid "$pid"; then
         log "another watcher instance is running (fallback lock), exiting"
-        exit 0
+        return 1
       fi
       log "stale fallback lock detected (${age}s), stealing lock"
       if ! rm -f "$LOCK_FILE"; then
