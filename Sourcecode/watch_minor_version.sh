@@ -607,14 +607,6 @@ if [[ "${1:-}" == "--once" ]]; then
 	fi
 
 while true; do
-	prev="$(read_state_version)"
-	if [[ -z "$prev" ]]; then
-		prev="$state_file_value"
-	fi
-	if ! is_valid_version "$prev"; then
-	  log "invalid previous version in state: $prev"
-	  exit 1
-	fi
 	if ! now_state_mtime="$(stat -c '%Y' "$PUBLISH_STATE_FILE" 2>/dev/null)"; then
 		log "failed to read publish state mtime: $PUBLISH_STATE_FILE"
 		exit 1
@@ -622,6 +614,14 @@ while true; do
 	if [[ "$now_state_mtime" == "$last_state_mtime" ]]; then
 		sleep "$SLEEP_SECONDS"
 		continue
+	fi
+	prev="$(read_state_version)"
+	if [[ -z "$prev" ]]; then
+		prev="$state_file_value"
+	fi
+	if ! is_valid_version "$prev"; then
+	  log "invalid previous version in state: $prev"
+	  exit 1
 	fi
 	if ! current="$(get_minor_version)"; then
 		log "failed to compute current minor version"
