@@ -158,6 +158,39 @@ run_check() {
   fi
 }
 
+run_check_to_file() {
+  local label="$1"
+  local output="$2"
+  shift 2
+
+  if [[ -z "$output" ]]; then
+    echo "No output path for check: $label" >&2
+    return 1
+  fi
+  if [[ "$output" != "$CHECK_TMPDIR/"* ]]; then
+    echo "Output path must be under check tmpdir: $output" >&2
+    return 1
+  fi
+  local output_dir
+  output_dir="$(dirname "$output")"
+  if [[ ! -d "$output_dir" ]]; then
+    echo "Output directory missing for check: $output_dir" >&2
+    return 1
+  fi
+  if [[ -L "$output_dir" || ( -e "$output_dir" && ! -d "$output_dir" ) ]]; then
+    echo "Invalid output directory for check: $output_dir" >&2
+    return 1
+  fi
+  if [[ -e "$output" && ! is_regular_file "$output" ]]; then
+    echo "Output file must be regular: $output" >&2
+    return 1
+  fi
+
+  if ! run_check "$label" "$@"; then
+    return 1
+  fi > "$output"
+}
+
 assert_file_non_empty() {
   local file="$1"
   if ! is_regular_file "$file"; then
@@ -270,12 +303,12 @@ dry_run_text="$CHECK_TMPDIR/dry-run.txt"
 run_check "py_compile" "$PY" -m py_compile "$PY_SCRIPT"
 run_check "compileall" "$PY" -m compileall -q "$ROOT_DIR/Sourcecode"
 run_check "version" "$PY" "$PY_SCRIPT" --version
-run_check "status-json" "$PY" "$PY_SCRIPT" --status --json > "$status_json"
-run_check "check-config-json" "$PY" "$PY_SCRIPT" --check-config --json > "$check_config_json"
-run_check "dry-run-json" "$PY" "$PY_SCRIPT" --dry-run --json > "$dry_run_json"
-run_check "status-text" "$PY" "$PY_SCRIPT" --status > "$status_text"
-run_check "check-config-text" "$PY" "$PY_SCRIPT" --check-config > "$check_config_text"
-run_check "dry-run-text" "$PY" "$PY_SCRIPT" --dry-run > "$dry_run_text"
+run_check_to_file "status-json" "$status_json" "$PY" "$PY_SCRIPT" --status --json
+run_check_to_file "check-config-json" "$check_config_json" "$PY" "$PY_SCRIPT" --check-config --json
+run_check_to_file "dry-run-json" "$dry_run_json" "$PY" "$PY_SCRIPT" --dry-run --json
+run_check_to_file "status-text" "$status_text" "$PY" "$PY_SCRIPT" --status
+run_check_to_file "check-config-text" "$check_config_text" "$PY" "$PY_SCRIPT" --check-config
+run_check_to_file "dry-run-text" "$dry_run_text" "$PY" "$PY_SCRIPT" --dry-run
 
 assert_file_non_empty "$status_json"
 assert_file_non_empty "$check_config_json"
