@@ -41,6 +41,9 @@ resolve_python() {
 
   local candidate resolved search_path
   for candidate in "${candidates[@]}"; do
+    if [[ -z "$candidate" ]]; then
+      continue
+    fi
     if [[ "$candidate" == *[[:space:]]* || "$candidate" == -* || "$candidate" == */* ]]; then
       continue
     fi
