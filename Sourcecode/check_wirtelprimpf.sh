@@ -172,6 +172,14 @@ run_check_to_file() {
   local output="$2"
   shift 2
 
+  case "$label" in
+    status-json|check-config-json|dry-run-json|status-text|check-config-text|dry-run-text)
+      ;;
+    *)
+      echo "Invalid check label for output validation: $label" >&2
+      return 1
+      ;;
+  esac
   if [[ -z "$output" ]]; then
     echo "No output path for check: $label" >&2
     return 1
