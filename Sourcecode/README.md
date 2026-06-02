@@ -72,10 +72,34 @@ WIRTELPRIMPF_REPO_SUBDIR=Wirtelprimpf
 WIRTELPRIMPF_REPO_BRANCH=main
 WIRTELPRIMPF_GIT_AUTHOR_NAME="Wirtelprimpf Bot"
 WIRTELPRIMPF_GIT_AUTHOR_EMAIL=wirtelprimpf@example.invalid
+WIRTELPRIMPF_PATCHES_PER_MINOR=100
+WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE=10
+
+# Optional: local publishing policy for commit cadence.
+# Default behavior in this repository documentation:
+# - every patch change is committed
+# - push only on minor-version boundaries (every 100 patches)
+# - release only every 10 minor pushes
+#
+# Every committed patch is also the patch version number.
 ```
 
 If `WIRTELPRIMPF_REPO_PATH` is unset, the generator creates local files only
 and does not touch Git.
+
+Git-Publish policy:
+
+- `WIRTELPRIMPF_PATCHES_PER_MINOR` controls the patch count threshold for push.
+  Default: `100`.
+- `WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE` controls how many pushed minor
+  boundaries should be grouped before a release should be prepared. Default:
+  `10`.
+
+Runtime state is stored in:
+
+```text
+.git/wirtelprimpf_publish_state.json
+```
 
 ### Prompt Configuration
 
@@ -143,6 +167,57 @@ set +a
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py
 ```
 
+### Wiederhol-Checks bei Minor-Version-Sprung
+
+Für den gewünschten Ablauf:
+
+- Warten auf `major.minor`-Änderung von `VERSION` in `wirtelprimpf_generator.py`
+- Bei Änderung: kompletten Check-Block einmal ausführen
+- Danach weiter in den Wartezustand gehen (`repeat`)
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+chmod +x Sourcecode/check_wirtelprimpf.sh Sourcecode/watch_minor_version.sh
+
+# Optionaler One-Shot-Check:
+./Sourcecode/watch_minor_version.sh --once
+
+# Dauerlauf:
+./Sourcecode/watch_minor_version.sh
+
+# Mit anderem Intervall (Sekunden):
+SLEEP_SECONDS=120 ./Sourcecode/watch_minor_version.sh
+```
+
+Ein einmaliger Check kann auch unabhängig laufen:
+
+```bash
+./Sourcecode/check_wirtelprimpf.sh
+```
+
+Die Skripte schreiben standardmäßig JSON-Checkausgaben in `/tmp/`:
+
+- `/tmp/wirtelprimpf-status.json`
+- `/tmp/wirtelprimpf-check-config.json`
+- `/tmp/wirtelprimpf-dry-run.json`
+
+### Dauerstart via systemd --user
+
+Du kannst den Watcher auch automatisch beim Benutzerstart laufen lassen:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp Sourcecode/systemd-user/wirtelprimpf-version-watch.service ~/.config/systemd/user/wirtelprimpf-version-watch.service
+cp Sourcecode/systemd-user/wirtelprimpf-version-watch.timer ~/.config/systemd/user/wirtelprimpf-version-watch.timer
+
+systemctl --user daemon-reload
+systemctl --user enable --now wirtelprimpf-version-watch.timer
+systemctl --user status wirtelprimpf-version-watch.service --no-pager
+systemctl --user status wirtelprimpf-version-watch.timer --no-pager
+```
+
+Der Dienst läuft nach `--once`-Logik weiterhin im Hintergrund und prüft bei jedem Minor-Bump erneut den ganzen Check-Block.
+
 Validation helpers:
 
 ```bash
@@ -151,6 +226,15 @@ Validation helpers:
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --dry-run
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --json
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --version
+```
+
+Optional mit Repo-Kontext (für patch-state-reiche Checks):
+
+```bash
+WIRTELPRIMPF_REPO_PATH=/path/to/local/git/repo WIRTELPRIMPF_REPO_SLUG= WIRTELPRIMPF_REPO_BRANCH=main \
+  ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --check-config --json
+WIRTELPRIMPF_REPO_PATH=/path/to/local/git/repo WIRTELPRIMPF_REPO_SLUG= WIRTELPRIMPF_REPO_BRANCH=main \
+  ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --dry-run --json
 ```
 
 ### Machine-readable status
@@ -164,6 +248,7 @@ The JSON form can be used for automation and is emitted as one compact object pe
   "ok": true,
   "version": "0.5.6-hardening",
   "timestamp": "2026-06-02T19:23:00Z",
+  "mode": "status",
   "status": "ok",
   "exit_code": 0,
   "details": {
@@ -181,8 +266,11 @@ The JSON form can be used for automation and is emitted as one compact object pe
 ```
 
 `--dry-run --json` also emits machine-readable records using the same top-level
-fields (`ok`, `version`, `timestamp`, `status`, `exit_code`) per rendered prompt
+fields (`ok`, `version`, `timestamp`, `mode`, `status`, `exit_code`) per rendered prompt
 record.
+
+`mode` is a strict discriminator in machine-readable output and can only be:
+`status`, `check_config`, `dry_run`, or `run`.
 
 `exit_code` is treated as a top-level field for command-level results; nested
 `summary` payloads intentionally only carry metric counters (`success`, `failed`,
@@ -192,8 +280,8 @@ record.
 present; it reports diagnostics without marking the command as failed, because API
 credentials are only required for actual generation calls.
 
-For non-JSON `--status`, the command prints an explicit `exit_code` line in its
-text output.
+For non-JSON `--status`, the command prints an explicit `mode` and `exit_code`
+line in its text output.
 
 ### Exit codes
 

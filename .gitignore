@@ -1,0 +1,5 @@
+# Runtime artifacts
+Sourcecode/__pycache__/
+Sourcecode/*.pyc
+Sourcecode/.minor_version_state
+/tmp/wirtelprimpf-*.json

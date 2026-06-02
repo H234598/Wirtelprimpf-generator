@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Wirtelprimpf version watch on user boot
+
+[Timer]
+OnBootSec=1min
+Persistent=true
+Unit=wirtelprimpf-version-watch.service
+
+[Install]
+WantedBy=timers.target

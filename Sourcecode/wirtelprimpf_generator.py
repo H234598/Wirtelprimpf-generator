@@ -34,8 +34,16 @@ GIT_TIMEOUT_SECONDS: Final = 120
 GENERATION_RETRIES: Final = 3
 GENERATION_RETRY_BASE_SECONDS: Final = 2
 VERSION: Final = "0.5.6-hardening"
+PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
+DEFAULT_PATCHES_PER_MINOR: Final = 100
+DEFAULT_MINOR_PUSHES_PER_RELEASE: Final = 10
 STATUS_OK: Final = "ok"
 STATUS_ERROR: Final = "error"
+MODE_STATUS: Final = "status"
+MODE_CHECK_CONFIG: Final = "check_config"
+MODE_DRY_RUN: Final = "dry_run"
+MODE_RUN: Final = "run"
+MODE_VALUES: Final = frozenset({MODE_STATUS, MODE_CHECK_CONFIG, MODE_DRY_RUN, MODE_RUN})
 
 
 @dataclass
@@ -48,10 +56,90 @@ class RunSummary:
     exit_code: int = 0
 
 
+@dataclass(frozen=True)
+class PublishState:
+    patch_count: int = 0
+    minor_push_count: int = 0
+
+
 def format_json(value: object, *, compact: bool = False, indent: int = 2) -> str:
     if compact:
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     return json.dumps(value, indent=indent, ensure_ascii=False)
+
+
+def validate_mode(mode: str) -> str:
+    if mode not in MODE_VALUES:
+        raise ValueError(f"Unknown mode: {mode!r}")
+    return mode
+
+
+def emit_mode_line(mode: str) -> None:
+    print(f"mode: {validate_mode(mode)}")
+
+
+def build_status_envelope(
+    *,
+    ok: bool,
+    status: str,
+    mode: str,
+    version: str = VERSION,
+    exit_code: int,
+    message: str | None = None,
+    summary: dict[str, object] | None = None,
+    details: dict[str, object] | None = None,
+    checks: list[dict[str, object]] | None = None,
+    check_config: bool | None = None,
+    prompt_count: int | None = None,
+    local_outdir: str | None = None,
+    model: str | None = None,
+    image_size: str | None = None,
+    output_resolution: str | None = None,
+    repo_path: str | None = None,
+    type: str | None = None,
+    index: int | None = None,
+    total: int | None = None,
+    prompt_preview: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "ok": ok,
+        "version": version,
+        "timestamp": build_status_timestamp(),
+        "mode": validate_mode(mode),
+        "status": status,
+        "exit_code": exit_code,
+    }
+    if message is not None:
+        payload["message"] = message
+    if summary is not None:
+        payload["summary"] = summary
+    if details is not None:
+        payload["details"] = details
+    if checks is not None:
+        payload["checks"] = checks
+    if check_config is not None:
+        payload["check_config"] = check_config
+    if prompt_count is not None:
+        payload["prompt_count"] = prompt_count
+    if local_outdir is not None:
+        payload["local_outdir"] = local_outdir
+    if model is not None:
+        payload["model"] = model
+    if image_size is not None:
+        payload["image_size"] = image_size
+    if output_resolution is not None:
+        payload["output_resolution"] = output_resolution
+    if repo_path is not None:
+        payload["repo_path"] = repo_path
+    if type is not None:
+        payload["type"] = type
+    if index is not None:
+        payload["index"] = index
+    if total is not None:
+        payload["total"] = total
+    if prompt_preview is not None:
+        payload["prompt_preview"] = prompt_preview
+    return payload
 
 
 def env(name: str, default: str | None = None) -> str | None:
@@ -59,6 +147,60 @@ def env(name: str, default: str | None = None) -> str | None:
     if value is None or value == "":
         return default
     return value
+
+
+def parse_positive_int(name: str, value: str | None, *, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid {name} value: {value!r}. Expected an integer >= 1") from exc
+    if parsed < 1:
+        raise RuntimeError(f"Invalid {name} value: {value!r}. Expected an integer >= 1")
+    return parsed
+
+
+def normalize_repo_path(path: Path) -> Path:
+    if path.name == ".git" and (path / "config").is_file() and (path / "HEAD").is_file() and path.parent.is_dir():
+        return path.parent
+    return path
+
+
+def read_publish_state(path: Path) -> PublishState:
+    if not path.exists():
+        return PublishState()
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return PublishState()
+
+    if not isinstance(payload, dict):
+        return PublishState()
+
+    patch_count = payload.get("patch_count", payload.get("patch_version", 0))
+    minor_push_count = payload.get("minor_push_count", 0)
+    if not isinstance(patch_count, int) or patch_count < 0:
+        return PublishState()
+    if not isinstance(minor_push_count, int) or minor_push_count < 0:
+        return PublishState()
+    return PublishState(patch_count=patch_count, minor_push_count=minor_push_count)
+
+
+def write_publish_state(path: Path, state: PublishState) -> None:
+    payload = {
+        "patch_count": state.patch_count,
+        "patch_version": state.patch_count,
+        "minor_push_count": state.minor_push_count,
+    }
+    write_bytes_atomically(path, json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
+
+
+def publish_state_path(repo_path: Path) -> Path:
+    if repo_path.name == ".git":
+        return repo_path / PUBLISH_STATE_FILE
+    return repo_path / ".git" / PUBLISH_STATE_FILE
 
 
 @dataclass(frozen=True)
@@ -75,6 +217,8 @@ class Config:
     prompt_config_path: Path
     commit_author_name: str
     commit_author_email: str
+    patches_per_minor: int
+    minor_pushes_per_release: int
 
 
 def load_config() -> Config:
@@ -82,10 +226,11 @@ def load_config() -> Config:
     config_home = Path(env("XDG_CONFIG_HOME", str(Path.home() / ".config")) or str(Path.home() / ".config"))
     default_prompt_config = config_home / "wirtelprimpf" / "prompt_config.json"
     repo_path = env("WIRTELPRIMPF_REPO_PATH")
+    resolved_repo_path = normalize_repo_path(Path(repo_path).expanduser()) if repo_path else None
 
     return Config(
         local_outdir=Path(env("WIRTELPRIMPF_LOCAL_OUTDIR", str(default_outdir))).expanduser(),
-        repo_path=Path(repo_path).expanduser() if repo_path else None,
+        repo_path=resolved_repo_path,
         repo_slug=env("WIRTELPRIMPF_REPO_SLUG"),
         repo_subdir=env("WIRTELPRIMPF_REPO_SUBDIR", "Wirtelprimpf") or "Wirtelprimpf",
         repo_branch=env("WIRTELPRIMPF_REPO_BRANCH", "main") or "main",
@@ -99,6 +244,16 @@ def load_config() -> Config:
         commit_author_name=env("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Wirtelprimpf Bot") or "Wirtelprimpf Bot",
         commit_author_email=env("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "wirtelprimpf@example.invalid")
         or "wirtelprimpf@example.invalid",
+        patches_per_minor=parse_positive_int(
+            "WIRTELPRIMPF_PATCHES_PER_MINOR",
+            env("WIRTELPRIMPF_PATCHES_PER_MINOR"),
+            default=DEFAULT_PATCHES_PER_MINOR,
+        ),
+        minor_pushes_per_release=parse_positive_int(
+            "WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE",
+            env("WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE"),
+            default=DEFAULT_MINOR_PUSHES_PER_RELEASE,
+        ),
     )
 
 
@@ -155,11 +310,24 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
     if config.repo_path is None:
         return
 
-    relative_paths = [str(path.relative_to(config.repo_path)) for path in paths]
+    try:
+        relative_paths = [str(path.relative_to(config.repo_path)) for path in paths]
+    except ValueError as exc:
+        raise RuntimeError(f"Cannot publish paths not in repository path {config.repo_path!r}") from exc
+
     run(["git", "add", *relative_paths], cwd=config.repo_path)
     status = run(["git", "status", "--porcelain", "--", *relative_paths], cwd=config.repo_path)
     if not status.stdout.strip():
         return
+
+    state_path = publish_state_path(config.repo_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    publish_state = read_publish_state(state_path)
+    next_patch_count = publish_state.patch_count + 1
+    patch_version = next_patch_count
+    next_minor_push_count = publish_state.minor_push_count
+    push_performed = False
+    release_ready = False
 
     run(
         [
@@ -174,7 +342,35 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
         ],
         cwd=config.repo_path,
     )
-    run(["git", "push", "origin", config.repo_branch], cwd=config.repo_path)
+
+    if next_patch_count % config.patches_per_minor == 0:
+        try:
+            run(["git", "push", "origin", config.repo_branch], cwd=config.repo_path)
+        except RuntimeError as exc:
+            write_publish_state(
+                state_path,
+                PublishState(patch_count=next_patch_count, minor_push_count=next_minor_push_count),
+            )
+            raise RuntimeError(
+                f"Minor boundary reached, commit recorded but push failed for {title}: {exc}"
+            ) from exc
+        push_performed = True
+        next_minor_push_count += 1
+        release_ready = next_minor_push_count % config.minor_pushes_per_release == 0
+
+    write_publish_state(
+        state_path,
+        PublishState(patch_count=next_patch_count, minor_push_count=next_minor_push_count),
+    )
+    if push_performed and release_ready:
+        print(
+            f"Release cadence reached: {config.minor_pushes_per_release} minor pushes. "
+            "Consider creating a release now."
+        )
+    print(
+        f"patch_version={patch_version} patches_committed={next_patch_count} minor_pushes={next_minor_push_count} "
+        f"pushed={push_performed}"
+    )
 
 
 def parse_resolution(value: str) -> tuple[int, int] | None:
@@ -466,43 +662,58 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def emit_summary(summary: RunSummary, args: argparse.Namespace, *, compact: bool = True) -> None:
+def emit_summary(
+    summary: RunSummary,
+    args: argparse.Namespace,
+    *,
+    compact: bool = True,
+    mode: str = MODE_RUN,
+    details: dict[str, object] | None = None,
+) -> None:
     if args.json:
         ok = summary.exit_code == 0
-        print(
-            format_json(
-                {
-                    "ok": ok,
-                    "version": VERSION,
-                    "timestamp": build_status_timestamp(),
-                    "status": STATUS_OK if ok else STATUS_ERROR,
-                    "exit_code": summary.exit_code,
-                    "summary": {
-                        "success": summary.success,
-                        "failed": summary.failed,
-                        "skipped": summary.skipped,
-                        "prompts": summary.prompts,
-                        "total": summary.total,
-                    },
-                },
-                compact=compact,
-            )
+        payload = build_status_envelope(
+            ok=ok,
+            mode=mode,
+            status=STATUS_OK if ok else STATUS_ERROR,
+            exit_code=summary.exit_code,
+            details=details,
+            summary={
+                "success": summary.success,
+                "failed": summary.failed,
+                "skipped": summary.skipped,
+                "prompts": summary.prompts,
+                "total": summary.total,
+            },
         )
+        print(format_json(payload, compact=compact))
 
 
 def emit_status(payload: dict[str, object], *, as_json: bool) -> int:
     if as_json:
         status = bool(payload.get("ok"))
-        payload = dict(payload)
-        payload.setdefault("timestamp", build_status_timestamp())
-        payload.setdefault("status", STATUS_OK if status else STATUS_ERROR)
-        payload.setdefault("version", VERSION)
-        payload.setdefault("ok", status)
-        payload.setdefault("exit_code", 0 if status else 1)
+        base = dict(payload)
+        base.setdefault("ok", status)
+        base.setdefault("version", VERSION)
+        base.setdefault("timestamp", build_status_timestamp())
+        base.setdefault("status", STATUS_OK if status else STATUS_ERROR)
+        base.setdefault("exit_code", 0 if status else 1)
+        base["mode"] = validate_mode(str(base.get("mode", MODE_STATUS)))
+        payload = build_status_envelope(
+            ok=bool(base["ok"]),
+            status=str(base["status"]),
+            mode=str(base["mode"]),
+            exit_code=int(base["exit_code"]),
+            version=str(base["version"]),
+            checks=list(base.get("checks")) if isinstance(base.get("checks"), list) else None,
+            details=base.get("details") if isinstance(base.get("details"), dict) else None,
+            message=base.get("message") if isinstance(base.get("message"), str) else None,
+        )
         print(format_json(payload, compact=True))
         return 0 if status else 1
 
     print(f"wirtelprimpf_generator.py status: {payload.get('status', STATUS_ERROR)}")
+    print(f"mode: {payload.get('mode', MODE_STATUS)}")
     print(f"version: {payload.get('version', VERSION)}")
     print(f"timestamp: {payload.get('timestamp', build_status_timestamp())}")
     print(f"exit_code: {payload.get('exit_code', 0)}")
@@ -519,6 +730,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
         "ok": True,
         "version": VERSION,
         "timestamp": timestamp,
+        "mode": MODE_STATUS,
         "status": STATUS_OK,
         "exit_code": 0,
         "checks": [],
@@ -621,6 +833,17 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             report["status"] = STATUS_ERROR
             report["exit_code"] = 1
         checks.append(repo_checks)
+        if repo_checks.get("ok", True):
+            publish_state = read_publish_state(publish_state_path(config.repo_path))
+            details = dict(report["details"])
+            details.update(
+                {
+                    "patch_version": publish_state.patch_count,
+                    "patch_count": publish_state.patch_count,
+                    "minor_push_count": publish_state.minor_push_count,
+                }
+            )
+            report["details"] = details
 
     checks.append(
         {
@@ -633,13 +856,47 @@ def status_report(config: Config | None = None) -> dict[str, object]:
     return report
 
 
+def publish_state_summary(config: Config) -> dict[str, object] | None:
+    if config.repo_path is None:
+        return None
+    try:
+        publish_state = read_publish_state(publish_state_path(config.repo_path))
+    except Exception as exc:  # pragma: no cover - defensive path
+        return {"publish_state_error": f"Failed to read publish state: {exc}"}
+
+    return {
+        "patch_version": publish_state.patch_count,
+        "patch_count": publish_state.patch_count,
+        "minor_push_count": publish_state.minor_push_count,
+    }
+
+
 def _die(message: str, *, exit_code: int = 1) -> None:
     print(f"ERROR: {message}", file=sys.stderr)
     raise SystemExit(exit_code)
 
 
+def emit_unexpected_failure(message: str, args: argparse.Namespace, runtime_mode: str) -> None:
+    if args.json:
+        payload = build_status_envelope(
+            ok=False,
+            mode=runtime_mode,
+            status=STATUS_ERROR,
+            exit_code=1,
+            message=message,
+        )
+        print(format_json(payload, compact=True))
+        raise SystemExit(1)
+    _die(message)
+
+
 def main() -> None:
     args = parse_args()
+    runtime_mode = MODE_RUN
+    if args.check_config:
+        runtime_mode = MODE_CHECK_CONFIG
+    elif args.dry_run:
+        runtime_mode = MODE_DRY_RUN
 
     if args.status:
         try:
@@ -652,169 +909,187 @@ def main() -> None:
             _code = emit_status(status_report(cfg), as_json=args.json)
         raise SystemExit(_code)
 
-    if not os.environ.get("OPENAI_API_KEY") and not args.check_config and not args.dry_run:
-        _die("OPENAI_API_KEY environment variable is required")
-
-    config = load_config()
-    if not config.prompt_config_path.exists():
-        _die(f"Prompt config file not found: {config.prompt_config_path}")
+    if not args.json:
+        emit_mode_line(runtime_mode)
 
     try:
-        prompts = build_prompts(config.prompt_config_path, datetime.now())
-    except Exception as exc:
-        if args.check_config and args.json:
-            print(
-                format_json(
-                    {
-                        "ok": False,
-                        "version": VERSION,
-                        "timestamp": build_status_timestamp(),
-                        "status": STATUS_ERROR,
-                        "exit_code": 1,
-                        "check_config": True,
-                        "message": f"Prompt config validation failed: {exc}",
-                    },
-                    compact=True,
-                )
-            )
-            raise SystemExit(1)
-        _die(f"Prompt config validation failed: {exc}")
+        if not os.environ.get("OPENAI_API_KEY") and not args.check_config and not args.dry_run:
+            _die("OPENAI_API_KEY environment variable is required")
 
-    if args.check_config:
-        if args.json:
-            print(
-                format_json(
-                    {
-                        "ok": True,
-                        "version": VERSION,
-                        "timestamp": build_status_timestamp(),
-                        "status": STATUS_OK,
-                        "exit_code": 0,
-                        "check_config": True,
-                        "local_outdir": str(config.local_outdir),
-                        "prompt_count": len(prompts),
-                        "model": config.image_model,
-                        "image_size": config.image_size,
-                        "output_resolution": config.output_resolution,
-                        "repo_path": str(config.repo_path) if config.repo_path else None,
-                    },
-                    compact=True,
-                )
-            )
-            return
-        print("Prompt configuration is valid.")
-        print(f"Resolved config: local_outdir={config.local_outdir}")
-        print(f"model={config.image_model} size={config.image_size} output_resolution={config.output_resolution}")
-        print(f"repo_path={config.repo_path or '<disabled>'}")
-        print(f"prompts={len(prompts)}")
-        return
+        config = load_config()
+        if not config.prompt_config_path.exists():
+            _die(f"Prompt config file not found: {config.prompt_config_path}")
 
-    if not config.local_outdir.is_dir() and config.local_outdir.exists():
-        _die(f"WIRTELPRIMPF_LOCAL_OUTDIR is not a directory: {config.local_outdir}")
-
-    config.local_outdir.mkdir(parents=True, exist_ok=True)
-    repo_outdir = ensure_repo(config)
-    summary = RunSummary(total=len(prompts))
-
-    if args.dry_run:
-        for index, prompt in enumerate(prompts, start=1):
-            if args.json:
+        try:
+            prompts = build_prompts(config.prompt_config_path, datetime.now())
+        except Exception as exc:
+            if args.check_config and args.json:
                 print(
                     format_json(
-                        {
-                            "ok": True,
-                            "version": VERSION,
-                            "timestamp": build_status_timestamp(),
-                            "status": STATUS_OK,
-                            "exit_code": 0,
-                            "type": "dry_run",
-                            "index": index,
-                            "total": len(prompts),
-                            "prompt_preview": prompt[:140],
-                        },
+                        build_status_envelope(
+                            ok=False,
+                            mode=MODE_CHECK_CONFIG,
+                            status=STATUS_ERROR,
+                            exit_code=1,
+                            version=VERSION,
+                            check_config=True,
+                            message=f"Prompt config validation failed: {exc}",
+                        ),
                         compact=True,
                     )
                 )
-            else:
-                print(f"[DRY-RUN {index}/{len(prompts)}] {prompt[:140]}...")
-            summary.skipped += 1
+                raise SystemExit(1)
+            _die(f"Prompt config validation failed: {exc}")
+
+        if args.check_config:
+            check_config_details = publish_state_summary(config)
+            if args.json:
+                print(
+                    format_json(
+                        build_status_envelope(
+                            ok=True,
+                            mode=MODE_CHECK_CONFIG,
+                            status=STATUS_OK,
+                            exit_code=0,
+                            version=VERSION,
+                            check_config=True,
+                            details=check_config_details,
+                            local_outdir=str(config.local_outdir),
+                            prompt_count=len(prompts),
+                            model=config.image_model,
+                            image_size=config.image_size,
+                            output_resolution=config.output_resolution,
+                            repo_path=str(config.repo_path) if config.repo_path else None,
+                        ),
+                        compact=True,
+                    )
+                )
+                return
+            print("Prompt configuration is valid.")
+            print(f"Resolved config: local_outdir={config.local_outdir}")
+            print(f"model={config.image_model} size={config.image_size} output_resolution={config.output_resolution}")
+            print(f"repo_path={config.repo_path or '<disabled>'}")
+            print(f"prompts={len(prompts)}")
+            print(f"exit_code: 0")
+            return
+
+        if not config.local_outdir.is_dir() and config.local_outdir.exists():
+            _die(f"WIRTELPRIMPF_LOCAL_OUTDIR is not a directory: {config.local_outdir}")
+
+        config.local_outdir.mkdir(parents=True, exist_ok=True)
+        try:
+            repo_outdir = ensure_repo(config)
+        except Exception as exc:
+            if args.json:
+                raise
+            _die(f"Failed to prepare repository: {exc}")
+        summary = RunSummary(total=len(prompts))
+
+        if args.dry_run:
+            dry_run_details = publish_state_summary(config)
+            for index, prompt in enumerate(prompts, start=1):
+                if args.json:
+                    print(
+                        format_json(
+                            build_status_envelope(
+                                ok=True,
+                                mode=MODE_DRY_RUN,
+                                status=STATUS_OK,
+                                exit_code=0,
+                                version=VERSION,
+                                details=dry_run_details,
+                                type="dry_run",
+                                index=index,
+                                total=len(prompts),
+                                prompt_preview=prompt[:140],
+                            ),
+                            compact=True,
+                        )
+                    )
+                else:
+                    print(f"[DRY-RUN {index}/{len(prompts)}] {prompt[:140]}...")
+                summary.skipped += 1
+                summary.prompts += 1
+            summary.exit_code = 0
+            emit_summary(summary, args, compact=True, mode=MODE_DRY_RUN)
+            return
+
+        client = OpenAI()
+        for index, prompt in enumerate(prompts, start=1):
+            timestamp = build_timestamp()
+            suffix = f"_geburtstag-{index:02d}" if len(prompts) > 1 else ""
+            stem = f"wirtelprimpf_{timestamp}{suffix}"
+            local_png = config.local_outdir / f"{stem}.png"
+            local_prompt = config.local_outdir / f"{stem}.txt"
+
+            request: dict[str, object] = {
+                "model": config.image_model,
+                "prompt": prompt,
+                "size": config.image_size,
+            }
+            if config.flex_processing_mode:
+                request["processing"] = config.flex_processing_mode
+
+            try:
+                image_b64 = generate_image_with_retries(client, request)
+            except Exception as exc:
+                print(f"Generation failed for {stem}: {exc}", file=sys.stderr)
+                summary.failed += 1
+                summary.prompts += 1
+                summary.exit_code = 2
+                continue
+
+            if image_b64 is None:
+                print(f"Generation failed for {stem}: no base64 image data", file=sys.stderr)
+                summary.failed += 1
+                summary.prompts += 1
+                summary.exit_code = 2
+                continue
+
+            try:
+                write_bytes_atomically(local_png, decode_image_bytes(image_b64))
+                resize_cover(local_png, parse_resolution(config.output_resolution))
+                local_prompt.write_text(prompt, encoding="utf-8")
+            except Exception as exc:
+                print(f"Write/transform failed for {stem}: {exc}", file=sys.stderr)
+                summary.failed += 1
+                summary.prompts += 1
+                summary.exit_code = 2
+                continue
+            summary.success += 1
             summary.prompts += 1
-        summary.exit_code = 0
-        emit_summary(summary, args, compact=True)
+            print(f"Local image: {local_png}")
+            print(f"Local prompt: {local_prompt}")
+
+            if repo_outdir is None:
+                continue
+
+            repo_png = repo_outdir / local_png.name
+            repo_prompt = repo_outdir / local_prompt.name
+            try:
+                shutil.copy2(local_png, repo_png)
+                shutil.copy2(local_prompt, repo_prompt)
+                commit_and_push(config, [repo_png, repo_prompt], stem)
+                print(f"Repository image: {repo_png}")
+                print(f"Repository prompt: {repo_prompt}")
+            except Exception as exc:
+                print(f"Repository publish failed for {stem}: {exc}", file=sys.stderr)
+                summary.failed += 1
+                summary.exit_code = 2
+                continue
+
+        publish_details = publish_state_summary(config)
+        if summary.exit_code:
+            if not args.json:
+                print(f"Completed with {summary.failed} failure(s)", file=sys.stderr)
+            emit_summary(summary, args, compact=True, mode=MODE_RUN, details=publish_details)
+            _die(f"Completed with {summary.failed} failure(s)", exit_code=summary.exit_code)
+
+        emit_summary(summary, args, mode=MODE_RUN, details=publish_details)
         return
 
-    client = OpenAI()
-    for index, prompt in enumerate(prompts, start=1):
-        timestamp = build_timestamp()
-        suffix = f"_geburtstag-{index:02d}" if len(prompts) > 1 else ""
-        stem = f"wirtelprimpf_{timestamp}{suffix}"
-        local_png = config.local_outdir / f"{stem}.png"
-        local_prompt = config.local_outdir / f"{stem}.txt"
-
-        request: dict[str, object] = {
-            "model": config.image_model,
-            "prompt": prompt,
-            "size": config.image_size,
-        }
-        if config.flex_processing_mode:
-            request["processing"] = config.flex_processing_mode
-
-        try:
-            image_b64 = generate_image_with_retries(client, request)
-        except Exception as exc:
-            print(f"Generation failed for {stem}: {exc}", file=sys.stderr)
-            summary.failed += 1
-            summary.prompts += 1
-            summary.exit_code = 2
-            continue
-
-        if image_b64 is None:
-            print(f"Generation failed for {stem}: no base64 image data", file=sys.stderr)
-            summary.failed += 1
-            summary.prompts += 1
-            summary.exit_code = 2
-            continue
-
-        try:
-            write_bytes_atomically(local_png, decode_image_bytes(image_b64))
-            resize_cover(local_png, parse_resolution(config.output_resolution))
-            local_prompt.write_text(prompt, encoding="utf-8")
-        except Exception as exc:
-            print(f"Write/transform failed for {stem}: {exc}", file=sys.stderr)
-            summary.failed += 1
-            summary.prompts += 1
-            summary.exit_code = 2
-            continue
-        summary.success += 1
-        summary.prompts += 1
-        print(f"Local image: {local_png}")
-        print(f"Local prompt: {local_prompt}")
-
-        if repo_outdir is None:
-            continue
-
-        repo_png = repo_outdir / local_png.name
-        repo_prompt = repo_outdir / local_prompt.name
-        try:
-            shutil.copy2(local_png, repo_png)
-            shutil.copy2(local_prompt, repo_prompt)
-            commit_and_push(config, [repo_png, repo_prompt], stem)
-            print(f"Repository image: {repo_png}")
-            print(f"Repository prompt: {repo_prompt}")
-        except Exception as exc:
-            print(f"Repository publish failed for {stem}: {exc}", file=sys.stderr)
-            summary.failed += 1
-            summary.exit_code = 2
-            continue
-
-    if summary.exit_code:
-        if not args.json:
-            print(f"Completed with {summary.failed} failure(s)", file=sys.stderr)
-        emit_summary(summary, args, compact=True)
-        _die(f"Completed with {summary.failed} failure(s)", exit_code=summary.exit_code)
-
-    emit_summary(summary, args)
-    return
+    except Exception as exc:
+        emit_unexpected_failure(f"Unhandled failure in mode {runtime_mode}: {exc}", args, runtime_mode)
 
 
 if __name__ == "__main__":

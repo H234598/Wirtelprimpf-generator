@@ -1,0 +1,16 @@
+[Unit]
+Description=Watch Wirtelprimpf version minor changes and run full checks
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/wirtelprimpf/github/Katzenbilder
+ExecStart=/bin/bash -lc '%h/.local/share/wirtelprimpf/github/Katzenbilder/Sourcecode/watch_minor_version.sh'
+Restart=always
+RestartSec=10
+Environment=SLEEP_SECONDS=300
+StandardOutput=append:/tmp/wirtelprimpf-watch-service.log
+StandardError=append:/tmp/wirtelprimpf-watch-service.log
+
+[Install]
+WantedBy=default.target
