@@ -202,6 +202,21 @@ def normalize_repo_branch(value: str | None) -> str:
     return branch
 
 
+def ensure_output_directory(path: Path) -> None:
+    if path.exists():
+        if not path.is_dir():
+            raise RuntimeError(f"WIRTELPRIMPF_LOCAL_OUTDIR is not a directory: {path}")
+        if not os.access(path, os.W_OK | os.X_OK):
+            raise RuntimeError(f"WIRTELPRIMPF_LOCAL_OUTDIR is not writable: {path}")
+        return
+
+    parent = path.parent
+    if not parent.is_dir():
+        raise RuntimeError(f"WIRTELPRIMPF_LOCAL_OUTDIR parent directory does not exist: {parent}")
+    if not os.access(parent, os.W_OK | os.X_OK):
+        raise RuntimeError(f"Cannot create WIRTELPRIMPF_LOCAL_OUTDIR in non-writable directory: {parent}")
+
+
 def read_publish_state(path: Path) -> PublishState:
     if not path.exists():
         return PublishState()
@@ -1019,9 +1034,7 @@ def main() -> None:
             print(f"exit_code: 0")
             return
 
-        if not config.local_outdir.is_dir() and config.local_outdir.exists():
-            _die(f"WIRTELPRIMPF_LOCAL_OUTDIR is not a directory: {config.local_outdir}")
-
+        ensure_output_directory(config.local_outdir)
         config.local_outdir.mkdir(parents=True, exist_ok=True)
         try:
             repo_outdir = ensure_repo(config)
