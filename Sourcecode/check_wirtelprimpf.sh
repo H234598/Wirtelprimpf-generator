@@ -343,6 +343,11 @@ cleanup_checks() {
   if [[ -n "${CHECK_TMPDIR-}" && -d "$CHECK_TMPDIR" ]]; then
     rm -rf "$CHECK_TMPDIR"
   fi
+  if [[ -n "${CHECK_TMP_BASE_DIR-}" && -d "$CHECK_TMP_BASE_DIR" && ! -L "$CHECK_TMP_BASE_DIR" ]]; then
+    if rmdir --ignore-fail-on-non-empty "$CHECK_TMP_BASE_DIR" 2>/dev/null; then
+      :
+    fi
+  fi
 }
 trap cleanup_checks EXIT
 
