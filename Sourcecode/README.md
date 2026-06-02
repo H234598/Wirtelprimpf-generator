@@ -143,6 +143,12 @@ set +a
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py
 ```
 
+### Exit codes
+
+- `0`: success
+- `1`: unrecoverable setup/configuration failure (missing key, invalid config, repo errors)
+- `2`: partial failure (one or more prompts/images failed, but at least one succeeded)
+
 ## Hourly Timer
 
 ```bash
