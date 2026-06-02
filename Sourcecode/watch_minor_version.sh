@@ -140,12 +140,10 @@ if state_path.exists():
     except (json.JSONDecodeError, OSError):
         payload = {}
     state_patch_count = payload.get("patch_count", payload.get("patch_version", 0))
-    try:
-        if state_patch_count is None:
-            state_patch_count = 0
-        state_patch_count = int(state_patch_count)
-    except (TypeError, ValueError):
-        state_patch_count = 0
+    if not isinstance(state_patch_count, int) or isinstance(state_patch_count, bool):
+        raise SystemExit(f"invalid publish state: patch_count must be a non-boolean integer, got {state_patch_count!r}")
+    if state_patch_count < 0:
+        raise SystemExit(f"invalid publish state: patch_count must be >= 0, got {state_patch_count!r}")
 
 try:
     text = script_path.read_text(encoding="utf-8")
