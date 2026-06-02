@@ -42,7 +42,7 @@ cleanup_tmp_file() {
 }
 trap cleanup_tmp_file EXIT HUP INT TERM
 printf 'OPENAI_API_KEY=%q\n' "$api_key" > "$tmp_file"
-mv -- "$tmp_file" "$env_file"
+mv -T -- "$tmp_file" "$env_file"
 tmp_file=""
 chmod 600 -- "$env_file"
 unset -v api_key
