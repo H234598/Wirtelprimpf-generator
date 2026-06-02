@@ -36,7 +36,7 @@ if ! PY="$(resolve_python)"; then
   exit 1
 fi
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
-if ! CHECK_TMPDIR="$(mktemp -d)"; then
+if ! CHECK_TMPDIR="$(mktemp -d -t wirtelprimpf-check-XXXXXX)"; then
   echo "Failed to create temporary directory" >&2
   exit 1
 fi
