@@ -80,6 +80,13 @@ def emit_mode_line(mode: str) -> None:
     print(f"mode: {validate_mode(mode)}")
 
 
+def extract_minor_version(version: str) -> str:
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)", version.strip())
+    if not m:
+        raise RuntimeError(f"Invalid VERSION value: {version!r}")
+    return f"{m.group(1)}.{m.group(2)}"
+
+
 def build_status_envelope(
     *,
     ok: bool,
