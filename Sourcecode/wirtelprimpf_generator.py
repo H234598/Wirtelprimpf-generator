@@ -707,7 +707,6 @@ def main() -> None:
         _die(f"WIRTELPRIMPF_LOCAL_OUTDIR is not a directory: {config.local_outdir}")
 
     config.local_outdir.mkdir(parents=True, exist_ok=True)
-    client = OpenAI()
     repo_outdir = ensure_repo(config)
     summary = RunSummary(total=len(prompts))
 
@@ -736,6 +735,7 @@ def main() -> None:
         emit_summary(summary, args)
         return
 
+    client = OpenAI()
     for index, prompt in enumerate(prompts, start=1):
         timestamp = build_timestamp()
         suffix = f"_geburtstag-{index:02d}" if len(prompts) > 1 else ""
