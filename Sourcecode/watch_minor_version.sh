@@ -645,17 +645,17 @@ dependency_signature() {
   if [[ ! -d "$parent" ]]; then
     return 1
   fi
-  if ! is_owned_by_current_user "$parent"; then
-    return 1
-  fi
   if [[ ! -r "$parent" || ! -x "$parent" || ! -w "$parent" ]]; then
     return 1
   fi
-  if ! parent_meta="$(stat -c '%a:%u:%Y:%i:%s' "$parent" 2>/dev/null)"; then
+  if ! parent_meta="$(stat -c '%a:%u' "$parent" 2>/dev/null)"; then
     return 1
   fi
-  IFS=':' read -r parent_mode parent_owner parent_mtime parent_ino parent_size <<< "$parent_meta"
-  if [[ -z "$parent_mode" || -z "$parent_owner" || -z "$parent_mtime" || -z "$parent_ino" || -z "$parent_size" ]]; then
+  IFS=':' read -r parent_mode parent_owner <<< "$parent_meta"
+  if [[ -z "$parent_mode" || -z "$parent_owner" ]]; then
+    return 1
+  fi
+  if [[ "$parent_owner" != "$CURRENT_UID" ]]; then
     return 1
   fi
   if (( 10#$parent_mode & 022 )); then
