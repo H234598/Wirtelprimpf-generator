@@ -3,7 +3,10 @@ set -euo pipefail
 IFS=$'\n\t'
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PY=${PYTHON_BIN:-python3}
+
+log() {
+  printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"
+}
 
 resolve_python() {
   local candidates=("${PYTHON_BIN:-}")
@@ -62,10 +65,6 @@ parse_positive_int() {
 SLEEP_SECONDS="$(parse_positive_int "$SLEEP_SECONDS" 300 1)"
 MAX_STALE_LOCK_SECONDS="$(parse_positive_int "$MAX_STALE_LOCK_SECONDS" 900 10)"
 DEFAULT_RETRY_DELAY_SECONDS="$(parse_positive_int "$DEFAULT_RETRY_DELAY_SECONDS" 5 1)"
-
-log() {
-  printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"
-}
 
 require_file() {
   local path="$1"
