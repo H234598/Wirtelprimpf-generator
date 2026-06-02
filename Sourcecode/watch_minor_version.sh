@@ -3,6 +3,10 @@ set -euo pipefail
 IFS=$'\n\t'
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -n "${PYTHON_BIN:-}" && "${PYTHON_BIN}" == *[[:space:]]* ]]; then
+  log "PYTHON_BIN must not contain whitespace: ${PYTHON_BIN}"
+  exit 1
+fi
 
 log() {
   printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"
@@ -17,7 +21,10 @@ resolve_python() {
   local candidate
   for candidate in "${candidates[@]}"; do
     local resolved
-    resolved="$(command -v "$candidate" 2>/dev/null || true)"
+    if [[ "$candidate" =~ [[:space:]] || "$candidate" == -* ]]; then
+      continue
+    fi
+    resolved="$(command -v -- "$candidate" 2>/dev/null || true)"
     if [[ -n "$resolved" && -x "$resolved" ]]; then
       echo "$resolved"
       return 0
