@@ -1,12 +1,83 @@
 #!/usr/bin/env bash
 set -euo pipefail
+IFS=$'\n\t'
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY=${PYTHON_BIN:-python3}
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
 STATE_FILE="$ROOT_DIR/Sourcecode/.minor_version_state"
-SLEEP_SECONDS=${SLEEP_SECONDS:-300}
+LOCK_FILE="$ROOT_DIR/Sourcecode/.minor_version_watch.lock"
+LOCK_TMP="${LOCK_FILE}.tmp.$$"
+TIMESTAMP_FILE="$STATE_FILE.started_at"
 CHECKS_SCRIPT="$ROOT_DIR/Sourcecode/check_wirtelprimpf.sh"
+SLEEP_SECONDS="${SLEEP_SECONDS:-300}"
+MAX_STALE_LOCK_SECONDS="${MAX_STALE_LOCK_SECONDS:-900}"
+DEFAULT_RETRY_DELAY_SECONDS="${DEFAULT_RETRY_DELAY_SECONDS:-5}"
+
+if [[ -z "${SLEEP_SECONDS}" || "${SLEEP_SECONDS}" -lt 1 ]]; then
+  SLEEP_SECONDS=300
+fi
+
+if [[ -z "${MAX_STALE_LOCK_SECONDS}" || "${MAX_STALE_LOCK_SECONDS}" -lt 10 ]]; then
+  MAX_STALE_LOCK_SECONDS=900
+fi
+
+if [[ -z "${DEFAULT_RETRY_DELAY_SECONDS}" || "${DEFAULT_RETRY_DELAY_SECONDS}" -lt 1 ]]; then
+  DEFAULT_RETRY_DELAY_SECONDS=5
+fi
+
+log() {
+  printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"
+}
+
+write_state() {
+  local value="$1"
+  mkdir -p "$(dirname "$STATE_FILE")"
+  printf '%s\n' "$value" > "$STATE_FILE.tmp.$$"
+  mv -f "$STATE_FILE.tmp.$$" "$STATE_FILE"
+}
+
+refresh_state_timestamp() {
+  date +%s > "$TIMESTAMP_FILE"
+}
+
+acquire_lock() {
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$LOCK_FILE"
+    if ! flock -n 9; then
+      local pid
+      pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+      log "another watcher instance is running (flock), exiting (holder=${pid:-unknown})"
+      exit 0
+    fi
+    printf '%s\n' "$$" 1>&9
+    trap 'flock -u 9 2>/dev/null || true; exec 9>&- 2>/dev/null || true; rm -f "$LOCK_FILE" "$LOCK_TMP" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
+    return
+  fi
+
+  if ! mkdir "$LOCK_TMP" 2>/dev/null; then
+    local pid
+    pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+    if [[ -f "$LOCK_FILE" ]]; then
+      local now
+      now=$(date +%s)
+      local lock_mtime age
+      lock_mtime=$(stat -c '%Y' "$LOCK_FILE" 2>/dev/null || echo "$now")
+      age=$((now - lock_mtime))
+      if [[ "$age" -lt "$MAX_STALE_LOCK_SECONDS" ]]; then
+        log "another watcher instance is running (fallback lock), exiting"
+        exit 0
+      fi
+      log "stale fallback lock detected (${age}s), stealing lock"
+      rm -f "$LOCK_FILE"
+    fi
+    mkdir "$LOCK_TMP"
+  fi
+
+  mv "$LOCK_TMP" "$LOCK_FILE"
+  printf '%s\n' "$$" > "$LOCK_FILE"
+  trap 'rm -f "$LOCK_TMP" "$LOCK_FILE" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
+}
 
 get_minor_version() {
   "$PY" - "$PY_SCRIPT" <<'PY'
@@ -15,48 +86,70 @@ import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-m = re.search(r"VERSION:\s*Final\s*=\s*\"([^\"]+)\"", text)
-if not m:
-    raise SystemExit(1)
-version = m.group(1)
-m2 = re.match(r"^(\d+)\.(\d+)\.(\d+)", version)
-if not m2:
-    raise SystemExit(1)
-print(f"{m2.group(1)}.{m2.group(2)}")
+try:
+    text = path.read_text(encoding="utf-8")
+except OSError as exc:
+    raise SystemExit(f"cannot read script: {exc}") from exc
+
+match = re.search(r'VERSION:\s*Final\s*=\s*"([^"]+)"', text)
+if not match:
+    raise SystemExit("VERSION constant not found")
+
+version = match.group(1).strip()
+parsed = re.match(r"^(\\d+)\\.(\\d+)\\.(\\d+)", version)
+if not parsed:
+    raise SystemExit(f"invalid version format: {version!r}")
+
+print(f"{parsed.group(1)}.{parsed.group(2)}")
 PY
 }
 
+acquire_lock
+
 init_state=$(get_minor_version)
 if [[ ! -f "$STATE_FILE" ]]; then
-  printf '%s\n' "$init_state" > "$STATE_FILE"
+  write_state "$init_state"
 fi
 
 if [[ "${1:-}" == "--once" ]]; then
-  prev=$(cat "$STATE_FILE")
-  current=$(get_minor_version)
+  prev="$(cat "$STATE_FILE")"
+  current="$(get_minor_version)"
   if [[ "$current" != "$prev" ]]; then
-    printf '%s\n' "$current" > "$STATE_FILE"
-    "$CHECKS_SCRIPT"
+    write_state "$current"
+    if "$CHECKS_SCRIPT"; then
+      refresh_state_timestamp
+      log "checks completed for version $current"
+    else
+      log "checks failed for version $current"
+    fi
   fi
   exit 0
 fi
 
 while true; do
-  prev=$(cat "$STATE_FILE")
-  current=$(get_minor_version)
+  prev="$(cat "$STATE_FILE")"
+  current="$(get_minor_version)"
 
   if [[ "$current" != "$prev" ]]; then
-    echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] minor version changed: $prev -> $current"
-    printf '%s\n' "$current" > "$STATE_FILE"
-    set +e
-    "$CHECKS_SCRIPT"
-    code=$?
-    set -e
-    if [[ "$code" -ne 0 ]]; then
-      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] checks failed with exit code $code"
+    log "minor version changed: $prev -> $current"
+    write_state "$current"
+    if "$CHECKS_SCRIPT"; then
+      log "checks completed for version $current"
+    else
+      log "checks failed for version $current"
     fi
-    echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] checks finished for version $current"
+    refresh_state_timestamp
+    sleep "$DEFAULT_RETRY_DELAY_SECONDS"
+    continue
+  fi
+
+  if [[ -f "$TIMESTAMP_FILE" ]]; then
+    now_epoch="$(date +%s)"
+    last_epoch="$(cat "$TIMESTAMP_FILE")"
+    if [[ -n "$last_epoch" && $((now_epoch - last_epoch)) -lt 1 ]]; then
+      sleep "$DEFAULT_RETRY_DELAY_SECONDS"
+      continue
+    fi
   fi
 
   sleep "$SLEEP_SECONDS"
