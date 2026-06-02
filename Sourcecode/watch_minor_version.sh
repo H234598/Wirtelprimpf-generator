@@ -218,6 +218,10 @@ validate_python_binary() {
       PYTHON_BINARY_CACHE_PATH="$path"
       return 1
     fi
+  else
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
+    return 1
   fi
   if (( HAS_FILE_CMD )); then
     if ! file_type="$(file -b -- "$resolved" 2>/dev/null || true)"; then
@@ -230,6 +234,10 @@ validate_python_binary() {
       PYTHON_BINARY_CACHE_PATH="$path"
       return 1
     fi
+  else
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
+    return 1
   fi
   PYTHON_BINARY_CACHE_PATH="$path"
   PYTHON_BINARY_CACHE_RESULT=0
