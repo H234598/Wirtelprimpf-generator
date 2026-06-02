@@ -317,11 +317,18 @@ def read_publish_state(path: Path) -> PublishState:
     if not isinstance(payload, dict):
         return PublishState()
 
-    patch_count = payload.get("patch_count", payload.get("patch_version", 0))
-    minor_push_count = payload.get("minor_push_count", 0)
-    if not isinstance(patch_count, int) or patch_count < 0:
+    raw_patch_count = payload.get("patch_count", payload.get("patch_version", 0))
+    if not isinstance(raw_patch_count, int) or isinstance(raw_patch_count, bool):
         return PublishState()
-    if not isinstance(minor_push_count, int) or minor_push_count < 0:
+    patch_count = raw_patch_count
+    minor_push_count = payload.get("minor_push_count", 0)
+    if patch_count < 0:
+        return PublishState()
+    if (
+        not isinstance(minor_push_count, int)
+        or isinstance(minor_push_count, bool)
+        or minor_push_count < 0
+    ):
         return PublishState()
     return PublishState(patch_count=patch_count, minor_push_count=minor_push_count)
 
