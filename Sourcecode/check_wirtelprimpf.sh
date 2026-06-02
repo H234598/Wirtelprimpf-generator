@@ -114,6 +114,7 @@ is_regular_file() {
 require_file() {
   local path="$1"
   local label="$2"
+  local perm
   if [[ -L "$path" ]]; then
     echo "${label} must not be a symlink: ${path}" >&2
     return 1
@@ -124,6 +125,14 @@ require_file() {
   fi
   if ! is_owned_by_current_user "$path"; then
     echo "${label} must be owned by current user: ${path}" >&2
+    return 1
+  fi
+  if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
+    echo "${label} failed to read permissions: ${path}" >&2
+    return 1
+  fi
+  if (( 10#$perm & 022 )); then
+    echo "${label} must not be group/world writable: ${path}" >&2
     return 1
   fi
 }
