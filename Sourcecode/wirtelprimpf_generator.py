@@ -317,7 +317,12 @@ def read_publish_state(path: Path) -> PublishState:
     if not isinstance(payload, dict):
         return PublishState()
 
-    raw_patch_count = payload.get("patch_count", payload.get("patch_version", 0))
+    if "patch_count" in payload:
+        raw_patch_count = payload["patch_count"]
+    elif "patch_version" in payload:
+        raw_patch_count = payload["patch_version"]
+    else:
+        return PublishState()
     if not isinstance(raw_patch_count, int) or isinstance(raw_patch_count, bool):
         return PublishState()
     patch_count = raw_patch_count

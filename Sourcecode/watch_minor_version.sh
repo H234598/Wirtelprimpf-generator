@@ -139,7 +139,12 @@ if state_path.exists():
         payload = json.loads(state_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         raise SystemExit(f"invalid publish state file: {state_path}: {exc}")
-    state_patch_count = payload.get("patch_count", payload.get("patch_version", 0))
+    if "patch_count" in payload:
+        state_patch_count = payload["patch_count"]
+    elif "patch_version" in payload:
+        state_patch_count = payload["patch_version"]
+    else:
+        raise SystemExit("invalid publish state: missing patch_count and patch_version")
     if not isinstance(state_patch_count, int) or isinstance(state_patch_count, bool):
         raise SystemExit(f"invalid publish state: patch_count must be a non-boolean integer, got {state_patch_count!r}")
     if state_patch_count < 0:
