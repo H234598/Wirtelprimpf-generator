@@ -345,6 +345,13 @@ The JSON form can be used for automation and is emitted as one compact object pe
 fields (`ok`, `version`, `timestamp`, `mode`, `status`, `exit_code`) per rendered prompt
 record.
 
+Praktische Fehlerauswertung:
+
+- `exit_code == 0` => Kommando erfolgreich (auch bei `ok=false` nur möglich, wenn es nur optionale Checks betrifft).
+- `exit_code == 1` => kritische Setup/Config- oder Repo-Fehler, keine erfolgreiche Ausführung.
+- `exit_code == 2` => partielle Ausführung; suche `checks` mit `"ok": false` und die zugehörigen `message`-Felder.
+- Für `dry_run`-Events gilt: `status` spiegelt den Laufstatus pro Block, `checks` enthält die Einzelbewertung je Prüfungspunkt.
+
 `mode` is a strict discriminator in machine-readable output and can only be:
 `status`, `check_config`, `dry_run`, or `run`.
 

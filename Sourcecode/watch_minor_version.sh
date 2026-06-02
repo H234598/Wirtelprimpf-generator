@@ -467,6 +467,7 @@ CHECKS_SCRIPT="$ROOT_DIR/Sourcecode/check_wirtelprimpf.sh"
 validate_watch_runtime_file_path "$STATE_FILE" "State file"
 validate_watch_runtime_file_path "$LOCK_FILE" "Lock file"
 validate_watch_runtime_file_path "$TIMESTAMP_FILE" "Timestamp file"
+LOCK_FILE_AGE_SECONDS=""
 
 SLEEP_SECONDS="${SLEEP_SECONDS:-300}"
 MAX_STALE_LOCK_SECONDS="${MAX_STALE_LOCK_SECONDS:-900}"

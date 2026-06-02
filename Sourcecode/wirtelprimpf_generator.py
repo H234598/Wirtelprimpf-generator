@@ -83,7 +83,7 @@ ENV_BLACKLIST: Final = frozenset(
 OPENAI_ENV_PREFIXES: Final = ("OPENAI_", "AZURE_OPENAI_")
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.5.36-hardening"
+VERSION: Final = "0.5.37-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -1727,6 +1727,9 @@ def main() -> None:
         ):
             summary.exit_code = 1
         if summary.exit_code:
+            if args.json:
+                emit_summary(summary, args, compact=True, mode=MODE_RUN, details=publish_details)
+                raise SystemExit(summary.exit_code)
             if not args.json:
                 print(f"Completed with {summary.failed} failure(s)", file=sys.stderr)
             emit_summary(summary, args, compact=True, mode=MODE_RUN, details=publish_details)
