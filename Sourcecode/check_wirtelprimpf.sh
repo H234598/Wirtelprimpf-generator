@@ -122,6 +122,10 @@ require_file() {
     echo "${label} missing or not a regular file: ${path}" >&2
     return 1
   fi
+  if ! is_owned_by_current_user "$path"; then
+    echo "${label} must be owned by current user: ${path}" >&2
+    return 1
+  fi
 }
 
 require_executable() {
