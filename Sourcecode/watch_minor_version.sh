@@ -114,14 +114,31 @@ acquire_lock() {
 }
 
 get_minor_version() {
-  "$PY" - "$PY_SCRIPT" <<'PY'
+  "$PY" - "$PY_SCRIPT" "$ROOT_DIR/.git/wirtelprimpf_publish_state.json" <<'PY'
+import json
+import os
 import re
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
+script_path = Path(sys.argv[1])
+state_path = Path(sys.argv[2])
+state_patch_count = 0
+if state_path.exists():
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        payload = {}
+    state_patch_count = payload.get("patch_count", payload.get("patch_version", 0))
+    try:
+        if state_patch_count is None:
+            state_patch_count = 0
+        state_patch_count = int(state_patch_count)
+    except (TypeError, ValueError):
+        state_patch_count = 0
+
 try:
-    text = path.read_text(encoding="utf-8")
+    text = script_path.read_text(encoding="utf-8")
 except OSError as exc:
     raise SystemExit(f"cannot read script: {exc}") from exc
 
@@ -130,11 +147,20 @@ if not match:
     raise SystemExit("VERSION constant not found")
 
 version = match.group(1).strip()
-parsed = re.match(r"^(\d+)\.(\d+)\.(\d+)", version)
+parsed = re.match(r"^(\d+)\.(\d+)\.(\d+)(.*)$", version)
 if not parsed:
     raise SystemExit(f"invalid version format: {version!r}")
+major_str, minor_str, patch_str, suffix = parsed.groups()
+patches_per_minor = int(os.environ.get("WIRTELPRIMPF_PATCHES_PER_MINOR", "100"))
+major_bump = int(os.environ.get("WIRTELPRIMPF_MAJOR_VERSION_BUMP", "0"))
 
-print(f"{parsed.group(1)}.{parsed.group(2)}")
+minor_increments = (state_patch_count // patches_per_minor) // 100
+major_addition, minor_offset = divmod(int(minor_str) + minor_increments, 100)
+major_version = int(major_str) + major_addition + major_bump
+patch_units = state_patch_count // patches_per_minor
+patch_version = patch_units % 100
+print(f"{major_version}.{minor_offset}.{patch_version}{suffix}")
+
 PY
 }
 
