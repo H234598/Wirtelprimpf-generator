@@ -133,6 +133,7 @@ PATCHES_PER_MINOR_FOR_MINOR = PATCHES_PER_MINOR
 
 script_path = Path(sys.argv[1])
 state_path = Path(sys.argv[2])
+state_patch_count = 0
 if state_path.exists():
     try:
         payload = json.loads(state_path.read_text(encoding="utf-8"))
