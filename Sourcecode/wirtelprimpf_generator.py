@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import argparse
 import json
 import os
 import random
@@ -16,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Final
 import re
+import time
 
 from openai import OpenAI
 from PIL import Image
@@ -28,6 +30,8 @@ IMAGE_SIZE_PATTERN: Final = r"^\d+x\d+$"
 RESOLUTION_MAX_DIM: Final = 8192
 IMAGE_PAYLOAD_MAX_BYTES: Final = 80 * 1024 * 1024
 GIT_TIMEOUT_SECONDS: Final = 120
+GENERATION_RETRIES: Final = 3
+GENERATION_RETRY_BASE_SECONDS: Final = 2
 
 
 def env(name: str, default: str | None = None) -> str | None:
@@ -388,29 +392,89 @@ def build_prompts(config_path: Path, now: datetime) -> list[str]:
     return [build_prompt(data)]
 
 
+def is_retryable_generation_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        isinstance(exc, (TimeoutError, OSError))
+        or "timeout" in message
+        or "rate limit" in message
+        or "temporarily" in message
+        or "connection" in message
+        or "429" in message
+    )
+
+
+def generate_image_with_retries(client: OpenAI, request: dict[str, object]) -> str:
+    last_error: Exception | None = None
+    for attempt in range(1, GENERATION_RETRIES + 1):
+        try:
+            response = client.images.generate(**request)
+            image_record = response.data[0]
+            image_b64 = image_record.b64_json
+            if image_b64 is None:
+                raise RuntimeError("OpenAI response did not include base64 image data")
+            return image_b64
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            if not is_retryable_generation_error(exc) or attempt == GENERATION_RETRIES:
+                break
+            delay = GENERATION_RETRY_BASE_SECONDS * attempt
+            time.sleep(delay)
+    assert last_error is not None
+    raise last_error
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate Wirtelprimpf images.")
+    parser.add_argument("--check-config", action="store_true", help="Validate config and prompt config, no API call.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate prompts and print them, but do not call OpenAI API or publish to git.",
+    )
+    return parser.parse_args()
+
+
 def _die(message: str, *, exit_code: int = 1) -> None:
     print(f"ERROR: {message}", file=sys.stderr)
     raise SystemExit(exit_code)
 
 
 def main() -> None:
-    if not os.environ.get("OPENAI_API_KEY"):
+    args = parse_args()
+
+    if not os.environ.get("OPENAI_API_KEY") and not args.check_config and not args.dry_run:
         _die("OPENAI_API_KEY environment variable is required")
 
     config = load_config()
     if not config.prompt_config_path.exists():
         _die(f"Prompt config file not found: {config.prompt_config_path}")
 
+    try:
+        prompts = build_prompts(config.prompt_config_path, datetime.now())
+    except Exception as exc:
+        _die(f"Prompt config validation failed: {exc}")
+
+    if args.check_config:
+        print("Prompt configuration is valid.")
+        print(f"Resolved config: local_outdir={config.local_outdir}")
+        print(f"model={config.image_model} size={config.image_size} output_resolution={config.output_resolution}")
+        print(f"repo_path={config.repo_path or '<disabled>'}")
+        print(f"prompts={len(prompts)}")
+        return
+
     if not config.local_outdir.is_dir() and config.local_outdir.exists():
         _die(f"WIRTELPRIMPF_LOCAL_OUTDIR is not a directory: {config.local_outdir}")
 
     config.local_outdir.mkdir(parents=True, exist_ok=True)
-
-    now = datetime.now()
-    prompts = build_prompts(config.prompt_config_path, now)
     client = OpenAI()
     repo_outdir = ensure_repo(config)
     failures = 0
+
+    if args.dry_run:
+        for index, prompt in enumerate(prompts, start=1):
+            print(f"[DRY-RUN {index}/{len(prompts)}] {prompt[:140]}...")
+        return
 
     for index, prompt in enumerate(prompts, start=1):
         timestamp = build_timestamp()
@@ -428,9 +492,7 @@ def main() -> None:
             request["processing"] = config.flex_processing_mode
 
         try:
-            response = client.images.generate(**request)
-            image_record = response.data[0]
-            image_b64 = image_record.b64_json
+            image_b64 = generate_image_with_retries(client, request)
         except Exception as exc:
             print(f"Generation failed for {stem}: {exc}", file=sys.stderr)
             failures += 1

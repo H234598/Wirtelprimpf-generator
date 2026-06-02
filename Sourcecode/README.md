@@ -143,6 +143,13 @@ set +a
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py
 ```
 
+Validation helpers:
+
+```bash
+~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --check-config
+~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --dry-run
+```
+
 ### Exit codes
 
 - `0`: success
