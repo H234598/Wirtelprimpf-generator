@@ -109,6 +109,10 @@ validate_json() {
   local file="$1"
   local mode="${2}"
   local strategy="${3:-any}"
+  if [[ -z "$file" ]]; then
+    echo "No file supplied to validate_json" >&2
+    return 1
+  fi
   if [[ ! "$file" =~ ^[A-Za-z0-9._/\-]+$ ]]; then
     echo "Invalid path contains unsafe character: $file" >&2
     return 1
@@ -121,10 +125,6 @@ validate_json() {
     any|first) ;;
     *) echo "Invalid strategy argument: $strategy" >&2; return 1 ;;
   esac
-  if [[ -z "${file-}" ]]; then
-    echo "No file supplied to validate_json" >&2
-    return 1
-  fi
   if [[ ! -f "$file" || ! -r "$file" ]]; then
     echo "JSON file missing or unreadable: $file" >&2
     return 1
