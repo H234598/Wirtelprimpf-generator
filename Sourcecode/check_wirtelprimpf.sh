@@ -45,16 +45,13 @@ resolve_python() {
     if [[ "$candidate" == *[[:space:]]* || "$candidate" == -* || "$candidate" == */* ]]; then
       continue
     fi
-    if ! resolved="$(env PATH="$SECURITY_PATHS" command -v -- "$candidate" 2>/dev/null || true)"; then
-      continue
-    fi
-    if [[ "$resolved" != /* ]]; then
-      continue
-    fi
-    if [[ -n "$resolved" ]]; then
-      echo "$resolved"
-      return 0
-    fi
+    for search_path in ${SECURITY_PATHS//:/ }; do
+      resolved="${search_path}/${candidate}"
+      if [[ -f "$resolved" && -x "$resolved" && ! -L "$resolved" ]]; then
+        echo "$resolved"
+        return 0
+      fi
+    done
   done
 
   return 1
