@@ -945,9 +945,32 @@ def status_report(config: Config | None = None) -> dict[str, object]:
 
     if config is None:
         checks.append({"name": "load_config", "ok": False, "message": "Configuration loading failed"})
-        report["ok"] = False
-        report["status"] = STATUS_ERROR
-        report["exit_code"] = 1
+        versioning_ok = True
+        versioning_values = [
+            ("major_version_bump", "WIRTELPRIMPF_MAJOR_VERSION_BUMP", lambda: parse_non_negative_int("WIRTELPRIMPF_MAJOR_VERSION_BUMP", env("WIRTELPRIMPF_MAJOR_VERSION_BUMP"), default=0)),
+            ("breaking_change", "WIRTELPRIMPF_BREAKING_CHANGE", lambda: parse_bool_flag("WIRTELPRIMPF_BREAKING_CHANGE", env("WIRTELPRIMPF_BREAKING_CHANGE"), default=False)),
+            ("patches_per_minor", "WIRTELPRIMPF_PATCHES_PER_MINOR", lambda: parse_patches_per_minor("WIRTELPRIMPF_PATCHES_PER_MINOR", env("WIRTELPRIMPF_PATCHES_PER_MINOR"))),
+        ]
+        for key, env_name, parse_fn in versioning_values:
+            raw = env(env_name)
+            report["details"][key] = raw
+            try:
+                report["details"][key] = parse_fn()
+            except Exception as exc:
+                checks.append({"name": "versioning", "ok": False, "message": str(exc)})
+                versioning_ok = False
+
+        if versioning_ok:
+            report["details"]["effective_major_version_base"] = (
+                BASE_VERSION_MAJOR
+                + int(report["details"].get("major_version_bump", 0))
+                + (1 if report["details"].get("breaking_change") else 0)
+            )
+        else:
+            report["details"]["effective_major_version_base"] = BASE_VERSION_MAJOR
+            report["ok"] = False
+            report["status"] = STATUS_ERROR
+            report["exit_code"] = 1
         return report
 
     report["details"].update(
