@@ -879,28 +879,7 @@ refresh_state_timestamp() {
 
 read_timestamp_epoch() {
   local value
-  local timestamp_perm
   if ! validate_runtime_file_for_read "$TIMESTAMP_FILE" "Timestamp file"; then
-    return 1
-  fi
-  if ! timestamp_perm="$(stat -c '%a' "$TIMESTAMP_FILE" 2>/dev/null)"; then
-    log "failed to read timestamp metadata: $TIMESTAMP_FILE"
-    return 1
-  fi
-  if [[ -e "$TIMESTAMP_FILE" ]] && ! is_regular_file "$TIMESTAMP_FILE"; then
-    log "timestamp file is not a regular file: $TIMESTAMP_FILE"
-    return 1
-  fi
-  if [[ -e "$TIMESTAMP_FILE" ]] && ! is_owned_by_current_user "$TIMESTAMP_FILE"; then
-    log "timestamp file not owned by current user: $TIMESTAMP_FILE"
-    return 1
-  fi
-  if [[ -e "$TIMESTAMP_FILE" ]] && [[ ! -r "$TIMESTAMP_FILE" ]]; then
-    log "timestamp file not readable: $TIMESTAMP_FILE"
-    return 1
-  fi
-  if (( 10#$timestamp_perm & 022 )); then
-    log "timestamp file has insecure permissions (group/world writable): $TIMESTAMP_FILE"
     return 1
   fi
   if ! value="$(cat "$TIMESTAMP_FILE" 2>/dev/null || true)"; then
@@ -926,29 +905,13 @@ cleanup_lock_tmp() {
 
 safe_unlink_runtime_file() {
   local path="$1"
-  local owner perm
   if [[ -z "$path" ]]; then
     return 1
   fi
-  if [[ -L "$path" ]]; then
+  if [[ -L "$path" || ! -e "$path" ]]; then
     return 1
   fi
-  if [[ ! -e "$path" ]]; then
-    return 0
-  fi
-  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
-    return 1
-  fi
-  if [[ "$owner" != "$CURRENT_UID" ]]; then
-    return 1
-  fi
-  if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
-    return 1
-  fi
-  if (( 10#$perm & 022 )); then
-    return 1
-  fi
-  if ! is_regular_file "$path"; then
+  if ! is_secure_mutable_regular_file "$path"; then
     return 1
   fi
   rm -f "$path" 2>/dev/null || return 1
@@ -1021,6 +984,11 @@ validate_runtime_file_for_read() {
   if ! require_directory "$parent" "${label} parent directory" "rwx"; then
     return 1
   fi
+  if [[ -e "$path" ]] && ! is_secure_regular_file "$path"; then
+    log "${label} is not a secure readable file: $path"
+    return 1
+  fi
+  return 0
 }
 
 acquire_lock() {
@@ -1270,39 +1238,6 @@ read_state_version() {
   if ! validate_runtime_file_for_read "$STATE_FILE" "State file"; then
     echo ""
     return
-  fi
-  if [[ -e "$STATE_FILE" ]] && ! is_regular_file "$STATE_FILE"; then
-    log "state file is not a regular file: $STATE_FILE"
-    echo ""
-    return
-  fi
-  if [[ -e "$STATE_FILE" ]] && [[ -L "$STATE_FILE" ]]; then
-    log "state file is a symlink: $STATE_FILE"
-    echo ""
-    return
-  fi
-  if [[ -e "$STATE_FILE" ]] && ! is_owned_by_current_user "$STATE_FILE"; then
-    log "state file not owned by current user: $STATE_FILE"
-    echo ""
-    return
-  fi
-  if [[ -e "$STATE_FILE" ]] && [[ ! -r "$STATE_FILE" ]]; then
-    log "state file not readable: $STATE_FILE"
-    echo ""
-    return
-  fi
-  if [[ -e "$STATE_FILE" ]]; then
-    local state_perm
-    if ! state_perm="$(stat -c '%a' "$STATE_FILE" 2>/dev/null)"; then
-      log "failed to read state file permissions: $STATE_FILE"
-      echo ""
-      return
-    fi
-    if (( 10#$state_perm & 022 )); then
-      log "state file has insecure permissions (group/world writable): $STATE_FILE"
-      echo ""
-      return
-    fi
   fi
   if ! value="$(cat "$STATE_FILE" 2>/dev/null || true)"; then
     log "failed to read state file: $STATE_FILE"
