@@ -85,7 +85,10 @@ write_state() {
 }
 
 refresh_state_timestamp() {
-  date +%s > "$TIMESTAMP_FILE"
+  if ! date +%s > "$TIMESTAMP_FILE"; then
+    log "failed to refresh timestamp file: $TIMESTAMP_FILE"
+    return 1
+  fi
 }
 
 acquire_lock() {
