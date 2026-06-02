@@ -182,7 +182,7 @@ require_directory() {
     log "${label} failed to read owner: $path"
     exit 1
   fi
-  if [[ "$owner" != "$(id -u)" ]]; then
+  if [[ "$owner" != "$CURRENT_UID" ]]; then
     log "${label} must be owned by current user: $path"
     exit 1
   fi
