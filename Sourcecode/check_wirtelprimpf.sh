@@ -52,7 +52,7 @@ if ! PY="$(resolve_python)"; then
 fi
 validate_python_binary() {
   local path="$1"
-  local resolved owner mode mountpoint mount_opts file_type
+  local resolved owner mode mountpoint mount_opts file_type parent_dir parent_mode parent_owner
   if [[ -z "$path" || ! -x "$path" ]]; then
     return 1
   fi
@@ -60,6 +60,10 @@ validate_python_binary() {
     return 1
   fi
   if [[ ! -f "$resolved" || ! -r "$resolved" ]]; then
+    return 1
+  fi
+  parent_dir="$(dirname -- "$resolved")"
+  if [[ -L "$parent_dir" || ! -d "$parent_dir" ]]; then
     return 1
   fi
   case "$resolved" in
@@ -80,10 +84,22 @@ validate_python_binary() {
   if ! owner="$(stat -c '%u' "$resolved" 2>/dev/null)"; then
     return 1
   fi
+  if ! parent_owner="$(stat -c '%u' "$parent_dir" 2>/dev/null)"; then
+    return 1
+  fi
   if [[ "$owner" != "$CURRENT_UID" && "$owner" != 0 ]]; then
     return 1
   fi
+  if [[ "$parent_owner" != "$CURRENT_UID" && "$parent_owner" != 0 ]]; then
+    return 1
+  fi
   if ! mode="$(stat -c '%a' "$resolved" 2>/dev/null)"; then
+    return 1
+  fi
+  if ! parent_mode="$(stat -c '%a' "$parent_dir" 2>/dev/null)"; then
+    return 1
+  fi
+  if (( 10#$parent_mode & 022 )); then
     return 1
   fi
   if (( 10#$mode & 022 )); then
