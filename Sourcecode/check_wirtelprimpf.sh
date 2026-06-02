@@ -119,6 +119,27 @@ assert_file_non_empty "$status_text"
 assert_file_non_empty "$check_config_text"
 assert_file_non_empty "$dry_run_text"
 
+required_files=(
+  "$status_json"
+  "$check_config_json"
+  "$dry_run_json"
+  "$status_text"
+  "$check_config_text"
+  "$dry_run_text"
+)
+
+if [[ ${#required_files[@]} -ne 6 ]]; then
+  echo "Expected 6 verification artifacts, got ${#required_files[@]}" >&2
+  exit 1
+fi
+
+for file in "${required_files[@]}"; do
+  if [[ ! -e "$file" ]]; then
+    echo "Missing expected artifact: $file" >&2
+    exit 1
+  fi
+done
+
 validate_json "$status_json" status first
 validate_json "$check_config_json" check_config first
 validate_json "$dry_run_json" dry_run any
