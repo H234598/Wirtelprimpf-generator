@@ -379,6 +379,13 @@ Logs:
 journalctl --user -u wirtelprimpf.service -n 100 --no-pager
 ```
 
+Wenn der Dienst wegen der neuen systemd-Härtung nicht startet oder sofort beendet wird, prüfe zuerst:
+
+```bash
+systemd-analyze verify Sourcecode/systemd-user/wirtelprimpf.service
+journalctl --user -u wirtelprimpf.service -n 200 --no-pager
+```
+
 ## Output
 
 Each run creates two files:
