@@ -82,7 +82,7 @@ ENV_BLACKLIST: Final = frozenset(
 )
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.5.24-hardening"
+VERSION: Final = "0.5.25-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -447,6 +447,7 @@ def _command_env() -> dict[str, str]:
     for key in list(environment):
         if key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
             environment.pop(key, None)
+    environment.pop("OPENAI_API_KEY", None)
     environment["PATH"] = ":".join(COMMAND_PATHS)
     environment.setdefault("LANG", "C.UTF-8")
     environment.setdefault("LC_ALL", "C.UTF-8")

@@ -1074,8 +1074,8 @@ acquire_lock() {
       cleanup_lock_fd
       return 1
     fi
-    printf '%s\n' "$$" 1>&9
     trap 'flock -u 9 2>/dev/null || true; exec 9>&- 2>/dev/null || true; safe_unlink_runtime_file "$LOCK_FILE" || true; safe_unlink_runtime_file "$TIMESTAMP_FILE" || true' EXIT
+    printf '%s\n' "$$" 1>&9
     return
   fi
 
@@ -1104,6 +1104,7 @@ acquire_lock() {
     fi
 
     if ln "$LOCK_TMP" "$LOCK_FILE" 2>/dev/null; then
+      trap 'cleanup_lock_tmp; safe_unlink_runtime_file "$LOCK_FILE" || true; safe_unlink_runtime_file "$TIMESTAMP_FILE" || true' EXIT
       if ! rm -f "$LOCK_TMP" 2>/dev/null; then
         safe_unlink_runtime_file "$LOCK_FILE" || true
         log "failed to clean up lock temp file: $LOCK_TMP"
@@ -1120,7 +1121,6 @@ acquire_lock() {
         safe_unlink_runtime_file "$LOCK_FILE" || true
         return 1
       fi
-      trap 'cleanup_lock_tmp; safe_unlink_runtime_file "$LOCK_FILE" || true; safe_unlink_runtime_file "$TIMESTAMP_FILE" || true' EXIT
       return
     fi
 
