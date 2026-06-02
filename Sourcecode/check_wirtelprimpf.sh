@@ -56,6 +56,7 @@ validate_json() {
 
   "$PY" - "$file" "$mode" "$strategy" <<'PY'
 import json
+import re
 import sys
 
 path, mode, strategy = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -101,7 +102,7 @@ if not isinstance(data.get("timestamp"), str) or not data.get("timestamp"):
 version = data.get("version")
 if not isinstance(version, str) or not version.strip():
     raise SystemExit(f"'version' must be non-empty string in {path}: {version!r}")
-if not __import__("re").match(r"^\d+\.\d+\.\d+$", version.strip()):
+if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", version.strip()):
     raise SystemExit(f"'version' must be semantic version in {path}: {version!r}")
 
 print(f"ok:{data['ok']} exit:{data['exit_code']} mode:{data['mode']} version:{data['version']}")
