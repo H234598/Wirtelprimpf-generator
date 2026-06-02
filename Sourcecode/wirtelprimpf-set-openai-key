@@ -40,11 +40,46 @@ cleanup_tmp_file() {
   fi
   unset -v api_key
 }
+
+verify_installed_env_file() {
+  if [[ -L "$env_file" ]]; then
+    printf 'Refusing to save into symlink path: %s\n' "$env_file" >&2
+    return 1
+  fi
+  if [[ ! -f "$env_file" ]]; then
+    printf 'Destination is not a regular file: %s\n' "$env_file" >&2
+    return 1
+  fi
+  if [[ "$(stat -c '%u' -- "$env_file" 2>/dev/null)" != "$(id -u)" ]]; then
+    printf 'Destination is not owned by current user: %s\n' "$env_file" >&2
+    return 1
+  fi
+  return 0
+}
+
+verify_env_file_mode() {
+  local mode
+  if ! mode="$(stat -c '%a' -- "$env_file" 2>/dev/null)"; then
+    printf 'Unable to read destination permissions: %s\n' "$env_file" >&2
+    return 1
+  fi
+  if [[ "$mode" != "600" ]]; then
+    printf 'Destination permissions are not 600: %s\n' "$env_file" >&2
+    return 1
+  fi
+  return 0
+}
+
 trap cleanup_tmp_file EXIT HUP INT TERM
 printf 'OPENAI_API_KEY=%q\n' "$api_key" > "$tmp_file"
 mv -T -- "$tmp_file" "$env_file"
+if ! verify_installed_env_file; then
+  printf 'Refusing to continue after unsafe install target state: %s\n' "$env_file" >&2
+  exit 1
+fi
 tmp_file=""
 chmod 600 -- "$env_file"
+verify_env_file_mode
 unset -v api_key
 
 printf 'Saved: %s\n' "$env_file"

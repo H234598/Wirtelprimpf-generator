@@ -83,7 +83,7 @@ ENV_BLACKLIST: Final = frozenset(
 OPENAI_ENV_PREFIXES: Final = ("OPENAI_", "AZURE_OPENAI_")
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.5.32-hardening"
+VERSION: Final = "0.5.33-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -548,8 +548,14 @@ def read_publish_state(path: Path) -> PublishState:
     try:
         with path.open("r", encoding="utf-8") as file:
             payload = json.load(file)
-    except (json.JSONDecodeError, OSError):
-        raise RuntimeError(f"invalid publish state file: {path}")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"invalid publish state JSON in {path} (line {exc.lineno}, column {exc.colno}: {exc.msg})"
+        ) from exc
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(f"publish state file is not valid UTF-8: {path}") from exc
+    except OSError as exc:
+        raise RuntimeError(f"failed to read publish state file: {path}: {exc}") from exc
 
     if not isinstance(payload, dict):
         raise RuntimeError(f"invalid publish state: expected object in {path}")
@@ -983,8 +989,17 @@ def bullet_list(values: list[str]) -> str:
 
 
 def load_prompt_config(path: Path) -> dict[str, object]:
-    with path.open("r", encoding="utf-8") as file:
-        data = json.load(file)
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"invalid prompt config JSON in {path} (line {exc.lineno}, column {exc.colno}: {exc.msg})"
+        ) from exc
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"prompt config file is not valid UTF-8: {path}") from exc
+    except OSError as exc:
+        raise ValueError(f"failed to read prompt config file: {path}: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError("Prompt config must be a JSON object")
     return data
