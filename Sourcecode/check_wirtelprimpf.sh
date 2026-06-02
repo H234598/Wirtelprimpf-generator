@@ -331,7 +331,7 @@ if ! CHECK_TMPDIR="$(mktemp -d -p "$CHECK_TMP_BASE_DIR" -t wirtelprimpf-check-XX
   exit 1
 fi
 if [[ "$CHECK_TMPDIR" != "$CHECK_TMP_BASE_DIR"/* ]]; then
-  rm -rf "$CHECK_TMPDIR"
+  rmdir "$CHECK_TMPDIR" 2>/dev/null || true
   echo "Check temporary directory must be under ${CHECK_TMP_BASE_DIR}: ${CHECK_TMPDIR}" >&2
   exit 1
 fi
@@ -377,7 +377,7 @@ is_strict_secure_directory() {
 }
 
 if ! is_strict_secure_directory "$CHECK_TMPDIR" "Check temporary directory"; then
-  rm -rf "$CHECK_TMPDIR"
+  rmdir "$CHECK_TMPDIR" 2>/dev/null || true
   exit 1
 fi
 readonly CHECK_TMPDIR
@@ -406,9 +406,23 @@ if [[ -z "$CHECK_TIMEOUT_COMMAND" ]]; then
 fi
 readonly CHECK_TIMEOUT_COMMAND
 
+remove_check_tmpdir() {
+  local path="${1:-}"
+  if [[ -z "$path" || -L "$path" || ! -d "$path" ]]; then
+    return 1
+  fi
+  if [[ "$path" != "$CHECK_TMP_BASE_DIR"/* || "$path" == "$CHECK_TMP_BASE_DIR" ]]; then
+    return 1
+  fi
+  if ! is_owned_by_current_user "$path"; then
+    return 1
+  fi
+  rm -rf --one-file-system -- "$path"
+}
+
 cleanup_checks() {
   if [[ -n "${CHECK_TMPDIR-}" && -d "$CHECK_TMPDIR" ]]; then
-    rm -rf "$CHECK_TMPDIR"
+    remove_check_tmpdir "$CHECK_TMPDIR" || true
   fi
   if [[ -n "${CHECK_TMP_BASE_DIR-}" && -d "$CHECK_TMP_BASE_DIR" && ! -L "$CHECK_TMP_BASE_DIR" ]]; then
     if rmdir --ignore-fail-on-non-empty "$CHECK_TMP_BASE_DIR" 2>/dev/null; then

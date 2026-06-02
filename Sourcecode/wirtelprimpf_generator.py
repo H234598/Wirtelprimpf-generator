@@ -80,7 +80,7 @@ ENV_BLACKLIST: Final = frozenset(
         "PYTHONUSERBASE",
     }
 )
-VERSION: Final = "0.5.11-hardening"
+VERSION: Final = "0.5.12-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
