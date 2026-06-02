@@ -402,6 +402,33 @@ refresh_state_timestamp() {
     log "timestamp file must be regular file (no symlink or special file): $TIMESTAMP_FILE"
     return 1
   fi
+  if [[ -L "$TIMESTAMP_FILE" ]]; then
+    log "timestamp file must not be a symlink: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if [[ -e "$TIMESTAMP_FILE" ]] && ! is_owned_by_current_user "$TIMESTAMP_FILE"; then
+    log "timestamp file must be owned by current user: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if [[ -e "$TIMESTAMP_FILE" ]] && [[ ! -w "$TIMESTAMP_FILE" ]]; then
+    log "timestamp file not writable: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if [[ -e "$TIMESTAMP_FILE" ]]; then
+    local timestamp_perm
+    if ! timestamp_perm="$(stat -c '%a' "$TIMESTAMP_FILE" 2>/dev/null)"; then
+      log "failed to read timestamp file permissions: $TIMESTAMP_FILE"
+      return 1
+    fi
+    if (( 10#$timestamp_perm & 022 )); then
+      log "timestamp file must not be group/world writable: $TIMESTAMP_FILE"
+      return 1
+    fi
+  fi
+  local state_dir
+  state_dir="$(dirname "$TIMESTAMP_FILE")"
+  require_directory "$state_dir" "timestamp directory" "rwx"
+
   local timestamp_tmp
   if ! timestamp_tmp="$(mktemp "$TIMESTAMP_FILE.tmp.XXXXXX")"; then
     log "failed to create timestamp temp file from base: $TIMESTAMP_FILE"
