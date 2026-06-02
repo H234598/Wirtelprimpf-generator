@@ -2,6 +2,9 @@
 set -euo pipefail
 umask 077
 
+declare -r SAFE_EXEC_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$SAFE_EXEC_PATH"
+
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURRENT_UID="$(id -u)"
 readonly CURRENT_UID
@@ -12,13 +15,54 @@ declare -g PYTHON_BINARY_CACHE_PATH=""
 declare -gi PYTHON_BINARY_CACHE_RESULT=-1
 declare -i HAS_FINDMNT_CMD=0
 declare -i HAS_FILE_CMD=0
-if command -v findmnt >/dev/null 2>&1; then
-  HAS_FINDMNT_CMD=1
-fi
-if command -v file >/dev/null 2>&1; then
-  HAS_FILE_CMD=1
-fi
-readonly HAS_FINDMNT_CMD HAS_FILE_CMD
+declare -g FINDMNT_COMMAND=""
+declare -g FILE_COMMAND=""
+declare -r CHECK_TIMEOUT_SECONDS=30
+declare -g CHECK_TIMEOUT_COMMAND=""
+
+is_secure_tool_path() {
+  local path="$1"
+  local owner mode parent parent_owner parent_mode
+  if [[ -z "$path" || "$path" != /* || -L "$path" || ! -f "$path" || ! -x "$path" ]]; then
+    return 1
+  fi
+  parent="$(dirname -- "$path")"
+  if [[ -L "$parent" || ! -d "$parent" ]]; then
+    return 1
+  fi
+  if ! read -r owner mode <<<"$(stat -c '%u %a' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if ! read -r parent_owner parent_mode <<<"$(stat -c '%u %a' "$parent" 2>/dev/null)"; then
+    return 1
+  fi
+  if [[ "$owner" != "$CURRENT_UID" && "$owner" != 0 ]]; then
+    return 1
+  fi
+  if [[ "$parent_owner" != "$CURRENT_UID" && "$parent_owner" != 0 ]]; then
+    return 1
+  fi
+  if (( 10#$mode & 022 || 10#$mode & 06000 || 10#$parent_mode & 022 )); then
+    return 1
+  fi
+  return 0
+}
+
+for findmnt_candidate in /usr/bin/findmnt /bin/findmnt; do
+  if is_secure_tool_path "$findmnt_candidate"; then
+    FINDMNT_COMMAND="$findmnt_candidate"
+    HAS_FINDMNT_CMD=1
+    break
+  fi
+done
+for file_candidate in /usr/bin/file /bin/file; do
+  if is_secure_tool_path "$file_candidate"; then
+    FILE_COMMAND="$file_candidate"
+    HAS_FILE_CMD=1
+    break
+  fi
+done
+readonly HAS_FINDMNT_CMD HAS_FILE_CMD FINDMNT_COMMAND FILE_COMMAND
 if [[ -n "${PYTHON_BIN:-}" && ("${PYTHON_BIN}" == *[[:space:]]* || "${PYTHON_BIN}" == *[$'\r\n\t\v\f']* || "${PYTHON_BIN}" != "${PYTHON_BIN//[^a-zA-Z0-9._-]/}") ]]; then
   echo "PYTHON_BIN contains invalid characters: ${PYTHON_BIN}" >&2
   exit 1
@@ -212,7 +256,7 @@ validate_python_binary() {
     return 1
   fi
   if (( HAS_FINDMNT_CMD )); then
-    mount_opts="$(findmnt -n -o OPTIONS "$mountpoint" 2>/dev/null || true)"
+    mount_opts="$("$FINDMNT_COMMAND" -n -o OPTIONS "$mountpoint" 2>/dev/null || true)"
     if [[ ",${mount_opts}," == *",noexec,"* ]]; then
       PYTHON_BINARY_CACHE_RESULT=1
       PYTHON_BINARY_CACHE_PATH="$path"
@@ -234,7 +278,7 @@ validate_python_binary() {
     return 1
   fi
   if (( HAS_FILE_CMD )); then
-    if ! file_type="$(file -b -- "$resolved" 2>/dev/null || true)"; then
+    if ! file_type="$("$FILE_COMMAND" -b -- "$resolved" 2>/dev/null || true)"; then
       PYTHON_BINARY_CACHE_RESULT=1
       PYTHON_BINARY_CACHE_PATH="$path"
       return 1
@@ -338,6 +382,17 @@ if [[ -z "$BASH_PATH" ]]; then
   exit 1
 fi
 readonly BASH_PATH
+for CHECK_TIMEOUT_COMMAND in /usr/bin/timeout /bin/timeout; do
+  if is_secure_tool_path "$CHECK_TIMEOUT_COMMAND"; then
+    break
+  fi
+  CHECK_TIMEOUT_COMMAND=""
+done
+if [[ -z "$CHECK_TIMEOUT_COMMAND" ]]; then
+  echo "Required timeout command unavailable: neither /usr/bin/timeout nor /bin/timeout is available" >&2
+  exit 1
+fi
+readonly CHECK_TIMEOUT_COMMAND
 
 cleanup_checks() {
   if [[ -n "${CHECK_TMPDIR-}" && -d "$CHECK_TMPDIR" ]]; then
@@ -352,7 +407,7 @@ cleanup_checks() {
 trap cleanup_checks EXIT
 
 run_python_sandbox() {
-  env -i \
+  "$CHECK_TIMEOUT_COMMAND" "$CHECK_TIMEOUT_SECONDS" env -i \
     PATH="/usr/local/bin:/usr/bin:/bin" \
     HOME="/tmp" \
     USER="" \
@@ -490,7 +545,7 @@ run_command_sandboxed() {
       echo "Sandboxed command must not have setuid/setgid bits: ${cmd[0]}" >&2
       return 1
     fi
-    env -i \
+    "$CHECK_TIMEOUT_COMMAND" "$CHECK_TIMEOUT_SECONDS" env -i \
       PATH="/usr/local/bin:/usr/bin:/bin" \
       HOME="/tmp" \
       LANG="C.UTF-8" \
@@ -842,25 +897,39 @@ validate_json() {
 
   run_python_sandbox "$PY" - "$file" "$mode" "$strategy" <<'PY'
 import json
-import re
 import sys
 
 path, mode, strategy = sys.argv[1], sys.argv[2], sys.argv[3]
 
-last_record = None
-matched = None
-with open(path, encoding='utf-8') as f:
-    for line in f:
-        line = line.strip()
-        if not line.startswith('{'):
-            continue
-        record = json.loads(line)
-        last_record = record
-        if record.get("mode") == mode and matched is None:
-            matched = record
+try:
+    with open(path, encoding='utf-8') as f:
+        payload = json.load(f)
+except json.JSONDecodeError:
+    payload = None
 
-if last_record is None:
+if isinstance(payload, dict):
+    records = [payload]
+elif isinstance(payload, list):
+    records = payload
+else:
+    with open(path, encoding='utf-8') as f:
+        records = []
+        for line in f:
+            line = line.strip()
+            if not line.startswith('{'):
+                continue
+            records.append(json.loads(line))
+
+if not records:
     raise SystemExit(f"No JSON records in {path}")
+
+last_record = records[-1]
+matched = None
+for record in records:
+    if not isinstance(record, dict):
+        raise SystemExit(f"JSON record is not an object in {path}")
+    if record.get("mode") == mode and matched is None:
+        matched = record
 
 required = {"ok", "version", "timestamp", "mode", "status", "exit_code"}
 if strategy == "any":
@@ -892,7 +961,8 @@ if not isinstance(data.get("timestamp"), str) or not data.get("timestamp"):
 version = data.get("version")
 if not isinstance(version, str) or not version.strip():
     raise SystemExit(f"'version' must be non-empty string in {path}: {version!r}")
-if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", version.strip()):
+parts = version.split("-", 1)[0].split("+", 1)[0].split(".")
+if len(parts) != 3 or not all(segment.isdigit() for segment in parts):
     raise SystemExit(f"'version' must be semantic version in {path}: {version!r}")
 
 print(f"ok:{data['ok']} exit:{data['exit_code']} mode:{data['mode']} version:{data['version']}")

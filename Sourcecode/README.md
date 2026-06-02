@@ -6,8 +6,8 @@ secrets.
 
 The generator creates one Wirtelprimpf-style cat image with the OpenAI Images
 API, writes the PNG and prompt text file to a local output directory, and can
-optionally copy both files into a Git repository folder, commit them, and push
-them.
+optionally copy both files into a Git repository folder, commit every patch,
+and push only when a configured minor boundary is reached.
 
 ## Files
 
@@ -84,6 +84,8 @@ WIRTELPRIMPF_BREAKING_CHANGE=0
 #   (after each commit: .1, .2, ... .99, .100)
 # - exactly every 100 committed patches, minor increases by 1
 # - exactly every 100 minor increases, major increases by 1
+# - patch commits below the minor boundary stay local and are not pushed
+# - push only at the 100-patch minor boundary
 # - release is prepared every 10 minor pushes
 # - for breaking changes or new API features, bump major manually
 # - configure WIRTELPRIMPF_MAJOR_VERSION_BUMP=N to add a manual major offset
@@ -103,6 +105,10 @@ Git-Publish policy:
   `10`.
 - Set `WIRTELPRIMPF_BREAKING_CHANGE=true` for a one-time major bump on this
   execution (in addition to `WIRTELPRIMPF_MAJOR_VERSION_BUMP`).
+
+Patch commits below the minor boundary are recorded locally only. At the
+100-patch minor boundary, the generator attempts the remote push and advances
+the minor-push counter; after 10 minor pushes it emits a release-cadence notice.
 
 Runtime state is stored in:
 

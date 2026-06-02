@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import random
+import stat
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from typing import Final
 import re
 from datetime import timezone
 import time
+import tempfile
 
 from openai import OpenAI
 from PIL import Image
@@ -28,14 +30,57 @@ FLEX_PROCESSING_MODES = frozenset({FLEX_PROCESSING_DEFAULT, "low"})
 FLEX_PROCESSING_ENABLED_VALUES = {"1", "true", "yes", "on", "enabled", "enable"}
 FLEX_PROCESSING_DISABLED_VALUES = {"0", "false", "no", "off", "disabled", "disable"}
 IMAGE_SIZE_PATTERN: Final = r"^\d+x\d+$"
+IMAGE_SIZE_PATTERN_RE: Final = re.compile(IMAGE_SIZE_PATTERN)
+OUTPUT_RESOLUTION_ALIASES: Final = {
+    "": None,
+    "source": None,
+    "original": None,
+    "none": None,
+    "2k": (2560, 1440),
+    "qhd": (2560, 1440),
+    "1440p": (2560, 1440),
+    "4k": (3840, 2160),
+    "uhd": (3840, 2160),
+    "2160p": (3840, 2160),
+}
 RESOLUTION_MAX_DIM: Final = 8192
 IMAGE_PAYLOAD_MAX_BYTES: Final = 80 * 1024 * 1024
 REPO_SLUG_PATTERN: Final = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
-REPO_BRANCH_PATTERN: Final = re.compile(r"^[A-Za-z0-9._/-]{1,120}$")
+REPO_BRANCH_PATTERN: Final = re.compile(r"^(?!/|.*//|.*\.\.|.*\/$)[A-Za-z0-9._-]{1,120}(?:/[A-Za-z0-9._-]{1,120})*$")
 GIT_TIMEOUT_SECONDS: Final = 120
 GENERATION_RETRIES: Final = 3
 GENERATION_RETRY_BASE_SECONDS: Final = 2
-VERSION: Final = "0.5.9-hardening"
+COMMAND_PATHS: Final = ("/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin")
+ENV_BLACKLIST: Final = frozenset(
+    {
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_CONFIG",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_NOSYSTEM",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_DIR",
+        "GIT_EXEC_PATH",
+        "GIT_EXTERNAL_DIFF",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ASKPASS",
+        "GIT_SSH",
+        "GIT_SSH_COMMAND",
+        "GIT_TEMPLATE_DIR",
+        "GIT_WORK_TREE",
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "PYTHONHOME",
+        "PYTHONNOUSERSITE",
+        "PYTHONPATH",
+        "PYTHONSTARTUP",
+        "PYTHONUSERBASE",
+    }
+)
+VERSION: Final = "0.5.10-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -268,7 +313,115 @@ def parse_bool_flag(name: str, value: str | None, *, default: bool) -> bool:
     raise RuntimeError(f"Invalid {name} value: {value!r}. Expected a boolean flag")
 
 
+def _is_world_or_group_writable(mode: int) -> bool:
+    return bool(mode & 0o22)
+
+
+def _resolve_executable_path(candidate: Path) -> str | None:
+    if candidate.is_symlink():
+        return None
+
+    try:
+        status = candidate.lstat()
+    except OSError:
+        return None
+
+    if not candidate.is_file() or not os.access(candidate, os.X_OK):
+        return None
+    if status.st_uid not in {0, os.getuid()}:
+        return None
+    if status.st_gid not in {0, os.getgid()}:
+        return None
+    if _is_world_or_group_writable(status.st_mode):
+        return None
+    if status.st_mode & (stat.S_ISUID | stat.S_ISGID):
+        return None
+
+    parent = candidate.parent
+    if parent.is_symlink() or not parent.is_dir():
+        return None
+
+    try:
+        parent_status = parent.lstat()
+    except OSError:
+        return None
+
+    if parent_status.st_uid not in {0, os.getuid()}:
+        return None
+    if _is_world_or_group_writable(parent_status.st_mode):
+        return None
+    return str(candidate)
+
+
+def _resolve_secure_executable(name: str, *, required: bool = True) -> str | None:
+    if not name or "\x00" in name:
+        if required:
+            raise RuntimeError(f"Invalid executable name: {name!r}")
+        return None
+
+    candidates: list[str] = []
+    if os.path.isabs(name):
+        candidates.append(name)
+    else:
+        if os.path.sep in name:
+            if required:
+                raise RuntimeError(f"Invalid executable name: {name!r}")
+            return None
+        if not re.fullmatch(r"[A-Za-z0-9._+-]+", name):
+            if required:
+                raise RuntimeError(f"Invalid executable name: {name!r}")
+            return None
+        for base in COMMAND_PATHS:
+            candidates.append(f"{base.rstrip('/')}/{name}")
+
+    for candidate in candidates:
+        resolved = _resolve_executable_path(Path(candidate))
+        if resolved is not None:
+            return resolved
+
+    if required:
+        raise RuntimeError(f"Required executable not found or insecure: {name}")
+    return None
+
+
+def _command_env() -> dict[str, str]:
+    environment = os.environ.copy()
+    for key in ENV_BLACKLIST:
+        environment.pop(key, None)
+    for key in list(environment):
+        if key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
+            environment.pop(key, None)
+    environment["PATH"] = ":".join(COMMAND_PATHS)
+    environment.setdefault("LANG", "C.UTF-8")
+    environment.setdefault("LC_ALL", "C.UTF-8")
+    return environment
+
+
+def _assert_private_directory(path: Path, *, label: str) -> None:
+    if path.is_symlink():
+        raise RuntimeError(f"{label} must not be a symlink: {path}")
+    if not path.is_dir():
+        raise RuntimeError(f"{label} is not a directory: {path}")
+    mode = path.stat().st_mode
+    if _is_world_or_group_writable(mode):
+        raise RuntimeError(f"{label} is not secure (group/world writable): {path}")
+
+
+def _assert_safe_atomic_write_target(path: Path, *, label: str) -> None:
+    _assert_private_directory(path.parent, label=f"Parent directory for {label}")
+    if path.exists():
+        if path.is_symlink():
+            raise RuntimeError(f"{label} output must not be a symlink: {path}")
+        if not path.is_file():
+            raise RuntimeError(f"{label} output must be a regular file: {path}")
+        mode = path.stat().st_mode
+        if _is_world_or_group_writable(mode):
+            raise RuntimeError(f"{label} output must not be group/world writable: {path}")
+
+
 def normalize_repo_path(path: Path) -> Path:
+    if path.is_symlink():
+        raise RuntimeError(f"Invalid WIRTELPRIMPF_REPO_PATH: symlink detected: {path}")
     if path.name == ".git" and (path / "config").is_file() and (path / "HEAD").is_file() and path.parent.is_dir():
         return path.parent
     return path
@@ -295,6 +448,8 @@ def normalize_repo_slug(value: str | None) -> str | None:
 
 def normalize_repo_branch(value: str | None) -> str:
     branch = (value or "main").strip() or "main"
+    if len(branch) > 120:
+        raise RuntimeError(f"Invalid WIRTELPRIMPF_REPO_BRANCH value: length must be <= 120: {branch!r}")
     if not REPO_BRANCH_PATTERN.match(branch):
         raise RuntimeError(
             "Invalid WIRTELPRIMPF_REPO_BRANCH value. Allowed characters: letters, digits, ., _, -, and /"
@@ -303,14 +458,18 @@ def normalize_repo_branch(value: str | None) -> str:
 
 
 def ensure_output_directory(path: Path) -> None:
+    if path.is_symlink():
+        raise RuntimeError(f"WIRTELPRIMPF_LOCAL_OUTDIR must not be a symlink: {path}")
     if path.exists():
-        if not path.is_dir():
+        if path.is_symlink() or not path.is_dir():
             raise RuntimeError(f"WIRTELPRIMPF_LOCAL_OUTDIR is not a directory: {path}")
+        _assert_private_directory(path, label="WIRTELPRIMPF_LOCAL_OUTDIR")
         if not os.access(path, os.W_OK | os.X_OK):
             raise RuntimeError(f"WIRTELPRIMPF_LOCAL_OUTDIR is not writable: {path}")
         return
 
     parent = path.parent
+    _assert_private_directory(parent, label="WIRTELPRIMPF_LOCAL_OUTDIR parent directory")
     if not parent.is_dir():
         raise RuntimeError(f"WIRTELPRIMPF_LOCAL_OUTDIR parent directory does not exist: {parent}")
     if not os.access(parent, os.W_OK | os.X_OK):
@@ -320,9 +479,14 @@ def ensure_output_directory(path: Path) -> None:
 def read_publish_state(path: Path) -> PublishState:
     if not path.exists():
         return PublishState()
+    if path.is_symlink():
+        raise RuntimeError(f"Invalid publish state path (symlink): {path}")
+    if not path.is_file():
+        raise RuntimeError(f"Invalid publish state path (not a file): {path}")
 
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        with path.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
     except (json.JSONDecodeError, OSError):
         raise RuntimeError(f"invalid publish state file: {path}")
 
@@ -445,20 +609,27 @@ def parse_patches_per_minor(name: str, value: str | None) -> int:
 
 
 def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    if not command:
+        raise RuntimeError("No command supplied")
+
+    command_path = _resolve_secure_executable(command[0], required=True)
+    secure_command = [command_path, *command[1:]]
+
     try:
         return subprocess.run(
-            command,
+            secure_command,
             cwd=cwd,
             check=True,
             text=True,
             capture_output=True,
             timeout=GIT_TIMEOUT_SECONDS,
+            env=_command_env(),
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"Command timed out after {GIT_TIMEOUT_SECONDS}s: {' '.join(command)}") from exc
+        raise RuntimeError(f"Command timed out after {GIT_TIMEOUT_SECONDS}s: {' '.join(secure_command)}") from exc
     except subprocess.CalledProcessError as exc:
         stderr = (exc.stderr or "").strip()
-        message = f"Command failed: {' '.join(command)}"
+        message = f"Command failed: {' '.join(secure_command)}"
         if stderr:
             message = f"{message}: {stderr}"
         raise RuntimeError(message) from exc
@@ -467,8 +638,10 @@ def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProc
 def ensure_repo(config: Config) -> Path | None:
     if config.repo_path is None:
         return None
+    if config.repo_path.is_symlink():
+        raise RuntimeError(f"WIRTELPRIMPF_REPO_PATH must not be a symlink: {config.repo_path}")
 
-    if not shutil.which("git"):
+    if not _resolve_secure_executable("git", required=False):
         raise RuntimeError("git is required for repository operations")
 
     if (config.repo_path / ".git").is_dir():
@@ -480,7 +653,7 @@ def ensure_repo(config: Config) -> Path | None:
             raise RuntimeError("WIRTELPRIMPF_REPO_PATH is not a Git checkout and WIRTELPRIMPF_REPO_SLUG is unset")
         if config.repo_path.exists() and not config.repo_path.is_dir():
             raise RuntimeError(f"WIRTELPRIMPF_REPO_PATH is not a directory: {config.repo_path}")
-        if not shutil.which("gh"):
+        if not _resolve_secure_executable("gh", required=False):
             raise RuntimeError("gh is required to clone WIRTELPRIMPF_REPO_SLUG")
         if config.repo_path.exists() and any(config.repo_path.iterdir()):
             raise RuntimeError(
@@ -576,20 +749,8 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
 
 def parse_resolution(value: str) -> tuple[int, int] | None:
     normalized = value.strip().lower()
-    aliases: dict[str, tuple[int, int] | None] = {
-        "": None,
-        "source": None,
-        "original": None,
-        "none": None,
-        "2k": (2560, 1440),
-        "qhd": (2560, 1440),
-        "1440p": (2560, 1440),
-        "4k": (3840, 2160),
-        "uhd": (3840, 2160),
-        "2160p": (3840, 2160),
-    }
-    if normalized in aliases:
-        return aliases[normalized]
+    if normalized in OUTPUT_RESOLUTION_ALIASES:
+        return OUTPUT_RESOLUTION_ALIASES[normalized]
 
     parts = normalized.split("x", 1)
     if len(parts) != 2:
@@ -627,7 +788,7 @@ def resize_cover(path: Path, target_size: tuple[int, int] | None) -> None:
 
 def parse_image_size(value: str) -> str:
     raw = value.strip().lower()
-    if not raw or not re.match(IMAGE_SIZE_PATTERN, raw):
+    if not raw or not IMAGE_SIZE_PATTERN_RE.match(raw):
         raise ValueError(f"Invalid WIRTELPRIMPF_IMAGE_SIZE: {value!r}")
 
     width, height = raw.split("x", 1)
@@ -676,9 +837,29 @@ def decode_image_bytes(data: str) -> bytes:
 
 
 def write_bytes_atomically(path: Path, payload: bytes) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_bytes(payload)
-    tmp.replace(path)
+    _assert_safe_atomic_write_target(path, label="binary output")
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=str(path.parent),
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(payload)
+        if temp_path is None:
+            raise RuntimeError("Failed to create temporary file for atomic write")
+        temp_path.replace(path)
+    except OSError:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
+
+
+def write_text_atomically(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+    write_bytes_atomically(path, content.encode(encoding))
 
 
 def validate_prompt(text: str) -> str:
@@ -936,8 +1117,8 @@ def status_report(config: Config | None = None) -> dict[str, object]:
         "exit_code": 0,
         "checks": [],
         "details": {
-            "git_available": bool(shutil.which("git")),
-            "gh_available": bool(shutil.which("gh")),
+            "git_available": bool(_resolve_secure_executable("git", required=False)),
+            "gh_available": bool(_resolve_secure_executable("gh", required=False)),
             "openai_key_present": bool(env("OPENAI_API_KEY")),
         },
     }
@@ -950,7 +1131,13 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             ("major_version_bump", "WIRTELPRIMPF_MAJOR_VERSION_BUMP", lambda: parse_non_negative_int("WIRTELPRIMPF_MAJOR_VERSION_BUMP", env("WIRTELPRIMPF_MAJOR_VERSION_BUMP"), default=0)),
             ("breaking_change", "WIRTELPRIMPF_BREAKING_CHANGE", lambda: parse_bool_flag("WIRTELPRIMPF_BREAKING_CHANGE", env("WIRTELPRIMPF_BREAKING_CHANGE"), default=False)),
             ("patches_per_minor", "WIRTELPRIMPF_PATCHES_PER_MINOR", lambda: parse_patches_per_minor("WIRTELPRIMPF_PATCHES_PER_MINOR", env("WIRTELPRIMPF_PATCHES_PER_MINOR"))),
+            ("minor_pushes_per_release", "WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE", lambda: parse_positive_int(
+                "WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE",
+                env("WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE"),
+                default=DEFAULT_MINOR_PUSHES_PER_RELEASE,
+            )),
         ]
+        effective_base = BASE_VERSION_MAJOR
         for key, env_name, parse_fn in versioning_values:
             raw = env(env_name)
             report["details"][key] = raw
@@ -962,21 +1149,24 @@ def status_report(config: Config | None = None) -> dict[str, object]:
 
         if versioning_ok:
             report["details"]["effective_major_version_base"] = (
-                BASE_VERSION_MAJOR
+                effective_base
                 + int(report["details"].get("major_version_bump", 0))
                 + (1 if report["details"].get("breaking_change") else 0)
             )
         else:
-            report["details"]["effective_major_version_base"] = BASE_VERSION_MAJOR
+            report["details"]["effective_major_version_base"] = effective_base
             report["ok"] = False
             report["status"] = STATUS_ERROR
             report["exit_code"] = 1
+            return report
         return report
 
     report["details"].update(
         {
             "major_version_bump": config.major_version_bump,
             "breaking_change": config.breaking_change,
+            "patches_per_minor": config.patches_per_minor,
+            "minor_pushes_per_release": config.minor_pushes_per_release,
             "effective_major_version_base": effective_major_version_base(config),
         }
     )
@@ -1045,6 +1235,12 @@ def status_report(config: Config | None = None) -> dict[str, object]:
         checks.append({"name": "repo", "ok": True, "enabled": False})
     else:
         repo_checks = {"name": "repo", "ok": True, "path": str(config.repo_path), "slug": config.repo_slug}
+        if config.repo_path.is_symlink():
+            repo_checks["ok"] = False
+            repo_checks["message"] = "Configured repo path must not be a symlink"
+            report["ok"] = False
+            report["status"] = STATUS_ERROR
+            report["exit_code"] = 1
         if config.repo_path.exists():
             if not (config.repo_path / ".git").is_dir():
                 repo_checks["ok"] = False
@@ -1058,7 +1254,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             report["ok"] = False
             report["status"] = STATUS_ERROR
             report["exit_code"] = 1
-        elif not shutil.which("gh"):
+        elif not _resolve_secure_executable("gh", required=False):
             repo_checks["ok"] = False
             repo_checks["message"] = "gh CLI is required to auto-clone missing repo path"
             report["ok"] = False
@@ -1122,6 +1318,21 @@ def publish_state_summary(config: Config) -> dict[str, object] | None:
         minors_per_major=MINORS_PER_MAJOR,
         major_version_base=effective_major_version_base(config),
     )
+    patch_position_in_minor = publish_state.patch_count % config.patches_per_minor
+    patches_until_minor = (
+        config.patches_per_minor
+        if patch_position_in_minor == 0
+        else config.patches_per_minor - patch_position_in_minor
+    )
+    minor_pushes_into_release_window = publish_state.minor_push_count % config.minor_pushes_per_release
+    minor_pushes_until_release = (
+        config.minor_pushes_per_release
+        if minor_pushes_into_release_window == 0
+        else config.minor_pushes_per_release - minor_pushes_into_release_window
+    )
+    release_ready = (
+        publish_state.minor_push_count > 0 and minor_pushes_into_release_window == 0
+    )
     return {
         "patch_version": patch_version,
         "minor_version": minor_version,
@@ -1132,6 +1343,11 @@ def publish_state_summary(config: Config) -> dict[str, object] | None:
         "major_version_bump": config.major_version_bump,
         "breaking_change": config.breaking_change,
         "effective_major_version_base": effective_major_version_base(config),
+        "patches_per_minor": config.patches_per_minor,
+        "minor_pushes_per_release": config.minor_pushes_per_release,
+        "patches_until_next_minor": patches_until_minor,
+        "minor_pushes_until_release": minor_pushes_until_release,
+        "release_ready": release_ready,
     }
 
 
@@ -1186,6 +1402,7 @@ def main() -> None:
             _die("OPENAI_API_KEY environment variable is required")
 
         config = load_config()
+        effective_major_base = effective_major_version_base(config)
         if not config.prompt_config_path.exists():
             _die(f"Prompt config file not found: {config.prompt_config_path}")
 
@@ -1218,6 +1435,8 @@ def main() -> None:
                 )
                 raise SystemExit(1)
             _die(f"Prompt config validation failed: {exc}")
+
+        total_prompts = len(prompts)
 
         if args.check_config:
             check_config_details = publish_state_summary(config)
@@ -1253,7 +1472,7 @@ def main() -> None:
                 current_version = resolve_runtime_version(
                     patch_count=0,
                     patches_per_minor=config.patches_per_minor,
-                    major_version_base=effective_major_version_base(config),
+                    major_version_base=effective_major_base,
                 )
             if args.json:
                 print(
@@ -1281,7 +1500,7 @@ def main() -> None:
             print(f"Resolved config: local_outdir={config.local_outdir}")
             print(f"model={config.image_model} size={config.image_size} output_resolution={config.output_resolution}")
             print(f"repo_path={config.repo_path or '<disabled>'}")
-            print(f"prompts={len(prompts)}")
+            print(f"prompts={total_prompts}")
             print(f"exit_code: 0")
             return
 
@@ -1294,6 +1513,7 @@ def main() -> None:
                 raise
             _die(f"Failed to prepare repository: {exc}")
         summary = RunSummary(total=len(prompts))
+        output_resolution_size = parse_resolution(config.output_resolution)
 
         if args.dry_run:
             dry_run_details = publish_state_summary(config)
@@ -1305,6 +1525,13 @@ def main() -> None:
             current_version = (
                 dry_run_details.get("version") if isinstance(dry_run_details, dict) else None
             )
+            if current_version is None:
+                current_version = resolve_runtime_version(
+                    patch_count=0,
+                    patches_per_minor=config.patches_per_minor,
+                    major_version_base=effective_major_base,
+                )
+
             for index, prompt in enumerate(prompts, start=1):
                 if args.json:
                     print(
@@ -1317,19 +1544,19 @@ def main() -> None:
                                 version=current_version or resolve_runtime_version(
                                     patch_count=0,
                                     patches_per_minor=config.patches_per_minor,
-                                    major_version_base=effective_major_version_base(config),
+                                    major_version_base=effective_major_base,
                                 ),
                                 details=dry_run_details,
                                 type="dry_run",
                                 index=index,
-                                total=len(prompts),
+                                total=total_prompts,
                                 prompt_preview=prompt[:140],
                             ),
                             compact=True,
                         )
                     )
                 else:
-                    print(f"[DRY-RUN {index}/{len(prompts)}] {prompt[:140]}...")
+                    print(f"[DRY-RUN {index}/{total_prompts}] {prompt[:140]}...")
                 summary.skipped += 1
                 summary.prompts += 1
             summary.exit_code = 0
@@ -1370,8 +1597,8 @@ def main() -> None:
 
             try:
                 write_bytes_atomically(local_png, decode_image_bytes(image_b64))
-                resize_cover(local_png, parse_resolution(config.output_resolution))
-                local_prompt.write_text(prompt, encoding="utf-8")
+                resize_cover(local_png, output_resolution_size)
+                write_text_atomically(local_prompt, prompt)
             except Exception as exc:
                 print(f"Write/transform failed for {stem}: {exc}", file=sys.stderr)
                 summary.failed += 1

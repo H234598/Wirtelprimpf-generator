@@ -9,6 +9,19 @@ ExecStart=%h/.local/share/wirtelprimpf/github/Katzenbilder/Sourcecode/watch_mino
 Restart=always
 RestartSec=10
 Environment=SLEEP_SECONDS=300
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
 StandardError=append:%h/.local/share/wirtelprimpf/github/Katzenbilder/Sourcecode/watch_service.log
 StandardOutput=append:%h/.local/share/wirtelprimpf/github/Katzenbilder/Sourcecode/watch_service.log
 
