@@ -4,17 +4,30 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import os
 import random
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Final
+import re
 
 from openai import OpenAI
 from PIL import Image
+
+FLEX_PROCESSING_DEFAULT: str = "high"
+FLEX_PROCESSING_MODES = frozenset({FLEX_PROCESSING_DEFAULT, "low"})
+FLEX_PROCESSING_ENABLED_VALUES = {"1", "true", "yes", "on", "enabled", "enable"}
+FLEX_PROCESSING_DISABLED_VALUES = {"0", "false", "no", "off", "disabled", "disable"}
+IMAGE_SIZE_PATTERN: Final = r"^\d+x\d+$"
+RESOLUTION_MAX_DIM: Final = 8192
+IMAGE_PAYLOAD_MAX_BYTES: Final = 80 * 1024 * 1024
+GIT_TIMEOUT_SECONDS: Final = 120
 
 
 def env(name: str, default: str | None = None) -> str | None:
@@ -34,6 +47,7 @@ class Config:
     image_model: str
     image_size: str
     output_resolution: str
+    flex_processing_mode: str | None
     prompt_config_path: Path
     commit_author_name: str
     commit_author_email: str
@@ -52,8 +66,9 @@ def load_config() -> Config:
         repo_subdir=env("WIRTELPRIMPF_REPO_SUBDIR", "Wirtelprimpf") or "Wirtelprimpf",
         repo_branch=env("WIRTELPRIMPF_REPO_BRANCH", "main") or "main",
         image_model=env("WIRTELPRIMPF_IMAGE_MODEL", "gpt-image-2") or "gpt-image-2",
-        image_size=env("WIRTELPRIMPF_IMAGE_SIZE", "1536x1024") or "1536x1024",
-        output_resolution=env("WIRTELPRIMPF_OUTPUT_RESOLUTION", "2k") or "2k",
+        image_size=parse_image_size(env("WIRTELPRIMPF_IMAGE_SIZE", "1536x1024") or "1536x1024"),
+        output_resolution=parse_output_resolution(env("WIRTELPRIMPF_OUTPUT_RESOLUTION", "2k") or "2k"),
+        flex_processing_mode=parse_flex_processing(),
         prompt_config_path=Path(
             env("WIRTELPRIMPF_PROMPT_CONFIG", str(default_prompt_config)) or str(default_prompt_config)
         ).expanduser(),
@@ -64,7 +79,14 @@ def load_config() -> Config:
 
 
 def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, cwd=cwd, check=True, text=True, capture_output=True)
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        check=True,
+        text=True,
+        capture_output=True,
+        timeout=GIT_TIMEOUT_SECONDS,
+    )
 
 
 def ensure_repo(config: Config) -> Path | None:
@@ -159,6 +181,60 @@ def resize_cover(path: Path, target_size: tuple[int, int] | None) -> None:
         cropped.save(path, format="PNG", optimize=True)
 
 
+def parse_image_size(value: str) -> str:
+    raw = value.strip().lower()
+    if not raw or not re.match(IMAGE_SIZE_PATTERN, raw):
+        raise ValueError(f"Invalid WIRTELPRIMPF_IMAGE_SIZE: {value!r}")
+
+    width, height = raw.split("x", 1)
+    width_i = int(width)
+    height_i = int(height)
+    if width_i <= 0 or height_i <= 0:
+        raise ValueError(f"Invalid WIRTELPRIMPF_IMAGE_SIZE: {value!r}")
+    if width_i > RESOLUTION_MAX_DIM or height_i > RESOLUTION_MAX_DIM:
+        raise ValueError(f"Invalid WIRTELPRIMPF_IMAGE_SIZE: dimensions exceed {RESOLUTION_MAX_DIM}: {value!r}")
+    return raw
+
+
+def parse_output_resolution(value: str) -> str:
+    raw = value.strip().lower()
+    parsed = parse_resolution(raw)
+    if parsed is None:
+        return raw
+
+    width, height = parsed
+    if width > RESOLUTION_MAX_DIM or height > RESOLUTION_MAX_DIM:
+        raise ValueError(
+            f"Invalid WIRTELPRIMPF_OUTPUT_RESOLUTION: {value!r}; maximum is {RESOLUTION_MAX_DIM}x{RESOLUTION_MAX_DIM}"
+        )
+    return raw
+
+
+def build_timestamp() -> str:
+    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
+
+
+def decode_image_bytes(data: str) -> bytes:
+    try:
+        decoded = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise RuntimeError("OpenAI API returned malformed base64 image data") from exc
+
+    if not decoded:
+        raise RuntimeError("OpenAI API returned an empty image payload")
+    if len(decoded) > IMAGE_PAYLOAD_MAX_BYTES:
+        raise RuntimeError(f"OpenAI API image payload is unexpectedly large ({len(decoded)} bytes)")
+    return decoded
+
+
+def validate_prompt(text: str) -> str:
+    if not text.strip():
+        raise ValueError("Generated prompt is empty")
+    if len(text) > 6000:
+        raise ValueError("Generated prompt is too long")
+    return text
+
+
 def require_list(data: dict[str, object], key: str) -> list[str]:
     values = data.get(key)
     if not isinstance(values, list) or not values or not all(isinstance(value, str) for value in values):
@@ -187,6 +263,25 @@ def require_string(data: dict[str, object], key: str) -> str:
     return value
 
 
+def parse_flex_processing() -> str | None:
+    raw = (env("WIRTELPRIMPF_FLEX_PROCESSING") or "").strip().lower()
+
+    normalized = raw
+    if not normalized:
+        return FLEX_PROCESSING_DEFAULT
+    if normalized in FLEX_PROCESSING_ENABLED_VALUES:
+        return FLEX_PROCESSING_DEFAULT
+    if normalized in FLEX_PROCESSING_DISABLED_VALUES:
+        return None
+    if normalized in FLEX_PROCESSING_MODES:
+        return normalized
+
+    raise ValueError(
+        "Invalid WIRTELPRIMPF_FLEX_PROCESSING value. "
+        "Use on/off, true/false, yes/no, 1/0, enabled/disabled, or a concrete mode (low|high)."
+    )
+
+
 def bullet_list(values: list[str]) -> str:
     return "\n".join(f"- {value}" for value in values)
 
@@ -209,7 +304,11 @@ def build_prompt(data: dict[str, object]) -> str:
         "mood": random.choice(require_list(data, "moods")),
         "style": random.choice(require_list(data, "styles")),
     }
-    return template.format(**values).strip()
+    try:
+        prompt = template.format(**values).strip()
+    except KeyError as exc:
+        raise ValueError(f"Prompt template expects unknown placeholder: {exc.args[0]!r}") from exc
+    return validate_prompt(prompt)
 
 
 def birthday_config(data: dict[str, object]) -> dict[str, object]:
@@ -249,7 +348,7 @@ def build_birthday_prompts(now: datetime, birthday: dict[str, object]) -> list[s
                 style=require_string(variant, "style").format(age=age),
             ).strip()
         )
-    return prompts
+    return [validate_prompt(prompt) for prompt in prompts]
 
 
 def build_prompts(config_path: Path, now: datetime) -> list[str]:
@@ -261,7 +360,13 @@ def build_prompts(config_path: Path, now: datetime) -> list[str]:
 
 
 def main() -> None:
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise RuntimeError("OPENAI_API_KEY environment variable is required")
+
     config = load_config()
+    if not config.prompt_config_path.exists():
+        raise RuntimeError(f"Prompt config file not found: {config.prompt_config_path}")
+
     config.local_outdir.mkdir(parents=True, exist_ok=True)
 
     now = datetime.now()
@@ -270,19 +375,31 @@ def main() -> None:
     repo_outdir = ensure_repo(config)
 
     for index, prompt in enumerate(prompts, start=1):
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        timestamp = build_timestamp()
         suffix = f"_geburtstag-{index:02d}" if len(prompts) > 1 else ""
         stem = f"wirtelprimpf_{timestamp}{suffix}"
         local_png = config.local_outdir / f"{stem}.png"
         local_prompt = config.local_outdir / f"{stem}.txt"
 
-        response = client.images.generate(
-            model=config.image_model,
-            prompt=prompt,
-            size=config.image_size,
-        )
+        request: dict[str, object] = {
+            "model": config.image_model,
+            "prompt": prompt,
+            "size": config.image_size,
+        }
+        if config.flex_processing_mode:
+            request["processing"] = config.flex_processing_mode
 
-        local_png.write_bytes(base64.b64decode(response.data[0].b64_json))
+        response = client.images.generate(**request)
+        try:
+            image_record = response.data[0]
+            image_b64 = image_record.b64_json
+        except Exception as exc:
+            raise RuntimeError("OpenAI response format missing image data") from exc
+
+        if image_b64 is None:
+            raise RuntimeError("OpenAI response did not return base64 image data")
+
+        local_png.write_bytes(decode_image_bytes(image_b64))
         resize_cover(local_png, parse_resolution(config.output_resolution))
         local_prompt.write_text(prompt, encoding="utf-8")
         print(f"Local image: {local_png}")

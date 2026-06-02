@@ -110,6 +110,29 @@ WIRTELPRIMPF_OUTPUT_RESOLUTION=2k
 `WIRTELPRIMPF_OUTPUT_RESOLUTION=2k` writes a final `2560x1440` PNG. Other
 supported aliases are `4k` (`3840x2160`), `qhd`, `1440p`, `uhd`, `2160p`,
 `original`, `source`, and `none`. Custom values like `1920x1080` are accepted.
+Flex Processing ist standardmäßig aktiv und wird als `processing: high` an die
+OpenAI-Images-API-Anfrage angehängt.
+
+Steuerung:
+
+```bash
+WIRTELPRIMPF_FLEX_PROCESSING=on
+```
+
+```bash
+WIRTELPRIMPF_FLEX_PROCESSING=off
+```
+
+```bash
+WIRTELPRIMPF_FLEX_PROCESSING=low
+```
+
+```bash
+WIRTELPRIMPF_FLEX_PROCESSING=high
+```
+
+Wenn `WIRTELPRIMPF_FLEX_PROCESSING` nicht gesetzt ist, bleibt Flex Processing
+an.
 
 ## Manual Run
 
