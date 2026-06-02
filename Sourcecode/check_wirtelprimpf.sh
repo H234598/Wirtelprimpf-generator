@@ -103,7 +103,6 @@ run_check() {
   shift
   log "running: $label"
   local -a cmd=("$@")
-  local arg
   case "$label" in
     py_compile|compileall|version|status-json|check-config-json|dry-run-json|status-text|check-config-text|dry-run-text)
       ;;
@@ -114,7 +113,7 @@ run_check() {
   esac
   if [[ $# -eq 0 ]]; then
     echo "No command supplied for check: $label" >&2
-    exit 1
+    return 1
   fi
   case "$label" in
     py_compile)
