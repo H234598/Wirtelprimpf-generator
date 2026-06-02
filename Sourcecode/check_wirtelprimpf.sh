@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY=${PYTHON_BIN:-python3}
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
+CHECK_TMPDIR="$(mktemp -d)"
+
+cleanup_checks() {
+  rm -rf "$CHECK_TMPDIR"
+}
+trap cleanup_checks EXIT
 
 log(){
   printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*" >&2
@@ -14,6 +20,14 @@ run_check() {
   shift
   log "running: $label"
   "$@"
+}
+
+assert_file_non_empty() {
+  local file="$1"
+  if [[ ! -f "$file" || ! -s "$file" ]]; then
+    echo "Expected non-empty output in $file" >&2
+    return 1
+  fi
 }
 
 validate_json() {
@@ -60,18 +74,32 @@ PY
 
 log "Running full check suite for Wirtelprimpf"
 
+status_json="$CHECK_TMPDIR/status.json"
+check_config_json="$CHECK_TMPDIR/check-config.json"
+dry_run_json="$CHECK_TMPDIR/dry-run.json"
+status_text="$CHECK_TMPDIR/status.txt"
+check_config_text="$CHECK_TMPDIR/check-config.txt"
+dry_run_text="$CHECK_TMPDIR/dry-run.txt"
+
 run_check "py_compile" "$PY" -m py_compile "$PY_SCRIPT"
 run_check "compileall" "$PY" -m compileall -q "$ROOT_DIR/Sourcecode"
 run_check "version" "$PY" "$PY_SCRIPT" --version
-run_check "status-json" "$PY" "$PY_SCRIPT" --status --json > /tmp/wirtelprimpf-status.json
-run_check "check-config-json" "$PY" "$PY_SCRIPT" --check-config --json > /tmp/wirtelprimpf-check-config.json
-run_check "dry-run-json" "$PY" "$PY_SCRIPT" --dry-run --json > /tmp/wirtelprimpf-dry-run.json
-run_check "status-text" "$PY" "$PY_SCRIPT" --status > /tmp/wirtelprimpf-status.txt
-run_check "check-config-text" "$PY" "$PY_SCRIPT" --check-config > /tmp/wirtelprimpf-check-config.txt
-run_check "dry-run-text" "$PY" "$PY_SCRIPT" --dry-run > /tmp/wirtelprimpf-dry-run.txt
+run_check "status-json" "$PY" "$PY_SCRIPT" --status --json > "$status_json"
+run_check "check-config-json" "$PY" "$PY_SCRIPT" --check-config --json > "$check_config_json"
+run_check "dry-run-json" "$PY" "$PY_SCRIPT" --dry-run --json > "$dry_run_json"
+run_check "status-text" "$PY" "$PY_SCRIPT" --status > "$status_text"
+run_check "check-config-text" "$PY" "$PY_SCRIPT" --check-config > "$check_config_text"
+run_check "dry-run-text" "$PY" "$PY_SCRIPT" --dry-run > "$dry_run_text"
 
-validate_json /tmp/wirtelprimpf-status.json status first
-validate_json /tmp/wirtelprimpf-check-config.json check_config first
-validate_json /tmp/wirtelprimpf-dry-run.json dry_run any
+assert_file_non_empty "$status_json"
+assert_file_non_empty "$check_config_json"
+assert_file_non_empty "$dry_run_json"
+assert_file_non_empty "$status_text"
+assert_file_non_empty "$check_config_text"
+assert_file_non_empty "$dry_run_text"
+
+validate_json "$status_json" status first
+validate_json "$check_config_json" check_config first
+validate_json "$dry_run_json" dry_run any
 
 log "Checks completed"
