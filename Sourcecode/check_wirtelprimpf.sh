@@ -98,6 +98,29 @@ cleanup_checks() {
 }
 trap cleanup_checks EXIT
 
+run_python_sandbox() {
+  env -i \
+    PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    HOME="${HOME:-/tmp}" \
+    PYTHONNOUSERSITE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=UTF-8 \
+    "$@"
+}
+
+run_command_sandboxed() {
+  local -a cmd=("$@")
+  if (( ${#cmd[@]} == 0 )); then
+    echo "No command supplied" >&2
+    return 1
+  fi
+  if [[ "${cmd[0]}" == "$PY" ]]; then
+    run_python_sandbox "${cmd[@]}"
+  else
+    "${cmd[@]}"
+  fi
+}
+
 log(){
   printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*" >&2
 }
@@ -234,7 +257,7 @@ run_check() {
       esac
       ;;
   esac
-  if ! "${cmd[@]}"; then
+  if ! run_command_sandboxed "${cmd[@]}"; then
     echo "Check failed: ${label}" >&2
     return 1
   fi
@@ -334,9 +357,11 @@ run_check_to_file() {
     rm -f "$output_tmp"
     return 1
   fi
-  if ! run_check "$label" "$@" > "$output_tmp"; then
+  if ! run_command_sandboxed "$@" > "$output_tmp"; then
+    local rc=$?
+    echo "Check failed: ${label}" >&2
     rm -f "$output_tmp"
-    return 1
+    return $rc
   fi
   if ! is_regular_file "$output_tmp"; then
     echo "Temp output file must be regular: $output_tmp" >&2
@@ -406,7 +431,7 @@ validate_json() {
     return 1
   fi
 
-  "$PY" - "$file" "$mode" "$strategy" <<'PY'
+  run_python_sandbox "$PY" - "$file" "$mode" "$strategy" <<'PY'
 import json
 import re
 import sys

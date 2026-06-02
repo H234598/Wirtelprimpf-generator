@@ -42,6 +42,17 @@ fi
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
 CURRENT_UID="$(id -u)"
 readonly CURRENT_UID
+
+run_python_sandbox() {
+  env -i \
+    PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    HOME="${HOME:-/tmp}" \
+    PYTHONNOUSERSITE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=UTF-8 \
+    "$@"
+}
+
 validate_repo_path() {
   local path="$1"
   if [[ -z "$path" ]]; then
@@ -640,7 +651,7 @@ acquire_lock() {
 }
 
 get_minor_version() {
-  "$PY" - "$PY_SCRIPT" "$PUBLISH_STATE_FILE" <<'PY'
+  run_python_sandbox "$PY" - "$PY_SCRIPT" "$PUBLISH_STATE_FILE" <<'PY'
 import json
 import os
 import re
