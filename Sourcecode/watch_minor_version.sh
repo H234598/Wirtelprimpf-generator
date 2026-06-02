@@ -73,15 +73,30 @@ SLEEP_SECONDS="$(parse_positive_int "$SLEEP_SECONDS" 300 1)"
 MAX_STALE_LOCK_SECONDS="$(parse_positive_int "$MAX_STALE_LOCK_SECONDS" 900 10)"
 DEFAULT_RETRY_DELAY_SECONDS="$(parse_positive_int "$DEFAULT_RETRY_DELAY_SECONDS" 5 1)"
 
+is_regular_file() {
+  local path="$1"
+  if [[ ! -e "$path" ]]; then
+    return 1
+  fi
+  if [[ -L "$path" ]]; then
+    return 2
+  fi
+  [[ -f "$path" ]]
+}
+
 require_file() {
   local path="$1"
   local label="$2"
+  if [[ ! -f "$path" ]]; then
+    log "${label} missing: $path"
+    exit 1
+  fi
   if [[ -L "$path" ]]; then
     log "${label} must not be a symlink: $path"
     exit 1
   fi
-  if [[ ! -f "$path" ]]; then
-    log "${label} missing: $path"
+  if ! is_regular_file "$path"; then
+    log "${label} is not a regular file: $path"
     exit 1
   fi
 }
@@ -100,6 +115,10 @@ require_file "$PY_SCRIPT" "Generator script"
 
 write_state() {
   local value="$1"
+  if [[ -e "$STATE_FILE" ]] && ! is_regular_file "$STATE_FILE"; then
+    log "state file must be regular file (no symlink or special file): $STATE_FILE"
+    return 1
+  fi
   local state_dir
   state_dir="$(dirname "$STATE_FILE")"
   if ! mkdir -p "$state_dir"; then
@@ -119,6 +138,10 @@ write_state() {
 }
 
 refresh_state_timestamp() {
+  if [[ -e "$TIMESTAMP_FILE" ]] && ! is_regular_file "$TIMESTAMP_FILE"; then
+    log "timestamp file must be regular file (no symlink or special file): $TIMESTAMP_FILE"
+    return 1
+  fi
   if ! date +%s > "$TIMESTAMP_FILE"; then
     log "failed to refresh timestamp file: $TIMESTAMP_FILE"
     return 1
@@ -294,6 +317,11 @@ PY
 
 read_state_version() {
   local value
+  if [[ -e "$STATE_FILE" ]] && ! is_regular_file "$STATE_FILE"; then
+    log "state file is not a regular file: $STATE_FILE"
+    echo ""
+    return
+  fi
   if ! value="$(cat "$STATE_FILE" 2>/dev/null || true)"; then
     log "failed to read state file: $STATE_FILE"
     echo ""
