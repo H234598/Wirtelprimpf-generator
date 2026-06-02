@@ -14,17 +14,25 @@ SLEEP_SECONDS="${SLEEP_SECONDS:-300}"
 MAX_STALE_LOCK_SECONDS="${MAX_STALE_LOCK_SECONDS:-900}"
 DEFAULT_RETRY_DELAY_SECONDS="${DEFAULT_RETRY_DELAY_SECONDS:-5}"
 
-if [[ -z "${SLEEP_SECONDS}" || "${SLEEP_SECONDS}" -lt 1 ]]; then
-  SLEEP_SECONDS=300
-fi
+parse_positive_int() {
+  local name="$1"
+  local value="$2"
+  local fallback="$3"
+  local min="${4:-1}"
+  if [[ -z "$value" || ! "$value" =~ ^[0-9]+$ ]]; then
+    echo "$fallback"
+    return
+  fi
+  if (( value < min )); then
+    echo "$fallback"
+    return
+  fi
+  echo "$value"
+}
 
-if [[ -z "${MAX_STALE_LOCK_SECONDS}" || "${MAX_STALE_LOCK_SECONDS}" -lt 10 ]]; then
-  MAX_STALE_LOCK_SECONDS=900
-fi
-
-if [[ -z "${DEFAULT_RETRY_DELAY_SECONDS}" || "${DEFAULT_RETRY_DELAY_SECONDS}" -lt 1 ]]; then
-  DEFAULT_RETRY_DELAY_SECONDS=5
-fi
+SLEEP_SECONDS="$(parse_positive_int "SLEEP_SECONDS" "$SLEEP_SECONDS" 300 1)"
+MAX_STALE_LOCK_SECONDS="$(parse_positive_int "MAX_STALE_LOCK_SECONDS" "$MAX_STALE_LOCK_SECONDS" 900 10)"
+DEFAULT_RETRY_DELAY_SECONDS="$(parse_positive_int "DEFAULT_RETRY_DELAY_SECONDS" "$DEFAULT_RETRY_DELAY_SECONDS" 5 1)"
 
 log() {
   printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"
