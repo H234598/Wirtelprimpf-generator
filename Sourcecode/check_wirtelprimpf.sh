@@ -6,6 +6,7 @@ ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURRENT_UID="$(id -u)"
 readonly CURRENT_UID
 declare -r SECURITY_PATHS="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+declare -ar SECURITY_PATHS_ARRAY=(/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin)
 declare -r SECURITY_BIN_NAME_PATTERNS="python3|python3\.[0-9]+"
 declare -ar SECURITY_PYTHON_CANDIDATES=("python3")
 declare -g PYTHON_BINARY_CACHE_PATH=""
@@ -45,7 +46,8 @@ resolve_python() {
     if [[ "$candidate" == *[[:space:]]* || "$candidate" == -* || "$candidate" == */* ]]; then
       continue
     fi
-    for search_path in ${SECURITY_PATHS//:/ }; do
+    local search_path
+    for search_path in "${SECURITY_PATHS_ARRAY[@]}"; do
       resolved="${search_path}/${candidate}"
       if [[ -f "$resolved" && -x "$resolved" && ! -L "$resolved" ]]; then
         echo "$resolved"
