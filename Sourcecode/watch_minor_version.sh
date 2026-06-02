@@ -1213,7 +1213,7 @@ acquire_lock() {
         fi
         continue
       fi
-      log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, skipping stale cleanup; age=${LOCK_FILE_AGE_SECONDS:-unknown}s, exiting"
+      log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}; cannot safely apply stale-cleanup logic; age=${LOCK_FILE_AGE_SECONDS:-unknown}s, exiting"
       return 1
     fi
     if ! validate_lock_file "$LOCK_FILE"; then
