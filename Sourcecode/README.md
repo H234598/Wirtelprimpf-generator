@@ -184,6 +184,9 @@ The JSON form can be used for automation:
 fields (`ok`, `version`, `timestamp`, `status`, `exit_code`) per rendered prompt
 record.
 
+For non-JSON `--status`, the command prints an explicit `exit_code` line in its
+text output.
+
 ### Exit codes
 
 - `0`: success

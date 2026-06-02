@@ -496,14 +496,16 @@ def emit_status(payload: dict[str, object], *, as_json: bool) -> int:
         payload.setdefault("status", STATUS_OK if status else STATUS_ERROR)
         payload.setdefault("version", VERSION)
         payload.setdefault("ok", status)
+        payload.setdefault("exit_code", 0 if status else 1)
         print(format_json(payload))
         return 0 if status else 1
 
     print(f"wirtelprimpf_generator.py status: {payload.get('status', STATUS_ERROR)}")
     print(f"version: {payload.get('version', VERSION)}")
     print(f"timestamp: {payload.get('timestamp', build_status_timestamp())}")
+    print(f"exit_code: {payload.get('exit_code', 0)}")
     for key, value in payload.items():
-        if key in {"ok", "status", "version", "timestamp"}:
+        if key in {"ok", "status", "version", "timestamp", "exit_code"}:
             continue
         print(f"{key}: {value}")
     return 0 if bool(payload.get("ok")) else 1
