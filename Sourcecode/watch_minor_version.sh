@@ -965,7 +965,7 @@ validate_runtime_file_for_read() {
     return 1
   fi
   parent="$(dirname -- "$canonical")"
-  if [[ "$parent" == /tmp || "$parent" == /var/tmp || "$parent" == /run || "$parent" == /dev ]]; then
+  if [[ "$parent" == /tmp/* || "$parent" == /var/tmp/* || "$parent" == /run/* || "$parent" == /dev/* ]]; then
     log "${label} points into transient/unsafe location: $path"
     return 1
   fi
