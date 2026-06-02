@@ -18,6 +18,8 @@ log() {
 declare -r SECURITY_PATHS="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 declare -r SECURITY_BIN_NAME_PATTERNS="python3|python3\.[0-9]+"
 declare -ar SECURITY_PYTHON_CANDIDATES=("python3")
+declare -g PYTHON_BINARY_CACHE_PATH=""
+declare -gi PYTHON_BINARY_CACHE_RESULT=-1
 
 is_valid_python_binary_name() {
   local candidate="$1"
@@ -53,77 +55,123 @@ resolve_python() {
 
 validate_python_binary() {
   local path="$1"
+  if [[ "$path" == "$PYTHON_BINARY_CACHE_PATH" && $PYTHON_BINARY_CACHE_RESULT -ge 0 ]]; then
+    return "$PYTHON_BINARY_CACHE_RESULT"
+  fi
+
   local resolved owner mode mountpoint mount_opts parent_dir parent_mode parent_owner
   local file_type
+
   if [[ -z "$path" || ! -x "$path" ]]; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if ! resolved="$(readlink -f -- "$path" 2>/dev/null)"; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ ! -f "$resolved" || ! -r "$resolved" ]]; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   parent_dir="$(dirname -- "$resolved")"
   if [[ -L "$parent_dir" || ! -d "$parent_dir" ]]; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   case "$resolved" in
     /usr/bin/*|/usr/local/bin/*|/bin/*|/opt/*|/nix/store/*)
       ;;
     *)
+      PYTHON_BINARY_CACHE_RESULT=1
+      PYTHON_BINARY_CACHE_PATH="$path"
       return 1
       ;;
   esac
   local base_name
   base_name="$(basename -- "$resolved")"
   if [[ ! "$base_name" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ "$resolved" == /tmp/* || "$resolved" == /var/tmp/* || "$resolved" == /run/* || "$resolved" == /dev/* ]]; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if ! owner="$(stat -c '%u' "$resolved" 2>/dev/null)"; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if ! parent_owner="$(stat -c '%u' "$parent_dir" 2>/dev/null)"; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ "$owner" != "$CURRENT_UID" && "$owner" != 0 ]]; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if [[ "$parent_owner" != "$CURRENT_UID" && "$parent_owner" != 0 ]]; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if ! mode="$(stat -c '%a' "$resolved" 2>/dev/null)"; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if ! parent_mode="$(stat -c '%a' "$parent_dir" 2>/dev/null)"; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if (( 10#$parent_mode & 022 )); then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if (( 10#$mode & 022 )); then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if ! mountpoint="$(stat -c '%m' "$resolved" 2>/dev/null)"; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
   if command -v findmnt >/dev/null 2>&1; then
     mount_opts="$(findmnt -n -o OPTIONS "$mountpoint" 2>/dev/null || true)"
     if [[ ",${mount_opts}," == *",noexec,"* ]]; then
+      PYTHON_BINARY_CACHE_RESULT=1
+      PYTHON_BINARY_CACHE_PATH="$path"
       return 1
     fi
   fi
   if command -v file >/dev/null 2>&1; then
     if ! file_type="$(file -b -- "$resolved" 2>/dev/null || true)"; then
+      PYTHON_BINARY_CACHE_RESULT=1
+      PYTHON_BINARY_CACHE_PATH="$path"
       return 1
     fi
     if [[ "$file_type" != *ELF* && "$file_type" != *"Python script"* ]]; then
+      PYTHON_BINARY_CACHE_RESULT=1
+      PYTHON_BINARY_CACHE_PATH="$path"
       return 1
     fi
   fi
+  PYTHON_BINARY_CACHE_PATH="$path"
+  PYTHON_BINARY_CACHE_RESULT=0
+  return 0
 }
 
 if ! PY="$(resolve_python)"; then
