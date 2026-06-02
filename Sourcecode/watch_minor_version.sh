@@ -504,13 +504,18 @@ acquire_lock() {
       cleanup_lock_tmp
       return 1
     fi
+    if ! validate_lock_file "$LOCK_FILE"; then
+      log "invalid lock file state after reading pid: $LOCK_FILE"
+      cleanup_lock_tmp
+      return 1
+    fi
     if [[ -f "$LOCK_FILE" ]]; then
       local now
       now=$(date +%s)
       local lock_mtime age
       lock_mtime=$(stat -c '%Y' "$LOCK_FILE" 2>/dev/null || echo "$now")
       age=$((now - lock_mtime))
-      if [[ -n "$pid" && ! "$pid" =~ ^[0-9]+$ ]]; then
+      if [[ -z "$pid" || ! "$pid" =~ ^[0-9]+$ ]]; then
         log "fallback lock file has invalid pid value (${pid}), refusing to steal fresh lock"
         cleanup_lock_tmp
         return 1
