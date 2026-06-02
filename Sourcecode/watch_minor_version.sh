@@ -129,7 +129,7 @@ from pathlib import Path
 
 PATCHES_PER_MINOR = 100
 MINORS_PER_MAJOR = 100
-PATCHES_PER_MINOR_FOR_MINOR = 100
+PATCHES_PER_MINOR_FOR_MINOR = PATCHES_PER_MINOR
 
 script_path = Path(sys.argv[1])
 state_path = Path(sys.argv[2])
