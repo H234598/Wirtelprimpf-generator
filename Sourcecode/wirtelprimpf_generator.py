@@ -111,6 +111,10 @@ def _derive_version_numbers(
         raise ValueError(f"patch_count must be >= 0, got {patch_count!r}")
     if patches_per_minor <= 0:
         raise ValueError(f"patches_per_minor must be > 0, got {patches_per_minor!r}")
+    if patches_per_minor != DEFAULT_PATCHES_PER_MINOR:
+        raise ValueError(
+            f"patches_per_minor must remain {DEFAULT_PATCHES_PER_MINOR}, got {patches_per_minor!r}"
+        )
     if minors_per_major <= 0:
         raise ValueError(f"minors_per_major must be > 0, got {minors_per_major!r}")
 

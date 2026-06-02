@@ -184,6 +184,9 @@ patch_version = state_patch_count % patches_per_minor
 if patch_version == 0:
     patch_version = PATCHES_PER_MINOR_FOR_MINOR
 
+if patches_per_minor != PATCHES_PER_MINOR:
+    raise SystemExit(f"invalid WIRTELPRIMPF_PATCHES_PER_MINOR value: {patches_per_minor!r}, expected {PATCHES_PER_MINOR}")
+
 minor_increments = state_patch_count // patches_per_minor
 major_addition, minor_offset = divmod(int(minor_str) + minor_increments, MINORS_PER_MAJOR)
 major_version = int(major_str) + major_addition + major_bump
