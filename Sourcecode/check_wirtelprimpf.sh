@@ -321,24 +321,28 @@ import sys
 
 path, mode, strategy = sys.argv[1], sys.argv[2], sys.argv[3]
 
-records = []
+last_record = None
+matched = None
 with open(path, encoding='utf-8') as f:
     for line in f:
         line = line.strip()
         if not line.startswith('{'):
             continue
-        records.append(json.loads(line))
+        record = json.loads(line)
+        last_record = record
+        if record.get("mode") == mode and matched is None:
+            matched = record
 
-if not records:
+if last_record is None:
     raise SystemExit(f"No JSON records in {path}")
 
 required = {"ok", "version", "timestamp", "mode", "status", "exit_code"}
 if strategy == "any":
-    if not any(r.get("mode") == mode for r in records):
+    if matched is None:
         raise SystemExit(f"Expected mode {mode!r} in at least one record from {path}")
-    data = next(r for r in records if r.get("mode") == mode)
+    data = matched
 else:
-    data = records[-1]
+    data = last_record
     if data.get("mode") != mode:
         raise SystemExit(f"Expected trailing mode {mode!r} in {path}, got {data.get('mode')!r}")
 
