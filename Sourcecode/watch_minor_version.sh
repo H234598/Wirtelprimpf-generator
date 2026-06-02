@@ -232,24 +232,34 @@ acquire_lock
 
 init_state=$(get_minor_version)
 
-state_file_value="$(read_state_version)"
-if [[ -z "$state_file_value" ]]; then
+if ! state_file_value="$(read_state_version)" || [[ -z "$state_file_value" ]]; then
 	write_state "$init_state"
 	if [[ -f "$STATE_FILE" ]]; then
 		log "state file missing or invalid; repaired with computed version $init_state"
 	fi
 	state_file_value="$init_state"
+	write_state "$init_state"
 elif [[ "$state_file_value" != "$init_state" ]]; then
 	log "state file stale; repaired to current version $init_state"
 	state_file_value="$init_state"
 	write_state "$init_state"
 fi
 
+read_state_file() {
+	read_state_version
+}
+
 if [[ "${1:-}" == "--once" ]]; then
   require_file "$CHECKS_SCRIPT" "Checks script"
   require_executable "$CHECKS_SCRIPT" "Checks script"
-	prev="$state_file_value"
+	prev="$(read_state_file)"
+	if [[ -z "$prev" ]]; then
+		prev="$state_file_value"
+	fi
 	current="$(get_minor_version)"
+	if [[ -z "$prev" ]]; then
+		prev="$current"
+	fi
 	if [[ "$current" != "$prev" ]]; then
 		write_state "$current"
     if "$CHECKS_SCRIPT"; then
