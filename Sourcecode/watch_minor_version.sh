@@ -290,6 +290,47 @@ run_python_sandbox() {
     "$@"
 }
 
+run_check_script_sandboxed() {
+  local script_path="$1"
+  if [[ -z "$script_path" ]]; then
+    log "checks script path is empty"
+    return 1
+  fi
+  if [[ "$script_path" != /* ]]; then
+    log "checks script path must be absolute: ${script_path}"
+    return 1
+  fi
+  if [[ -L "$script_path" || ! -f "$script_path" || ! -x "$script_path" ]]; then
+    log "checks script must be a non-symlink executable file: ${script_path}"
+    return 1
+  fi
+  local script_dir
+  script_dir="$(dirname -- "$script_path")"
+  if [[ -L "$script_dir" ]]; then
+    log "checks script directory must not be a symlink: ${script_dir}"
+    return 1
+  fi
+  local bash_path
+  bash_path="$(command -v bash 2>/dev/null || true)"
+  if [[ -z "$bash_path" || -L "$bash_path" || ! -x "$bash_path" ]]; then
+    log "required bash interpreter unavailable or insecure: ${bash_path:-not-found}"
+    return 1
+  fi
+  if ! env -i \
+    PATH="/usr/local/bin:/usr/bin:/bin" \
+    HOME="${HOME:-/tmp}" \
+    USER="${USER:-}" \
+    LOGNAME="${LOGNAME:-}" \
+    TERM="xterm-256color" \
+    LANG="C.UTF-8" \
+    LC_ALL="C.UTF-8" \
+    "$bash_path" "$script_path"; then
+    log "checks script execution failed: ${script_path}"
+    return 1
+  fi
+  return 0
+}
+
 validate_repo_path() {
   local path="$1"
   if [[ -z "$path" ]]; then
@@ -1092,12 +1133,9 @@ apply_version_change() {
     return 1
   fi
 
-  require_file "$CHECKS_SCRIPT" "Checks script"
-  require_executable "$CHECKS_SCRIPT" "Checks script"
-
   log "minor version changed: $previous -> $current"
 
-  if "$CHECKS_SCRIPT"; then
+  if run_check_script_sandboxed "$CHECKS_SCRIPT"; then
     if ! refresh_state_timestamp; then
       log "failed to refresh state timestamp; aborting"
       return 1
@@ -1151,8 +1189,6 @@ if [[ -z "$state_file_value" ]]; then
 fi
 
 if [[ "${1:-}" == "--once" ]]; then
-  require_file "$CHECKS_SCRIPT" "Checks script"
-  require_executable "$CHECKS_SCRIPT" "Checks script"
   prev="$state_file_value"
   if ! is_valid_version "$prev"; then
     log "invalid previous version in state: $prev"
