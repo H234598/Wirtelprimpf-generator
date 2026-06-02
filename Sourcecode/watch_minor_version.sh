@@ -5,7 +5,7 @@ IFS=$'\n\t'
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY=${PYTHON_BIN:-python3}
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
-REPO_PATH="${WIRTELPRIMPF_REPO_PATH:-$ROOT_DIR/.git}"
+REPO_PATH="${WIRTELPRIMPF_REPO_PATH:-$ROOT_DIR}"
 if [[ "$(basename "$REPO_PATH")" == ".git" ]]; then
   PUBLISH_STATE_FILE="$REPO_PATH/wirtelprimpf_publish_state.json"
 else
@@ -127,6 +127,9 @@ import re
 import sys
 from pathlib import Path
 
+PATCHES_PER_MINOR = 100
+MINORS_PER_MAJOR = 100
+
 script_path = Path(sys.argv[1])
 state_path = Path(sys.argv[2])
 state_patch_count = 0
@@ -157,14 +160,26 @@ parsed = re.match(r"^(\d+)\.(\d+)\.(\d+)(.*)$", version)
 if not parsed:
     raise SystemExit(f"invalid version format: {version!r}")
 major_str, minor_str, patch_str, suffix = parsed.groups()
-patches_per_minor = int(os.environ.get("WIRTELPRIMPF_PATCHES_PER_MINOR", "100"))
-major_bump = int(os.environ.get("WIRTELPRIMPF_MAJOR_VERSION_BUMP", "0"))
+patches_per_minor_raw = os.environ.get("WIRTELPRIMPF_PATCHES_PER_MINOR", "100")
+major_bump_raw = os.environ.get("WIRTELPRIMPF_MAJOR_VERSION_BUMP", "0")
+try:
+    patches_per_minor = int(patches_per_minor_raw)
+    if patches_per_minor < 1:
+        raise ValueError
+except ValueError:
+    raise SystemExit(f"invalid WIRTELPRIMPF_PATCHES_PER_MINOR value: {patches_per_minor_raw!r}")
+try:
+    major_bump = int(major_bump_raw)
+    if major_bump < 0:
+        raise ValueError
+except ValueError:
+    raise SystemExit(f"invalid WIRTELPRIMPF_MAJOR_VERSION_BUMP value: {major_bump_raw!r}")
 
-minor_increments = (state_patch_count // patches_per_minor) // 100
-major_addition, minor_offset = divmod(int(minor_str) + minor_increments, 100)
+minor_increments = (state_patch_count // patches_per_minor) // PATCHES_PER_MINOR
+major_addition, minor_offset = divmod(int(minor_str) + minor_increments, MINORS_PER_MAJOR)
 major_version = int(major_str) + major_addition + major_bump
 patch_units = state_patch_count // patches_per_minor
-patch_version = patch_units % 100
+patch_version = patch_units % PATCHES_PER_MINOR
 print(f"{major_version}.{minor_offset}.{patch_version}{suffix}")
 
 PY
