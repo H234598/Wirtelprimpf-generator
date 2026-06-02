@@ -161,23 +161,16 @@ validate_python_binary() {
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
-  local parent_mount_stats
-  if ! parent_mount_stats=($(stat -c '%a %u' "$parent_dir" "$mountpoint" 2>/dev/null)); then
+  if ! read -r parent_mode parent_owner <<<"$(stat -c '%a %u' "$parent_dir" 2>/dev/null)"; then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
-  if (( ${#parent_mount_stats[@]} != 2 )); then
+  if ! read -r mountpoint_mode mountpoint_owner <<<"$(stat -c '%a %u' "$mountpoint" 2>/dev/null)"; then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
-  local parent_stat="${parent_mount_stats[0]}"
-  local mountpoint_stat="${parent_mount_stats[1]}"
-  parent_mode="${parent_stat%% *}"
-  parent_owner="${parent_stat##* }"
-  mountpoint_owner="${mountpoint_stat##* }"
-  mountpoint_mode="${mountpoint_stat%% *}"
   if [[ "$resolved_owner" != "$CURRENT_UID" && "$resolved_owner" != 0 ]]; then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
