@@ -69,6 +69,14 @@ run_check() {
   local label="$1"
   shift
   log "running: $label"
+  case "$label" in
+    py_compile|compileall|version|status-json|check-config-json|dry-run-json|status-text|check-config-text|dry-run-text)
+      ;;
+    *)
+      echo "Invalid check label: ${label}" >&2
+      return 1
+      ;;
+  esac
   if [[ $# -eq 0 ]]; then
     echo "No command supplied for check: $label" >&2
     exit 1
