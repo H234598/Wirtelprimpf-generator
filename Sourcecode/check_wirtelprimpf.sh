@@ -648,6 +648,8 @@ run_check_to_file() {
   local label="$1"
   local output="$2"
   shift 2
+  local output_canonical
+  local output_parent
 
   case "$label" in
     status-json|check-config-json|dry-run-json|status-text|check-config-text|dry-run-text)
@@ -705,16 +707,27 @@ run_check_to_file() {
       ;;
   esac
 
+  if ! output_canonical="$(readlink -f -- "$output" 2>/dev/null)"; then
+    echo "Output path must be canonicalizable: $output" >&2
+    return 1
+  fi
+  if [[ -z "$output_canonical" || "$output_canonical" != "$output" ]]; then
+    echo "Output path must be canonical and non-symlinked: $output" >&2
+    return 1
+  fi
   if [[ "$output" != "$CHECK_TMPDIR"/* ]]; then
     echo "Output path must be under check tmpdir: $output" >&2
     return 1
   fi
-  local output_parent
   if [[ "$output" == *[[:space:]]* ]]; then
     echo "Output path contains whitespace: $output" >&2
     return 1
   fi
-  output_parent="$(dirname -- "$output")"
+  if [[ "$output_canonical" == *[[:space:]]* ]]; then
+    echo "Output path contains whitespace: $output_canonical" >&2
+    return 1
+  fi
+  output_parent="$(dirname -- "$output_canonical")"
   if [[ ! -d "$output_parent" || -L "$output_parent" || "$output_parent" != "$CHECK_TMPDIR" ]]; then
     echo "Invalid output parent directory: $output_parent" >&2
     return 1
