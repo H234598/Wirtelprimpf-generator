@@ -280,7 +280,7 @@ trap cleanup_checks EXIT
 
 run_python_sandbox() {
   env -i \
-    PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    PATH="/usr/local/bin:/usr/bin:/bin" \
     HOME="${HOME:-/tmp}" \
     PYTHONSTARTUP= \
     PYTHONPATH= \

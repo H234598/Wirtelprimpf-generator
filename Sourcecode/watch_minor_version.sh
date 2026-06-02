@@ -230,7 +230,7 @@ PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
 
 run_python_sandbox() {
   env -i \
-    PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    PATH="/usr/local/bin:/usr/bin:/bin" \
     HOME="${HOME:-/tmp}" \
     PYTHONSTARTUP= \
     PYTHONPATH= \
