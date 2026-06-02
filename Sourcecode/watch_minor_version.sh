@@ -698,27 +698,32 @@ validate_watch_runtime_file_path() {
   local path="$1"
   local label="$2"
   local parent
+  local canonical
   if [[ -z "$path" ]]; then
     log "${label} path is empty"
+    exit 1
+  fi
+  if ! canonical="$(readlink -f -- "$path" 2>/dev/null || true)"; then
+    log "${label} path is not canonicalizable: ${path}"
+    exit 1
+  fi
+  if [[ -z "$canonical" || "$canonical" != "$path" ]]; then
+    log "${label} path must be canonical and non-symlinked: ${path}"
+    exit 1
+  fi
+  if [[ "$canonical" != "${ROOT_DIR}/Sourcecode/"* ]]; then
+    log "${label} path must be under ${ROOT_DIR}/Sourcecode/: $path"
     exit 1
   fi
   if [[ "$path" == *[[:space:]]* ]]; then
     log "${label} path contains whitespace: ${path}"
     exit 1
   fi
-  if [[ "$path" != "${ROOT_DIR}/Sourcecode/"* ]]; then
-    log "${label} path must be under ${ROOT_DIR}/Sourcecode/: $path"
-    exit 1
-  fi
-  if [[ "$path" == /tmp/* || "$path" == /var/tmp/* || "$path" == /run/* || "$path" == /dev/* ]]; then
+  if [[ "$canonical" == /tmp/* || "$canonical" == /var/tmp/* || "$canonical" == /run/* || "$canonical" == /dev/* ]]; then
     log "${label} path points into transient/unsafe location: $path"
     exit 1
   fi
-  if ! readlink -f -- "$path" >/dev/null 2>&1; then
-    log "${label} path is not canonicalizable: $path"
-    exit 1
-  fi
-  parent="$(dirname -- "$path")"
+  parent="$(dirname -- "$canonical")"
   if [[ -L "$parent" ]]; then
     log "${label} parent directory must not be a symlink: $parent"
     exit 1
