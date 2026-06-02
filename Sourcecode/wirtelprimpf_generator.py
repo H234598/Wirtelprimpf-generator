@@ -1058,6 +1058,9 @@ def status_report(config: Config | None = None) -> dict[str, object]:
                     "patch_count": publish_state.patch_count,
                     "patch_version": patch_version,
                     "minor_push_count": publish_state.minor_push_count,
+                    "major_version_bump": config.major_version_bump,
+                    "breaking_change": config.breaking_change,
+                    "effective_major_version_base": effective_major_version_base(config),
                 }
             )
             report["version"] = f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}"
@@ -1095,6 +1098,9 @@ def publish_state_summary(config: Config) -> dict[str, object] | None:
         "patch_count": publish_state.patch_count,
         "version": f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}",
         "minor_push_count": publish_state.minor_push_count,
+        "major_version_bump": config.major_version_bump,
+        "breaking_change": config.breaking_change,
+        "effective_major_version_base": effective_major_version_base(config),
     }
 
 
