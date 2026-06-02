@@ -40,6 +40,33 @@ if ! CHECK_TMPDIR="$(mktemp -d -t wirtelprimpf-check-XXXXXX)"; then
   echo "Failed to create temporary directory" >&2
   exit 1
 fi
+
+is_strict_secure_directory() {
+  local path="$1"
+  local label="$2"
+  if [[ -L "$path" ]]; then
+    echo "${label} must not be a symlink: ${path}" >&2
+    return 1
+  fi
+  if [[ ! -d "$path" ]]; then
+    echo "${label} must be a directory: ${path}" >&2
+    return 1
+  fi
+  if [[ ! -r "$path" || ! -w "$path" || ! -x "$path" ]]; then
+    echo "${label} must be readable/writable/searchable: ${path}" >&2
+    return 1
+  fi
+  if (( 10#$(stat -c '%a' "$path") & 022 )); then
+    echo "${label} must not be group/world writable: ${path}" >&2
+    return 1
+  fi
+  return 0
+}
+
+if ! is_strict_secure_directory "$CHECK_TMPDIR" "Check temporary directory"; then
+  rm -rf "$CHECK_TMPDIR"
+  exit 1
+fi
 readonly CHECK_TMPDIR
 readonly PY_SCRIPT
 readonly PY
@@ -240,6 +267,16 @@ run_check_to_file() {
   local output_tmp
   if ! output_tmp="$(mktemp "${output}.tmp.XXXXXX")"; then
     echo "Failed to create temporary output file for ${label}" >&2
+    return 1
+  fi
+  if [[ ! "$output_tmp" == "$CHECK_TMPDIR"/* ]]; then
+    echo "Temporary output path escaped check tmpdir: $output_tmp" >&2
+    rm -f "$output_tmp"
+    return 1
+  fi
+  if ! is_regular_file "$output_tmp"; then
+    echo "Temp output file must be regular: $output_tmp" >&2
+    rm -f "$output_tmp"
     return 1
   fi
   if ! run_check "$label" "$@" > "$output_tmp"; then

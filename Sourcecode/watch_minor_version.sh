@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 IFS=$'\n\t'
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -132,7 +133,7 @@ STATE_FILE="$ROOT_DIR/Sourcecode/.minor_version_state"
 require_directory "$(dirname "$STATE_FILE")" "State directory" "rwx"
 LOCK_FILE="$ROOT_DIR/Sourcecode/.minor_version_watch.lock"
 require_directory "$(dirname "$LOCK_FILE")" "Lock directory" "rwx"
-LOCK_TMP="${LOCK_FILE}.tmp.$$"
+LOCK_TMP=""
 TIMESTAMP_FILE="$STATE_FILE.started_at"
 CHECKS_SCRIPT="$ROOT_DIR/Sourcecode/check_wirtelprimpf.sh"
 SLEEP_SECONDS="${SLEEP_SECONDS:-300}"
@@ -259,14 +260,19 @@ write_state() {
     log "failed to create state directory: $state_dir"
     return 1
   fi
-  if ! printf '%s\n' "$value" > "$STATE_FILE.tmp.$$"; then
-    log "failed to write state temp file: $STATE_FILE.tmp.$$"
-    rm -f "$STATE_FILE.tmp.$$" 2>/dev/null || true
+  local state_tmp
+  if ! state_tmp="$(mktemp "$STATE_FILE.tmp.XXXXXX")"; then
+    log "failed to create state temp file from base: $STATE_FILE"
     return 1
   fi
-  if ! mv -f "$STATE_FILE.tmp.$$" "$STATE_FILE"; then
+  if ! printf '%s\n' "$value" > "$state_tmp"; then
+    log "failed to write state temp file: $state_tmp"
+    rm -f "$state_tmp" 2>/dev/null || true
+    return 1
+  fi
+  if ! mv -f "$state_tmp" "$STATE_FILE"; then
     log "failed to persist state file: $STATE_FILE"
-    rm -f "$STATE_FILE.tmp.$$" 2>/dev/null || true
+    rm -f "$state_tmp" 2>/dev/null || true
     return 1
   fi
 }
@@ -276,8 +282,19 @@ refresh_state_timestamp() {
     log "timestamp file must be regular file (no symlink or special file): $TIMESTAMP_FILE"
     return 1
   fi
-  if ! date +%s > "$TIMESTAMP_FILE"; then
+  local timestamp_tmp
+  if ! timestamp_tmp="$(mktemp "$TIMESTAMP_FILE.tmp.XXXXXX")"; then
+    log "failed to create timestamp temp file from base: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if ! date +%s > "$timestamp_tmp"; then
     log "failed to refresh timestamp file: $TIMESTAMP_FILE"
+    rm -f "$timestamp_tmp" 2>/dev/null || true
+    return 1
+  fi
+  if ! mv -f "$timestamp_tmp" "$TIMESTAMP_FILE"; then
+    log "failed to persist timestamp file: $TIMESTAMP_FILE"
+    rm -f "$timestamp_tmp" 2>/dev/null || true
     return 1
   fi
 }
@@ -291,6 +308,7 @@ acquire_lock() {
 
   if [[ -L "$LOCK_FILE" || ( -e "$LOCK_FILE" && ! -f "$LOCK_FILE" ) ]]; then
     log "invalid lock file type (symlink or non-regular): $LOCK_FILE"
+    rm -f "$LOCK_TMP" 2>/dev/null || true
     return 1
   fi
 
@@ -317,14 +335,25 @@ acquire_lock() {
       return 1
     fi
     printf '%s\n' "$$" 1>&9
-    trap 'flock -u 9 2>/dev/null || true; exec 9>&- 2>/dev/null || true; rm -f "$LOCK_FILE" "$LOCK_TMP" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
+    trap 'flock -u 9 2>/dev/null || true; exec 9>&- 2>/dev/null || true; rm -f "$LOCK_FILE" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
     return
   fi
 
-  if ! mkdir "$LOCK_TMP" 2>/dev/null; then
+  if ! LOCK_TMP="$(mktemp "${LOCK_FILE}.tmp.XXXXXX")"; then
+    log "failed to create temporary lock file under $(dirname "$LOCK_FILE")"
+    return 1
+  fi
+  if ! printf '%s\n' "$$" > "$LOCK_TMP"; then
+    log "failed to write temporary lock holder pid: $LOCK_TMP"
+    rm -f "$LOCK_TMP" 2>/dev/null || true
+    return 1
+  fi
+
+  if [[ -e "$LOCK_FILE" ]]; then
     local pid
     if ! pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"; then
       log "failed to read lock file, exiting: $LOCK_FILE"
+      rm -f "$LOCK_TMP" 2>/dev/null || true
       return 1
     fi
     pid="${pid//$'\r'/}"
@@ -332,6 +361,7 @@ acquire_lock() {
     pid="$(printf '%s' "$pid")"
     if [[ "$pid" == *[[:space:]]* ]]; then
       log "invalid lock holder pid in $LOCK_FILE: whitespace-containing value, exiting"
+      rm -f "$LOCK_TMP" 2>/dev/null || true
       return 1
     fi
     if [[ -f "$LOCK_FILE" ]]; then
@@ -342,31 +372,26 @@ acquire_lock() {
       age=$((now - lock_mtime))
       if [[ -n "$pid" && ! "$pid" =~ ^[0-9]+$ ]]; then
         log "fallback lock file has invalid pid value (${pid}), refusing to steal fresh lock"
+        rm -f "$LOCK_TMP" 2>/dev/null || true
         return 1
       fi
       if [[ "$age" -lt "$MAX_STALE_LOCK_SECONDS" ]] && is_running_pid "$pid"; then
         log "another watcher instance is running (fallback lock), exiting"
+        rm -f "$LOCK_TMP" 2>/dev/null || true
         return 1
       fi
       log "stale fallback lock detected (${age}s), stealing lock"
       if ! rm -f "$LOCK_FILE"; then
         log "failed to remove stale fallback lock: $LOCK_FILE"
+        rm -f "$LOCK_TMP" 2>/dev/null || true
         return 1
       fi
-    fi
-    if ! mkdir "$LOCK_TMP"; then
-      log "failed to re-create lock temporary dir: $LOCK_TMP"
-      return 1
     fi
   fi
 
   if ! mv "$LOCK_TMP" "$LOCK_FILE"; then
     log "failed to acquire fallback lock file via rename: $LOCK_TMP -> $LOCK_FILE"
-    return 1
-  fi
-  if ! printf '%s\n' "$$" > "$LOCK_FILE"; then
-    log "failed to write fallback lock holder pid: $LOCK_FILE"
-    rm -f "$LOCK_TMP" "$LOCK_FILE" 2>/dev/null || true
+    rm -f "$LOCK_TMP" 2>/dev/null || true
     return 1
   fi
   trap 'rm -f "$LOCK_TMP" "$LOCK_FILE" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
@@ -597,15 +622,6 @@ if [[ -z "$state_file_value" ]]; then
   exit 1
 fi
 
-if [[ -e "$PUBLISH_STATE_FILE" ]]; then
-  if ! last_state_mtime="$(stat -c '%Y' "$PUBLISH_STATE_FILE" 2>/dev/null)"; then
-    log "failed to read publish state mtime: $PUBLISH_STATE_FILE"
-    exit 1
-  fi
-else
-  last_state_mtime="0"
-fi
-
 if [[ "${1:-}" == "--once" ]]; then
   require_file "$CHECKS_SCRIPT" "Checks script"
   require_executable "$CHECKS_SCRIPT" "Checks script"
@@ -614,17 +630,12 @@ if [[ "${1:-}" == "--once" ]]; then
     log "invalid previous version in state: $prev"
     exit 1
   fi
-  if ! now_state_mtime="$(stat -c '%Y' "$PUBLISH_STATE_FILE" 2>/dev/null)"; then
-    log "failed to read publish state mtime: $PUBLISH_STATE_FILE"
-    exit 1
-  fi
-  if [[ "$now_state_mtime" == "$last_state_mtime" ]]; then
-    log "publish state unchanged; skipping recomputation"
-    exit 0
-  fi
-  last_state_mtime="$now_state_mtime"
   if ! current="$(get_minor_version)"; then
     log "failed to compute current minor version"
+    exit 1
+  fi
+  if [[ -z "$current" ]]; then
+    log "current minor version is empty"
     exit 1
   fi
   if ! is_valid_version "$current"; then
@@ -641,19 +652,10 @@ fi
 
 last_version="$state_file_value"
 while true; do
-	if ! now_state_mtime="$(stat -c '%Y' "$PUBLISH_STATE_FILE" 2>/dev/null)"; then
-		log "failed to read publish state mtime: $PUBLISH_STATE_FILE"
-		exit 1
-	fi
-	if [[ "$now_state_mtime" == "$last_state_mtime" ]]; then
-		sleep "$SLEEP_SECONDS"
-		continue
-	fi
 	if ! current="$(get_minor_version)"; then
 		log "failed to compute current minor version"
 		exit 1
 	fi
-	last_state_mtime="$now_state_mtime"
 	if [[ -z "$current" ]]; then
 		log "current minor version is empty"
 		exit 1
