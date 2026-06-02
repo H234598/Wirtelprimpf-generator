@@ -40,13 +40,13 @@ resolve_python() {
 validate_python_binary() {
   local path="$1"
   local resolved owner mode
-  if [[ -z "$path" || -L "$path" || ! -f "$path" || ! -x "$path" ]]; then
-    return 1
-  fi
-  if [[ ! -r "$path" ]]; then
+  if [[ -z "$path" || ! -x "$path" ]]; then
     return 1
   fi
   if ! resolved="$(readlink -f -- "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  if [[ ! -f "$resolved" || ! -r "$resolved" ]]; then
     return 1
   fi
   case "$resolved" in
@@ -69,9 +69,6 @@ validate_python_binary() {
     return 1
   fi
   if (( 10#$mode & 022 )); then
-    return 1
-  fi
-  if [[ -z "$resolved" || "$resolved" != "$path" ]]; then
     return 1
   fi
 }
