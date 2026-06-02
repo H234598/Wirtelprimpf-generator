@@ -13,8 +13,18 @@ if [[ -n "${PYTHON_BIN:-}" && "${PYTHON_BIN}" == *[[:space:]]* ]]; then
   exit 1
 fi
 
+is_valid_python_binary_name() {
+  local candidate="$1"
+  local base_name
+  base_name="$(basename -- "$candidate")"
+  [[ "$base_name" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]
+}
+
 resolve_python() {
   local candidates=("${PYTHON_BIN:-}")
+  if [[ -n "${PYTHON_BIN:-}" ]] && ! is_valid_python_binary_name "$PYTHON_BIN"; then
+    return 1
+  fi
   if [[ -z "${candidates[0]:-}" ]]; then
     candidates=("${SECURITY_PYTHON_CANDIDATES[@]}")
   fi

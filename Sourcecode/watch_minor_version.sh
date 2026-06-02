@@ -19,8 +19,18 @@ declare -r SECURITY_PATHS="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sb
 declare -r SECURITY_BIN_NAME_PATTERNS="python3|python3\.[0-9]+"
 declare -ar SECURITY_PYTHON_CANDIDATES=("python3")
 
+is_valid_python_binary_name() {
+  local candidate="$1"
+  local base_name
+  base_name="$(basename -- "$candidate")"
+  [[ "$base_name" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]
+}
+
 resolve_python() {
   local candidates=("${PYTHON_BIN:-}")
+  if [[ -n "${PYTHON_BIN:-}" ]] && ! is_valid_python_binary_name "$PYTHON_BIN"; then
+    return 1
+  fi
   if [[ -z "${candidates[0]:-}" ]]; then
     candidates=("${SECURITY_PYTHON_CANDIDATES[@]}")
   fi
