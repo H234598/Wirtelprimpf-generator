@@ -79,21 +79,30 @@ def load_config() -> Config:
 
 
 def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        cwd=cwd,
-        check=True,
-        text=True,
-        capture_output=True,
-        timeout=GIT_TIMEOUT_SECONDS,
-    )
+    try:
+        return subprocess.run(
+            command,
+            cwd=cwd,
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"Command timed out after {GIT_TIMEOUT_SECONDS}s: {' '.join(command)}") from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        message = f"Command failed: {' '.join(command)}"
+        if stderr:
+            message = f"{message}: {stderr}"
+        raise RuntimeError(message) from exc
 
 
 def ensure_repo(config: Config) -> Path | None:
     if config.repo_path is None:
         return None
 
-    if (config.repo_path / ".git").exists():
+    if (config.repo_path / ".git").is_dir():
         run(["git", "fetch", "origin", config.repo_branch], cwd=config.repo_path)
         run(["git", "checkout", config.repo_branch], cwd=config.repo_path)
         run(["git", "pull", "--ff-only", "origin", config.repo_branch], cwd=config.repo_path)
@@ -107,7 +116,13 @@ def ensure_repo(config: Config) -> Path | None:
         run(["gh", "repo", "clone", config.repo_slug, str(config.repo_path)])
         run(["git", "checkout", config.repo_branch], cwd=config.repo_path)
 
-    repo_outdir = config.repo_path / config.repo_subdir
+    repo_subdir_name = config.repo_subdir.strip()
+    if not repo_subdir_name or "/" in repo_subdir_name or "\\" in repo_subdir_name:
+        raise RuntimeError(f"Invalid WIRTELPRIMPF_REPO_SUBDIR: {repo_subdir_name!r}")
+    if repo_subdir_name in {"", ".", ".."}:
+        raise RuntimeError(f"Invalid WIRTELPRIMPF_REPO_SUBDIR: {repo_subdir_name!r}")
+
+    repo_outdir = config.repo_path / repo_subdir_name
     repo_outdir.mkdir(parents=True, exist_ok=True)
     return repo_outdir
 
@@ -155,11 +170,19 @@ def parse_resolution(value: str) -> tuple[int, int] | None:
     if normalized in aliases:
         return aliases[normalized]
 
+    parts = normalized.split("x", 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid WIRTELPRIMPF_OUTPUT_RESOLUTION: {value!r}")
+
+    width_s, height_s = parts
     try:
-        width, height = normalized.split("x", 1)
-        return int(width), int(height)
+        width = int(width_s)
+        height = int(height_s)
     except ValueError as exc:
         raise ValueError(f"Invalid WIRTELPRIMPF_OUTPUT_RESOLUTION: {value!r}") from exc
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid WIRTELPRIMPF_OUTPUT_RESOLUTION: {value!r}")
+    return width, height
 
 
 def resize_cover(path: Path, target_size: tuple[int, int] | None) -> None:
@@ -225,6 +248,12 @@ def decode_image_bytes(data: str) -> bytes:
     if len(decoded) > IMAGE_PAYLOAD_MAX_BYTES:
         raise RuntimeError(f"OpenAI API image payload is unexpectedly large ({len(decoded)} bytes)")
     return decoded
+
+
+def write_bytes_atomically(path: Path, payload: bytes) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_bytes(payload)
+    tmp.replace(path)
 
 
 def validate_prompt(text: str) -> str:
@@ -359,13 +388,21 @@ def build_prompts(config_path: Path, now: datetime) -> list[str]:
     return [build_prompt(data)]
 
 
+def _die(message: str, *, exit_code: int = 1) -> None:
+    print(f"ERROR: {message}", file=sys.stderr)
+    raise SystemExit(exit_code)
+
+
 def main() -> None:
     if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY environment variable is required")
+        _die("OPENAI_API_KEY environment variable is required")
 
     config = load_config()
     if not config.prompt_config_path.exists():
-        raise RuntimeError(f"Prompt config file not found: {config.prompt_config_path}")
+        _die(f"Prompt config file not found: {config.prompt_config_path}")
+
+    if not config.local_outdir.is_dir() and config.local_outdir.exists():
+        _die(f"WIRTELPRIMPF_LOCAL_OUTDIR is not a directory: {config.local_outdir}")
 
     config.local_outdir.mkdir(parents=True, exist_ok=True)
 
@@ -373,6 +410,7 @@ def main() -> None:
     prompts = build_prompts(config.prompt_config_path, now)
     client = OpenAI()
     repo_outdir = ensure_repo(config)
+    failures = 0
 
     for index, prompt in enumerate(prompts, start=1):
         timestamp = build_timestamp()
@@ -389,19 +427,28 @@ def main() -> None:
         if config.flex_processing_mode:
             request["processing"] = config.flex_processing_mode
 
-        response = client.images.generate(**request)
         try:
+            response = client.images.generate(**request)
             image_record = response.data[0]
             image_b64 = image_record.b64_json
         except Exception as exc:
-            raise RuntimeError("OpenAI response format missing image data") from exc
+            print(f"Generation failed for {stem}: {exc}", file=sys.stderr)
+            failures += 1
+            continue
 
         if image_b64 is None:
-            raise RuntimeError("OpenAI response did not return base64 image data")
+            print(f"Generation failed for {stem}: no base64 image data", file=sys.stderr)
+            failures += 1
+            continue
 
-        local_png.write_bytes(decode_image_bytes(image_b64))
-        resize_cover(local_png, parse_resolution(config.output_resolution))
-        local_prompt.write_text(prompt, encoding="utf-8")
+        try:
+            write_bytes_atomically(local_png, decode_image_bytes(image_b64))
+            resize_cover(local_png, parse_resolution(config.output_resolution))
+            local_prompt.write_text(prompt, encoding="utf-8")
+        except Exception as exc:
+            print(f"Write/transform failed for {stem}: {exc}", file=sys.stderr)
+            failures += 1
+            continue
         print(f"Local image: {local_png}")
         print(f"Local prompt: {local_prompt}")
 
@@ -410,11 +457,18 @@ def main() -> None:
 
         repo_png = repo_outdir / local_png.name
         repo_prompt = repo_outdir / local_prompt.name
-        shutil.copy2(local_png, repo_png)
-        shutil.copy2(local_prompt, repo_prompt)
-        commit_and_push(config, [repo_png, repo_prompt], stem)
-        print(f"Repository image: {repo_png}")
-        print(f"Repository prompt: {repo_prompt}")
+        try:
+            shutil.copy2(local_png, repo_png)
+            shutil.copy2(local_prompt, repo_prompt)
+            commit_and_push(config, [repo_png, repo_prompt], stem)
+            print(f"Repository image: {repo_png}")
+            print(f"Repository prompt: {repo_prompt}")
+        except Exception as exc:
+            print(f"Repository publish failed for {stem}: {exc}", file=sys.stderr)
+            failures += 1
+
+    if failures:
+        _die(f"Completed with {failures} failure(s)", exit_code=2)
 
 
 if __name__ == "__main__":
