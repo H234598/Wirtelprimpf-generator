@@ -192,6 +192,11 @@ SLEEP_SECONDS=120 ./Sourcecode/watch_minor_version.sh
 MAX_STALE_LOCK_SECONDS=1200 DEFAULT_RETRY_DELAY_SECONDS=10 ./Sourcecode/watch_minor_version.sh --once
 ```
 
+Hinweise zu Minima:
+- `SLEEP_SECONDS >= 1`
+- `DEFAULT_RETRY_DELAY_SECONDS >= 1`
+- `MAX_STALE_LOCK_SECONDS >= 10`
+
 Ein einmaliger Check kann auch unabhängig laufen:
 
 ```bash
