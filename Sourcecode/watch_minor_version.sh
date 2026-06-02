@@ -114,7 +114,9 @@ else
 fi
 validate_publish_state_path "$PUBLISH_STATE_FILE"
 STATE_FILE="$ROOT_DIR/Sourcecode/.minor_version_state"
+require_directory "$(dirname "$STATE_FILE")" "State directory"
 LOCK_FILE="$ROOT_DIR/Sourcecode/.minor_version_watch.lock"
+require_directory "$(dirname "$LOCK_FILE")" "Lock directory"
 LOCK_TMP="${LOCK_FILE}.tmp.$$"
 TIMESTAMP_FILE="$STATE_FILE.started_at"
 CHECKS_SCRIPT="$ROOT_DIR/Sourcecode/check_wirtelprimpf.sh"
@@ -135,6 +137,23 @@ parse_positive_int() {
     return
   fi
   echo "$value"
+}
+
+require_directory() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -d "$path" ]]; then
+    log "${label} must be a directory: $path"
+    exit 1
+  fi
+  if [[ -L "$path" ]]; then
+    log "${label} must not be a symlink: $path"
+    exit 1
+  fi
+  if [[ ! -w "$path" && ! -r "$path" ]]; then
+    log "${label} is not accessible: $path"
+    exit 1
+  fi
 }
 
 SLEEP_SECONDS="$(parse_positive_int "$SLEEP_SECONDS" 300 1)"
