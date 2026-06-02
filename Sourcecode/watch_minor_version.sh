@@ -169,14 +169,25 @@ major_str, minor_str, _patch_str, suffix = parsed.groups()
 patches_per_minor_raw = os.environ.get("WIRTELPRIMPF_PATCHES_PER_MINOR", "100")
 major_bump_raw = os.environ.get("WIRTELPRIMPF_MAJOR_VERSION_BUMP", "0")
 breaking_raw = os.environ.get("WIRTELPRIMPF_BREAKING_CHANGE", "0")
-try:
-    patches_per_minor = int(patches_per_minor_raw)
-    if patches_per_minor < 1:
-        raise ValueError
-except ValueError:
-    raise SystemExit(f"invalid WIRTELPRIMPF_PATCHES_PER_MINOR value: {patches_per_minor_raw!r}")
-if patches_per_minor != PATCHES_PER_MINOR:
-    raise SystemExit(f"invalid WIRTELPRIMPF_PATCHES_PER_MINOR value: {patches_per_minor!r}, expected {PATCHES_PER_MINOR}")
+
+def parse_positive_int(name, value):
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 1")
+    if parsed < 1:
+        raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 1")
+    return parsed
+
+def parse_non_negative_int(name, value):
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 0")
+    if parsed < 0:
+        raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 0")
+    return parsed
+
 def parse_bool(name, value):
     normalized = str(value).strip().lower()
     if normalized in {"1", "true", "yes", "on", "enabled", "enable"}:
@@ -185,12 +196,10 @@ def parse_bool(name, value):
         return False
     raise SystemExit(f"invalid {name} value: {value!r}")
 
-try:
-    major_bump = int(major_bump_raw)
-    if major_bump < 0:
-        raise ValueError
-except ValueError:
-    raise SystemExit(f"invalid WIRTELPRIMPF_MAJOR_VERSION_BUMP value: {major_bump_raw!r}")
+patches_per_minor = parse_positive_int("WIRTELPRIMPF_PATCHES_PER_MINOR", patches_per_minor_raw)
+if patches_per_minor != PATCHES_PER_MINOR:
+    raise SystemExit(f"invalid WIRTELPRIMPF_PATCHES_PER_MINOR value: {patches_per_minor!r}, expected {PATCHES_PER_MINOR}")
+major_bump = parse_non_negative_int("WIRTELPRIMPF_MAJOR_VERSION_BUMP", major_bump_raw)
 breaking_change = parse_bool("WIRTELPRIMPF_BREAKING_CHANGE", breaking_raw)
 
 if state_patch_count == 0:
