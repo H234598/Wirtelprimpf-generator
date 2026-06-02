@@ -514,6 +514,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
         "version": VERSION,
         "timestamp": timestamp,
         "status": STATUS_OK,
+        "exit_code": 0,
         "checks": [],
         "details": {
             "git_available": bool(shutil.which("git")),
@@ -527,6 +528,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
         checks.append({"name": "load_config", "ok": False, "message": "Configuration loading failed"})
         report["ok"] = False
         report["status"] = STATUS_ERROR
+        report["exit_code"] = 1
         return report
 
     prompt_config = config.prompt_config_path
@@ -534,6 +536,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
     if not prompt_config.exists():
         report["ok"] = False
         report["status"] = STATUS_ERROR
+        report["exit_code"] = 1
         checks.append({"name": "prompt_config_parse", "ok": False, "message": "Prompt config file missing"})
         return report
 
@@ -542,6 +545,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
     except Exception as exc:
         report["ok"] = False
         report["status"] = STATUS_ERROR
+        report["exit_code"] = 1
         checks.append({"name": "prompt_config_parse", "ok": False, "message": str(exc)})
     else:
         checks.append(
@@ -567,6 +571,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             if not (is_dir and writable):
                 report["ok"] = False
                 report["status"] = STATUS_ERROR
+                report["exit_code"] = 1
         else:
             parent = config.local_outdir.parent
             parent_is_dir = parent.is_dir()
@@ -584,6 +589,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             if not parent_is_dir or not parent_writable:
                 report["ok"] = False
                 report["status"] = STATUS_ERROR
+                report["exit_code"] = 1
 
     if config.repo_path is None:
         checks.append({"name": "repo", "ok": True, "enabled": False})
@@ -595,22 +601,26 @@ def status_report(config: Config | None = None) -> dict[str, object]:
                 repo_checks["message"] = "Configured repo path is not a git repository"
                 report["ok"] = False
                 report["status"] = STATUS_ERROR
+                report["exit_code"] = 1
         elif not config.repo_slug:
             repo_checks["ok"] = False
             repo_checks["message"] = "Repo path does not exist and WIRTELPRIMPF_REPO_SLUG is not configured"
             report["ok"] = False
             report["status"] = STATUS_ERROR
+            report["exit_code"] = 1
         elif not shutil.which("gh"):
             repo_checks["ok"] = False
             repo_checks["message"] = "gh CLI is required to auto-clone missing repo path"
             report["ok"] = False
             report["status"] = STATUS_ERROR
+            report["exit_code"] = 1
         checks.append(repo_checks)
 
     if not env("OPENAI_API_KEY"):
         checks.append({"name": "openai_key", "ok": False, "message": "OPENAI_API_KEY not set"})
         report["ok"] = False
         report["status"] = STATUS_ERROR
+        report["exit_code"] = 1
 
     return report
 

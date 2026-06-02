@@ -164,6 +164,7 @@ The JSON form can be used for automation:
   "version": "0.5.6-hardening",
   "timestamp": "2026-06-02T19:23:00Z",
   "status": "ok",
+  "exit_code": 0,
   "details": {
     "git_available": true,
     "gh_available": false,
