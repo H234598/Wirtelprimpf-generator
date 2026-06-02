@@ -336,6 +336,9 @@ run_command_sandboxed() {
   elif [[ "${cmd[0]}" != /* ]]; then
     echo "Only absolute command paths are allowed in sandboxed execution: ${cmd[0]}" >&2
     return 1
+  elif [[ -L "${cmd[0]}" || ! -x "${cmd[0]}" ]]; then
+    echo "Sandboxed command must be an executable non-symlink file: ${cmd[0]}" >&2
+    return 1
   else
     "${cmd[@]}"
   fi
