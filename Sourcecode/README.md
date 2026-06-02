@@ -221,7 +221,10 @@ systemctl --user status wirtelprimpf-version-watch.service --no-pager
 systemctl --user status wirtelprimpf-version-watch.timer --no-pager
 ```
 
-Der Dienst läuft nach `--once`-Logik weiterhin im Hintergrund und prüft bei jedem Minor-Bump erneut den ganzen Check-Block.
+Der Dienst läuft im Dauermodus:
+- Ein einzelner Watcher-Prozess hält exklusiv den Lock.
+- Bei jeder erkannten Minor-Änderung wird genau ein Check-Block ausgeführt.
+- Danach kehrt er in das Intervall zurück.
 
 Validation helpers:
 
