@@ -258,8 +258,25 @@ if ! validate_python_binary "$PY"; then
   exit 1
 fi
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
-if ! CHECK_TMPDIR="$(mktemp -d -t wirtelprimpf-check-XXXXXX)"; then
+CHECK_TMP_BASE_DIR="${ROOT_DIR}/Sourcecode/.check_runtime_tmp"
+if [[ -L "$CHECK_TMP_BASE_DIR" ]]; then
+  echo "Check temp base directory must not be a symlink: ${CHECK_TMP_BASE_DIR}" >&2
+  exit 1
+fi
+if ! mkdir -p "$CHECK_TMP_BASE_DIR"; then
+  echo "Failed to create check temp base directory: ${CHECK_TMP_BASE_DIR}" >&2
+  exit 1
+fi
+if ! is_strict_secure_directory "$CHECK_TMP_BASE_DIR" "Check temp base directory"; then
+  exit 1
+fi
+if ! CHECK_TMPDIR="$(mktemp -d -p "$CHECK_TMP_BASE_DIR" -t wirtelprimpf-check-XXXXXX)"; then
   echo "Failed to create temporary directory" >&2
+  exit 1
+fi
+if [[ "$CHECK_TMPDIR" != "$CHECK_TMP_BASE_DIR"/* ]]; then
+  rm -rf "$CHECK_TMPDIR"
+  echo "Check temporary directory must be under ${CHECK_TMP_BASE_DIR}: ${CHECK_TMPDIR}" >&2
   exit 1
 fi
 
