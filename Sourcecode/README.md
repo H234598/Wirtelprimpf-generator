@@ -274,7 +274,10 @@ The JSON form can be used for automation and is emitted as one compact object pe
   "details": {
     "git_available": true,
     "gh_available": false,
-    "openai_key_present": true
+    "openai_key_present": true,
+    "major_version_bump": 0,
+    "breaking_change": false,
+    "effective_major_version_base": 0
   },
   "checks": [
     {"name": "prompt_config_file", "ok": true, "path": "..."},
