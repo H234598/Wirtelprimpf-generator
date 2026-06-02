@@ -649,7 +649,7 @@ is_secure_regular_file() {
   if ! is_regular_file "$path"; then
     return 1
   fi
-  if [[ ! -r "$path" || ! -w "$path" || ! -x "$path" ]]; then
+  if [[ ! -r "$path" || ! -w "$path" ]]; then
     return 1
   fi
   if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
