@@ -311,7 +311,10 @@ if [[ "${1:-}" == "--once" ]]; then
 	if [[ -z "$prev" ]]; then
 		prev="$state_file_value"
 	fi
-	current="$(get_minor_version)"
+	if ! current="$(get_minor_version)"; then
+		log "failed to compute current minor version"
+		exit 1
+	fi
 	if [[ -z "$prev" ]]; then
 		prev="$current"
 	fi
@@ -335,7 +338,14 @@ while true; do
 	if [[ -z "$prev" ]]; then
 		prev="$state_file_value"
 	fi
-	current="$(get_minor_version)"
+	if ! current="$(get_minor_version)"; then
+		log "failed to compute current minor version"
+		exit 1
+	fi
+	if [[ -z "$current" ]]; then
+		log "current minor version is empty"
+		exit 1
+	fi
 
   if [[ "$current" != "$prev" ]]; then
     require_file "$CHECKS_SCRIPT" "Checks script"
