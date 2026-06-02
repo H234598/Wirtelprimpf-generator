@@ -369,7 +369,7 @@ line in its text output.
 ### Exit codes
 
 - `0`: success
-- `1`: unrecoverable setup/configuration failure (missing key, invalid config, repo errors)
+- `1`: unrecoverable setup/configuration failure for execution paths (invalid config, repo/path issues, or missing API key when generation is attempted)
 - `2`: partial failure (one or more prompts/images failed, but at least one succeeded)
 
 ## Hourly Timer
