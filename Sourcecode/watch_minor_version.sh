@@ -66,9 +66,22 @@ require_file "$PY_SCRIPT" "Generator script"
 
 write_state() {
   local value="$1"
-  mkdir -p "$(dirname "$STATE_FILE")"
-  printf '%s\n' "$value" > "$STATE_FILE.tmp.$$"
-  mv -f "$STATE_FILE.tmp.$$" "$STATE_FILE"
+  local state_dir
+  state_dir="$(dirname "$STATE_FILE")"
+  if ! mkdir -p "$state_dir"; then
+    log "failed to create state directory: $state_dir"
+    return 1
+  fi
+  if ! printf '%s\n' "$value" > "$STATE_FILE.tmp.$$"; then
+    log "failed to write state temp file: $STATE_FILE.tmp.$$"
+    rm -f "$STATE_FILE.tmp.$$" 2>/dev/null || true
+    return 1
+  fi
+  if ! mv -f "$STATE_FILE.tmp.$$" "$STATE_FILE"; then
+    log "failed to persist state file: $STATE_FILE"
+    rm -f "$STATE_FILE.tmp.$$" 2>/dev/null || true
+    return 1
+  fi
 }
 
 refresh_state_timestamp() {
