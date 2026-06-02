@@ -6,6 +6,16 @@ PY=${PYTHON_BIN:-python3}
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
 CHECK_TMPDIR="$(mktemp -d)"
 
+if ! command -v "$PY" >/dev/null 2>&1; then
+  echo "Python executable not found: ${PY}" >&2
+  exit 1
+fi
+
+if [[ ! -f "$PY_SCRIPT" ]]; then
+  echo "Generator script missing: $PY_SCRIPT" >&2
+  exit 1
+fi
+
 cleanup_checks() {
   rm -rf "$CHECK_TMPDIR"
 }
