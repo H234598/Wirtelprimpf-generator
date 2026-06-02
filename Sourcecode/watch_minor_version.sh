@@ -3,17 +3,21 @@ set -euo pipefail
 umask 077
 IFS=$'\n\t'
 
+declare -r SAFE_EXEC_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$SAFE_EXEC_PATH"
+
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURRENT_UID="$(id -u)"
 readonly CURRENT_UID
-if [[ -n "${PYTHON_BIN:-}" && ("${PYTHON_BIN}" == *[[:space:]]* || "${PYTHON_BIN}" == *[$'\r\n\t\v\f']* || "${PYTHON_BIN}" != "${PYTHON_BIN//[^a-zA-Z0-9._-]/}") ]]; then
-  log "PYTHON_BIN contains invalid characters: ${PYTHON_BIN}"
-  exit 1
-fi
 
 log() {
   printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"
 }
+
+if [[ -n "${PYTHON_BIN:-}" && ("${PYTHON_BIN}" == *[[:space:]]* || "${PYTHON_BIN}" == *[$'\r\n\t\v\f']* || "${PYTHON_BIN}" != "${PYTHON_BIN//[^a-zA-Z0-9._-]/}") ]]; then
+  log "PYTHON_BIN contains invalid characters: ${PYTHON_BIN}"
+  exit 1
+fi
 
 declare -ar SECURITY_PATHS_ARRAY=(/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin)
 declare -r SECURITY_BIN_NAME_PATTERNS="python3|python3\.[0-9]+"
@@ -489,12 +493,36 @@ dependency_signature() {
   local path="$1"
   local parent
   local signature
-  local parent_mode parent_meta owner group mode mtime inode size
+  local parent_mode parent_owner parent_meta
+  local owner group mode mtime inode size path_meta
   if [[ "$path" != "$PY_SCRIPT" && "$path" != "$PUBLISH_STATE_FILE" ]]; then
     return 1
   fi
   if [[ -z "$path" ]]; then
     return 1
+  fi
+  if [[ "$path" == "$PUBLISH_STATE_FILE" && ! -e "$path" ]]; then
+    parent="$(dirname -- "$path")"
+    if [[ "$parent" == /tmp/* || "$parent" == /var/tmp/* || "$parent" == /run/* || "$parent" == /dev/* ]]; then
+      return 1
+    fi
+    if [[ -L "$parent" || ! -d "$parent" || ! -r "$parent" || ! -x "$parent" || ! -w "$parent" ]]; then
+      return 1
+    fi
+    if ! parent_meta="$(stat -c '%a:%u' "$parent" 2>/dev/null)"; then
+      return 1
+    fi
+    if ! IFS=':' read -r parent_mode parent_owner <<< "$parent_meta"; then
+      return 1
+    fi
+    if [[ "$parent_owner" != "$CURRENT_UID" ]]; then
+      return 1
+    fi
+    if (( 10#$parent_mode & 022 )); then
+      return 1
+    fi
+    echo "PUBLISH_STATE_MISSING:${path}"
+    return 0
   fi
   if [[ -L "$path" || ! -f "$path" || ! -r "$path" ]]; then
     return 1
@@ -524,17 +552,12 @@ dependency_signature() {
   if (( 10#$parent_mode & 022 )); then
     return 1
   fi
-  if [[ ! -f "$path" ]]; then
+  if ! path_meta="$(stat -c '%u:%g:%a:%Y:%i:%s' "$path" 2>/dev/null)"; then
     return 1
   fi
-  if [[ ! -r "$path" ]]; then
+  if ! IFS=':' read -r owner group mode mtime inode size <<< "$path_meta"; then
     return 1
   fi
-  local owner group mode mtime inode size meta
-  if ! meta="$(stat -c '%u:%g:%a:%Y:%i:%s' "$path" 2>/dev/null)"; then
-    return 1
-  fi
-  IFS=':' read -r owner group mode mtime inode size <<< "$meta"
   if [[ -z "$owner" || -z "$group" || -z "$mode" || -z "$mtime" || -z "$inode" || -z "$size" ]]; then
     return 1
   fi
@@ -882,7 +905,7 @@ read_timestamp_epoch() {
   if ! validate_runtime_file_for_read "$TIMESTAMP_FILE" "Timestamp file"; then
     return 1
   fi
-  if ! value="$(cat "$TIMESTAMP_FILE" 2>/dev/null || true)"; then
+  if ! IFS= read -r value < "$TIMESTAMP_FILE"; then
     log "failed to read timestamp file: $TIMESTAMP_FILE"
     return 1
   fi
@@ -901,6 +924,23 @@ cleanup_lock_tmp() {
   if [[ -n "$LOCK_TMP" ]]; then
     rm -f "$LOCK_TMP" 2>/dev/null || true
   fi
+}
+
+read_pid_from_file() {
+  local path="$1"
+  local pid
+  if [[ -z "$path" || ! -r "$path" ]]; then
+    return 1
+  fi
+  if ! IFS= read -r pid < "$path"; then
+    return 1
+  fi
+  pid="${pid//$'\r'/}"
+  pid="${pid//$'\n'/}"
+  if [[ -z "$pid" ]]; then
+    return 1
+  fi
+  printf '%s' "$pid"
 }
 
 safe_unlink_runtime_file() {
@@ -1015,14 +1055,11 @@ acquire_lock() {
     exec 9>"$LOCK_FILE"
     if ! flock -n 9; then
       local pid
-      if ! pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"; then
+      if ! pid="$(read_pid_from_file "$LOCK_FILE")"; then
         log "failed to read lock holder pid, exiting: $LOCK_FILE"
         cleanup_lock_fd
         return 1
       fi
-      pid="${pid//$'\r'/}"
-      pid="${pid//$'\n'/}"
-      pid="$(printf '%s' "$pid")"
       if ! is_strict_positive_pid "$pid"; then
         log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
         cleanup_lock_fd
@@ -1042,91 +1079,93 @@ acquire_lock() {
     return
   fi
 
-  if ! LOCK_TMP="$(mktemp "${LOCK_FILE}.tmp.XXXXXX")"; then
-    log "failed to create temporary lock file under $(dirname "$LOCK_FILE")"
-    return 1
-  fi
-  if [[ "$LOCK_TMP" != "$(dirname -- "$LOCK_FILE")"/* ]]; then
-    log "fallback lock temporary file escaped lock directory: $LOCK_TMP"
-    cleanup_lock_tmp
-    return 1
-  fi
-  if [[ -L "$LOCK_TMP" ]]; then
-    log "fallback lock temporary file must not be a symlink: $LOCK_TMP"
-    cleanup_lock_tmp
-    return 1
-  fi
-  if ! printf '%s\n' "$$" > "$LOCK_TMP"; then
-    log "failed to write temporary lock holder pid: $LOCK_TMP"
-    cleanup_lock_tmp
-    return 1
-  fi
-
-  if [[ -e "$LOCK_FILE" ]]; then
-    local pid
-    if ! pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"; then
-      log "failed to read lock file, exiting: $LOCK_FILE"
+  local attempts=0
+  local max_attempts=32
+  while (( attempts < max_attempts )); do
+    attempts=$(( attempts + 1 ))
+    if ! LOCK_TMP="$(mktemp "${LOCK_FILE}.tmp.XXXXXX")"; then
+      log "failed to create temporary lock file under $(dirname "$LOCK_FILE")"
+      return 1
+    fi
+    if [[ "$LOCK_TMP" != "$(dirname -- "$LOCK_FILE")"/* ]]; then
+      log "fallback lock temporary file escaped lock directory: $LOCK_TMP"
       cleanup_lock_tmp
       return 1
     fi
-    pid="${pid//$'\r'/}"
-    pid="${pid//$'\n'/}"
-    pid="$(printf '%s' "$pid")"
+    if [[ -L "$LOCK_TMP" ]]; then
+      log "fallback lock temporary file must not be a symlink: $LOCK_TMP"
+      cleanup_lock_tmp
+      return 1
+    fi
+    if ! printf '%s\n' "$$" > "$LOCK_TMP"; then
+      log "failed to write temporary lock holder pid: $LOCK_TMP"
+      cleanup_lock_tmp
+      return 1
+    fi
+
+    if ln "$LOCK_TMP" "$LOCK_FILE" 2>/dev/null; then
+      if ! rm -f "$LOCK_TMP" 2>/dev/null; then
+        safe_unlink_runtime_file "$LOCK_FILE" || true
+        log "failed to clean up lock temp file: $LOCK_TMP"
+        return 1
+      fi
+      LOCK_TMP=""
+      if ! is_owned_by_current_user "$LOCK_FILE"; then
+        log "lock file not owned by current user after acquisition: $LOCK_FILE"
+        safe_unlink_runtime_file "$LOCK_FILE" || true
+        return 1
+      fi
+      if [[ -L "$LOCK_FILE" ]]; then
+        log "lock file became symlink: $LOCK_FILE"
+        safe_unlink_runtime_file "$LOCK_FILE" || true
+        return 1
+      fi
+      trap 'cleanup_lock_tmp; safe_unlink_runtime_file "$LOCK_FILE" || true; safe_unlink_runtime_file "$TIMESTAMP_FILE" || true' EXIT
+      return
+    fi
+
+    cleanup_lock_tmp
+
+    if [[ ! -f "$LOCK_FILE" ]]; then
+      continue
+    fi
+
+    local pid
+    if ! pid="$(read_pid_from_file "$LOCK_FILE")"; then
+      log "failed to read lock file, exiting: $LOCK_FILE"
+      return 1
+    fi
     if ! is_strict_positive_pid "$pid"; then
       log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
-      cleanup_lock_tmp
       return 1
     fi
     if ! validate_lock_file "$LOCK_FILE"; then
       log "invalid lock file state after reading pid: $LOCK_FILE"
-      cleanup_lock_tmp
       return 1
     fi
-    if [[ -f "$LOCK_FILE" ]]; then
+    if ! is_running_pid "$pid"; then
       local now
       now=$(date +%s)
       local lock_mtime age
       lock_mtime=$(stat -c '%Y' "$LOCK_FILE" 2>/dev/null || echo "$now")
       age=$((now - lock_mtime))
-      if ! is_strict_positive_pid "$pid"; then
-        log "fallback lock file has invalid pid value (${pid:-unknown}), refusing to steal fresh lock"
-        cleanup_lock_tmp
-        return 1
-      fi
-      if [[ "$age" -lt "$MAX_STALE_LOCK_SECONDS" ]] && is_running_pid "$pid"; then
+      if [[ "$age" -lt "$MAX_STALE_LOCK_SECONDS" ]]; then
         log "another watcher instance is running (fallback lock), exiting"
-        cleanup_lock_tmp
         return 1
       fi
       log "stale fallback lock detected (${age}s), stealing lock"
       if ! safe_unlink_runtime_file "$LOCK_FILE"; then
         log "failed to remove stale fallback lock: $LOCK_FILE"
-        cleanup_lock_tmp
         return 1
       fi
+      continue
     fi
-  fi
+    log "another watcher instance is running (fallback lock), exiting"
+    return 1
 
-  if ! mv "$LOCK_TMP" "$LOCK_FILE"; then
-    log "failed to acquire fallback lock file via rename: $LOCK_TMP -> $LOCK_FILE"
-    cleanup_lock_tmp
-    return 1
-  fi
-  if [[ ! -f "$LOCK_TMP" && ! -f "$LOCK_FILE" ]]; then
-    log "lock file not materialized after rename: $LOCK_FILE"
-    return 1
-  fi
-  if [[ -L "$LOCK_FILE" ]]; then
-    log "lock file became symlink: $LOCK_FILE"
-    safe_unlink_runtime_file "$LOCK_FILE" || true
-    return 1
-  fi
-  if ! is_owned_by_current_user "$LOCK_FILE"; then
-    log "lock file not owned by current user after acquisition: $LOCK_FILE"
-    safe_unlink_runtime_file "$LOCK_FILE" || true
-    return 1
-  fi
-  trap 'cleanup_lock_tmp; safe_unlink_runtime_file "$LOCK_FILE" || true; safe_unlink_runtime_file "$TIMESTAMP_FILE" || true' EXIT
+  done
+  log "timeout while acquiring fallback lock: $LOCK_FILE"
+  return 1
 }
 
 get_minor_version() {
@@ -1239,7 +1278,7 @@ read_state_version() {
     echo ""
     return
   fi
-  if ! value="$(cat "$STATE_FILE" 2>/dev/null || true)"; then
+  if ! IFS= read -r value < "$STATE_FILE"; then
     log "failed to read state file: $STATE_FILE"
     echo ""
     return
@@ -1326,6 +1365,44 @@ apply_version_change() {
   return 0
 }
 
+resolve_current_minor_version() {
+  local next_script_sig
+  local next_state_sig
+  local current
+
+  if ! next_script_sig="$(dependency_signature "$PY_SCRIPT")"; then
+    log "failed to read generator script signature: $PY_SCRIPT"
+    return 1
+  fi
+  if ! next_state_sig="$(dependency_signature "$PUBLISH_STATE_FILE")"; then
+    log "failed to read publish state signature: $PUBLISH_STATE_FILE"
+    return 1
+  fi
+
+  if [[ "$next_script_sig" != "$SCRIPT_DEPENDENCY_SIGNATURE" || "$next_state_sig" != "$PUBLISH_STATE_SIGNATURE" ]]; then
+    if ! current="$(get_minor_version)"; then
+      log "failed to compute current minor version"
+      return 1
+    fi
+    SCRIPT_DEPENDENCY_SIGNATURE="$next_script_sig"
+    PUBLISH_STATE_SIGNATURE="$next_state_sig"
+    CURRENT_VERSION="$current"
+  else
+    current="$CURRENT_VERSION"
+  fi
+
+  if [[ -z "$current" ]]; then
+    log "current minor version is empty"
+    return 1
+  fi
+  if ! is_valid_version "$current"; then
+    log "invalid derived current version: $current"
+    return 1
+  fi
+
+  printf '%s\n' "$current"
+}
+
 acquire_lock
 
 if ! init_state="$(get_minor_version)"; then
@@ -1366,31 +1443,7 @@ if [[ "${1:-}" == "--once" ]]; then
     log "invalid previous version in state: $prev"
     exit 1
   fi
-  next_script_sig="$(dependency_signature "$PY_SCRIPT")" || {
-    log "failed to read generator script signature: $PY_SCRIPT"
-    exit 1
-  }
-  next_state_sig="$(dependency_signature "$PUBLISH_STATE_FILE")" || {
-    log "failed to read publish state signature: $PUBLISH_STATE_FILE"
-    exit 1
-  }
-  if [[ "$next_script_sig" != "$SCRIPT_DEPENDENCY_SIGNATURE" || "$next_state_sig" != "$PUBLISH_STATE_SIGNATURE" ]]; then
-    if ! current="$(get_minor_version)"; then
-      log "failed to compute current minor version"
-      exit 1
-    fi
-    SCRIPT_DEPENDENCY_SIGNATURE="$next_script_sig"
-    PUBLISH_STATE_SIGNATURE="$next_state_sig"
-    CURRENT_VERSION="$current"
-  else
-    current="$CURRENT_VERSION"
-  fi
-  if [[ -z "$current" ]]; then
-    log "current minor version is empty"
-    exit 1
-  fi
-  if ! is_valid_version "$current"; then
-    log "invalid derived current version: $current"
+  if ! current="$(resolve_current_minor_version)"; then
     exit 1
   fi
   if [[ "$current" != "$prev" ]]; then
@@ -1403,39 +1456,15 @@ fi
 
 last_version="$state_file_value"
 while true; do
-  next_script_sig="$(dependency_signature "$PY_SCRIPT")" || {
-    log "failed to read generator script signature: $PY_SCRIPT"
-    exit 1
-  }
-  next_state_sig="$(dependency_signature "$PUBLISH_STATE_FILE")" || {
-    log "failed to read publish state signature: $PUBLISH_STATE_FILE"
-    exit 1
-  }
-  if [[ "$next_script_sig" != "$SCRIPT_DEPENDENCY_SIGNATURE" || "$next_state_sig" != "$PUBLISH_STATE_SIGNATURE" ]]; then
-    if ! current="$(get_minor_version)"; then
-      log "failed to compute current minor version"
-      exit 1
-    fi
-    SCRIPT_DEPENDENCY_SIGNATURE="$next_script_sig"
-    PUBLISH_STATE_SIGNATURE="$next_state_sig"
-    CURRENT_VERSION="$current"
-  else
-    current="$CURRENT_VERSION"
-  fi
-  if [[ -z "$current" ]]; then
-    log "current minor version is empty"
-    exit 1
-  fi
-  if ! is_valid_version "$current"; then
-    log "invalid derived current version: $current"
+  if ! current="$(resolve_current_minor_version)"; then
     exit 1
   fi
 
   if [[ "$current" != "$last_version" ]]; then
-	    if ! apply_version_change "$last_version" "$current"; then
-	      exit 1
-	    fi
-      last_version="$current"
+    if ! apply_version_change "$last_version" "$current"; then
+      exit 1
+    fi
+    last_version="$current"
     sleep "$DEFAULT_RETRY_DELAY_SECONDS"
     continue
   fi
@@ -1444,15 +1473,6 @@ while true; do
     now_epoch="$(date +%s)"
     if ! last_epoch="$(read_timestamp_epoch)"; then
       log "failed to read timestamp epoch from file: $TIMESTAMP_FILE"
-      if ! refresh_state_timestamp; then
-        log "failed to refresh timestamp file: $TIMESTAMP_FILE"
-        exit 1
-      fi
-      sleep "$DEFAULT_RETRY_DELAY_SECONDS"
-      continue
-    fi
-    if [[ ! "$last_epoch" =~ ^[0-9]+$ ]]; then
-      log "invalid timestamp epoch from file: $last_epoch"
       if ! refresh_state_timestamp; then
         log "failed to refresh timestamp file: $TIMESTAMP_FILE"
         exit 1

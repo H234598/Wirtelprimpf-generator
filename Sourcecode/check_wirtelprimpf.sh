@@ -498,7 +498,7 @@ run_command_sandboxed() {
       TERM="xterm-256color" \
       USER="" \
       LOGNAME="" \
-      "$command_canonical" "${cmd[@]}"
+      "$command_canonical" "${cmd[@]:1}"
   fi
 }
 

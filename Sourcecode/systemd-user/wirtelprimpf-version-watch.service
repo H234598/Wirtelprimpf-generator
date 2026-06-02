@@ -9,8 +9,8 @@ ExecStart=%h/.local/share/wirtelprimpf/github/Katzenbilder/Sourcecode/watch_mino
 Restart=always
 RestartSec=10
 Environment=SLEEP_SECONDS=300
-StandardOutput=append:/tmp/wirtelprimpf-watch-service.log
-StandardError=append:/tmp/wirtelprimpf-watch-service.log
+StandardError=append:%h/.local/share/wirtelprimpf/github/Katzenbilder/Sourcecode/watch_service.log
+StandardOutput=append:%h/.local/share/wirtelprimpf/github/Katzenbilder/Sourcecode/watch_service.log
 
 [Install]
 WantedBy=default.target
