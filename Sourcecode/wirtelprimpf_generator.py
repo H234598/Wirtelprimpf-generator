@@ -389,10 +389,9 @@ def load_config() -> Config:
             env("WIRTELPRIMPF_MAJOR_VERSION_BUMP"),
             default=0,
         ),
-        patches_per_minor=parse_positive_int(
+        patches_per_minor=parse_patches_per_minor(
             "WIRTELPRIMPF_PATCHES_PER_MINOR",
             env("WIRTELPRIMPF_PATCHES_PER_MINOR"),
-            default=DEFAULT_PATCHES_PER_MINOR,
         ),
         minor_pushes_per_release=parse_positive_int(
             "WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE",
@@ -408,6 +407,13 @@ def ensure_config_consistency(config: Config) -> Config:
             "WIRTELPRIMPF_PATCHES_PER_MINOR must be 100; other values are not supported."
         )
     return config
+
+
+def parse_patches_per_minor(name: str, value: str | None) -> int:
+    parsed = parse_positive_int(name, value, default=DEFAULT_PATCHES_PER_MINOR)
+    if parsed != DEFAULT_PATCHES_PER_MINOR:
+        raise RuntimeError(f"Invalid {name} value: {value!r}. Expected {DEFAULT_PATCHES_PER_MINOR}")
+    return parsed
 
 
 def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
