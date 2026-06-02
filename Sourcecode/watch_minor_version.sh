@@ -534,6 +534,39 @@ parse_positive_int() {
 
 dependency_signature() {
   local path="$1"
+  local canonical parent
+  if [[ -z "$path" ]]; then
+    return 1
+  fi
+  if ! canonical="$(readlink -f -- "$path" 2>/dev/null || true)"; then
+    return 1
+  fi
+  if [[ -z "$canonical" || "$canonical" != "$path" ]]; then
+    return 1
+  fi
+  parent="$(dirname -- "$canonical")"
+  if [[ "$parent" == /tmp/* || "$parent" == /var/tmp/* || "$parent" == /run/* || "$parent" == /dev/* ]]; then
+    return 1
+  fi
+  if [[ -L "$parent" ]]; then
+    return 1
+  fi
+  if [[ ! -d "$parent" ]]; then
+    return 1
+  fi
+  if ! is_owned_by_current_user "$parent"; then
+    return 1
+  fi
+  if [[ ! -r "$parent" || ! -x "$parent" || ! -w "$parent" ]]; then
+    return 1
+  fi
+  local parent_mode
+  if ! parent_mode="$(stat -c '%a' "$parent" 2>/dev/null)"; then
+    return 1
+  fi
+  if (( 10#$parent_mode & 022 )); then
+    return 1
+  fi
   if [[ -L "$path" ]]; then
     return 1
   fi
