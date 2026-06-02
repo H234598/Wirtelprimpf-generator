@@ -136,6 +136,21 @@ these placeholders:
 {style}
 ```
 
+The local mirror file is intentionally separate from the repository default. If you changed
+local rules, keep them intact and check drift before syncing:
+
+```bash
+PROMPT_CONFIG="${WIRTELPRIMPF_PROMPT_CONFIG:-$HOME/.config/wirtelprimpf/prompt_config.json}"
+cmp -s Sourcecode/wirtelprimpf_prompt_config.json "$PROMPT_CONFIG" || echo "Local prompt config differs from default"
+
+# Optional intentional sync from repository default (back up custom file first).
+if [[ -e "$PROMPT_CONFIG" ]]; then
+  cp -p -- "$PROMPT_CONFIG" "$PROMPT_CONFIG.bak"
+fi
+mkdir -p -- "$(dirname -- "$PROMPT_CONFIG")"
+install -m 600 Sourcecode/wirtelprimpf_prompt_config.json "$PROMPT_CONFIG"
+```
+
 ### Resolution
 
 The OpenAI image API does not generate arbitrary 4K/2K frames directly. The
