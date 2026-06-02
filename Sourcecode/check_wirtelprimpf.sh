@@ -62,7 +62,7 @@ resolve_python() {
       if ! resolved_canonical="$(readlink -f -- "$resolved" 2>/dev/null)"; then
         continue
       fi
-      if [[ "$resolved_canonical" != "$resolved" || ! -x "$resolved_canonical" || -L "$resolved_canonical" ]]; then
+      if [[ "$resolved_canonical" != "$resolved" ]]; then
         continue
       fi
       case "$resolved_canonical" in
