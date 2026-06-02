@@ -124,7 +124,14 @@ acquire_lock() {
     exec 9>"$LOCK_FILE"
     if ! flock -n 9; then
       local pid
-      pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+      if ! pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"; then
+        log "failed to read lock holder pid, exiting: $LOCK_FILE"
+        exit 0
+      fi
+      if [[ -n "$pid" && ! "$pid" =~ ^[0-9]+$ ]]; then
+        log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
+        exit 0
+      fi
       log "another watcher instance is running (flock), exiting (holder=${pid:-unknown})"
       exit 0
     fi
