@@ -67,7 +67,10 @@ run_check() {
     echo "No command supplied for check: $label" >&2
     exit 1
   fi
-  "$@"
+  if ! "$@"; then
+    echo "Check failed: ${label}" >&2
+    return 1
+  fi
 }
 
 assert_file_non_empty() {
