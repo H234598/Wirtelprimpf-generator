@@ -11,6 +11,11 @@ if ! command -v "$PY" >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ ! -x "$PY" ]]; then
+  echo "Python path is not executable: ${PY}" >&2
+  exit 1
+fi
+
 if [[ ! -f "$PY_SCRIPT" ]]; then
   echo "Generator script missing: $PY_SCRIPT" >&2
   exit 1
@@ -29,6 +34,10 @@ run_check() {
   local label="$1"
   shift
   log "running: $label"
+  if [[ $# -eq 0 ]]; then
+    echo "No command supplied for check: $label" >&2
+    exit 1
+  fi
   "$@"
 }
 
