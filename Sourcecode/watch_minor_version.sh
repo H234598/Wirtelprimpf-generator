@@ -141,6 +141,11 @@ validate_python_binary() {
     PYTHON_BINARY_CACHE_PATH="$path"
     return 1
   fi
+  if [[ -L "$mountpoint" ]]; then
+    PYTHON_BINARY_CACHE_RESULT=1
+    PYTHON_BINARY_CACHE_PATH="$path"
+    return 1
+  fi
   if ! parent_owner="$(stat -c '%a %u' "$parent_dir" 2>/dev/null)"; then
     PYTHON_BINARY_CACHE_RESULT=1
     PYTHON_BINARY_CACHE_PATH="$path"
