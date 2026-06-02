@@ -37,6 +37,9 @@ if ! CHECK_TMPDIR="$(mktemp -d)"; then
   echo "Failed to create temporary directory" >&2
   exit 1
 fi
+readonly CHECK_TMPDIR
+readonly PY_SCRIPT
+readonly PY
 
 if [[ ! -x "$PY" ]]; then
   echo "Python path is not executable: ${PY}" >&2
