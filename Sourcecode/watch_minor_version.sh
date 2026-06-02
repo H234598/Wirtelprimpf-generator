@@ -773,6 +773,16 @@ write_state() {
     log "failed to create state temp file from base: $STATE_FILE"
     return 1
   fi
+  if [[ "$state_tmp" != "$(dirname -- "$STATE_FILE")"/* ]]; then
+    log "state temporary file escaped state directory: $state_tmp"
+    rm -f "$state_tmp" 2>/dev/null || true
+    return 1
+  fi
+  if [[ -L "$state_tmp" || ! -f "$state_tmp" ]]; then
+    log "state temporary file must be regular and non-symlink: $state_tmp"
+    rm -f "$state_tmp" 2>/dev/null || true
+    return 1
+  fi
   if ! printf '%s\n' "$value" > "$state_tmp"; then
     log "failed to write state temp file: $state_tmp"
     rm -f "$state_tmp" 2>/dev/null || true
@@ -820,6 +830,16 @@ refresh_state_timestamp() {
   local timestamp_tmp
   if ! timestamp_tmp="$(mktemp "$TIMESTAMP_FILE.tmp.XXXXXX")"; then
     log "failed to create timestamp temp file from base: $TIMESTAMP_FILE"
+    return 1
+  fi
+  if [[ "$timestamp_tmp" != "$(dirname -- "$TIMESTAMP_FILE")"/* ]]; then
+    log "timestamp temporary file escaped timestamp directory: $timestamp_tmp"
+    rm -f "$timestamp_tmp" 2>/dev/null || true
+    return 1
+  fi
+  if [[ -L "$timestamp_tmp" || ! -f "$timestamp_tmp" ]]; then
+    log "timestamp temporary file must be regular and non-symlink: $timestamp_tmp"
+    rm -f "$timestamp_tmp" 2>/dev/null || true
     return 1
   fi
   if ! date +%s > "$timestamp_tmp"; then
