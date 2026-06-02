@@ -114,9 +114,14 @@ def _derive_version_numbers(
     if minors_per_major <= 0:
         raise ValueError(f"minors_per_major must be > 0, got {minors_per_major!r}")
 
-    patch_units = patch_count // patches_per_minor
-    patch_version = patch_units % PATCHES_PER_MINOR_FOR_MINOR
-    minor_increments = patch_units // PATCHES_PER_MINOR_FOR_MINOR
+    if patch_count == 0:
+        return major_version_base, BASE_VERSION_MINOR, 0
+
+    patch_version = patch_count % patches_per_minor
+    if patch_version == 0:
+        patch_version = PATCHES_PER_MINOR_FOR_MINOR
+
+    minor_increments = patch_count // patches_per_minor
     major_addition, minor_offset = divmod(BASE_VERSION_MINOR + minor_increments, minors_per_major)
     major_version = major_version_base + major_addition
     return major_version, minor_offset, patch_version

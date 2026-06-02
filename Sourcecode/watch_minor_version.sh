@@ -129,6 +129,7 @@ from pathlib import Path
 
 PATCHES_PER_MINOR = 100
 MINORS_PER_MAJOR = 100
+PATCHES_PER_MINOR_FOR_MINOR = 100
 
 script_path = Path(sys.argv[1])
 state_path = Path(sys.argv[2])
@@ -175,11 +176,17 @@ try:
 except ValueError:
     raise SystemExit(f"invalid WIRTELPRIMPF_MAJOR_VERSION_BUMP value: {major_bump_raw!r}")
 
-minor_increments = (state_patch_count // patches_per_minor) // PATCHES_PER_MINOR
+if state_patch_count == 0:
+    print(f"{major_str}.{minor_str}.0{suffix}")
+    raise SystemExit(0)
+
+patch_version = state_patch_count % patches_per_minor
+if patch_version == 0:
+    patch_version = PATCHES_PER_MINOR_FOR_MINOR
+
+minor_increments = state_patch_count // patches_per_minor
 major_addition, minor_offset = divmod(int(minor_str) + minor_increments, MINORS_PER_MAJOR)
 major_version = int(major_str) + major_addition + major_bump
-patch_units = state_patch_count // patches_per_minor
-patch_version = patch_units % PATCHES_PER_MINOR
 print(f"{major_version}.{minor_offset}.{patch_version}{suffix}")
 
 PY
