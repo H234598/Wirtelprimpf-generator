@@ -48,7 +48,9 @@ class RunSummary:
     exit_code: int = 0
 
 
-def format_json(value: object, *, indent: int = 2) -> str:
+def format_json(value: object, *, compact: bool = False, indent: int = 2) -> str:
+    if compact:
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     return json.dumps(value, indent=indent, ensure_ascii=False)
 
 
@@ -464,7 +466,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def emit_summary(summary: RunSummary, args: argparse.Namespace) -> None:
+def emit_summary(summary: RunSummary, args: argparse.Namespace, *, compact: bool = True) -> None:
     if args.json:
         ok = summary.exit_code == 0
         print(
@@ -482,7 +484,8 @@ def emit_summary(summary: RunSummary, args: argparse.Namespace) -> None:
                         "prompts": summary.prompts,
                         "total": summary.total,
                     },
-                }
+                },
+                compact=compact,
             )
         )
 
@@ -496,7 +499,7 @@ def emit_status(payload: dict[str, object], *, as_json: bool) -> int:
         payload.setdefault("version", VERSION)
         payload.setdefault("ok", status)
         payload.setdefault("exit_code", 0 if status else 1)
-        print(format_json(payload))
+        print(format_json(payload, compact=True))
         return 0 if status else 1
 
     print(f"wirtelprimpf_generator.py status: {payload.get('status', STATUS_ERROR)}")
@@ -668,7 +671,8 @@ def main() -> None:
                         "exit_code": 1,
                         "check_config": True,
                         "message": f"Prompt config validation failed: {exc}",
-                    }
+                    },
+                    compact=True,
                 )
             )
             raise SystemExit(1)
@@ -691,7 +695,8 @@ def main() -> None:
                         "image_size": config.image_size,
                         "output_resolution": config.output_resolution,
                         "repo_path": str(config.repo_path) if config.repo_path else None,
-                    }
+                    },
+                    compact=True,
                 )
             )
             return
@@ -724,7 +729,8 @@ def main() -> None:
                             "index": index,
                             "total": len(prompts),
                             "prompt_preview": prompt[:140],
-                        }
+                        },
+                        compact=True,
                     )
                 )
             else:
@@ -732,7 +738,7 @@ def main() -> None:
             summary.skipped += 1
             summary.prompts += 1
         summary.exit_code = 0
-        emit_summary(summary, args)
+        emit_summary(summary, args, compact=True)
         return
 
     client = OpenAI()
@@ -802,7 +808,7 @@ def main() -> None:
     if summary.exit_code:
         if not args.json:
             print(f"Completed with {summary.failed} failure(s)", file=sys.stderr)
-        emit_summary(summary, args)
+        emit_summary(summary, args, compact=True)
         _die(f"Completed with {summary.failed} failure(s)", exit_code=summary.exit_code)
 
     emit_summary(summary, args)

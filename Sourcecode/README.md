@@ -157,7 +157,7 @@ Validation helpers:
 
 `--status` and `--check-config --json` print structured diagnostics and use the
 same stable envelope:
-The JSON form can be used for automation:
+The JSON form can be used for automation and is emitted as one compact object per line:
 
 ```json
 {
