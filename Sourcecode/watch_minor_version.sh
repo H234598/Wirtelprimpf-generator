@@ -299,6 +299,12 @@ refresh_state_timestamp() {
   fi
 }
 
+cleanup_lock_tmp() {
+  if [[ -n "$LOCK_TMP" ]]; then
+    rm -f "$LOCK_TMP" 2>/dev/null || true
+  fi
+}
+
 acquire_lock() {
   is_running_pid() {
     local candidate="$1"
@@ -308,7 +314,6 @@ acquire_lock() {
 
   if [[ -L "$LOCK_FILE" || ( -e "$LOCK_FILE" && ! -f "$LOCK_FILE" ) ]]; then
     log "invalid lock file type (symlink or non-regular): $LOCK_FILE"
-    rm -f "$LOCK_TMP" 2>/dev/null || true
     return 1
   fi
 
@@ -345,7 +350,7 @@ acquire_lock() {
   fi
   if ! printf '%s\n' "$$" > "$LOCK_TMP"; then
     log "failed to write temporary lock holder pid: $LOCK_TMP"
-    rm -f "$LOCK_TMP" 2>/dev/null || true
+    cleanup_lock_tmp
     return 1
   fi
 
@@ -353,7 +358,7 @@ acquire_lock() {
     local pid
     if ! pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"; then
       log "failed to read lock file, exiting: $LOCK_FILE"
-      rm -f "$LOCK_TMP" 2>/dev/null || true
+      cleanup_lock_tmp
       return 1
     fi
     pid="${pid//$'\r'/}"
@@ -361,7 +366,7 @@ acquire_lock() {
     pid="$(printf '%s' "$pid")"
     if [[ "$pid" == *[[:space:]]* ]]; then
       log "invalid lock holder pid in $LOCK_FILE: whitespace-containing value, exiting"
-      rm -f "$LOCK_TMP" 2>/dev/null || true
+      cleanup_lock_tmp
       return 1
     fi
     if [[ -f "$LOCK_FILE" ]]; then
@@ -372,18 +377,18 @@ acquire_lock() {
       age=$((now - lock_mtime))
       if [[ -n "$pid" && ! "$pid" =~ ^[0-9]+$ ]]; then
         log "fallback lock file has invalid pid value (${pid}), refusing to steal fresh lock"
-        rm -f "$LOCK_TMP" 2>/dev/null || true
+        cleanup_lock_tmp
         return 1
       fi
       if [[ "$age" -lt "$MAX_STALE_LOCK_SECONDS" ]] && is_running_pid "$pid"; then
         log "another watcher instance is running (fallback lock), exiting"
-        rm -f "$LOCK_TMP" 2>/dev/null || true
+        cleanup_lock_tmp
         return 1
       fi
       log "stale fallback lock detected (${age}s), stealing lock"
       if ! rm -f "$LOCK_FILE"; then
         log "failed to remove stale fallback lock: $LOCK_FILE"
-        rm -f "$LOCK_TMP" 2>/dev/null || true
+        cleanup_lock_tmp
         return 1
       fi
     fi
@@ -391,10 +396,10 @@ acquire_lock() {
 
   if ! mv "$LOCK_TMP" "$LOCK_FILE"; then
     log "failed to acquire fallback lock file via rename: $LOCK_TMP -> $LOCK_FILE"
-    rm -f "$LOCK_TMP" 2>/dev/null || true
+    cleanup_lock_tmp
     return 1
   fi
-  trap 'rm -f "$LOCK_TMP" "$LOCK_FILE" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
+  trap 'cleanup_lock_tmp; rm -f "$LOCK_FILE" "$TIMESTAMP_FILE" 2>/dev/null || true' EXIT
 }
 
 get_minor_version() {
