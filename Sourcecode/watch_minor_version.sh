@@ -287,13 +287,23 @@ sync_state_file() {
 
 acquire_lock
 
-init_state=$(get_minor_version)
+if ! init_state="$(get_minor_version)"; then
+  log "failed to derive initial minor version from publish state"
+  exit 1
+fi
 if [[ -z "$init_state" ]]; then
   log "failed to derive initial minor version from publish state"
   exit 1
 fi
 
-state_file_value="$(sync_state_file "$init_state")"
+if ! state_file_value="$(sync_state_file "$init_state")"; then
+  log "failed to sync minor version state file"
+  exit 1
+fi
+if [[ -z "$state_file_value" ]]; then
+  log "state synchronization produced empty version"
+  exit 1
+fi
 if [[ "${1:-}" == "--once" ]]; then
   require_file "$CHECKS_SCRIPT" "Checks script"
   require_executable "$CHECKS_SCRIPT" "Checks script"
@@ -306,7 +316,10 @@ if [[ "${1:-}" == "--once" ]]; then
 		prev="$current"
 	fi
 	if [[ "$current" != "$prev" ]]; then
-		write_state "$current"
+		if ! write_state "$current"; then
+			log "refusing to continue because state update for version $current failed"
+			exit 1
+		fi
     if "$CHECKS_SCRIPT"; then
       refresh_state_timestamp
       log "checks completed for version $current"
@@ -324,11 +337,14 @@ while true; do
 	fi
 	current="$(get_minor_version)"
 
-	if [[ "$current" != "$prev" ]]; then
+  if [[ "$current" != "$prev" ]]; then
     require_file "$CHECKS_SCRIPT" "Checks script"
     require_executable "$CHECKS_SCRIPT" "Checks script"
     log "minor version changed: $prev -> $current"
-    write_state "$current"
+    if ! write_state "$current"; then
+		log "refusing to continue because state update for version $current failed"
+		exit 1
+	fi
     if "$CHECKS_SCRIPT"; then
       log "checks completed for version $current"
     else
