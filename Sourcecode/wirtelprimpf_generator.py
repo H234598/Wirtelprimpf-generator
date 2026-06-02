@@ -1026,6 +1026,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             report["status"] = STATUS_ERROR
             report["exit_code"] = 1
             checks.append({"name": "publish_state", "ok": False, "message": str(exc)})
+            report["checks"] = checks
         else:
             details = dict(report["details"])
             details.update(
