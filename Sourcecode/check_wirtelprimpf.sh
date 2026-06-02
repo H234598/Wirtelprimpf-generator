@@ -339,7 +339,11 @@ trap cleanup_checks EXIT
 run_python_sandbox() {
   env -i \
     PATH="/usr/local/bin:/usr/bin:/bin" \
-    HOME="${HOME:-/tmp}" \
+    HOME="/tmp" \
+    USER="" \
+    LOGNAME="" \
+    LANG="C.UTF-8" \
+    LC_ALL="C.UTF-8" \
     PYTHONSTARTUP= \
     PYTHONPATH= \
     PYTHONHOME= \
