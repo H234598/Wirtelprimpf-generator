@@ -98,6 +98,12 @@ if not isinstance(data.get("exit_code"), int):
 if not isinstance(data.get("timestamp"), str) or not data.get("timestamp"):
     raise SystemExit(f"'timestamp' must be non-empty string in {path}")
 
+version = data.get("version")
+if not isinstance(version, str) or not version.strip():
+    raise SystemExit(f"'version' must be non-empty string in {path}: {version!r}")
+if not __import__("re").match(r"^\d+\.\d+\.\d+$", version.strip()):
+    raise SystemExit(f"'version' must be semantic version in {path}: {version!r}")
+
 print(f"ok:{data['ok']} exit:{data['exit_code']} mode:{data['mode']} version:{data['version']}")
 PY
 }
