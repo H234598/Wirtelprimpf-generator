@@ -129,6 +129,10 @@ require_file() {
     echo "${label} must be owned by current user: ${path}" >&2
     return 1
   fi
+  if [[ ! -r "$path" ]]; then
+    echo "${label} is not readable: ${path}" >&2
+    return 1
+  fi
   if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
     echo "${label} failed to read permissions: ${path}" >&2
     return 1

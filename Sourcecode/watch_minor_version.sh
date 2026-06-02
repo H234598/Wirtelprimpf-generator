@@ -157,6 +157,19 @@ parse_positive_int() {
   echo "$value"
 }
 
+dependency_signature() {
+  local path="$1"
+  if [[ -e "$path" ]]; then
+    local sig
+    if ! sig="$(stat -c '%Y:%i:%s:%a' "$path" 2>/dev/null)"; then
+      return 1
+    fi
+    printf '%s\n' "$sig"
+    return 0
+  fi
+  echo "missing"
+}
+
 require_directory() {
   local path="$1"
   local label="$2"
@@ -676,6 +689,16 @@ if ! is_valid_version "$init_state"; then
   exit 1
 fi
 
+SCRIPT_DEPENDENCY_SIGNATURE="$(dependency_signature "$PY_SCRIPT")" || {
+  log "failed to read generator script signature: $PY_SCRIPT"
+  exit 1
+}
+PUBLISH_STATE_SIGNATURE="$(dependency_signature "$PUBLISH_STATE_FILE")" || {
+  log "failed to read publish state signature: $PUBLISH_STATE_FILE"
+  exit 1
+}
+CURRENT_VERSION="$init_state"
+
 if ! state_file_value="$(sync_state_file "$init_state")"; then
   log "failed to sync minor version state file"
   exit 1
@@ -693,9 +716,24 @@ if [[ "${1:-}" == "--once" ]]; then
     log "invalid previous version in state: $prev"
     exit 1
   fi
-  if ! current="$(get_minor_version)"; then
-    log "failed to compute current minor version"
+  next_script_sig="$(dependency_signature "$PY_SCRIPT")" || {
+    log "failed to read generator script signature: $PY_SCRIPT"
     exit 1
+  }
+  next_state_sig="$(dependency_signature "$PUBLISH_STATE_FILE")" || {
+    log "failed to read publish state signature: $PUBLISH_STATE_FILE"
+    exit 1
+  }
+  if [[ "$next_script_sig" != "$SCRIPT_DEPENDENCY_SIGNATURE" || "$next_state_sig" != "$PUBLISH_STATE_SIGNATURE" ]]; then
+    if ! current="$(get_minor_version)"; then
+      log "failed to compute current minor version"
+      exit 1
+    fi
+    SCRIPT_DEPENDENCY_SIGNATURE="$next_script_sig"
+    PUBLISH_STATE_SIGNATURE="$next_state_sig"
+    CURRENT_VERSION="$current"
+  else
+    current="$CURRENT_VERSION"
   fi
   if [[ -z "$current" ]]; then
     log "current minor version is empty"
@@ -715,18 +753,33 @@ fi
 
 last_version="$state_file_value"
 while true; do
-	if ! current="$(get_minor_version)"; then
-		log "failed to compute current minor version"
-		exit 1
-	fi
-	if [[ -z "$current" ]]; then
-		log "current minor version is empty"
-		exit 1
-	fi
-	if ! is_valid_version "$current"; then
-	  log "invalid derived current version: $current"
-	  exit 1
-	fi
+  next_script_sig="$(dependency_signature "$PY_SCRIPT")" || {
+    log "failed to read generator script signature: $PY_SCRIPT"
+    exit 1
+  }
+  next_state_sig="$(dependency_signature "$PUBLISH_STATE_FILE")" || {
+    log "failed to read publish state signature: $PUBLISH_STATE_FILE"
+    exit 1
+  }
+  if [[ "$next_script_sig" != "$SCRIPT_DEPENDENCY_SIGNATURE" || "$next_state_sig" != "$PUBLISH_STATE_SIGNATURE" ]]; then
+    if ! current="$(get_minor_version)"; then
+      log "failed to compute current minor version"
+      exit 1
+    fi
+    SCRIPT_DEPENDENCY_SIGNATURE="$next_script_sig"
+    PUBLISH_STATE_SIGNATURE="$next_state_sig"
+    CURRENT_VERSION="$current"
+  else
+    current="$CURRENT_VERSION"
+  fi
+  if [[ -z "$current" ]]; then
+    log "current minor version is empty"
+    exit 1
+  fi
+  if ! is_valid_version "$current"; then
+    log "invalid derived current version: $current"
+    exit 1
+  fi
 
   if [[ "$current" != "$last_version" ]]; then
 	    if ! apply_version_change "$last_version" "$current"; then
