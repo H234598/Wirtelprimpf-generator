@@ -211,9 +211,9 @@ if patch_version == 0:
     patch_version = PATCHES_PER_MINOR_FOR_MINOR
 
 minor_increments = state_patch_count // patches_per_minor
-    major_addition, minor_offset = divmod(int(minor_str) + minor_increments, MINORS_PER_MAJOR)
-    major_version = int(major_str) + major_addition + major_bump + (1 if breaking_change else 0)
-    print(f"{major_version}.{minor_offset}.{patch_version}{suffix}")
+major_addition, minor_offset = divmod(int(minor_str) + minor_increments, MINORS_PER_MAJOR)
+major_version = int(major_str) + major_addition + major_bump + (1 if breaking_change else 0)
+print(f"{major_version}.{minor_offset}.{patch_version}{suffix}")
 
 PY
 }
