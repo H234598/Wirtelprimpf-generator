@@ -92,7 +92,7 @@ validate_json() {
   local mode="${2}"
   local strategy="${3:-any}"
   case "$file" in
-    *[$'\n\r\t'']*)
+    *$'\n'* | *$'\r'* | *$'\t'*)
       echo "Invalid path contains control characters: $file" >&2
       return 1
       ;;
@@ -101,6 +101,14 @@ validate_json() {
     status|check_config|dry_run|run) ;;
     *) echo "Invalid mode argument: $mode" >&2; return 1 ;;
   esac
+  case "$strategy" in
+    any|first) ;;
+    *) echo "Invalid strategy argument: $strategy" >&2; return 1 ;;
+  esac
+  if [[ ! -f "$file" || ! -r "$file" ]]; then
+    echo "JSON file missing or unreadable: $file" >&2
+    return 1
+  fi
 
   "$PY" - "$file" "$mode" "$strategy" <<'PY'
 import json
