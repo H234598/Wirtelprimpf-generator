@@ -1003,7 +1003,7 @@ acquire_lock() {
         cleanup_lock_fd
         return 1
       fi
-      if [[ -n "$pid" && ! "$pid" =~ ^[0-9]+$ ]]; then
+      if [[ -z "$pid" || ! "$pid" =~ ^[0-9]+$ || "$pid" -eq 0 ]]; then
         log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
         cleanup_lock_fd
         return 1
@@ -1057,6 +1057,11 @@ acquire_lock() {
       cleanup_lock_tmp
       return 1
     fi
+    if [[ -z "$pid" || ! "$pid" =~ ^[0-9]+$ || "$pid" -eq 0 ]]; then
+      log "invalid lock holder pid in $LOCK_FILE: ${pid:-unknown}, exiting"
+      cleanup_lock_tmp
+      return 1
+    fi
     if ! validate_lock_file "$LOCK_FILE"; then
       log "invalid lock file state after reading pid: $LOCK_FILE"
       cleanup_lock_tmp
@@ -1068,7 +1073,7 @@ acquire_lock() {
       local lock_mtime age
       lock_mtime=$(stat -c '%Y' "$LOCK_FILE" 2>/dev/null || echo "$now")
       age=$((now - lock_mtime))
-      if [[ -z "$pid" || ! "$pid" =~ ^[0-9]+$ ]]; then
+      if [[ -z "$pid" || ! "$pid" =~ ^[0-9]+$ || "$pid" -eq 0 ]]; then
         log "fallback lock file has invalid pid value (${pid}), refusing to steal fresh lock"
         cleanup_lock_tmp
         return 1
