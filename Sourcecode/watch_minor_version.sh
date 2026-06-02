@@ -274,7 +274,16 @@ if ! validate_python_binary "$PY"; then
   exit 1
 fi
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
-WATCH_BASH_PATH="$(command -v bash 2>/dev/null || true)"
+for WATCH_BASH_PATH in /usr/bin/bash /bin/bash; do
+  if [[ -f "$WATCH_BASH_PATH" && -x "$WATCH_BASH_PATH" && ! -L "$WATCH_BASH_PATH" ]]; then
+    break
+  fi
+  WATCH_BASH_PATH=""
+done
+if [[ -z "$WATCH_BASH_PATH" ]]; then
+  log "required bash interpreter unavailable: neither /usr/bin/bash nor /bin/bash is present/executable"
+  exit 1
+fi
 readonly WATCH_BASH_PATH
 
 run_python_sandbox() {

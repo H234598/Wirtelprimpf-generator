@@ -317,7 +317,16 @@ fi
 readonly CHECK_TMPDIR
 readonly PY_SCRIPT
 readonly PY
-BASH_PATH="$(command -v bash 2>/dev/null || true)"
+for BASH_PATH in /usr/bin/bash /bin/bash; do
+  if [[ -f "$BASH_PATH" && -x "$BASH_PATH" && ! -L "$BASH_PATH" ]]; then
+    break
+  fi
+  BASH_PATH=""
+done
+if [[ -z "$BASH_PATH" ]]; then
+  echo "Required bash interpreter unavailable: neither /usr/bin/bash nor /bin/bash is present/executable" >&2
+  exit 1
+fi
 readonly BASH_PATH
 
 cleanup_checks() {
