@@ -386,6 +386,9 @@ systemd-analyze verify Sourcecode/systemd-user/wirtelprimpf.service
 journalctl --user -u wirtelprimpf.service -n 200 --no-pager
 ```
 
+`MemoryDenyWriteExecute=true` ist für den Python/OpenAI/Pillow-Pfad in der Regel unkritisch.
+Sollte der Dienst trotzdem mit Hardening-bezogenen `EACCES`/`Operation not permitted`-Fehlern starten oder abbrechen, prüfe zuerst den konkreten Fehler im Journal und deaktiviere diese Direktive testweise isoliert als letzten Schritt.
+
 ## Output
 
 Each run creates two files:
