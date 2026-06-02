@@ -306,10 +306,40 @@ run_check_script_sandboxed() {
     log "checks script must be a non-symlink executable file: ${script_path}"
     return 1
   fi
+  if ! is_owned_by_current_user "$script_path"; then
+    log "checks script must be owned by current user: ${script_path}"
+    return 1
+  fi
+  local script_perm
+  if ! script_perm="$(stat -c '%a' "$script_path" 2>/dev/null)"; then
+    log "checks script permissions unavailable: ${script_path}"
+    return 1
+  fi
+  if (( 10#$script_perm & 022 )); then
+    log "checks script must not be group/world writable: ${script_path}"
+    return 1
+  fi
+  if (( 10#$script_perm & 06000 )); then
+    log "checks script must not contain setuid/setgid bits: ${script_path}"
+    return 1
+  fi
   local script_dir
   script_dir="$(dirname -- "$script_path")"
   if [[ -L "$script_dir" ]]; then
     log "checks script directory must not be a symlink: ${script_dir}"
+    return 1
+  fi
+  if ! is_owned_by_current_user "$script_dir"; then
+    log "checks script directory must be owned by current user: ${script_dir}"
+    return 1
+  fi
+  local script_dir_perm
+  if ! script_dir_perm="$(stat -c '%a' "$script_dir" 2>/dev/null)"; then
+    log "checks script directory permissions unavailable: ${script_dir}"
+    return 1
+  fi
+  if (( 10#$script_dir_perm & 022 )); then
+    log "checks script directory must not be group/world writable: ${script_dir}"
     return 1
   fi
   if [[ -z "$WATCH_BASH_PATH" || -L "$WATCH_BASH_PATH" || ! -x "$WATCH_BASH_PATH" ]]; then
@@ -318,9 +348,9 @@ run_check_script_sandboxed() {
   fi
   if ! env -i \
     PATH="/usr/local/bin:/usr/bin:/bin" \
-    HOME="${HOME:-/tmp}" \
-    USER="${USER:-}" \
-    LOGNAME="${LOGNAME:-}" \
+    HOME="/tmp" \
+    USER="" \
+    LOGNAME="" \
     TERM="xterm-256color" \
     LANG="C.UTF-8" \
     LC_ALL="C.UTF-8" \
