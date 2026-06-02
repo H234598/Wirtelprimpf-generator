@@ -351,6 +351,29 @@ write_state() {
     log "state file must be regular file (no symlink or special file): $STATE_FILE"
     return 1
   fi
+  if [[ -L "$STATE_FILE" ]]; then
+    log "state file must not be a symlink: $STATE_FILE"
+    return 1
+  fi
+  if [[ -e "$STATE_FILE" ]] && ! is_owned_by_current_user "$STATE_FILE"; then
+    log "state file must be owned by current user: $STATE_FILE"
+    return 1
+  fi
+  if [[ -e "$STATE_FILE" ]] && [[ ! -w "$STATE_FILE" ]]; then
+    log "state file not writable: $STATE_FILE"
+    return 1
+  fi
+  if [[ -e "$STATE_FILE" ]]; then
+    local state_perm
+    if ! state_perm="$(stat -c '%a' "$STATE_FILE" 2>/dev/null)"; then
+      log "failed to read state file permissions: $STATE_FILE"
+      return 1
+    fi
+    if (( 10#$state_perm & 022 )); then
+      log "state file must not be group/world writable: $STATE_FILE"
+      return 1
+    fi
+  fi
   local state_dir
   state_dir="$(dirname "$STATE_FILE")"
   if ! mkdir -p "$state_dir"; then
@@ -659,6 +682,34 @@ read_state_version() {
     log "state file is not a regular file: $STATE_FILE"
     echo ""
     return
+  fi
+  if [[ -e "$STATE_FILE" ]] && [[ -L "$STATE_FILE" ]]; then
+    log "state file is a symlink: $STATE_FILE"
+    echo ""
+    return
+  fi
+  if [[ -e "$STATE_FILE" ]] && ! is_owned_by_current_user "$STATE_FILE"; then
+    log "state file not owned by current user: $STATE_FILE"
+    echo ""
+    return
+  fi
+  if [[ -e "$STATE_FILE" ]] && [[ ! -r "$STATE_FILE" ]]; then
+    log "state file not readable: $STATE_FILE"
+    echo ""
+    return
+  fi
+  if [[ -e "$STATE_FILE" ]]; then
+    local state_perm
+    if ! state_perm="$(stat -c '%a' "$STATE_FILE" 2>/dev/null)"; then
+      log "failed to read state file permissions: $STATE_FILE"
+      echo ""
+      return
+    fi
+    if (( 10#$state_perm & 022 )); then
+      log "state file has insecure permissions (group/world writable): $STATE_FILE"
+      echo ""
+      return
+    fi
   fi
   if ! value="$(cat "$STATE_FILE" 2>/dev/null || true)"; then
     log "failed to read state file: $STATE_FILE"
