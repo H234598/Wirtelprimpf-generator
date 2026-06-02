@@ -38,6 +38,8 @@ GENERATION_RETRY_BASE_SECONDS: Final = 2
 VERSION: Final = "0.5.8-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
+PATCHES_PER_MINOR_FOR_MINOR: Final = 100
+MINORS_PER_MAJOR: Final = 100
 DEFAULT_MINOR_PUSHES_PER_RELEASE: Final = 10
 STATUS_OK: Final = "ok"
 STATUS_ERROR: Final = "error"
@@ -64,6 +66,17 @@ class PublishState:
     minor_push_count: int = 0
 
 
+def _parse_version_base(version: str) -> tuple[int, int, str]:
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)(.*)$", version.strip())
+    if not m:
+        raise RuntimeError(f"Invalid VERSION value: {version!r}")
+    major, minor, _patch, suffix = m.groups()
+    return int(major), int(minor), suffix
+
+
+BASE_VERSION_MAJOR, BASE_VERSION_MINOR, VERSION_SUFFIX = _parse_version_base(VERSION)
+
+
 def format_json(value: object, *, compact: bool = False, indent: int = 2) -> str:
     if compact:
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -85,6 +98,49 @@ def extract_minor_version(version: str) -> str:
     if not m:
         raise RuntimeError(f"Invalid VERSION value: {version!r}")
     return f"{m.group(1)}.{m.group(2)}"
+
+
+def _derive_version_numbers(
+    patch_count: int,
+    *,
+    patches_per_minor: int = DEFAULT_PATCHES_PER_MINOR,
+    minors_per_major: int = MINORS_PER_MAJOR,
+) -> tuple[int, int, int]:
+    if patch_count < 0:
+        raise ValueError(f"patch_count must be >= 0, got {patch_count!r}")
+    if patches_per_minor <= 0:
+        raise ValueError(f"patches_per_minor must be > 0, got {patches_per_minor!r}")
+    if minors_per_major <= 0:
+        raise ValueError(f"minors_per_major must be > 0, got {minors_per_major!r}")
+
+    patch_units = patch_count // patches_per_minor
+    patch_version = patch_units % PATCHES_PER_MINOR_FOR_MINOR
+    minor_increments = patch_units // PATCHES_PER_MINOR_FOR_MINOR
+    major_addition, minor_offset = divmod(BASE_VERSION_MINOR + minor_increments, minors_per_major)
+    major_version = BASE_VERSION_MAJOR + major_addition
+    return major_version, minor_offset, patch_version
+
+
+def derive_version_from_patch_count(
+    patch_count: int,
+    *,
+    patches_per_minor: int = DEFAULT_PATCHES_PER_MINOR,
+    minors_per_major: int = MINORS_PER_MAJOR,
+) -> str:
+    major_version, minor_version, patch_version = _derive_version_numbers(
+        patch_count,
+        patches_per_minor=patches_per_minor,
+        minors_per_major=minors_per_major,
+    )
+    return f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}"
+
+
+def resolve_runtime_version(*, patch_count: int, patches_per_minor: int) -> str:
+    return derive_version_from_patch_count(
+        patch_count,
+        patches_per_minor=patches_per_minor,
+        minors_per_major=MINORS_PER_MAJOR,
+    )
 
 
 def build_status_envelope(
@@ -392,7 +448,10 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
     state_path.parent.mkdir(parents=True, exist_ok=True)
     publish_state = read_publish_state(state_path)
     next_patch_count = publish_state.patch_count + 1
-    patch_version = next_patch_count
+    runtime_version = resolve_runtime_version(
+        patch_count=next_patch_count,
+        patches_per_minor=config.patches_per_minor,
+    )
     next_minor_push_count = publish_state.minor_push_count
     push_performed = False
     release_ready = False
@@ -436,7 +495,7 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
             "Consider creating a release now."
         )
     print(
-        f"patch_version={patch_version} patches_committed={next_patch_count} minor_pushes={next_minor_push_count} "
+        f"version={runtime_version} patches_committed={next_patch_count} minor_pushes={next_minor_push_count} "
         f"pushed={push_performed}"
     )
 
@@ -901,17 +960,25 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             report["status"] = STATUS_ERROR
             report["exit_code"] = 1
         checks.append(repo_checks)
-        if repo_checks.get("ok", True):
-            publish_state = read_publish_state(publish_state_path(config.repo_path))
-            details = dict(report["details"])
-            details.update(
-                {
-                    "patch_version": publish_state.patch_count,
-                    "patch_count": publish_state.patch_count,
-                    "minor_push_count": publish_state.minor_push_count,
-                }
-            )
-            report["details"] = details
+    if config.repo_path is not None and repo_checks.get("ok", True):
+        publish_state = read_publish_state(publish_state_path(config.repo_path))
+        major_version, minor_version, patch_version = _derive_version_numbers(
+            publish_state.patch_count,
+            patches_per_minor=config.patches_per_minor,
+            minors_per_major=MINORS_PER_MAJOR,
+        )
+        details = dict(report["details"])
+        details.update(
+            {
+                "major_version": major_version,
+                "minor_version": minor_version,
+                "patch_count": publish_state.patch_count,
+                "patch_version": patch_version,
+                "minor_push_count": publish_state.minor_push_count,
+            }
+        )
+        report["version"] = f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}"
+        report["details"] = details
 
     checks.append(
         {
@@ -932,9 +999,17 @@ def publish_state_summary(config: Config) -> dict[str, object] | None:
     except Exception as exc:  # pragma: no cover - defensive path
         return {"publish_state_error": f"Failed to read publish state: {exc}"}
 
+    major_version, minor_version, patch_version = _derive_version_numbers(
+        publish_state.patch_count,
+        patches_per_minor=config.patches_per_minor,
+        minors_per_major=MINORS_PER_MAJOR,
+    )
     return {
-        "patch_version": publish_state.patch_count,
+        "patch_version": patch_version,
+        "minor_version": minor_version,
+        "major_version": major_version,
         "patch_count": publish_state.patch_count,
+        "version": f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}",
         "minor_push_count": publish_state.minor_push_count,
     }
 
@@ -991,6 +1066,12 @@ def main() -> None:
         try:
             prompts = build_prompts(config.prompt_config_path, datetime.now())
         except Exception as exc:
+            runtime_version = resolve_runtime_version(
+                patch_count=read_publish_state(publish_state_path(config.repo_path)).patch_count
+                if config.repo_path
+                else 0,
+                patches_per_minor=config.patches_per_minor,
+            )
             if args.check_config and args.json:
                 print(
                     format_json(
@@ -999,7 +1080,7 @@ def main() -> None:
                             mode=MODE_CHECK_CONFIG,
                             status=STATUS_ERROR,
                             exit_code=1,
-                            version=VERSION,
+                            version=runtime_version,
                             check_config=True,
                             message=f"Prompt config validation failed: {exc}",
                         ),
@@ -1011,6 +1092,14 @@ def main() -> None:
 
         if args.check_config:
             check_config_details = publish_state_summary(config)
+            current_version = (
+                check_config_details.get("version") if isinstance(check_config_details, dict) else None
+            )
+            if not isinstance(current_version, str):
+                current_version = resolve_runtime_version(
+                    patch_count=0,
+                    patches_per_minor=config.patches_per_minor,
+                )
             if args.json:
                 print(
                     format_json(
@@ -1019,7 +1108,7 @@ def main() -> None:
                             mode=MODE_CHECK_CONFIG,
                             status=STATUS_OK,
                             exit_code=0,
-                            version=VERSION,
+                            version=current_version,
                             check_config=True,
                             details=check_config_details,
                             local_outdir=str(config.local_outdir),
@@ -1053,6 +1142,9 @@ def main() -> None:
 
         if args.dry_run:
             dry_run_details = publish_state_summary(config)
+            current_version = (
+                dry_run_details.get("version") if isinstance(dry_run_details, dict) else None
+            )
             for index, prompt in enumerate(prompts, start=1):
                 if args.json:
                     print(
@@ -1062,7 +1154,10 @@ def main() -> None:
                                 mode=MODE_DRY_RUN,
                                 status=STATUS_OK,
                                 exit_code=0,
-                                version=VERSION,
+                                version=current_version or resolve_runtime_version(
+                                    patch_count=0,
+                                    patches_per_minor=config.patches_per_minor,
+                                ),
                                 details=dry_run_details,
                                 type="dry_run",
                                 index=index,
