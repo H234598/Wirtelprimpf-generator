@@ -32,6 +32,7 @@ IMAGE_PAYLOAD_MAX_BYTES: Final = 80 * 1024 * 1024
 GIT_TIMEOUT_SECONDS: Final = 120
 GENERATION_RETRIES: Final = 3
 GENERATION_RETRY_BASE_SECONDS: Final = 2
+VERSION: Final = "0.5.6-hardening"
 
 
 @dataclass
@@ -440,6 +441,7 @@ def generate_image_with_retries(client: OpenAI, request: dict[str, object]) -> s
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate Wirtelprimpf images.")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     parser.add_argument("--check-config", action="store_true", help="Validate config and prompt config, no API call.")
     parser.add_argument(
         "--dry-run",
@@ -456,6 +458,7 @@ def emit_summary(summary: RunSummary, args: argparse.Namespace) -> None:
             format_json(
                 {
                     "ok": summary.exit_code == 0,
+                    "version": VERSION,
                     "summary": {
                         "success": summary.success,
                         "failed": summary.failed,
@@ -495,6 +498,7 @@ def main() -> None:
                 format_json(
                     {
                         "ok": True,
+                        "version": VERSION,
                         "check_config": True,
                         "local_outdir": str(config.local_outdir),
                         "prompt_count": len(prompts),

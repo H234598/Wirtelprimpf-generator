@@ -149,6 +149,7 @@ Validation helpers:
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --check-config
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --dry-run
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --json
+~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --version
 ```
 
 ### Exit codes
