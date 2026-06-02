@@ -280,7 +280,9 @@ readonly WATCH_BASH_PATH
 run_python_sandbox() {
   env -i \
     PATH="/usr/local/bin:/usr/bin:/bin" \
-    HOME="${HOME:-/tmp}" \
+    HOME="/tmp" \
+    USER="" \
+    LOGNAME="" \
     PYTHONSTARTUP= \
     PYTHONPATH= \
     PYTHONHOME= \
@@ -383,7 +385,7 @@ run_check_script_sandboxed() {
     TERM="xterm-256color" \
     LANG="C.UTF-8" \
     LC_ALL="C.UTF-8" \
-    "$bash_canonical" "$script_path"; then
+    "$bash_canonical" "$script_canonical"; then
     log "checks script execution failed: ${script_path}"
     return 1
   fi
