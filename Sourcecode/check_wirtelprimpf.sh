@@ -69,6 +69,8 @@ run_check() {
   local label="$1"
   shift
   log "running: $label"
+  local -a cmd=("$@")
+  local arg
   case "$label" in
     py_compile|compileall|version|status-json|check-config-json|dry-run-json|status-text|check-config-text|dry-run-text)
       ;;
@@ -81,7 +83,15 @@ run_check() {
     echo "No command supplied for check: $label" >&2
     exit 1
   fi
-  if ! "$@"; then
+  for arg in "${cmd[@]}"; do
+    case "$arg" in
+      *$'\n'* | *$'\r'* | *$'\t'*)
+        echo "Invalid control character in command argument for ${label}: ${arg}" >&2
+        return 1
+        ;;
+    esac
+  done
+  if ! "${cmd[@]}"; then
     echo "Check failed: ${label}" >&2
     return 1
   fi
