@@ -61,7 +61,7 @@ resolve_python() {
     fi
     for search_path in "${SECURITY_PATHS_ARRAY[@]}"; do
       resolved="${search_path}/${candidate}"
-      if ! [[ -x "$resolved" && ! -L "$resolved" ]]; then
+      if ! [[ -f "$resolved" && -x "$resolved" && ! -L "$resolved" ]]; then
         continue
       fi
       resolved_canonical=""
