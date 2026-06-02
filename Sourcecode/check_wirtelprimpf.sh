@@ -36,6 +36,8 @@ if ! PY="$(resolve_python)"; then
   exit 1
 fi
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
+CURRENT_UID="$(id -u)"
+readonly CURRENT_UID
 if ! CHECK_TMPDIR="$(mktemp -d -t wirtelprimpf-check-XXXXXX)"; then
   echo "Failed to create temporary directory" >&2
   exit 1
@@ -47,7 +49,7 @@ is_owned_by_current_user() {
   if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
     return 1
   fi
-  [[ "$owner" == "$(id -u)" ]]
+  [[ "$owner" == "$CURRENT_UID" ]]
 }
 
 is_strict_secure_directory() {
