@@ -41,8 +41,10 @@ resolve_python() {
   if [[ -n "${PYTHON_BIN:-}" ]] && ! is_valid_python_binary_name "$PYTHON_BIN"; then
     return 1
   fi
+  local fallback_set=1
   if [[ -z "${candidates[0]:-}" ]]; then
     candidates=("${SECURITY_PYTHON_CANDIDATES[@]}")
+    fallback_set=0
   fi
 
   local candidate resolved search_path
@@ -60,6 +62,9 @@ resolve_python() {
         return 0
       fi
     done
+    if (( fallback_set == 1 )); then
+      break
+    fi
   done
 
   return 1
