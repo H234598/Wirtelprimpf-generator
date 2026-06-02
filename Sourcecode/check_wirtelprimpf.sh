@@ -39,20 +39,37 @@ if ! PY="$(resolve_python)"; then
 fi
 validate_python_binary() {
   local path="$1"
+  local resolved owner mode
   if [[ -z "$path" || -L "$path" || ! -f "$path" || ! -x "$path" || ! -r "$path" ]]; then
+    return 1
+  fi
+  if ! resolved="$(readlink -f -- "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  case "$resolved" in
+    /usr/bin/*|/usr/local/bin/*|/bin/*|/opt/*|/nix/store/*)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  if [[ "$resolved" == /tmp/* || "$resolved" == /var/tmp/* || "$resolved" == /run/* || "$resolved" == /dev/* ]]; then
     return 1
   fi
   local owner mode
   if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
     return 1
   fi
-  if [[ "$owner" != "$CURRENT_UID" ]]; then
+  if [[ "$owner" != "$CURRENT_UID" && "$owner" != 0 ]]; then
     return 1
   fi
-  if ! mode="$(stat -c '%a' "$path" 2>/dev/null)"; then
+  if ! mode="$(stat -c '%a' "$resolved" 2>/dev/null)"; then
     return 1
   fi
   if (( 10#$mode & 022 )); then
+    return 1
+  fi
+  if [[ -z "$resolved" || "$resolved" != "$path" ]]; then
     return 1
   fi
 }
