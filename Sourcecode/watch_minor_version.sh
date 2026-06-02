@@ -307,6 +307,34 @@ sync_state_file() {
   echo "$current"
 }
 
+apply_version_change() {
+  local previous="$1"
+  local current="$2"
+
+  require_file "$CHECKS_SCRIPT" "Checks script"
+  require_executable "$CHECKS_SCRIPT" "Checks script"
+
+  log "minor version changed: $previous -> $current"
+
+  if ! write_state "$current"; then
+    log "refusing to continue because state update for version $current failed"
+    return 1
+  fi
+
+  if "$CHECKS_SCRIPT"; then
+    if ! refresh_state_timestamp; then
+      log "failed to refresh state timestamp; aborting"
+      return 1
+    fi
+    log "checks completed for version $current"
+  else
+    log "checks failed for version $current"
+    return 1
+  fi
+
+  return 0
+}
+
 acquire_lock
 
 if ! init_state="$(get_minor_version)"; then
@@ -341,22 +369,12 @@ if [[ "${1:-}" == "--once" ]]; then
 		prev="$current"
 	fi
 	if [[ "$current" != "$prev" ]]; then
-    if ! write_state "$current"; then
-      log "refusing to continue because state update for version $current failed"
-      exit 1
-    fi
-    if "$CHECKS_SCRIPT"; then
-      if ! refresh_state_timestamp; then
-        log "failed to refresh state timestamp; aborting"
-        exit 1
-      fi
-      log "checks completed for version $current"
-    else
-      log "checks failed for version $current"
-    fi
-  fi
-  exit 0
-fi
+	    if ! apply_version_change "$prev" "$current"; then
+	      exit 1
+	    fi
+	  fi
+	  exit 0
+	fi
 
 while true; do
 	prev="$(read_state_version)"
@@ -373,23 +391,9 @@ while true; do
 	fi
 
   if [[ "$current" != "$prev" ]]; then
-    require_file "$CHECKS_SCRIPT" "Checks script"
-    require_executable "$CHECKS_SCRIPT" "Checks script"
-    log "minor version changed: $prev -> $current"
-    if ! write_state "$current"; then
-		log "refusing to continue because state update for version $current failed"
-		exit 1
-	fi
-    if "$CHECKS_SCRIPT"; then
-      if ! refresh_state_timestamp; then
-        log "failed to refresh state timestamp; aborting"
-        exit 1
-      fi
-      log "checks completed for version $current"
-    else
-      log "checks failed for version $current"
-    fi
-    refresh_state_timestamp
+	    if ! apply_version_change "$prev" "$current"; then
+	      exit 1
+	    fi
     sleep "$DEFAULT_RETRY_DELAY_SECONDS"
     continue
   fi
