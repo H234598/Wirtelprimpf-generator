@@ -188,35 +188,24 @@ dependency_signature() {
   if [[ ! -r "$path" ]]; then
     return 1
   fi
-  if ! is_owned_by_current_user "$path"; then
+  local owner group mode mtime inode size meta
+  if ! meta="$(stat -c '%u:%g:%a:%Y:%i:%s' "$path" 2>/dev/null)"; then
     return 1
   fi
-  local sig
-  local owner
-  local group
-  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+  IFS=':' read -r owner group mode mtime inode size <<< "$meta"
+  if [[ -z "$owner" || -z "$group" || -z "$mode" || -z "$mtime" || -z "$inode" || -z "$size" ]]; then
     return 1
   fi
-  if ! group="$(stat -c '%g' "$path" 2>/dev/null)"; then
+  if (( 10#$owner != CURRENT_UID )); then
     return 1
   fi
-  if ! sig="$(stat -c '%Y:%i:%s:%a' "$path" 2>/dev/null)"; then
-    return 1
-  fi
-  local mode
-  if ! mode="$(stat -c '%a' "$path" 2>/dev/null)"; then
+  if (( 10#$owner < 1 )); then
     return 1
   fi
   if (( 10#$mode & 022 )); then
     return 1
   fi
-  if (( 10#${owner} != CURRENT_UID )); then
-    return 1
-  fi
-  if (( 10#${owner} < 1 )); then
-    return 1
-  fi
-  printf '%s:%s:%s\n' "$owner" "$group" "$sig"
+  printf '%s:%s:%s:%s:%s:%s\n' "$owner" "$group" "$mode" "$mtime" "$inode" "$size"
   return 0
 }
 
