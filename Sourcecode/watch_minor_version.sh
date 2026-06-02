@@ -91,6 +91,9 @@ validate_publish_state_path() {
     log "publish state parent path is not a directory: ${parent_dir}"
     exit 1
   fi
+  if [[ -e "$parent_dir" ]]; then
+    require_directory "$parent_dir" "publish state directory" "rx"
+  fi
 }
 
 validate_publish_state_file() {
