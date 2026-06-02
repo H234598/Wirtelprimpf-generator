@@ -1022,9 +1022,20 @@ is_stale_lock_file() {
   if [[ -z "$lock_path" || ! -e "$lock_path" ]]; then
     return 1
   fi
-  now=$(date +%s)
-  lock_mtime="$(stat -c '%Y' "$lock_path" 2>/dev/null || echo "$now")"
+  if ! now="$(date +%s 2>/dev/null)"; then
+    return 1
+  fi
+  if [[ ! "$now" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  lock_mtime="$(stat -c '%Y' "$lock_path" 2>/dev/null || true)"
+  if [[ ! "$lock_mtime" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
   age=$((now - lock_mtime))
+  if (( age < 0 )); then
+    return 1
+  fi
   if (( age >= MAX_STALE_LOCK_SECONDS )); then
     return 0
   fi

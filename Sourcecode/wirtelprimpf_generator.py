@@ -83,7 +83,7 @@ ENV_BLACKLIST: Final = frozenset(
 OPENAI_ENV_PREFIXES: Final = ("OPENAI_", "AZURE_OPENAI_")
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.5.34-hardening"
+VERSION: Final = "0.5.35-hardening"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 DEFAULT_PATCHES_PER_MINOR: Final = 100
 PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
@@ -558,7 +558,7 @@ def read_publish_state(path: Path) -> PublishState:
         raise RuntimeError(f"failed to read publish state file: {path}: {exc}") from exc
 
     if not isinstance(payload, dict):
-        raise RuntimeError(f"invalid publish state: expected object in {path}")
+        raise RuntimeError(f"invalid publish state: expected JSON object in {path}, got {type(payload).__name__}")
 
     if "patch_count" in payload:
         raw_patch_count = payload["patch_count"]
@@ -1001,7 +1001,7 @@ def load_prompt_config(path: Path) -> dict[str, object]:
     except OSError as exc:
         raise ValueError(f"failed to read prompt config file: {path}: {exc}") from exc
     if not isinstance(data, dict):
-        raise ValueError("Prompt config must be a JSON object")
+        raise ValueError(f"Prompt config must be a JSON object, got {type(data).__name__}")
     return data
 
 

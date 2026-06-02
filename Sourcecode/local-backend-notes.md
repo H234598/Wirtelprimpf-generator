@@ -32,6 +32,10 @@ if ! mkdir -p -- "$LOCAL_IMAGEGEN_OUTDIR"; then
   echo "output directory unavailable: $LOCAL_IMAGEGEN_OUTDIR"
   exit 1
 fi
+if [[ -L "$LOCAL_IMAGEGEN_OUTDIR" ]]; then
+  echo "refusing symlink output directory: $LOCAL_IMAGEGEN_OUTDIR"
+  exit 1
+fi
 if ! [[ -w "$LOCAL_IMAGEGEN_OUTDIR" ]]; then
   echo "output directory is not writable: $LOCAL_IMAGEGEN_OUTDIR"
   exit 1
