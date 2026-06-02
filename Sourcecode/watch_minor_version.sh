@@ -294,6 +294,9 @@ run_python_sandbox() {
 
 run_check_script_sandboxed() {
   local script_path="$1"
+  local script_canonical
+  local bash_mode
+  local bash_canonical
   if [[ -z "$script_path" ]]; then
     log "checks script path is empty"
     return 1
@@ -306,12 +309,17 @@ run_check_script_sandboxed() {
     log "checks script must be a non-symlink executable file: ${script_path}"
     return 1
   fi
-  if ! is_owned_by_current_user "$script_path"; then
+  script_canonical="$(readlink -f -- "$script_path" 2>/dev/null || true)"
+  if [[ -z "$script_canonical" || "$script_canonical" != "$script_path" ]]; then
+    log "checks script path must be canonical and non-symlinked: ${script_path}"
+    return 1
+  fi
+  if ! is_owned_by_current_user "$script_canonical"; then
     log "checks script must be owned by current user: ${script_path}"
     return 1
   fi
   local script_perm
-  if ! script_perm="$(stat -c '%a' "$script_path" 2>/dev/null)"; then
+  if ! script_perm="$(stat -c '%a' "$script_canonical" 2>/dev/null)"; then
     log "checks script permissions unavailable: ${script_path}"
     return 1
   fi
@@ -346,6 +354,27 @@ run_check_script_sandboxed() {
     log "required bash interpreter unavailable or insecure: ${WATCH_BASH_PATH:-not-found}"
     return 1
   fi
+  if ! is_owned_by_current_user "$WATCH_BASH_PATH"; then
+    log "required bash interpreter must be owned by current user: ${WATCH_BASH_PATH}"
+    return 1
+  fi
+  if ! bash_mode="$(stat -c '%a' "$WATCH_BASH_PATH" 2>/dev/null)"; then
+    log "required bash permissions unavailable: ${WATCH_BASH_PATH}"
+    return 1
+  fi
+  bash_canonical="$(readlink -f -- "$WATCH_BASH_PATH" 2>/dev/null || true)"
+  if [[ -z "$bash_canonical" || "$bash_canonical" != "$WATCH_BASH_PATH" ]]; then
+    log "required bash path must be canonical and non-symlinked: ${WATCH_BASH_PATH}"
+    return 1
+  fi
+  if (( 10#$bash_mode & 022 )); then
+    log "required bash interpreter must not be group/world writable: ${WATCH_BASH_PATH}"
+    return 1
+  fi
+  if (( 10#$bash_mode & 06000 )); then
+    log "required bash interpreter must not have setuid/setgid bits: ${WATCH_BASH_PATH}"
+    return 1
+  fi
   if ! env -i \
     PATH="/usr/local/bin:/usr/bin:/bin" \
     HOME="/tmp" \
@@ -354,7 +383,7 @@ run_check_script_sandboxed() {
     TERM="xterm-256color" \
     LANG="C.UTF-8" \
     LC_ALL="C.UTF-8" \
-    "$WATCH_BASH_PATH" "$script_path"; then
+    "$bash_canonical" "$script_path"; then
     log "checks script execution failed: ${script_path}"
     return 1
   fi

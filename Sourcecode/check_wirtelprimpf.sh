@@ -344,6 +344,7 @@ run_python_sandbox() {
 
 run_command_sandboxed() {
   local -a cmd=("$@")
+  local command_canonical
   if (( ${#cmd[@]} == 0 )); then
     echo "No command supplied" >&2
     return 1
@@ -363,8 +364,13 @@ run_command_sandboxed() {
     echo "Required bash interpreter unavailable or insecure: ${BASH_PATH:-not-found}" >&2
     return 1
   else
+    command_canonical="$(readlink -f -- "${cmd[0]}" 2>/dev/null || true)"
+    if [[ -z "$command_canonical" || "$command_canonical" != "${cmd[0]}" ]]; then
+      echo "Sandboxed command path must be canonical and non-symlinked: ${cmd[0]}" >&2
+      return 1
+    fi
     local command_path_dir
-    command_path_dir="$(dirname -- "${cmd[0]}")"
+    command_path_dir="$(dirname -- "$command_canonical")"
     if [[ -L "$command_path_dir" ]]; then
       echo "Sandboxed command directory must not be a symlink: ${command_path_dir}" >&2
       return 1
@@ -382,8 +388,30 @@ run_command_sandboxed() {
       echo "Sandboxed command directory must not be group/world writable: ${command_path_dir}" >&2
       return 1
     fi
+    command_canonical="$(readlink -f -- "$BASH_PATH" 2>/dev/null || true)"
+    if [[ -z "$command_canonical" ]]; then
+      echo "Failed to read bash interpreter canonical path: ${BASH_PATH:-not-found}" >&2
+      return 1
+    fi
+    if ! is_owned_by_current_user "$command_canonical"; then
+      echo "Bash interpreter must be owned by current user: $command_canonical" >&2
+      return 1
+    fi
+    local bash_mode
+    if ! bash_mode="$(stat -c '%a' "$command_canonical" 2>/dev/null)"; then
+      echo "Failed to read bash interpreter permissions: $command_canonical" >&2
+      return 1
+    fi
+    if (( 10#$bash_mode & 022 )); then
+      echo "Bash interpreter must not be group/world writable: $command_canonical" >&2
+      return 1
+    fi
+    if (( 10#$bash_mode & 06000 )); then
+      echo "Bash interpreter must not have setuid/setgid bits: $command_canonical" >&2
+      return 1
+    fi
     local command_mode
-    if ! command_mode="$(stat -c '%a' "${cmd[0]}" 2>/dev/null)"; then
+    if ! command_mode="$(stat -c '%a' "$command_canonical" 2>/dev/null)"; then
       echo "Failed to read sandboxed command permissions: ${cmd[0]}" >&2
       return 1
     fi
