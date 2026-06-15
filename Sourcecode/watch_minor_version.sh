@@ -11,7 +11,7 @@ CURRENT_UID="$(id -u)"
 readonly CURRENT_UID
 
 log() {
-  printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"
+  printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*" >&2
 }
 
 if [[ -n "${PYTHON_BIN:-}" && ("${PYTHON_BIN}" == *[[:space:]]* || "${PYTHON_BIN}" == *[$'\r\n\t\v\f']* || "${PYTHON_BIN}" != "${PYTHON_BIN//[^a-zA-Z0-9._-]/}") ]]; then
@@ -21,7 +21,8 @@ fi
 
 declare -ar SECURITY_PATHS_ARRAY=(/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin)
 declare -r SECURITY_BIN_NAME_PATTERNS="python3|python3\.[0-9]+"
-declare -ar SECURITY_PYTHON_CANDIDATES=("python3")
+declare -i SECURITY_MIN_PYTHON_MAJOR=3
+declare -i SECURITY_MIN_PYTHON_MINOR=14
 declare -i HAS_FINDMNT_CMD=0
 declare -i HAS_FILE_CMD=0
 if command -v findmnt >/dev/null 2>&1; then
@@ -31,6 +32,28 @@ if command -v file >/dev/null 2>&1; then
   HAS_FILE_CMD=1
 fi
 readonly HAS_FINDMNT_CMD HAS_FILE_CMD
+
+discover_python_candidates() {
+  local search_path path base
+  local -A seen=()
+  local candidates=()
+
+  for search_path in "${SECURITY_PATHS_ARRAY[@]}"; do
+    for path in "$search_path"/python3 "$search_path"/python3.[0-9]*; do
+      [[ -e "$path" ]] || continue
+      base="${path##*/}"
+      if [[ -n "${seen[$base]:-}" ]]; then
+        continue
+      fi
+      if [[ "$base" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]; then
+        candidates+=("$base")
+        seen[$base]=1
+      fi
+    done
+  done
+
+  printf '%s\n' "${candidates[@]}" | sort -Vr
+}
 
 is_valid_python_binary_name() {
   local candidate="$1"
@@ -52,7 +75,7 @@ resolve_python() {
   fi
   local fallback_set=1
   if [[ -z "${candidates[0]:-}" ]]; then
-    candidates=("${SECURITY_PYTHON_CANDIDATES[@]}")
+    mapfile -t candidates < <(discover_python_candidates)
     fallback_set=0
   fi
 
@@ -89,6 +112,11 @@ resolve_python() {
   done
 
   return 1
+}
+
+validate_python_version() {
+  local path="$1"
+  "$path" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 14) else 1)' >/dev/null 2>&1
 }
 
 validate_python_binary() {
@@ -131,7 +159,7 @@ validate_python_binary() {
   if [[ "$resolved" == /tmp/* || "$resolved" == /var/tmp/* || "$resolved" == /run/* || "$resolved" == /dev/* ]]; then
     return 1
   fi
-  if ! read -r resolved_mode resolved_owner mountpoint <<<"$(stat -c '%a %u %m' "$resolved" 2>/dev/null)"; then
+  if ! IFS=':' read -r resolved_mode resolved_owner mountpoint <<<"$(stat -c '%a:%u:%m' "$resolved" 2>/dev/null)"; then
     return 1
   fi
   if [[ ! -d "$mountpoint" ]]; then
@@ -140,10 +168,10 @@ validate_python_binary() {
   if [[ -L "$mountpoint" ]]; then
     return 1
   fi
-  if ! read -r parent_mode parent_owner <<<"$(stat -c '%a %u' "$parent_dir" 2>/dev/null)"; then
+  if ! IFS=':' read -r parent_mode parent_owner <<<"$(stat -c '%a:%u' "$parent_dir" 2>/dev/null)"; then
     return 1
   fi
-  if ! read -r mountpoint_mode mountpoint_owner <<<"$(stat -c '%a %u' "$mountpoint" 2>/dev/null)"; then
+  if ! IFS=':' read -r mountpoint_mode mountpoint_owner <<<"$(stat -c '%a:%u' "$mountpoint" 2>/dev/null)"; then
     return 1
   fi
   if [[ "$resolved_owner" != "$CURRENT_UID" && "$resolved_owner" != 0 ]]; then
@@ -155,19 +183,19 @@ validate_python_binary() {
   if [[ "$parent_owner" != "$CURRENT_UID" && "$parent_owner" != 0 ]]; then
     return 1
   fi
-  if (( 10#$mountpoint_mode & 022 )); then
+  if (( 8#$mountpoint_mode & 8#022 )); then
     return 1
   fi
-  if (( 10#$parent_mode & 022 )); then
+  if (( 8#$parent_mode & 8#022 )); then
     return 1
   fi
-  if (( 10#$resolved_mode & 022 )); then
+  if (( 8#$resolved_mode & 8#022 )); then
     return 1
   fi
-  if (( 10#$resolved_mode & 06000 )); then
+  if (( 8#$resolved_mode & 8#6000 )); then
     return 1
   fi
-  if (( (10#$resolved_mode & 0111) == 0 )); then
+  if (( (8#$resolved_mode & 8#111) == 0 )); then
     return 1
   fi
   if (( HAS_FINDMNT_CMD )); then
@@ -203,6 +231,10 @@ if ! PY="$(resolve_python)"; then
 fi
 if ! validate_python_binary "$PY"; then
   log "invalid or insecure python interpreter: ${PY}"
+  exit 1
+fi
+if ! validate_python_version "$PY"; then
+  log "unsupported python interpreter version: ${PY}; require Python ${SECURITY_MIN_PYTHON_MAJOR}.${SECURITY_MIN_PYTHON_MINOR} or newer"
   exit 1
 fi
 PY_SCRIPT="$ROOT_DIR/Sourcecode/wirtelprimpf_generator.py"
@@ -289,11 +321,11 @@ run_check_script_sandboxed() {
     log "checks script permissions unavailable: ${script_path}"
     return 1
   fi
-  if (( 10#$script_perm & 022 )); then
+  if (( 8#$script_perm & 8#022 )); then
     log "checks script must not be group/world writable: ${script_path}"
     return 1
   fi
-  if (( 10#$script_perm & 06000 )); then
+  if (( 8#$script_perm & 8#6000 )); then
     log "checks script must not contain setuid/setgid bits: ${script_path}"
     return 1
   fi
@@ -312,7 +344,7 @@ run_check_script_sandboxed() {
     log "checks script directory permissions unavailable: ${script_dir}"
     return 1
   fi
-  if (( 10#$script_dir_perm & 022 )); then
+  if (( 8#$script_dir_perm & 8#022 )); then
     log "checks script directory must not be group/world writable: ${script_dir}"
     return 1
   fi
@@ -333,11 +365,11 @@ run_check_script_sandboxed() {
     log "required bash path must be canonical and non-symlinked: ${WATCH_BASH_PATH}"
     return 1
   fi
-  if (( 10#$bash_mode & 022 )); then
+  if (( 8#$bash_mode & 8#022 )); then
     log "required bash interpreter must not be group/world writable: ${WATCH_BASH_PATH}"
     return 1
   fi
-  if (( 10#$bash_mode & 06000 )); then
+  if (( 8#$bash_mode & 8#6000 )); then
     log "required bash interpreter must not have setuid/setgid bits: ${WATCH_BASH_PATH}"
     return 1
   fi
@@ -372,6 +404,45 @@ validate_repo_path() {
   fi
   cd -- "$path" >/dev/null 2>&1
   printf '%s\n' "$(pwd)"
+}
+
+require_directory() {
+  local path="$1"
+  local label="$2"
+  local mode="${3:-rx}"
+  local perm owner
+  if [[ ! -d "$path" ]]; then
+    log "${label} must be a directory: $path"
+    exit 1
+  fi
+  if [[ -L "$path" ]]; then
+    log "${label} must not be a symlink: $path"
+    exit 1
+  fi
+  if [[ ! -r "$path" || ! -x "$path" ]]; then
+    log "${label} must be readable and searchable: $path"
+    exit 1
+  fi
+  if [[ "$mode" == *w* && ! -w "$path" ]]; then
+    log "${label} must be writable: $path"
+    exit 1
+  fi
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null || true)"; then
+    log "${label} failed to read owner: $path"
+    exit 1
+  fi
+  if [[ "$owner" != "$CURRENT_UID" ]]; then
+    log "${label} must be owned by current user: $path"
+    exit 1
+  fi
+  if ! perm="$(stat -c '%a' "$path" 2>/dev/null || true)"; then
+    log "${label} failed to read permissions: $path"
+    exit 1
+  fi
+  if (( 8#$perm & 8#022 )); then
+    log "${label} must not be group/world writable: $path"
+    exit 1
+  fi
 }
 
 validate_publish_state_path() {
@@ -426,52 +497,12 @@ validate_publish_state_file() {
       log "publish state file metadata unavailable: ${publish_state_file}"
       exit 1
     fi
-    if (( 10#$publish_state_perm & 022 )); then
+    if (( 8#$publish_state_perm & 8#022 )); then
       log "publish state file must not be group/world writable: ${publish_state_file}"
       exit 1
     fi
   fi
 }
-
-REPO_PATH="$(validate_repo_path "${WIRTELPRIMPF_REPO_PATH:-$ROOT_DIR}")"
-if [[ "$(basename "$REPO_PATH")" == ".git" ]]; then
-  if [[ -L "$REPO_PATH" ]]; then
-    log "publish state path must not be a symlink directory: ${REPO_PATH}"
-    exit 1
-  fi
-  if [[ -L "$REPO_PATH/wirtelprimpf_publish_state.json" ]]; then
-    log "publish state path must not be a symlink file: ${REPO_PATH}/wirtelprimpf_publish_state.json"
-    exit 1
-  fi
-  PUBLISH_STATE_FILE="$REPO_PATH/wirtelprimpf_publish_state.json"
-else
-  if [[ -L "$REPO_PATH/.git" ]]; then
-    log ".git path must not be a symlink: ${REPO_PATH}/.git"
-    exit 1
-  fi
-  if [[ -L "$REPO_PATH/.git/wirtelprimpf_publish_state.json" ]]; then
-    log "publish state path must not be a symlink file: ${REPO_PATH}/.git/wirtelprimpf_publish_state.json"
-    exit 1
-  fi
-  PUBLISH_STATE_FILE="$REPO_PATH/.git/wirtelprimpf_publish_state.json"
-fi
-validate_publish_state_path "$PUBLISH_STATE_FILE"
-validate_publish_state_file "$PUBLISH_STATE_FILE"
-STATE_FILE="$ROOT_DIR/Sourcecode/.minor_version_state"
-require_directory "$(dirname "$STATE_FILE")" "State directory" "rwx"
-LOCK_FILE="$ROOT_DIR/Sourcecode/.minor_version_watch.lock"
-require_directory "$(dirname "$LOCK_FILE")" "Lock directory" "rwx"
-LOCK_TMP=""
-TIMESTAMP_FILE="$STATE_FILE.started_at"
-CHECKS_SCRIPT="$ROOT_DIR/Sourcecode/check_wirtelprimpf.sh"
-validate_watch_runtime_file_path "$STATE_FILE" "State file"
-validate_watch_runtime_file_path "$LOCK_FILE" "Lock file"
-validate_watch_runtime_file_path "$TIMESTAMP_FILE" "Timestamp file"
-LOCK_FILE_AGE_SECONDS=""
-
-SLEEP_SECONDS="${SLEEP_SECONDS:-300}"
-MAX_STALE_LOCK_SECONDS="${MAX_STALE_LOCK_SECONDS:-900}"
-DEFAULT_RETRY_DELAY_SECONDS="${DEFAULT_RETRY_DELAY_SECONDS:-5}"
 
 parse_positive_int() {
   local value="$1"
@@ -487,8 +518,6 @@ parse_positive_int() {
   fi
   echo "$value"
 }
-
-TIMESTAMP_FILE="${TIMESTAMP_FILE:-$STATE_FILE.started_at}"
 
 dependency_signature() {
   local path="$1"
@@ -519,7 +548,7 @@ dependency_signature() {
     if [[ "$parent_owner" != "$CURRENT_UID" ]]; then
       return 1
     fi
-    if (( 10#$parent_mode & 022 )); then
+    if (( 8#$parent_mode & 8#022 )); then
       return 1
     fi
     echo "PUBLISH_STATE_MISSING:${path}"
@@ -550,7 +579,7 @@ dependency_signature() {
   if [[ "$parent_owner" != "$CURRENT_UID" ]]; then
     return 1
   fi
-  if (( 10#$parent_mode & 022 )); then
+  if (( 8#$parent_mode & 8#022 )); then
     return 1
   fi
   if ! path_meta="$(stat -c '%u:%g:%a:%Y:%i:%s' "$path" 2>/dev/null)"; then
@@ -568,59 +597,16 @@ dependency_signature() {
   if (( 10#$owner < 1 )); then
     return 1
   fi
-  if (( 10#$mode & 022 )); then
+  if (( 8#$mode & 8#022 )); then
     return 1
   fi
-  if (( 10#$mode & 06000 )); then
+  if (( 8#$mode & 8#6000 )); then
     return 1
   fi
   signature="$(printf '%s:%s:%s:%s:%s:%s\n' "$owner" "$group" "$mode" "$mtime" "$inode" "$size")"
   echo "$signature"
   return 0
 }
-
-require_directory() {
-  local path="$1"
-  local label="$2"
-  local mode="${3:-rx}"
-  local perm owner
-  if [[ ! -d "$path" ]]; then
-    log "${label} must be a directory: $path"
-    exit 1
-  fi
-  if [[ -L "$path" ]]; then
-    log "${label} must not be a symlink: $path"
-    exit 1
-  fi
-  if [[ ! -r "$path" || ! -x "$path" ]]; then
-    log "${label} must be readable and searchable: $path"
-    exit 1
-  fi
-  if [[ "$mode" == *w* && ! -w "$path" ]]; then
-    log "${label} must be writable: $path"
-    exit 1
-  fi
-  if ! owner="$(stat -c '%u' "$path" 2>/dev/null || true)"; then
-    log "${label} failed to read owner: $path"
-    exit 1
-  fi
-  if [[ "$owner" != "$CURRENT_UID" ]]; then
-    log "${label} must be owned by current user: $path"
-    exit 1
-  fi
-  if ! perm="$(stat -c '%a' "$path" 2>/dev/null || true)"; then
-    log "${label} failed to read permissions: $path"
-    exit 1
-  fi
-  if (( 10#$perm & 022 )); then
-    log "${label} must not be group/world writable: $path"
-    exit 1
-  fi
-}
-
-SLEEP_SECONDS="$(parse_positive_int "$SLEEP_SECONDS" 300 1)"
-MAX_STALE_LOCK_SECONDS="$(parse_positive_int "$MAX_STALE_LOCK_SECONDS" 900 10)"
-DEFAULT_RETRY_DELAY_SECONDS="$(parse_positive_int "$DEFAULT_RETRY_DELAY_SECONDS" 5 1)"
 
 validate_runtime_env() {
   local value
@@ -646,8 +632,6 @@ validate_runtime_env() {
       ;;
   esac
 }
-
-validate_runtime_env
 
 is_regular_file() {
   local path="$1"
@@ -685,7 +669,7 @@ is_secure_regular_file() {
   if ! perm="$(stat -c '%a' "$path" 2>/dev/null)"; then
     return 1
   fi
-  if (( 10#$perm & 022 )); then
+  if (( 8#$perm & 8#022 )); then
     return 1
   fi
   return 0
@@ -733,7 +717,7 @@ require_executable() {
     log "${label} failed to read permissions: $path"
     exit 1
   fi
-  if (( 10#$perm & 06000 )); then
+  if (( 8#$perm & 8#6000 )); then
     log "${label} must not have setuid/setgid bits: $path"
     exit 1
   fi
@@ -802,7 +786,7 @@ write_state() {
       log "failed to read state file permissions: $STATE_FILE"
       return 1
     fi
-    if (( 10#$state_perm & 022 )); then
+    if (( 8#$state_perm & 8#022 )); then
       log "state file must not be group/world writable: $STATE_FILE"
       return 1
     fi
@@ -864,7 +848,7 @@ refresh_state_timestamp() {
       log "failed to read timestamp file permissions: $TIMESTAMP_FILE"
       return 1
     fi
-    if (( 10#$timestamp_perm & 022 )); then
+    if (( 8#$timestamp_perm & 8#022 )); then
       log "timestamp file must not be group/world writable: $TIMESTAMP_FILE"
       return 1
     fi
@@ -1479,6 +1463,53 @@ resolve_current_minor_version() {
 
   printf '%s\n' "$current"
 }
+
+REPO_PATH="$(validate_repo_path "${WIRTELPRIMPF_REPO_PATH:-$ROOT_DIR}")"
+if [[ "$(basename "$REPO_PATH")" == ".git" ]]; then
+  if [[ -L "$REPO_PATH" ]]; then
+    log "publish state path must not be a symlink directory: ${REPO_PATH}"
+    exit 1
+  fi
+  if [[ -L "$REPO_PATH/wirtelprimpf_publish_state.json" ]]; then
+    log "publish state path must not be a symlink file: ${REPO_PATH}/wirtelprimpf_publish_state.json"
+    exit 1
+  fi
+  PUBLISH_STATE_FILE="$REPO_PATH/wirtelprimpf_publish_state.json"
+else
+  if [[ -L "$REPO_PATH/.git" ]]; then
+    log ".git path must not be a symlink: ${REPO_PATH}/.git"
+    exit 1
+  fi
+  if [[ -L "$REPO_PATH/.git/wirtelprimpf_publish_state.json" ]]; then
+    log "publish state path must not be a symlink file: ${REPO_PATH}/.git/wirtelprimpf_publish_state.json"
+    exit 1
+  fi
+  PUBLISH_STATE_FILE="$REPO_PATH/.git/wirtelprimpf_publish_state.json"
+fi
+validate_publish_state_path "$PUBLISH_STATE_FILE"
+validate_publish_state_file "$PUBLISH_STATE_FILE"
+STATE_FILE="$ROOT_DIR/Sourcecode/.minor_version_state"
+require_directory "$(dirname "$STATE_FILE")" "State directory" "rwx"
+LOCK_FILE="$ROOT_DIR/Sourcecode/.minor_version_watch.lock"
+require_directory "$(dirname "$LOCK_FILE")" "Lock directory" "rwx"
+LOCK_TMP=""
+TIMESTAMP_FILE="$STATE_FILE.started_at"
+CHECKS_SCRIPT="$ROOT_DIR/Sourcecode/check_wirtelprimpf.sh"
+validate_watch_runtime_file_path "$STATE_FILE" "State file"
+validate_watch_runtime_file_path "$LOCK_FILE" "Lock file"
+validate_watch_runtime_file_path "$TIMESTAMP_FILE" "Timestamp file"
+LOCK_FILE_AGE_SECONDS=""
+
+SLEEP_SECONDS="${SLEEP_SECONDS:-300}"
+MAX_STALE_LOCK_SECONDS="${MAX_STALE_LOCK_SECONDS:-900}"
+DEFAULT_RETRY_DELAY_SECONDS="${DEFAULT_RETRY_DELAY_SECONDS:-5}"
+TIMESTAMP_FILE="${TIMESTAMP_FILE:-$STATE_FILE.started_at}"
+
+SLEEP_SECONDS="$(parse_positive_int "$SLEEP_SECONDS" 300 1)"
+MAX_STALE_LOCK_SECONDS="$(parse_positive_int "$MAX_STALE_LOCK_SECONDS" 900 10)"
+DEFAULT_RETRY_DELAY_SECONDS="$(parse_positive_int "$DEFAULT_RETRY_DELAY_SECONDS" 5 1)"
+
+validate_runtime_env
 
 acquire_lock
 

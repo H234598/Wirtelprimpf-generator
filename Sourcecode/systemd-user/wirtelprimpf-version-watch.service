@@ -1,6 +1,8 @@
 [Unit]
 Description=Watch Wirtelprimpf version minor changes and run full checks
 After=default.target
+StartLimitIntervalSec=5min
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -8,7 +10,7 @@ WorkingDirectory=%h/.local/share/wirtelprimpf/github/Katzenbilder
 ProtectHome=read-only
 ReadWritePaths=%h/.local/share/wirtelprimpf/github/Katzenbilder
 ExecStart=%h/.local/share/wirtelprimpf/github/Katzenbilder/Sourcecode/watch_minor_version.sh
-Restart=always
+Restart=on-failure
 RestartSec=10
 Environment=SLEEP_SECONDS=300
 UMask=0077
