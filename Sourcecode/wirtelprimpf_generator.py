@@ -25,10 +25,11 @@ import tempfile
 from openai import OpenAI
 from PIL import Image
 
-FLEX_PROCESSING_DEFAULT: str = "high"
-FLEX_PROCESSING_MODES = frozenset({FLEX_PROCESSING_DEFAULT, "low"})
+FLEX_PROCESSING_DEFAULT: str = "flex"
+FLEX_PROCESSING_MODES = frozenset({FLEX_PROCESSING_DEFAULT})
 FLEX_PROCESSING_ENABLED_VALUES = {"1", "true", "yes", "on", "enabled", "enable"}
-FLEX_PROCESSING_DISABLED_VALUES = {"0", "false", "no", "off", "disabled", "disable"}
+FLEX_PROCESSING_LEGACY_ENABLED_VALUES = {"high", "low"}
+FLEX_PROCESSING_DISABLED_VALUES = {"0", "false", "no", "off", "disabled", "disable", "default", "standard"}
 IMAGE_SIZE_PATTERN: Final = r"^\d+x\d+$"
 IMAGE_SIZE_PATTERN_RE: Final = re.compile(IMAGE_SIZE_PATTERN)
 OUTPUT_RESOLUTION_ALIASES: Final = {
@@ -977,10 +978,12 @@ def parse_flex_processing() -> str | None:
         return None
     if normalized in FLEX_PROCESSING_MODES:
         return normalized
+    if normalized in FLEX_PROCESSING_LEGACY_ENABLED_VALUES:
+        return FLEX_PROCESSING_DEFAULT
 
     raise ValueError(
         "Invalid WIRTELPRIMPF_FLEX_PROCESSING value. "
-        "Use on/off, true/false, yes/no, 1/0, enabled/disabled, or a concrete mode (low|high)."
+        "Use on/off, true/false, yes/no, 1/0, enabled/disabled, default/standard, or flex."
     )
 
 
@@ -1090,6 +1093,7 @@ def is_retryable_generation_error(exc: Exception) -> bool:
 
 def generate_image_with_retries(client: OpenAI, request: dict[str, object]) -> str:
     last_error: Exception | None = None
+    flex_fallback_used = False
     for attempt in range(1, GENERATION_RETRIES + 1):
         try:
             response = client.images.generate(**request)
@@ -1100,12 +1104,45 @@ def generate_image_with_retries(client: OpenAI, request: dict[str, object]) -> s
             return image_b64
         except Exception as exc:  # noqa: BLE001
             last_error = exc
+            if not flex_fallback_used and request_uses_flex_service_tier(request) and is_service_tier_unsupported_error(exc):
+                print("Flex service_tier was not accepted for this image request; retrying without Flex.", file=sys.stderr)
+                request = request_without_service_tier(request)
+                flex_fallback_used = True
+                continue
             if not is_retryable_generation_error(exc) or attempt == GENERATION_RETRIES:
                 break
             delay = GENERATION_RETRY_BASE_SECONDS * attempt
             time.sleep(delay)
     assert last_error is not None
     raise last_error
+
+
+def request_uses_flex_service_tier(request: dict[str, object]) -> bool:
+    extra_body = request.get("extra_body")
+    return isinstance(extra_body, dict) and extra_body.get("service_tier") == "flex"
+
+
+def request_without_service_tier(request: dict[str, object]) -> dict[str, object]:
+    cleaned = dict(request)
+    extra_body = cleaned.get("extra_body")
+    if isinstance(extra_body, dict):
+        cleaned_extra_body = dict(extra_body)
+        cleaned_extra_body.pop("service_tier", None)
+        if cleaned_extra_body:
+            cleaned["extra_body"] = cleaned_extra_body
+        else:
+            cleaned.pop("extra_body", None)
+    return cleaned
+
+
+def is_service_tier_unsupported_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "service_tier" in message and (
+        "unknown parameter" in message
+        or "unsupported" in message
+        or "not supported" in message
+        or "invalid_request_error" in message
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -1687,7 +1724,7 @@ def main() -> None:
                 "size": config.image_size,
             }
             if config.flex_processing_mode:
-                request["processing"] = config.flex_processing_mode
+                request["extra_body"] = {"service_tier": config.flex_processing_mode}
 
             try:
                 image_b64 = generate_image_with_retries(client, request)
