@@ -624,7 +624,7 @@ class Config:
 
 
 def load_config() -> Config:
-    default_outdir = Path.home() / "Pictures" / "Wirtelprimpf"
+    default_outdir = Path.home() / "Hintergrundbilder"
     config_home = Path(env("XDG_CONFIG_HOME", str(Path.home() / ".config")) or str(Path.home() / ".config"))
     default_prompt_config = config_home / "wirtelprimpf" / "prompt_config.json"
     repo_path = env("WIRTELPRIMPF_REPO_PATH")
