@@ -1,0 +1,238 @@
+{
+  "layout": {
+    "type": "layout",
+    "pages": [
+      "main-page",
+      "about-page"
+    ],
+    "main-page": {
+      "type": "page",
+      "title": "Wirtelprimfgenerator",
+      "sections": [
+        "settings-logo-header-section",
+        "menu-map-section",
+        "folders-section",
+        "commands-section",
+        "matching-section",
+        "behavior-section",
+        "actions-section",
+        "settings-logo-footer-section"
+      ]
+    },
+    "about-page": {
+      "type": "page",
+      "title": "About",
+      "sections": [
+        "about-section"
+      ]
+    },
+    "settings-logo-header-section": {
+      "type": "section",
+      "title": "",
+      "keys": [
+        "settings-logo-header"
+      ]
+    },
+    "menu-map-section": {
+      "type": "section",
+      "title": "Menü-Plan",
+      "keys": [
+        "main-menu-settings-map"
+      ]
+    },
+    "folders-section": {
+      "type": "section",
+      "title": "Ordner und Backend",
+      "keys": [
+        "output-dir",
+        "python-command"
+      ]
+    },
+    "commands-section": {
+      "type": "section",
+      "title": "Öffnen und Vorlesen",
+      "keys": [
+        "open-command",
+        "tts-command"
+      ]
+    },
+    "matching-section": {
+      "type": "section",
+      "title": "Dateierkennung",
+      "keys": [
+        "story-image-glob",
+        "generated-image-glob",
+        "full-story-glob",
+        "part-glob",
+        "scan-max-depth"
+      ]
+    },
+    "behavior-section": {
+      "type": "section",
+      "title": "Panel-Verhalten",
+      "keys": [
+        "refresh-on-open",
+        "show-panel-label",
+        "notify-errors",
+        "github-url"
+      ]
+    },
+    "actions-section": {
+      "type": "section",
+      "title": "Aktionen",
+      "keys": [
+        "run-doctor",
+        "copy-setup-plan",
+        "open-output-dir",
+        "open-github",
+        "reset-tts-state"
+      ]
+    },
+    "settings-logo-footer-section": {
+      "type": "section",
+      "title": "",
+      "keys": [
+        "settings-logo-footer"
+      ]
+    },
+    "about-section": {
+      "type": "section",
+      "title": "Wirtelprimfgenerator Story Menu",
+      "keys": [
+        "about-version"
+      ]
+    }
+  },
+  "settings-logo-header": {
+    "type": "custom",
+    "file": "SettingsLogo.py",
+    "widget": "HeaderLogo",
+    "description": "Wirtelprimfgenerator header logo",
+    "default": ""
+  },
+  "settings-logo-footer": {
+    "type": "custom",
+    "file": "SettingsLogo.py",
+    "widget": "FooterLogo",
+    "description": "Wirtelprimfgenerator footer logo",
+    "default": ""
+  },
+  "main-menu-settings-map": {
+    "type": "label",
+    "description": "Das Panel-Menü bleibt bewusst klein: Aktuelles Bild → Story/Generated, Story → Read Story/Read part/TTS sowie Diagnose-Aktionen. Read part zeigt nur Last 1h bis Last 15h. Persistente Einstellungen liegen hier; dynamische Listen werden direkt aus dem Katzenbilder-Outputordner gelesen."
+  },
+  "output-dir": {
+    "type": "filechooser",
+    "description": "Katzenbilder-/Outputordner",
+    "tooltip": "Leer lassen, wenn das Applet den Wirtelprimpf-Output automatisch finden soll. Es liest ~/.config/wirtelprimpf/openai.env und fällt auf ~/Hintergrundbilder sowie lokale Katzenbilder-GitHub-Klone zurück.",
+    "default": "",
+    "select-dir": true
+  },
+  "python-command": {
+    "type": "entry",
+    "description": "Python-Kommando",
+    "tooltip": "Normalerweise python3. Absolute Pfade funktionieren ebenfalls.",
+    "default": "python3"
+  },
+  "open-command": {
+    "type": "entry",
+    "description": "Dateien öffnen mit",
+    "tooltip": "Standard: xdg-open. Alternativ z.B. xreader, ebook-viewer, code oder nemo. Wird ohne Shell als Argumentliste gestartet.",
+    "default": "xdg-open"
+  },
+  "tts-command": {
+    "type": "entry",
+    "description": "TTS-Kommando optional",
+    "tooltip": "Leer = auto: piper mit deutschem Modell, danach spd-say deutsch, danach espeak-ng/espeak. Sicherer Template-Modus ohne Shell; Platzhalter: {file}, {text_file}, {text}.",
+    "default": ""
+  },
+  "story-image-glob": {
+    "type": "entry",
+    "description": "Glob für aktuelles Story-Bild",
+    "tooltip": "Semikolon-getrennte Glob-Muster relativ zum Outputordner. Leer = working/latest.png bzw. neuestes Story-Bild.",
+    "default": ""
+  },
+  "generated-image-glob": {
+    "type": "entry",
+    "description": "Glob für aktuelles Generated-Bild",
+    "tooltip": "Semikolon-getrennte Glob-Muster. Leer = neueste Standard-/classic-Pipeline-Datei.",
+    "default": ""
+  },
+  "full-story-glob": {
+    "type": "entry",
+    "description": "Glob für Full Storys",
+    "tooltip": "Semikolon-getrennt. Leer = Wirtelprimpf_Story_<Römische Zahl>.md/.epub plus working/Full_Story.md-Symlink.",
+    "default": ""
+  },
+  "part-glob": {
+    "type": "entry",
+    "description": "Glob für Storyteile",
+    "tooltip": "Semikolon-getrennt. Leer = wirtelprimpf_YYYY-MM-DD_*.md, gefiltert gegen die aktive Full Story.",
+    "default": ""
+  },
+  "scan-max-depth": {
+    "type": "spinbutton",
+    "description": "Scan-Tiefe",
+    "tooltip": "Wie tief der Outputordner durchsucht wird. Für Katzenbilder reichen normalerweise 3-4 Ebenen.",
+    "default": 4,
+    "min": 1,
+    "max": 12,
+    "step": 1,
+    "units": "Ebenen"
+  },
+  "refresh-on-open": {
+    "type": "switch",
+    "description": "Menü beim Öffnen neu scannen",
+    "tooltip": "Aktiv lassen, damit Latest/Storyteile immer aktuell sind.",
+    "default": true
+  },
+  "show-panel-label": {
+    "type": "switch",
+    "description": "Panel-Label anzeigen",
+    "tooltip": "Zeigt WP im Panel. Während TTS läuft, wird immer ■ angezeigt und Klick stoppt die Wiedergabe.",
+    "default": true
+  },
+  "notify-errors": {
+    "type": "switch",
+    "description": "Fehler als Cinnamon-Benachrichtigung anzeigen",
+    "default": true
+  },
+  "github-url": {
+    "type": "entry",
+    "description": "GitHub-URL",
+    "tooltip": "Wird vom Logo und vom Menüpunkt GitHub öffnen genutzt.",
+    "default": "https://github.com/H234598/Katzenbilder"
+  },
+  "run-doctor": {
+    "type": "button",
+    "description": "Run doctor",
+    "tooltip": "Prüft Outputordner, Latest-Dateien, Storys, TTS und Datei-Dialog.",
+    "callback": "_runDoctorFromSettings"
+  },
+  "copy-setup-plan": {
+    "type": "button",
+    "description": "Copy setup plan",
+    "tooltip": "Kopiert konkrete Setup-/Debug-Kommandos in die Zwischenablage.",
+    "callback": "_copySetupPlanFromSettings"
+  },
+  "open-output-dir": {
+    "type": "button",
+    "description": "Outputordner öffnen",
+    "callback": "_openOutputFolderFromSettings"
+  },
+  "open-github": {
+    "type": "button",
+    "description": "GitHub öffnen",
+    "callback": "_openProjectRepository"
+  },
+  "reset-tts-state": {
+    "type": "button",
+    "description": "TTS-State zurücksetzen",
+    "tooltip": "Löscht nur den gemerkten 'letzte Datei'-State, nicht deine Storydateien.",
+    "callback": "_resetTtsStateFromSettings"
+  },
+  "about-version": {
+    "type": "label",
+    "description": "Version: 0.3.1\nAuthor: H234598\nRepo-aware Cinnamon applet for Katzenbilder/Wirtelprimpf latest images, story files and TTS state."
+  }
+}
