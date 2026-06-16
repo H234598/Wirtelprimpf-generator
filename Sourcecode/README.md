@@ -206,7 +206,7 @@ IV, and so on. Turn the switch off again after the request has been accepted;
 the persisted state prevents a still-enabled switch from immediately closing
 every new volume.
 
-For systemd, set `WIRTELPRIMPF_OPERANDI=both` in
+For systemd, set `WIRTELPRIMPF_OPERANDI=story` in
 `~/.config/wirtelprimpf/openai.env` or via a user-service override.
 
 ### Resolution
