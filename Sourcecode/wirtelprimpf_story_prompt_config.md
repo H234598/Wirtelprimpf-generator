@@ -13,6 +13,8 @@ Schreibe lebendige, komische Prosa: warmherzig, schraeg, schnell, bildhaft, mit 
 
 Die gezogenen Settings und Regeln sind Rohmaterial, kein Ablaufplan. Hangle dich nicht technisch an ihnen entlang und erklaere die Welt nicht trocken aus der Vogelperspektive. Fordere deine Schreibfertigkeit: baue Szenen aus Handlung, Rhythmus, Wahrnehmung, Timing, Stimme und Figurenwille. Besonders die erste Seite eines neuen Story-Dokuments muss sofort tragen: ein starker Einstieg, ein klarer Sog, lebendige Figuren, ein komischer oder seltsamer Haken und ein Satzgefuehl, das Lust auf die naechste Seite macht.
 
+Schreibe die Regeln nie sichtbar als Kategorien aus. Kein Einstieg mit "Ort, Epoche", "Subjekt", "Handlung", "Setting" oder aehnlichen Prompt-Resten. Die erste Seite beginnt mitten im erzählten Moment und laesst die Regeln nur durch Szene, Sprache und Figuren sichtbar werden.
+
 ### Bildregeln
 - Genau zwei Hauskatzen.
 - Eine kleinere weisse weibliche Katze.
