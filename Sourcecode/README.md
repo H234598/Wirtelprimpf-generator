@@ -198,9 +198,12 @@ WIRTELPRIMPF_STORY_FINISH=true
 
 The generator persists that request in `WIRTELPRIMPF_STORY_STATE`, lets the
 current story end over 3-5 story parts, and then starts the next volume on the
-following story run, for example `Wirtelprimpf_Story_II.md`. Turn the switch
-off again after the request has been accepted; the persisted state prevents a
-still-enabled switch from immediately closing every new volume.
+following story run, for example `Wirtelprimpf_Story_II.md`. Every later
+off-to-on press repeats that sequence from the current volume, so the next
+accepted close request after Story II starts `Wirtelprimpf_Story_III.md`, then
+IV, and so on. Turn the switch off again after the request has been accepted;
+the persisted state prevents a still-enabled switch from immediately closing
+every new volume.
 
 For systemd, set `WIRTELPRIMPF_OPERANDI=both` in
 `~/.config/wirtelprimpf/openai.env` or via a user-service override.
