@@ -27,15 +27,21 @@ from PIL import Image
 
 OPERANDI_CLASSIC: Final = "classic"
 OPERANDI_STORY: Final = "story"
-OPERANDI_VALUES: Final = frozenset({OPERANDI_CLASSIC, OPERANDI_STORY})
+OPERANDI_BOTH: Final = "both"
+OPERANDI_VALUES: Final = frozenset({OPERANDI_CLASSIC, OPERANDI_STORY, OPERANDI_BOTH})
 PROMPT_CONFIG_MAIN_SECTION: Final = "hauptteil"
 STORY_HISTORY_COUNT: Final = 10
 STORY_ENTRY_TARGET: Final = "ungefaehr eine halbe DIN-A4-Seite"
-STORY_DOCUMENT_NAME: Final = "wirtelprimpf_fortlaufende_geschichte.md"
+STORY_DOCUMENT_PREFIX: Final = "Wirtelprimpf_Story"
+STORY_DOCUMENT_NAME: Final = "Wirtelprimpf_Story_I.md"
+LEGACY_STORY_DOCUMENT_NAME: Final = "wirtelprimpf_fortlaufende_geschichte.md"
+STORY_STATE_FILE: Final = "wirtelprimpf_story_state.json"
+STORY_FINISH_PARTS_MIN: Final = 3
+STORY_FINISH_PARTS_MAX: Final = 5
 WORKING_DIR_NAME: Final = "working"
 WORKING_IMAGE_NAME: Final = "latest.png"
 WORKING_PROMPT_NAME: Final = "latest.txt"
-WORKING_STORY_NAME: Final = "latest.story.md"
+WORKING_STORY_NAME: Final = "latest.md"
 FLEX_PROCESSING_DEFAULT: str = "flex"
 FLEX_PROCESSING_MODES = frozenset({FLEX_PROCESSING_DEFAULT})
 FLEX_PROCESSING_ENABLED_VALUES = {"1", "true", "yes", "on", "enabled", "enable"}
@@ -123,15 +129,27 @@ class RunSummary:
 @dataclass(frozen=True)
 class GenerationPlan:
     prompt: str
+    kind: str = OPERANDI_CLASSIC
     story_part: str | None = None
     story_entry_markdown: str | None = None
     story_document_append: str | None = None
+    story_document_path: Path | None = None
+    story_state_after_success: StoryState | None = None
 
 
 @dataclass(frozen=True)
 class PublishState:
     patch_count: int = 0
     minor_push_count: int = 0
+
+
+@dataclass(frozen=True)
+class StoryState:
+    current_volume: int = 1
+    closing_remaining: int = 0
+    closing_total: int = 0
+    pending_new_volume: bool = False
+    close_request_seen: bool = False
 
 
 def _parse_version_base(version: str) -> tuple[int, int, str]:
@@ -646,6 +664,151 @@ def write_publish_state(path: Path, state: PublishState) -> None:
     write_bytes_atomically(path, json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
 
 
+def int_to_roman(value: int) -> str:
+    if value < 1 or value > 3999:
+        raise ValueError(f"Roman story volume must be between 1 and 3999, got {value!r}")
+    numerals = (
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    )
+    remaining = value
+    parts: list[str] = []
+    for number, numeral in numerals:
+        while remaining >= number:
+            parts.append(numeral)
+            remaining -= number
+    return "".join(parts)
+
+
+def story_document_name_for_volume(volume: int) -> str:
+    return f"{STORY_DOCUMENT_PREFIX}_{int_to_roman(volume)}.md"
+
+
+def story_document_path_for_volume(config: Config, volume: int) -> Path:
+    return config.story_document_path.parent / story_document_name_for_volume(volume)
+
+
+def read_story_state(path: Path) -> StoryState:
+    if not path.exists():
+        return StoryState()
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError(f"Story state must be a regular non-symlink file: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"invalid story state JSON in {path} (line {exc.lineno}, column {exc.colno}: {exc.msg})") from exc
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(f"story state file is not valid UTF-8: {path}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"invalid story state: expected object in {path}")
+
+    def read_int(key: str, default: int) -> int:
+        value = payload.get(key, default)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise RuntimeError(f"invalid story state: {key} must be a non-negative integer in {path}")
+        return value
+
+    current_volume = read_int("current_volume", 1)
+    if current_volume < 1:
+        raise RuntimeError(f"invalid story state: current_volume must be >= 1 in {path}")
+    pending_new_volume = payload.get("pending_new_volume", False)
+    close_request_seen = payload.get("close_request_seen", False)
+    if not isinstance(pending_new_volume, bool):
+        raise RuntimeError(f"invalid story state: pending_new_volume must be bool in {path}")
+    if not isinstance(close_request_seen, bool):
+        raise RuntimeError(f"invalid story state: close_request_seen must be bool in {path}")
+    return StoryState(
+        current_volume=current_volume,
+        closing_remaining=read_int("closing_remaining", 0),
+        closing_total=read_int("closing_total", 0),
+        pending_new_volume=pending_new_volume,
+        close_request_seen=close_request_seen,
+    )
+
+
+def write_story_state(path: Path, state: StoryState) -> None:
+    payload = {
+        "current_volume": state.current_volume,
+        "closing_remaining": state.closing_remaining,
+        "closing_total": state.closing_total,
+        "pending_new_volume": state.pending_new_volume,
+        "close_request_seen": state.close_request_seen,
+    }
+    write_text_atomically(path, json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def prepare_story_state_for_plan(config: Config, *, dry_run: bool) -> tuple[StoryState, Path, str]:
+    state = read_story_state(config.story_state_path)
+    current_volume = state.current_volume
+    closing_remaining = state.closing_remaining
+    closing_total = state.closing_total
+    pending_new_volume = state.pending_new_volume
+    close_request_seen = state.close_request_seen
+
+    if pending_new_volume:
+        current_volume += 1
+        closing_remaining = 0
+        closing_total = 0
+        pending_new_volume = False
+
+    if not config.story_finish_requested:
+        close_request_seen = False
+    elif not close_request_seen and closing_remaining == 0:
+        closing_remaining = random.randint(config.story_finish_parts_min, config.story_finish_parts_max)
+        closing_total = closing_remaining
+        close_request_seen = True
+
+    active_state = StoryState(
+        current_volume=current_volume,
+        closing_remaining=closing_remaining,
+        closing_total=closing_total,
+        pending_new_volume=pending_new_volume,
+        close_request_seen=close_request_seen,
+    )
+    story_document_path = story_document_path_for_volume(config, current_volume)
+    instruction = ""
+    if closing_remaining > 0:
+        current_closing_part = max(1, closing_total - closing_remaining + 1)
+        if closing_remaining == 1:
+            instruction = (
+                f"Dies ist der letzte Abschluss-Teil {current_closing_part}/{closing_total}. "
+                "Fuehre die laufende Geschichte zu einem klaren, befriedigenden Ende. "
+                "Schliesse die offenen Motive um die beiden Katzen, die Moehre und die Maus."
+            )
+        else:
+            instruction = (
+                f"Die laufende Geschichte soll in insgesamt {closing_total} Teilen auslaufen. "
+                f"Dies ist Abschluss-Teil {current_closing_part}/{closing_total}; "
+                f"nach diesem Teil bleiben noch {closing_remaining - 1}. "
+                "Ziehe offene Motive sichtbar zusammen, aber beende noch nicht alles sofort."
+            )
+    return active_state, story_document_path, instruction
+
+
+def story_state_after_success(state: StoryState) -> StoryState:
+    if state.closing_remaining <= 0:
+        return state
+    remaining = state.closing_remaining - 1
+    return StoryState(
+        current_volume=state.current_volume,
+        closing_remaining=remaining,
+        closing_total=state.closing_total if remaining > 0 else 0,
+        pending_new_volume=remaining == 0,
+        close_request_seen=state.close_request_seen,
+    )
+
+
 def publish_state_path(repo_path: Path) -> Path:
     if repo_path.name == ".git":
         return repo_path / PUBLISH_STATE_FILE
@@ -673,6 +836,10 @@ class Config:
     story_prompt_config_path: Path
     story_model: str
     story_document_path: Path
+    story_state_path: Path
+    story_finish_requested: bool
+    story_finish_parts_min: int
+    story_finish_parts_max: int
     commit_author_name: str
     commit_author_email: str
     major_version_bump: int
@@ -690,6 +857,21 @@ def load_config() -> Config:
     resolved_repo_path = normalize_repo_path(Path(repo_path).expanduser()) if repo_path else None
     repo_slug = normalize_repo_slug(env("WIRTELPRIMPF_REPO_SLUG"))
     local_outdir = Path(env("WIRTELPRIMPF_LOCAL_OUTDIR", str(default_outdir))).expanduser()
+    story_finish_parts_min = parse_positive_int(
+        "WIRTELPRIMPF_STORY_FINISH_PARTS_MIN",
+        env("WIRTELPRIMPF_STORY_FINISH_PARTS_MIN"),
+        default=STORY_FINISH_PARTS_MIN,
+    )
+    story_finish_parts_max = parse_positive_int(
+        "WIRTELPRIMPF_STORY_FINISH_PARTS_MAX",
+        env("WIRTELPRIMPF_STORY_FINISH_PARTS_MAX"),
+        default=STORY_FINISH_PARTS_MAX,
+    )
+    if story_finish_parts_min > story_finish_parts_max:
+        raise RuntimeError(
+            "Invalid WIRTELPRIMPF_STORY_FINISH_PARTS_MIN/MAX: "
+            f"{story_finish_parts_min} > {story_finish_parts_max}"
+        )
 
     return Config(
         local_outdir=local_outdir,
@@ -720,6 +902,17 @@ def load_config() -> Config:
             )
             or str(default_outdir / STORY_DOCUMENT_NAME)
         ).expanduser(),
+        story_state_path=Path(
+            env("WIRTELPRIMPF_STORY_STATE", str(local_outdir / STORY_STATE_FILE))
+            or str(local_outdir / STORY_STATE_FILE)
+        ).expanduser(),
+        story_finish_requested=parse_bool_flag(
+            "WIRTELPRIMPF_STORY_FINISH",
+            env("WIRTELPRIMPF_STORY_FINISH"),
+            default=False,
+        ),
+        story_finish_parts_min=story_finish_parts_min,
+        story_finish_parts_max=story_finish_parts_max,
         commit_author_name=env("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Wirtelprimpf Bot") or "Wirtelprimpf Bot",
         commit_author_email=env("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "wirtelprimpf@example.invalid")
         or "wirtelprimpf@example.invalid",
@@ -754,6 +947,14 @@ def parse_patches_per_minor(name: str, value: str | None) -> int:
 
 def parse_operandi(value: str | None) -> str:
     raw = (value or OPERANDI_CLASSIC).strip().lower()
+    if "," in raw:
+        parts = {parse_operandi(part.strip()) for part in raw.split(",") if part.strip()}
+        if parts == {OPERANDI_CLASSIC, OPERANDI_STORY} or OPERANDI_BOTH in parts:
+            return OPERANDI_BOTH
+        if parts == {OPERANDI_CLASSIC}:
+            return OPERANDI_CLASSIC
+        if parts == {OPERANDI_STORY}:
+            return OPERANDI_STORY
     aliases = {
         "1": OPERANDI_CLASSIC,
         "classic": OPERANDI_CLASSIC,
@@ -765,13 +966,27 @@ def parse_operandi(value: str | None) -> str:
         "geschichte": OPERANDI_STORY,
         "fortlaufend": OPERANDI_STORY,
         "operandi2": OPERANDI_STORY,
+        "both": OPERANDI_BOTH,
+        "beide": OPERANDI_BOTH,
+        "all": OPERANDI_BOTH,
+        "parallel": OPERANDI_BOTH,
+        "classic+story": OPERANDI_BOTH,
+        "story+classic": OPERANDI_BOTH,
     }
     normalized = aliases.get(raw, raw)
     if normalized not in OPERANDI_VALUES:
         raise RuntimeError(
-            f"Invalid WIRTELPRIMPF_OPERANDI value: {value!r}. Expected classic/1 or story/2"
+            f"Invalid WIRTELPRIMPF_OPERANDI value: {value!r}. Expected classic/1, story/2, both, or classic,story"
         )
     return normalized
+
+
+def operandi_includes(config: Config, mode: str) -> bool:
+    if mode == OPERANDI_CLASSIC:
+        return config.operandi in {OPERANDI_CLASSIC, OPERANDI_BOTH}
+    if mode == OPERANDI_STORY:
+        return config.operandi in {OPERANDI_STORY, OPERANDI_BOTH}
+    return False
 
 
 def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -1270,7 +1485,7 @@ def build_prompts(config_path: Path, now: datetime) -> list[str]:
 
 
 def build_classic_plans(config_path: Path, now: datetime) -> list[GenerationPlan]:
-    return [GenerationPlan(prompt=prompt) for prompt in build_prompts(config_path, now)]
+    return [GenerationPlan(prompt=prompt, kind=OPERANDI_CLASSIC) for prompt in build_prompts(config_path, now)]
 
 
 def _extract_text_response(response: object) -> str:
@@ -1324,24 +1539,33 @@ def build_story_generation_config(config_path: Path) -> str:
     return f"{main}\n\n" + "\n\n".join(selected)
 
 
-def build_story_text_prompt(story_config: str, recent_entries: list[str]) -> str:
+def build_story_text_prompt(story_config: str, recent_entries: list[str], closing_instruction: str = "") -> str:
     history = "\n\n".join(recent_entries) if recent_entries else "Noch keine vergangenen Teile vorhanden."
+    closing_block = f"\nAbschlusssteuerung:\n{closing_instruction}\n" if closing_instruction else ""
     return (
         "Schreibe den naechsten stuendlichen Teil einer endlos fortlaufenden Geschichte.\n"
         "Hauptfiguren sind zwei Hauskatzen, eine Moehre und eine Maus. Jede Folge deckt genau eine Stunde Handlung ab.\n"
         f"Der neue Eintrag soll {STORY_ENTRY_TARGET} fuellen, auf Deutsch sein und als Markdown ohne H1 beginnen.\n"
         "Orientiere dich an den letzten Eintraegen, ohne sie zu wiederholen. Wenn keine Historie existiert, beginne natuerlich.\n\n"
         "Regeln fuer diesen Teil:\n"
-        f"{story_config}\n\n"
+        f"{story_config}\n"
+        f"{closing_block}\n"
         f"Letzte {STORY_HISTORY_COUNT} Eintraege:\n"
         f"{history}\n"
     )
 
 
-def generate_story_part(client: OpenAI, *, model: str, story_config: str, recent_entries: list[str]) -> str:
+def generate_story_part(
+    client: OpenAI,
+    *,
+    model: str,
+    story_config: str,
+    recent_entries: list[str],
+    closing_instruction: str = "",
+) -> str:
     response = client.responses.create(
         model=model,
-        input=build_story_text_prompt(story_config, recent_entries),
+        input=build_story_text_prompt(story_config, recent_entries, closing_instruction),
     )
     story = _extract_text_response(response)
     if len(story) < 500:
@@ -1366,12 +1590,15 @@ def build_story_image_prompt(story_part: str, story_config: str) -> str:
 
 def build_story_plans(config: Config, now: datetime, client: OpenAI | None, *, dry_run: bool) -> list[GenerationPlan]:
     story_config = build_story_generation_config(config.story_prompt_config_path)
-    recent_entries = load_recent_story_entries(config.story_document_path)
+    story_state, story_document_path, closing_instruction = prepare_story_state_for_plan(config, dry_run=dry_run)
+    recent_entries = load_recent_story_entries(story_document_path)
     if dry_run:
         story_part = (
             "DRY-RUN: Hier wuerde der naechste einstuendige Teil der fortlaufenden Geschichte stehen. "
             "Der echte Lauf nutzt die letzten Eintraege und die zufaellig gezogenen Regeln aus der zweiten Markdown-Konfig."
         )
+        if closing_instruction:
+            story_part = f"{story_part}\n\n{closing_instruction}"
     else:
         if client is None:
             raise RuntimeError("OpenAI client is required for story generation")
@@ -1380,23 +1607,32 @@ def build_story_plans(config: Config, now: datetime, client: OpenAI | None, *, d
             model=config.story_model,
             story_config=story_config,
             recent_entries=recent_entries,
+            closing_instruction=closing_instruction,
         )
     timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
     story_entry = f"## {timestamp}\n\n{story_part.strip()}\n"
     return [
         GenerationPlan(
             prompt=build_story_image_prompt(story_part, story_config),
+            kind=OPERANDI_STORY,
             story_part=story_part,
             story_entry_markdown=story_entry,
             story_document_append="\n" + story_entry,
+            story_document_path=story_document_path,
+            story_state_after_success=story_state_after_success(story_state),
         )
     ]
 
 
 def build_generation_plans(config: Config, now: datetime, client: OpenAI | None, *, dry_run: bool) -> list[GenerationPlan]:
-    if config.operandi == OPERANDI_STORY:
-        return build_story_plans(config, now, client, dry_run=dry_run)
-    return build_classic_plans(config.prompt_config_path, now)
+    plans: list[GenerationPlan] = []
+    if operandi_includes(config, OPERANDI_CLASSIC):
+        plans.extend(build_classic_plans(config.prompt_config_path, now))
+    if operandi_includes(config, OPERANDI_STORY):
+        plans.extend(build_story_plans(config, now, client, dry_run=dry_run))
+    if not plans:
+        raise ValueError(f"No generation plans for operandi={config.operandi!r}")
+    return plans
 
 
 def is_retryable_generation_error(exc: Exception) -> bool:
@@ -1615,7 +1851,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
     )
 
     prompt_config_paths = [config.prompt_config_path]
-    if config.operandi == OPERANDI_STORY:
+    if operandi_includes(config, OPERANDI_STORY):
         prompt_config_paths.append(config.story_prompt_config_path)
 
     for prompt_config in prompt_config_paths:
@@ -1674,6 +1910,54 @@ def status_report(config: Config | None = None) -> dict[str, object]:
                 }
             )
             if not parent_is_dir or not parent_writable:
+                report["ok"] = False
+                report["status"] = STATUS_ERROR
+                report["exit_code"] = 1
+
+        working_dir_exists = config.working_dir.exists()
+        if working_dir_exists:
+            working_is_dir = config.working_dir.is_dir()
+            working_writable = os.access(config.working_dir, os.W_OK | os.X_OK) if working_is_dir else False
+            checks.append(
+                {
+                    "name": "working_dir",
+                    "ok": working_is_dir and working_writable,
+                    "path": str(config.working_dir),
+                    "is_dir": working_is_dir,
+                    "writable": working_writable,
+                }
+            )
+            if not (working_is_dir and working_writable):
+                report["ok"] = False
+                report["status"] = STATUS_ERROR
+                report["exit_code"] = 1
+        else:
+            working_parent = config.working_dir.parent
+            working_parent_is_dir = working_parent.is_dir()
+            working_parent_writable = working_parent_is_dir and os.access(working_parent, os.W_OK | os.X_OK)
+            local_outdir_creatable = (
+                working_parent == config.local_outdir
+                and (
+                    (config.local_outdir.is_dir() and os.access(config.local_outdir, os.W_OK | os.X_OK))
+                    or (
+                        config.local_outdir.parent.is_dir()
+                        and os.access(config.local_outdir.parent, os.W_OK | os.X_OK)
+                    )
+                )
+            )
+            working_parent_ok = working_parent_writable or local_outdir_creatable
+            checks.append(
+                {
+                    "name": "working_dir",
+                    "ok": working_parent_ok,
+                    "path": str(config.working_dir),
+                    "parent": str(working_parent),
+                    "parent_is_dir": working_parent_is_dir,
+                    "writable": working_parent_writable,
+                    "parent_creatable_via_local_outdir": local_outdir_creatable,
+                }
+            )
+            if not working_parent_ok:
                 report["ok"] = False
                 report["status"] = STATUS_ERROR
                 report["exit_code"] = 1
@@ -1860,7 +2144,7 @@ def main() -> None:
                     runtime_mode,
                 )
             _die(f"Prompt config file not found: {config.prompt_config_path}")
-        if config.operandi == OPERANDI_STORY and not config.story_prompt_config_path.exists():
+        if operandi_includes(config, OPERANDI_STORY) and not config.story_prompt_config_path.exists():
             if args.json:
                 emit_unexpected_failure(
                     f"Story prompt config file not found: {config.story_prompt_config_path}",
@@ -2052,18 +2336,18 @@ def main() -> None:
             return
 
         client = OpenAI()
-        if config.operandi == OPERANDI_STORY:
+        if operandi_includes(config, OPERANDI_STORY):
             plans = build_generation_plans(config, datetime.now(), client, dry_run=False)
             total_prompts = len(plans)
             summary.total = len(plans)
 
         for index, plan in enumerate(plans, start=1):
             timestamp = build_timestamp()
-            suffix = f"_geburtstag-{index:02d}" if len(plans) > 1 else ""
+            suffix = f"_{plan.kind}-{index:02d}" if len(plans) > 1 else ""
             stem = f"wirtelprimpf_{timestamp}{suffix}"
             local_png = config.local_outdir / f"{stem}.png"
             local_prompt = config.local_outdir / f"{stem}.txt"
-            local_story = config.local_outdir / f"{stem}.story.md" if plan.story_entry_markdown else None
+            local_story = config.local_outdir / f"{stem}.md" if plan.story_entry_markdown else None
 
             request: dict[str, object] = {
                 "model": config.image_model,
@@ -2096,17 +2380,20 @@ def main() -> None:
                 if local_story is not None and plan.story_entry_markdown is not None:
                     write_text_atomically(local_story, plan.story_entry_markdown)
                 if plan.story_document_append:
+                    story_document_path = plan.story_document_path or config.story_document_path
                     existing_story_document = ""
-                    if config.story_document_path.exists():
-                        if config.story_document_path.is_symlink() or not config.story_document_path.is_file():
-                            raise RuntimeError(f"Story document must be a regular non-symlink file: {config.story_document_path}")
-                        existing_story_document = config.story_document_path.read_text(encoding="utf-8")
-                    elif not config.story_document_path.parent.exists():
-                        config.story_document_path.parent.mkdir(parents=True, exist_ok=True)
+                    if story_document_path.exists():
+                        if story_document_path.is_symlink() or not story_document_path.is_file():
+                            raise RuntimeError(f"Story document must be a regular non-symlink file: {story_document_path}")
+                        existing_story_document = story_document_path.read_text(encoding="utf-8")
+                    elif not story_document_path.parent.exists():
+                        story_document_path.parent.mkdir(parents=True, exist_ok=True)
                     write_text_atomically(
-                        config.story_document_path,
+                        story_document_path,
                         existing_story_document.rstrip() + "\n" + plan.story_document_append.lstrip(),
                     )
+                    if plan.story_state_after_success is not None:
+                        write_story_state(config.story_state_path, plan.story_state_after_success)
                 rotate_working_outputs(config, local_png, local_prompt, local_story)
             except Exception as exc:
                 print(f"Write/transform failed for {stem}: {exc}", file=sys.stderr)
@@ -2121,7 +2408,7 @@ def main() -> None:
             if local_story is not None:
                 print(f"Local story: {local_story}")
             if plan.story_document_append:
-                print(f"Story document: {config.story_document_path}")
+                print(f"Story document: {plan.story_document_path or config.story_document_path}")
             print(f"Working directory: {config.working_dir}")
 
             if repo_outdir is None:
@@ -2138,8 +2425,9 @@ def main() -> None:
                     shutil.copy2(local_story, repo_story)
                     repo_paths.append(repo_story)
                 if plan.story_document_append:
-                    repo_story_document = repo_outdir / STORY_DOCUMENT_NAME
-                    shutil.copy2(config.story_document_path, repo_story_document)
+                    story_document_path = plan.story_document_path or config.story_document_path
+                    repo_story_document = repo_outdir / story_document_path.name
+                    shutil.copy2(story_document_path, repo_story_document)
                     repo_paths.append(repo_story_document)
                 commit_and_push(config, repo_paths, stem)
                 print(f"Repository image: {repo_png}")

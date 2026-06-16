@@ -151,7 +151,7 @@ install -m 600 Sourcecode/wirtelprimpf_prompt_config.md "$PROMPT_CONFIG"
 
 ### Operandi
 
-The generator supports two working modes:
+The generator supports three working modes:
 
 ```bash
 WIRTELPRIMPF_OPERANDI=classic
@@ -165,9 +165,18 @@ publish both to Git.
 WIRTELPRIMPF_OPERANDI=story
 WIRTELPRIMPF_STORY_PROMPT_CONFIG=$HOME/.config/wirtelprimpf/story_prompt_config.md
 WIRTELPRIMPF_STORY_MODEL=gpt-5-mini
-WIRTELPRIMPF_STORY_DOCUMENT=$HOME/Hintergrundbilder/wirtelprimpf_fortlaufende_geschichte.md
+WIRTELPRIMPF_STORY_DOCUMENT=$HOME/Hintergrundbilder/Wirtelprimpf_Story_I.md
+WIRTELPRIMPF_STORY_STATE=$HOME/Hintergrundbilder/wirtelprimpf_story_state.json
 WIRTELPRIMPF_WORKING_DIR=$HOME/Hintergrundbilder/working
 ```
+
+```bash
+WIRTELPRIMPF_OPERANDI=both
+```
+
+`both` runs the classic image mode and the continuing story mode in one
+execution. The stable `working/latest.*` files are rotated after the story
+output, so they point at the newest story image/prompt/story triplet.
 
 `story` loads the second Markdown config, randomly picks one line from each
 category, reads the last 10 entries from the story document, generates the next
@@ -176,12 +185,24 @@ writes:
 
 - `wirtelprimpf_*.png`
 - `wirtelprimpf_*.txt` with the image prompt
-- `wirtelprimpf_*.story.md` with the new story part
-- `wirtelprimpf_fortlaufende_geschichte.md`, appended after each successful run
-- `working/latest.png`, `working/latest.txt`, and `working/latest.story.md`,
+- `wirtelprimpf_*.md` with the new story part
+- `Wirtelprimpf_Story_I.md`, appended after each successful run
+- `working/latest.png`, `working/latest.txt`, and `working/latest.md`,
   replaced on every successful run
 
-For systemd, set `WIRTELPRIMPF_OPERANDI=story` in
+To close the current story arc, set:
+
+```bash
+WIRTELPRIMPF_STORY_FINISH=true
+```
+
+The generator persists that request in `WIRTELPRIMPF_STORY_STATE`, lets the
+current story end over 3-5 story parts, and then starts the next volume on the
+following story run, for example `Wirtelprimpf_Story_II.md`. Turn the switch
+off again after the request has been accepted; the persisted state prevents a
+still-enabled switch from immediately closing every new volume.
+
+For systemd, set `WIRTELPRIMPF_OPERANDI=both` in
 `~/.config/wirtelprimpf/openai.env` or via a user-service override.
 
 ### Resolution
