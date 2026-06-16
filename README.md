@@ -6,6 +6,9 @@ Prompt-Dateien.
 ## Ordner
 
 - `Wirtelprimpf/`: generierte Wirtelprimpf-Bilder und die verwendeten Prompts.
+- `Wirtelprimpf/working/`: stabile Verweise auf den aktuellen Lauf. Die
+  `latest.*`-Dateien und `Full_Story.md` koennen Symlinks auf die aktuellen
+  generierten Dateien sein.
 - `Sourcecode/`: generalisierter Generator-Code, Installationshinweise,
   Environment-Beispiel und optionale systemd-User-Units.
 

@@ -635,12 +635,31 @@ def update_working_full_story_link(config: Config, story_document_path: Path | N
         return
     if story_document_path.is_symlink() or not story_document_path.is_file():
         raise RuntimeError(f"Story document must be a regular non-symlink file: {story_document_path}")
-    link_path = config.working_dir / WORKING_FULL_STORY_NAME
+    replace_symlink(config.working_dir / WORKING_FULL_STORY_NAME, story_document_path)
+
+
+def relative_symlink_target(link_path: Path, target_path: Path) -> Path:
+    return Path(
+        os.path.relpath(
+            target_path.resolve(strict=False),
+            start=link_path.parent.resolve(strict=False),
+        )
+    )
+
+
+def replace_symlink(link_path: Path, target_path: Path) -> None:
     if link_path.exists() or link_path.is_symlink():
         if link_path.is_dir() and not link_path.is_symlink():
-            raise RuntimeError(f"Working full story link path is a directory: {link_path}")
+            raise RuntimeError(f"Working link path is a directory: {link_path}")
         link_path.unlink()
-    link_path.symlink_to(story_document_path)
+    link_path.symlink_to(relative_symlink_target(link_path, target_path))
+
+
+def remove_working_path(path: Path) -> None:
+    if path.exists() or path.is_symlink():
+        if path.is_dir() and not path.is_symlink():
+            raise RuntimeError(f"Working output path is a directory: {path}")
+        path.unlink()
 
 
 def active_story_document_path(config: Config) -> Path | None:
@@ -660,15 +679,13 @@ def rotate_working_outputs(
     story_document_path: Path | None = None,
 ) -> None:
     ensure_private_output_directory(config.working_dir, env_name="WIRTELPRIMPF_WORKING_DIR")
-    write_bytes_atomically(config.working_dir / WORKING_IMAGE_NAME, local_png.read_bytes())
-    write_text_atomically(config.working_dir / WORKING_PROMPT_NAME, local_prompt.read_text(encoding="utf-8"))
+    replace_symlink(config.working_dir / WORKING_IMAGE_NAME, local_png)
+    replace_symlink(config.working_dir / WORKING_PROMPT_NAME, local_prompt)
     story_target = config.working_dir / WORKING_STORY_NAME
     if local_story is not None:
-        write_text_atomically(story_target, local_story.read_text(encoding="utf-8"))
-    elif story_target.exists():
-        if story_target.is_symlink() or not story_target.is_file():
-            raise RuntimeError(f"Working story output must be a regular non-symlink file: {story_target}")
-        story_target.unlink()
+        replace_symlink(story_target, local_story)
+    else:
+        remove_working_path(story_target)
     update_working_full_story_link(config, story_document_path or active_story_document_path(config))
 
 
@@ -683,29 +700,25 @@ def sync_repo_working_outputs(
     repo_working_dir.mkdir(parents=True, exist_ok=True)
     repo_image = repo_working_dir / WORKING_IMAGE_NAME
     repo_prompt = repo_working_dir / WORKING_PROMPT_NAME
-    shutil.copy2(local_png, repo_image)
-    shutil.copy2(local_prompt, repo_prompt)
+    replace_symlink(repo_image, repo_outdir / local_png.name)
+    replace_symlink(repo_prompt, repo_outdir / local_prompt.name)
     repo_paths = [repo_image, repo_prompt]
 
     repo_story = repo_working_dir / WORKING_STORY_NAME
     if local_story is not None:
-        shutil.copy2(local_story, repo_story)
+        replace_symlink(repo_story, repo_outdir / local_story.name)
         repo_paths.append(repo_story)
-    elif repo_story.exists() or repo_story.is_symlink():
-        repo_story.unlink()
+    else:
+        remove_working_path(repo_story)
         repo_paths.append(repo_story)
 
     repo_full_story = repo_working_dir / WORKING_FULL_STORY_NAME
     if story_document_path is not None:
         repo_story_document = repo_outdir / story_document_path.name
-        if repo_full_story.exists() or repo_full_story.is_symlink():
-            if repo_full_story.is_dir() and not repo_full_story.is_symlink():
-                raise RuntimeError(f"Repository working full story link path is a directory: {repo_full_story}")
-            repo_full_story.unlink()
-        repo_full_story.symlink_to(Path("..") / repo_story_document.name)
+        replace_symlink(repo_full_story, repo_story_document)
         repo_paths.append(repo_full_story)
-    elif repo_full_story.exists() or repo_full_story.is_symlink():
-        repo_full_story.unlink()
+    else:
+        remove_working_path(repo_full_story)
         repo_paths.append(repo_full_story)
 
     return repo_paths
