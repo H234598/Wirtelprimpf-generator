@@ -218,7 +218,7 @@ WirtelApplet.prototype = {
     _buildMenuFromScan: function(data) {
         this.menu.removeAll();
 
-        let statusText = data.output_dir ? _("Bereit") : _("Setup nötig");
+        let statusText = data.output_dir ? _("Wirtelprimpf") : _("Setup nötig");
         if (data.tts && data.tts.running) statusText = _("TTS läuft · Klick aufs Panel stoppt");
         this._addDisabled(this.menu, statusText);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
