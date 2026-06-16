@@ -182,7 +182,10 @@ output, so they point at the newest story image/prompt/story triplet.
 category, reads the last 10 entries from the story document, generates the next
 one-hour story part, then generates an image prompt for that part. The first
 part of a new story document targets about one full DIN-A4 page; later parts
-target about half a DIN-A4 page. The run writes:
+target about half a DIN-A4 page. When there is no previous story entry, the
+text prompt also receives one temporary high-level story direction for the
+opening part. That direction is not persisted in state and is not repeated for
+later parts. The run writes:
 
 - `wirtelprimpf_*.png`
 - `wirtelprimpf_*.txt` with the image prompt
@@ -190,6 +193,7 @@ target about half a DIN-A4 page. The run writes:
 - `Wirtelprimpf_Story_I.md`, appended after each successful run
 - `working/latest.png`, `working/latest.txt`, and `working/latest.md`,
   replaced on every successful run
+- `working/Full_Story.md`, a symlink to the active full story document
 
 To close the current story arc, set:
 

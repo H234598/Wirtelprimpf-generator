@@ -34,6 +34,13 @@ PROMPT_CONFIG_FIXED_SECTION_WORDS: Final = ("fix", "zwingend", "bildregel")
 STORY_HISTORY_COUNT: Final = 10
 STORY_ENTRY_TARGET: Final = "ungefaehr eine halbe DIN-A4-Seite"
 STORY_FIRST_ENTRY_TARGET: Final = "ungefaehr eine ganze DIN-A4-Seite"
+INITIAL_STORY_DIRECTIONS: Final = (
+    "Eine kleine Rettungs- und Heimkehrgeschichte: Die Figuren verlieren etwas scheinbar Banales, merken aber nach und nach, dass daran ihr Zuhause, ihre Wuenschbarkeit und ihr Mut haengen.",
+    "Eine absurde Entdeckungsreise: Aus einer winzigen Stoerung im Haushalt waechst der Verdacht, dass die Wohnung groesser, aelter und eigensinniger ist, als irgendjemand zugeben will.",
+    "Eine leise Rebellion gegen eine laecherliche Ordnung: Die Figuren geraten in Regeln, Formulare und Rituale, die harmlos beginnen und ploetzlich ihr Zusammenleben bedrohen.",
+    "Ein warm-komisches Geheimnis: Die Maus weiss von Anfang an mehr, die Moehre ist wichtiger als sie aussieht, und die Katzen muessen lernen, einander auch im Unsinn zu vertrauen.",
+    "Eine Reise vom kleinen Zimmer in eine groessere Welt: Der erste Teil soll ein starkes Versprechen setzen, dass hinter Tueren, Ritzen und Alltagsgegenstaenden ein eigenwilliges Abenteuer wartet.",
+)
 STORY_DOCUMENT_PREFIX: Final = "Wirtelprimpf_Story"
 STORY_DOCUMENT_NAME: Final = "Wirtelprimpf_Story_I.md"
 LEGACY_STORY_DOCUMENT_NAME: Final = "wirtelprimpf_fortlaufende_geschichte.md"
@@ -1624,9 +1631,23 @@ def build_story_generation_configs(config_path: Path) -> tuple[str, str]:
     return f"{text_main}\n\n{selected_block}", f"{image_main}\n\n{selected_block}"
 
 
+def initial_story_direction_block(recent_entries: list[str]) -> str:
+    if recent_entries:
+        return ""
+    direction = random.choice(INITIAL_STORY_DIRECTIONS)
+    return (
+        "\nEinmalige Initialrichtung fuer den ersten Teil:\n"
+        f"{direction}\n"
+        "Nutze diese Richtung als inneren Kompass fuer einen starken Auftakt. "
+        "Gib sie nicht als Plan, Zusammenfassung oder Meta-Kommentar aus. "
+        "Speichere sie nicht in der Geschichte; nach diesem ersten Teil soll die Fortsetzung wieder dynamisch aus Historie und neuen Zufallsregeln entstehen.\n"
+    )
+
+
 def build_story_text_prompt(story_config: str, recent_entries: list[str], closing_instruction: str = "") -> str:
     history = "\n\n".join(recent_entries) if recent_entries else "Noch keine vergangenen Teile vorhanden."
     closing_block = f"\nAbschlusssteuerung:\n{closing_instruction}\n" if closing_instruction else ""
+    initial_direction_block = initial_story_direction_block(recent_entries)
     entry_target = STORY_ENTRY_TARGET if recent_entries else STORY_FIRST_ENTRY_TARGET
     return (
         "Schreibe den naechsten stuendlichen Teil einer endlos fortlaufenden Geschichte.\n"
@@ -1637,6 +1658,7 @@ def build_story_text_prompt(story_config: str, recent_entries: list[str], closin
         "Orientiere dich an den letzten Eintraegen, ohne sie zu wiederholen. Wenn keine Historie existiert, beginne natuerlich.\n\n"
         "Regeln fuer diesen Teil:\n"
         f"{story_config}\n"
+        f"{initial_direction_block}"
         f"{closing_block}\n"
         f"Letzte {STORY_HISTORY_COUNT} Eintraege:\n"
         f"{history}\n"

@@ -17,8 +17,8 @@ Wenn gezogene Regeln oder Einstellungen nicht direkt zusammenpassen, deute sie s
 - Wenn die Katzen vermenschlicht werden, dann mit Humor.
 - Keine Katze sitzt in einer Kiste, keinem Regal, keinem Schrank, keinem Topf, keiner Nische.
 - Die weisse Katze darf nicht uebertrieben suess, kawaii oder puppenhaft wirken.
-- Die weisse Katze soll ruhig, wuerdevoll und etwas keck wirken. Sie ist die mutigere.
-- Die schwarze Katze soll groesser, unaufmerksamer und lauter, sowie minimal ungeschickter wirken. Er ist eher der Schisser.
+- Die weisse Katze soll ruhig, wuerdevoll und etwas keck wirken. In Gefahr,ist sie die mutigere.
+- Die schwarze Katze soll groesser, unaufmerksamer und lauter, sowie minimal ungeschickter wirken.
 - Beide Katzen zeigen Mut wenn es drauf an kommt. 
 - Beide Katzen muessen klar sichtbar sein.
 - Irgendwo auf dem Bild ist eine kleine Maus versteckt.
