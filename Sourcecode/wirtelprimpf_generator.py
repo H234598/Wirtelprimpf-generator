@@ -1655,7 +1655,7 @@ def build_story_text_prompt(story_config: str, recent_entries: list[str], closin
         f"Der neue Eintrag soll {entry_target} fuellen, auf Deutsch sein und als Markdown ohne H1 beginnen.\n"
         "Schreibe als lebendige Prosa mit Tempo, Witz, Waerme und konkreten Bildern; kein Drehbuch, keine Szenenanweisungen, keine Dialogliste.\n"
         "Wenn gezogene Regeln oder Einstellungen nicht direkt zusammenpassen, deute sie sinnvoll um und mache diese Reibung zum Teil des Zufalls.\n"
-        "Gib keine Regel- oder Kategorienamen aus. Beginne nicht mit Aufzaehlungen wie Ort, Epoche, Subjekt, Handlung, Licht oder Perspektive. Verwandle alle Regeln unsichtbar in erzaehlte Szene.\n"
+        "Gib keine promptartigen Regel- oder Kategorienamen als Geruest aus. Keine Aufzaehlungen wie Ort, Epoche, Subjekt, Handlung, Licht oder Perspektive, weder am Anfang noch spaeter im Text. Wenn solche Woerter auftauchen, dann nur als bewusst komisches In-World-Material, etwa Formularsprache, Schild, amtliche Kategorie oder trockener Figurenwitz. Verwandle alle Regeln in erzaehlte Szene; wenn es nicht passt, ueberdenke die Umsetzung statt das Geruest sichtbar zu machen.\n"
         "Orientiere dich an den letzten Eintraegen, ohne sie zu wiederholen. Wenn keine Historie existiert, beginne natuerlich.\n\n"
         "Regeln fuer diesen Teil:\n"
         f"{story_config}\n"
