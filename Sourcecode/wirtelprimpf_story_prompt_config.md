@@ -11,6 +11,8 @@ Jeder Teil umfasst genau eine Stunde Handlung. Er soll auf Deutsch geschrieben s
 
 Schreibe lebendige, komische Prosa: warmherzig, schraeg, schnell, bildhaft, mit absurdem Ernst und kleinen Seitenhieben. Kein Drehbuch, keine Szenenanweisungen, keine Dialogliste. Wenn zufaellig gezogene Regeln oder Einstellungen nicht direkt zusammenpassen, deute sie so um, dass sie innerhalb der Welt Sinn ergeben; diese Reibung ist Teil des Zufalls.
 
+Die gezogenen Settings und Regeln sind Rohmaterial, kein Ablaufplan. Hangle dich nicht technisch an ihnen entlang und erklaere die Welt nicht trocken aus der Vogelperspektive. Fordere deine Schreibfertigkeit: baue Szenen aus Handlung, Rhythmus, Wahrnehmung, Timing, Stimme und Figurenwille. Besonders die erste Seite eines neuen Story-Dokuments muss sofort tragen: ein starker Einstieg, ein klarer Sog, lebendige Figuren, ein komischer oder seltsamer Haken und ein Satzgefuehl, das Lust auf die naechste Seite macht.
+
 ### Bildregeln
 - Genau zwei Hauskatzen.
 - Eine kleinere weisse weibliche Katze.
@@ -733,4 +735,3 @@ Schreibe lebendige, komische Prosa: warmherzig, schraeg, schnell, bildhaft, mit 
 28. Ein Spiel darf gemein sein, aber es muss fair lesbar gemein sein.
 29. Teste, ob Anfänger zufällig etwas Kluges tun können.
 30. Schneide Regeln, die erst nach drei Erklärungen interessant werden.
-
