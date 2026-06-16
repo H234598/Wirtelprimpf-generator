@@ -648,6 +648,45 @@ def rotate_working_outputs(
     update_working_full_story_link(config, story_document_path or active_story_document_path(config))
 
 
+def sync_repo_working_outputs(
+    repo_outdir: Path,
+    local_png: Path,
+    local_prompt: Path,
+    local_story: Path | None,
+    story_document_path: Path | None,
+) -> list[Path]:
+    repo_working_dir = repo_outdir / WORKING_DIR_NAME
+    repo_working_dir.mkdir(parents=True, exist_ok=True)
+    repo_image = repo_working_dir / WORKING_IMAGE_NAME
+    repo_prompt = repo_working_dir / WORKING_PROMPT_NAME
+    shutil.copy2(local_png, repo_image)
+    shutil.copy2(local_prompt, repo_prompt)
+    repo_paths = [repo_image, repo_prompt]
+
+    repo_story = repo_working_dir / WORKING_STORY_NAME
+    if local_story is not None:
+        shutil.copy2(local_story, repo_story)
+        repo_paths.append(repo_story)
+    elif repo_story.exists() or repo_story.is_symlink():
+        repo_story.unlink()
+        repo_paths.append(repo_story)
+
+    repo_full_story = repo_working_dir / WORKING_FULL_STORY_NAME
+    if story_document_path is not None:
+        repo_story_document = repo_outdir / story_document_path.name
+        if repo_full_story.exists() or repo_full_story.is_symlink():
+            if repo_full_story.is_dir() and not repo_full_story.is_symlink():
+                raise RuntimeError(f"Repository working full story link path is a directory: {repo_full_story}")
+            repo_full_story.unlink()
+        repo_full_story.symlink_to(Path("..") / repo_story_document.name)
+        repo_paths.append(repo_full_story)
+    elif repo_full_story.exists() or repo_full_story.is_symlink():
+        repo_full_story.unlink()
+        repo_paths.append(repo_full_story)
+
+    return repo_paths
+
+
 def read_publish_state(path: Path) -> PublishState:
     if not path.exists():
         return PublishState()
@@ -2549,6 +2588,15 @@ def main() -> None:
                     repo_story_document = repo_outdir / story_document_path.name
                     shutil.copy2(story_document_path, repo_story_document)
                     repo_paths.append(repo_story_document)
+                repo_paths.extend(
+                    sync_repo_working_outputs(
+                        repo_outdir,
+                        local_png,
+                        local_prompt,
+                        local_story,
+                        plan.story_document_path if plan.story_document_append else active_story_document_path(config),
+                    )
+                )
                 commit_and_push(config, repo_paths, stem)
                 print(f"Repository image: {repo_png}")
                 print(f"Repository prompt: {repo_prompt}")

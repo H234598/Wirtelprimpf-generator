@@ -195,6 +195,11 @@ later parts. The run writes:
   replaced on every successful run
 - `working/Full_Story.md`, a symlink to the active full story document
 
+When Git publishing is enabled, the same stable working files are copied into
+the repository under `Wirtelprimpf/working/`. The repository
+`Wirtelprimpf/working/Full_Story.md` link is written relative to the repository
+story document so GitHub can show the current full story snapshot.
+
 To close the current story arc, set:
 
 ```bash
