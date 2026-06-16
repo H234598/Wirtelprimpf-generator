@@ -30,6 +30,7 @@ OPERANDI_STORY: Final = "story"
 OPERANDI_BOTH: Final = "both"
 OPERANDI_VALUES: Final = frozenset({OPERANDI_CLASSIC, OPERANDI_STORY, OPERANDI_BOTH})
 PROMPT_CONFIG_MAIN_SECTION: Final = "hauptteil"
+PROMPT_CONFIG_FIXED_SECTION_WORDS: Final = ("fix", "zwingend", "bildregel")
 STORY_HISTORY_COUNT: Final = 10
 STORY_ENTRY_TARGET: Final = "ungefaehr eine halbe DIN-A4-Seite"
 STORY_FIRST_ENTRY_TARGET: Final = "ungefaehr eine ganze DIN-A4-Seite"
@@ -1333,7 +1334,16 @@ def _clean_markdown_list_item(line: str) -> str:
     return stripped.strip()
 
 
-def load_markdown_prompt_config(path: Path) -> dict[str, list[str] | str]:
+def _is_fixed_markdown_section(heading: str) -> bool:
+    normalized = heading.casefold()
+    return any(word in normalized for word in PROMPT_CONFIG_FIXED_SECTION_WORDS)
+
+
+def _format_fixed_markdown_section(heading: str, values: list[str]) -> str:
+    return f"{heading}:\n" + bullet_list(values)
+
+
+def load_markdown_prompt_config(path: Path) -> dict[str, object]:
     if path.is_symlink():
         raise ValueError(f"Invalid prompt config path (symlink): {path}")
     if not path.is_file():
@@ -1346,21 +1356,40 @@ def load_markdown_prompt_config(path: Path) -> dict[str, list[str] | str]:
         raise ValueError(f"failed to read prompt config file: {path}: {exc}") from exc
 
     sections: dict[str, list[str]] = {}
+    fixed_sections: list[tuple[str, list[str]]] = []
     current: str | None = None
+    current_top: str | None = None
+    current_is_fixed = False
     for raw_line in text.splitlines():
         line = raw_line.rstrip()
-        heading = re.match(r"^##\s+(.+?)\s*$", line)
+        heading = re.match(r"^(#{2,6})\s+(.+?)\s*$", line)
         if heading:
-            current = heading.group(1).strip()
+            level = len(heading.group(1))
+            title = heading.group(2).strip()
+            if level > 2 and current_top is not None and current_top.strip().lower() == PROMPT_CONFIG_MAIN_SECTION:
+                current = title
+                current_is_fixed = True
+                fixed_sections.append((current, []))
+                continue
+            current = title
+            if level == 2:
+                current_top = current
             if not current:
                 raise ValueError(f"empty markdown section heading in {path}")
-            sections.setdefault(current, [])
+            current_is_fixed = _is_fixed_markdown_section(current)
+            if current_is_fixed:
+                fixed_sections.append((current, []))
+            else:
+                sections.setdefault(current, [])
             continue
         if current is None:
             continue
         cleaned = _clean_markdown_list_item(line)
         if cleaned:
-            sections[current].append(cleaned)
+            if current_is_fixed:
+                fixed_sections[-1][1].append(cleaned)
+            else:
+                sections[current].append(cleaned)
 
     if not sections:
         raise ValueError(f"Prompt config Markdown has no '##' sections: {path}")
@@ -1374,13 +1403,22 @@ def load_markdown_prompt_config(path: Path) -> dict[str, list[str] | str]:
         raise ValueError(f"Prompt config Markdown must contain a non-empty '## Hauptteil' section: {path}")
 
     pools = {key: values for key, values in sections.items() if key != main_key}
+    fixed_sections = [(key, values) for key, values in fixed_sections if values]
     if not pools:
         raise ValueError(f"Prompt config Markdown must contain at least one category section besides Hauptteil: {path}")
     for key, values in pools.items():
         if not values:
             raise ValueError(f"Prompt config Markdown section {key!r} must contain at least one item")
 
-    return {"main": "\n".join(sections[main_key]).strip(), "sections": pools}
+    main_text = "\n".join(sections[main_key]).strip()
+    main_blocks = [main_text]
+    main_blocks.extend(_format_fixed_markdown_section(key, values) for key, values in fixed_sections)
+    return {
+        "main_text": main_text,
+        "main": "\n\n".join(block for block in main_blocks if block).strip(),
+        "sections": pools,
+        "fixed_sections": {key: values for key, values in fixed_sections},
+    }
 
 
 def load_prompt_config(path: Path) -> dict[str, object]:
@@ -1522,11 +1560,11 @@ def load_recent_story_entries(story_document_path: Path, *, limit: int = STORY_H
     return cleaned[-limit:]
 
 
-def build_story_generation_config(config_path: Path) -> str:
+def build_story_generation_config(config_path: Path, *, include_fixed_sections: bool = True) -> str:
     data = load_prompt_config(config_path)
     if not is_markdown_prompt_config(data):
         return build_prompt(data)
-    main = require_string(data, "main")
+    main = require_string(data, "main" if include_fixed_sections else "main_text")
     raw_sections = data.get("sections")
     if not isinstance(raw_sections, dict):
         raise ValueError("Story prompt config Markdown sections must be an object")
@@ -1548,6 +1586,8 @@ def build_story_text_prompt(story_config: str, recent_entries: list[str], closin
         "Schreibe den naechsten stuendlichen Teil einer endlos fortlaufenden Geschichte.\n"
         "Hauptfiguren sind zwei Hauskatzen, eine Moehre und eine Maus. Jede Folge deckt genau eine Stunde Handlung ab.\n"
         f"Der neue Eintrag soll {entry_target} fuellen, auf Deutsch sein und als Markdown ohne H1 beginnen.\n"
+        "Schreibe als lebendige Prosa mit Tempo, Witz, Waerme und konkreten Bildern; kein Drehbuch, keine Szenenanweisungen, keine Dialogliste.\n"
+        "Wenn gezogene Regeln oder Einstellungen nicht direkt zusammenpassen, deute sie sinnvoll um und mache diese Reibung zum Teil des Zufalls.\n"
         "Orientiere dich an den letzten Eintraegen, ohne sie zu wiederholen. Wenn keine Historie existiert, beginne natuerlich.\n\n"
         "Regeln fuer diesen Teil:\n"
         f"{story_config}\n"
@@ -1591,7 +1631,8 @@ def build_story_image_prompt(story_part: str, story_config: str) -> str:
 
 
 def build_story_plans(config: Config, now: datetime, client: OpenAI | None, *, dry_run: bool) -> list[GenerationPlan]:
-    story_config = build_story_generation_config(config.story_prompt_config_path)
+    story_config = build_story_generation_config(config.story_prompt_config_path, include_fixed_sections=False)
+    story_image_config = build_story_generation_config(config.story_prompt_config_path, include_fixed_sections=True)
     story_state, story_document_path, closing_instruction = prepare_story_state_for_plan(config, dry_run=dry_run)
     recent_entries = load_recent_story_entries(story_document_path)
     if dry_run:
@@ -1615,7 +1656,7 @@ def build_story_plans(config: Config, now: datetime, client: OpenAI | None, *, d
     story_entry = f"## {timestamp}\n\n{story_part.strip()}\n"
     return [
         GenerationPlan(
-            prompt=build_story_image_prompt(story_part, story_config),
+            prompt=build_story_image_prompt(story_part, story_image_config),
             kind=OPERANDI_STORY,
             story_part=story_part,
             story_entry_markdown=story_entry,
@@ -2343,9 +2384,12 @@ def main() -> None:
             total_prompts = len(plans)
             summary.total = len(plans)
 
+        per_kind_counts: dict[str, int] = {}
         for index, plan in enumerate(plans, start=1):
             timestamp = build_timestamp()
-            suffix = f"_{plan.kind}-{index:02d}" if len(plans) > 1 else ""
+            per_kind_counts[plan.kind] = per_kind_counts.get(plan.kind, 0) + 1
+            kind_index = per_kind_counts[plan.kind]
+            suffix = f"_{plan.kind}-{kind_index:02d}" if len(plans) > 1 else ""
             stem = f"wirtelprimpf_{timestamp}{suffix}"
             local_png = config.local_outdir / f"{stem}.png"
             local_prompt = config.local_outdir / f"{stem}.txt"
