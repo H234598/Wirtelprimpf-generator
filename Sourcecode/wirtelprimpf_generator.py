@@ -368,6 +368,29 @@ def _is_world_or_group_writable(mode: int) -> bool:
     return bool(mode & 0o22)
 
 
+def _is_system_command_path(path: Path) -> bool:
+    try:
+        resolved = path.resolve(strict=False)
+    except OSError:
+        return False
+    for base in COMMAND_PATHS:
+        base_path = Path(base)
+        try:
+            if resolved == base_path or resolved.is_relative_to(base_path):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _is_trusted_command_owner(uid: int, path: Path) -> bool:
+    return uid in {0, os.getuid()} or (uid == 65534 and _is_system_command_path(path))
+
+
+def _is_trusted_command_group(gid: int, path: Path) -> bool:
+    return gid in {0, os.getgid()} or (gid == 65534 and _is_system_command_path(path))
+
+
 def _resolve_executable_path(candidate: Path) -> str | None:
     if candidate.is_symlink():
         return None
@@ -379,9 +402,9 @@ def _resolve_executable_path(candidate: Path) -> str | None:
 
     if not candidate.is_file() or not os.access(candidate, os.X_OK):
         return None
-    if status.st_uid not in {0, os.getuid()}:
+    if not _is_trusted_command_owner(status.st_uid, candidate):
         return None
-    if status.st_gid not in {0, os.getgid()}:
+    if not _is_trusted_command_group(status.st_gid, candidate):
         return None
     if _is_world_or_group_writable(status.st_mode):
         return None
@@ -397,7 +420,7 @@ def _resolve_executable_path(candidate: Path) -> str | None:
     except OSError:
         return None
 
-    if parent_status.st_uid not in {0, os.getuid()}:
+    if not _is_trusted_command_owner(parent_status.st_uid, parent):
         return None
     if _is_world_or_group_writable(parent_status.st_mode):
         return None
