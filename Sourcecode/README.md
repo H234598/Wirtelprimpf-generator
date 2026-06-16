@@ -166,6 +166,7 @@ WIRTELPRIMPF_OPERANDI=story
 WIRTELPRIMPF_STORY_PROMPT_CONFIG=$HOME/.config/wirtelprimpf/story_prompt_config.md
 WIRTELPRIMPF_STORY_MODEL=gpt-5-mini
 WIRTELPRIMPF_STORY_DOCUMENT=$HOME/Hintergrundbilder/wirtelprimpf_fortlaufende_geschichte.md
+WIRTELPRIMPF_WORKING_DIR=$HOME/Hintergrundbilder/working
 ```
 
 `story` loads the second Markdown config, randomly picks one line from each
@@ -177,6 +178,8 @@ writes:
 - `wirtelprimpf_*.txt` with the image prompt
 - `wirtelprimpf_*.story.md` with the new story part
 - `wirtelprimpf_fortlaufende_geschichte.md`, appended after each successful run
+- `working/latest.png`, `working/latest.txt`, and `working/latest.story.md`,
+  replaced on every successful run
 
 For systemd, set `WIRTELPRIMPF_OPERANDI=story` in
 `~/.config/wirtelprimpf/openai.env` or via a user-service override.

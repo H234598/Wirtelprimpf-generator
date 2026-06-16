@@ -32,6 +32,10 @@ PROMPT_CONFIG_MAIN_SECTION: Final = "hauptteil"
 STORY_HISTORY_COUNT: Final = 10
 STORY_ENTRY_TARGET: Final = "ungefaehr eine halbe DIN-A4-Seite"
 STORY_DOCUMENT_NAME: Final = "wirtelprimpf_fortlaufende_geschichte.md"
+WORKING_DIR_NAME: Final = "working"
+WORKING_IMAGE_NAME: Final = "latest.png"
+WORKING_PROMPT_NAME: Final = "latest.txt"
+WORKING_STORY_NAME: Final = "latest.story.md"
 FLEX_PROCESSING_DEFAULT: str = "flex"
 FLEX_PROCESSING_MODES = frozenset({FLEX_PROCESSING_DEFAULT})
 FLEX_PROCESSING_ENABLED_VALUES = {"1", "true", "yes", "on", "enabled", "enable"}
@@ -553,6 +557,40 @@ def ensure_output_directory(path: Path) -> None:
         raise RuntimeError(f"Cannot create WIRTELPRIMPF_LOCAL_OUTDIR in non-writable directory: {parent}")
 
 
+def ensure_private_output_directory(path: Path, *, env_name: str) -> None:
+    if path.is_symlink():
+        raise RuntimeError(f"{env_name} must not be a symlink: {path}")
+    if path.exists():
+        if path.is_symlink() or not path.is_dir():
+            raise RuntimeError(f"{env_name} is not a directory: {path}")
+        _assert_private_directory(path, label=env_name)
+        if not os.access(path, os.W_OK | os.X_OK):
+            raise RuntimeError(f"{env_name} is not writable: {path}")
+        return
+
+    parent = path.parent
+    _assert_private_directory(parent, label=f"{env_name} parent directory")
+    if not parent.is_dir():
+        raise RuntimeError(f"{env_name} parent directory does not exist: {parent}")
+    if not os.access(parent, os.W_OK | os.X_OK):
+        raise RuntimeError(f"Cannot create {env_name} in non-writable directory: {parent}")
+    path.mkdir(parents=True, exist_ok=True)
+    _assert_private_directory(path, label=env_name)
+
+
+def rotate_working_outputs(config: Config, local_png: Path, local_prompt: Path, local_story: Path | None) -> None:
+    ensure_private_output_directory(config.working_dir, env_name="WIRTELPRIMPF_WORKING_DIR")
+    write_bytes_atomically(config.working_dir / WORKING_IMAGE_NAME, local_png.read_bytes())
+    write_text_atomically(config.working_dir / WORKING_PROMPT_NAME, local_prompt.read_text(encoding="utf-8"))
+    story_target = config.working_dir / WORKING_STORY_NAME
+    if local_story is not None:
+        write_text_atomically(story_target, local_story.read_text(encoding="utf-8"))
+    elif story_target.exists():
+        if story_target.is_symlink() or not story_target.is_file():
+            raise RuntimeError(f"Working story output must be a regular non-symlink file: {story_target}")
+        story_target.unlink()
+
+
 def read_publish_state(path: Path) -> PublishState:
     if not path.exists():
         return PublishState()
@@ -621,6 +659,7 @@ def effective_major_version_base(config: Config) -> int:
 @dataclass(frozen=True)
 class Config:
     local_outdir: Path
+    working_dir: Path
     repo_path: Path | None
     repo_slug: str | None
     repo_subdir: str
@@ -650,9 +689,14 @@ def load_config() -> Config:
     repo_path = env("WIRTELPRIMPF_REPO_PATH")
     resolved_repo_path = normalize_repo_path(Path(repo_path).expanduser()) if repo_path else None
     repo_slug = normalize_repo_slug(env("WIRTELPRIMPF_REPO_SLUG"))
+    local_outdir = Path(env("WIRTELPRIMPF_LOCAL_OUTDIR", str(default_outdir))).expanduser()
 
     return Config(
-        local_outdir=Path(env("WIRTELPRIMPF_LOCAL_OUTDIR", str(default_outdir))).expanduser(),
+        local_outdir=local_outdir,
+        working_dir=Path(
+            env("WIRTELPRIMPF_WORKING_DIR", str(local_outdir / WORKING_DIR_NAME))
+            or str(local_outdir / WORKING_DIR_NAME)
+        ).expanduser(),
         repo_path=resolved_repo_path,
         repo_slug=repo_slug,
         repo_subdir=env("WIRTELPRIMPF_REPO_SUBDIR", "Wirtelprimpf") or "Wirtelprimpf",
@@ -1561,6 +1605,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
     report["details"].update(
         {
             "operandi": config.operandi,
+            "working_dir": str(config.working_dir),
             "major_version_bump": config.major_version_bump,
             "breaking_change": config.breaking_change,
             "patches_per_minor": config.patches_per_minor,
@@ -1922,6 +1967,7 @@ def main() -> None:
                 return
             print("Prompt configuration is valid.")
             print(f"Resolved config: local_outdir={config.local_outdir}")
+            print(f"working_dir={config.working_dir}")
             print(f"model={config.image_model} size={config.image_size} output_resolution={config.output_resolution}")
             print(f"operandi={config.operandi}")
             print(f"repo_path={config.repo_path or '<disabled>'}")
@@ -1931,6 +1977,7 @@ def main() -> None:
 
         ensure_output_directory(config.local_outdir)
         config.local_outdir.mkdir(parents=True, exist_ok=True)
+        ensure_private_output_directory(config.working_dir, env_name="WIRTELPRIMPF_WORKING_DIR")
         try:
             repo_outdir = ensure_repo(config)
         except Exception as exc:
@@ -2060,6 +2107,7 @@ def main() -> None:
                         config.story_document_path,
                         existing_story_document.rstrip() + "\n" + plan.story_document_append.lstrip(),
                     )
+                rotate_working_outputs(config, local_png, local_prompt, local_story)
             except Exception as exc:
                 print(f"Write/transform failed for {stem}: {exc}", file=sys.stderr)
                 summary.failed += 1
@@ -2074,6 +2122,7 @@ def main() -> None:
                 print(f"Local story: {local_story}")
             if plan.story_document_append:
                 print(f"Story document: {config.story_document_path}")
+            print(f"Working directory: {config.working_dir}")
 
             if repo_outdir is None:
                 continue
