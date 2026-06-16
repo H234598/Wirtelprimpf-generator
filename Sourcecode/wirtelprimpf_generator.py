@@ -44,6 +44,7 @@ WORKING_DIR_NAME: Final = "working"
 WORKING_IMAGE_NAME: Final = "latest.png"
 WORKING_PROMPT_NAME: Final = "latest.txt"
 WORKING_STORY_NAME: Final = "latest.md"
+WORKING_FULL_STORY_NAME: Final = "Full_Story.md"
 FLEX_PROCESSING_DEFAULT: str = "flex"
 FLEX_PROCESSING_MODES = frozenset({FLEX_PROCESSING_DEFAULT})
 FLEX_PROCESSING_ENABLED_VALUES = {"1", "true", "yes", "on", "enabled", "enable"}
@@ -598,7 +599,35 @@ def ensure_private_output_directory(path: Path, *, env_name: str) -> None:
     _assert_private_directory(path, label=env_name)
 
 
-def rotate_working_outputs(config: Config, local_png: Path, local_prompt: Path, local_story: Path | None) -> None:
+def update_working_full_story_link(config: Config, story_document_path: Path | None) -> None:
+    if story_document_path is None or not story_document_path.exists():
+        return
+    if story_document_path.is_symlink() or not story_document_path.is_file():
+        raise RuntimeError(f"Story document must be a regular non-symlink file: {story_document_path}")
+    link_path = config.working_dir / WORKING_FULL_STORY_NAME
+    if link_path.exists() or link_path.is_symlink():
+        if link_path.is_dir() and not link_path.is_symlink():
+            raise RuntimeError(f"Working full story link path is a directory: {link_path}")
+        link_path.unlink()
+    link_path.symlink_to(story_document_path)
+
+
+def active_story_document_path(config: Config) -> Path | None:
+    try:
+        state = read_story_state(config.story_state_path)
+    except RuntimeError:
+        return config.story_document_path if config.story_document_path.exists() else None
+    document_path = story_document_path_for_volume(config, state.current_volume)
+    return document_path if document_path.exists() else None
+
+
+def rotate_working_outputs(
+    config: Config,
+    local_png: Path,
+    local_prompt: Path,
+    local_story: Path | None,
+    story_document_path: Path | None = None,
+) -> None:
     ensure_private_output_directory(config.working_dir, env_name="WIRTELPRIMPF_WORKING_DIR")
     write_bytes_atomically(config.working_dir / WORKING_IMAGE_NAME, local_png.read_bytes())
     write_text_atomically(config.working_dir / WORKING_PROMPT_NAME, local_prompt.read_text(encoding="utf-8"))
@@ -609,6 +638,7 @@ def rotate_working_outputs(config: Config, local_png: Path, local_prompt: Path, 
         if story_target.is_symlink() or not story_target.is_file():
             raise RuntimeError(f"Working story output must be a regular non-symlink file: {story_target}")
         story_target.unlink()
+    update_working_full_story_link(config, story_document_path or active_story_document_path(config))
 
 
 def read_publish_state(path: Path) -> PublishState:
@@ -1432,29 +1462,42 @@ def is_markdown_prompt_config(data: dict[str, object]) -> bool:
     return data.get("_format") == "markdown"
 
 
+def _select_markdown_sections(raw_sections: object, *, label: str) -> tuple[list[tuple[str, str]], dict[str, str]]:
+    if not isinstance(raw_sections, dict):
+        raise ValueError(f"{label} Markdown sections must be an object")
+    selected: list[tuple[str, str]] = []
+    format_values: dict[str, str] = {}
+    for section, raw_values in raw_sections.items():
+        if not isinstance(section, str) or not isinstance(raw_values, list) or not raw_values:
+            raise ValueError(f"{label} Markdown sections must contain non-empty string lists")
+        if not all(isinstance(value, str) for value in raw_values):
+            raise ValueError(f"{label} Markdown section {section!r} contains non-string values")
+        choice = random.choice(raw_values)
+        selected.append((section, choice))
+        placeholder = re.sub(r"[^A-Za-z0-9_]+", "_", section.strip().lower()).strip("_")
+        if placeholder:
+            format_values[placeholder] = choice
+    return selected, format_values
+
+
+def _format_selected_markdown_sections(selected: list[tuple[str, str]], *, heading_level: int) -> str:
+    marker = "#" * heading_level
+    return "\n\n".join(f"{marker} {section}\n{choice}" for section, choice in selected)
+
+
+def _format_selected_markdown_bullets(selected: list[tuple[str, str]]) -> str:
+    return "\n\n".join(f"{section}:\n- {choice}" for section, choice in selected)
+
+
 def build_prompt(data: dict[str, object]) -> str:
     if is_markdown_prompt_config(data):
         main = require_string(data, "main")
-        raw_sections = data.get("sections")
-        if not isinstance(raw_sections, dict):
-            raise ValueError("Prompt config Markdown sections must be an object")
-        selected = []
-        format_values: dict[str, str] = {}
-        for section, raw_values in raw_sections.items():
-            if not isinstance(section, str) or not isinstance(raw_values, list) or not raw_values:
-                raise ValueError("Prompt config Markdown sections must contain non-empty string lists")
-            if not all(isinstance(value, str) for value in raw_values):
-                raise ValueError(f"Prompt config Markdown section {section!r} contains non-string values")
-            choice = random.choice(raw_values)
-            selected.append(f"{section}:\n- {choice}")
-            placeholder = re.sub(r"[^A-Za-z0-9_]+", "_", section.strip().lower()).strip("_")
-            if placeholder:
-                format_values[placeholder] = choice
+        selected, format_values = _select_markdown_sections(data.get("sections"), label="Prompt config")
         try:
             main = main.format(**format_values)
         except KeyError as exc:
             raise ValueError(f"Prompt config Markdown Hauptteil expects unknown placeholder: {exc.args[0]!r}") from exc
-        prompt = f"{main}\n\nAusgewaehlte Kategorien:\n\n" + "\n\n".join(selected)
+        prompt = f"{main}\n\nAusgewaehlte Kategorien:\n\n" + _format_selected_markdown_bullets(selected)
         return validate_prompt(prompt)
 
     template = require_string(data, "template")
@@ -1565,17 +1608,20 @@ def build_story_generation_config(config_path: Path, *, include_fixed_sections: 
     if not is_markdown_prompt_config(data):
         return build_prompt(data)
     main = require_string(data, "main" if include_fixed_sections else "main_text")
-    raw_sections = data.get("sections")
-    if not isinstance(raw_sections, dict):
-        raise ValueError("Story prompt config Markdown sections must be an object")
-    selected = []
-    for section, raw_values in raw_sections.items():
-        if not isinstance(section, str) or not isinstance(raw_values, list) or not raw_values:
-            raise ValueError("Story prompt config Markdown sections must contain non-empty string lists")
-        if not all(isinstance(value, str) for value in raw_values):
-            raise ValueError(f"Story prompt config Markdown section {section!r} contains non-string values")
-        selected.append(f"### {section}\n{random.choice(raw_values)}")
-    return f"{main}\n\n" + "\n\n".join(selected)
+    selected, _format_values = _select_markdown_sections(data.get("sections"), label="Story prompt config")
+    return f"{main}\n\n" + _format_selected_markdown_sections(selected, heading_level=3)
+
+
+def build_story_generation_configs(config_path: Path) -> tuple[str, str]:
+    data = load_prompt_config(config_path)
+    if not is_markdown_prompt_config(data):
+        prompt = build_prompt(data)
+        return prompt, prompt
+    selected, _format_values = _select_markdown_sections(data.get("sections"), label="Story prompt config")
+    text_main = require_string(data, "main_text")
+    image_main = require_string(data, "main")
+    selected_block = _format_selected_markdown_sections(selected, heading_level=3)
+    return f"{text_main}\n\n{selected_block}", f"{image_main}\n\n{selected_block}"
 
 
 def build_story_text_prompt(story_config: str, recent_entries: list[str], closing_instruction: str = "") -> str:
@@ -1631,8 +1677,7 @@ def build_story_image_prompt(story_part: str, story_config: str) -> str:
 
 
 def build_story_plans(config: Config, now: datetime, client: OpenAI | None, *, dry_run: bool) -> list[GenerationPlan]:
-    story_config = build_story_generation_config(config.story_prompt_config_path, include_fixed_sections=False)
-    story_image_config = build_story_generation_config(config.story_prompt_config_path, include_fixed_sections=True)
+    story_config, story_image_config = build_story_generation_configs(config.story_prompt_config_path)
     story_state, story_document_path, closing_instruction = prepare_story_state_for_plan(config, dry_run=dry_run)
     recent_entries = load_recent_story_entries(story_document_path)
     if dry_run:
@@ -2440,7 +2485,13 @@ def main() -> None:
                     )
                     if plan.story_state_after_success is not None:
                         write_story_state(config.story_state_path, plan.story_state_after_success)
-                rotate_working_outputs(config, local_png, local_prompt, local_story)
+                rotate_working_outputs(
+                    config,
+                    local_png,
+                    local_prompt,
+                    local_story,
+                    plan.story_document_path if plan.story_document_append else None,
+                )
             except Exception as exc:
                 print(f"Write/transform failed for {stem}: {exc}", file=sys.stderr)
                 summary.failed += 1
