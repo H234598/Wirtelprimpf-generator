@@ -52,7 +52,7 @@ is_secure_tool_path() {
   if [[ "$parent_owner" != "$CURRENT_UID" && "$parent_owner" != 0 ]]; then
     return 1
   fi
-  if (( 10#$mode & 022 || 10#$mode & 06000 || 10#$parent_mode & 022 )); then
+  if (( 8#$mode & 8#022 || 8#$mode & 8#6000 || 8#$parent_mode & 8#022 )); then
     return 1
   fi
   return 0
@@ -202,19 +202,19 @@ validate_python_binary() {
   if [[ "$parent_owner" != "$CURRENT_UID" && "$parent_owner" != 0 ]]; then
     return 1
   fi
-  if (( 10#$mountpoint_mode & 022 )); then
+  if (( 8#$mountpoint_mode & 8#022 )); then
     return 1
   fi
-  if (( 10#$parent_mode & 022 )); then
+  if (( 8#$parent_mode & 8#022 )); then
     return 1
   fi
-  if (( 10#$resolved_mode & 022 )); then
+  if (( 8#$resolved_mode & 8#022 )); then
     return 1
   fi
-  if (( 10#$resolved_mode & 06000 )); then
+  if (( 8#$resolved_mode & 8#6000 )); then
     return 1
   fi
-  if (( (10#$resolved_mode & 0111) == 0 )); then
+  if (( (8#$resolved_mode & 8#111) == 0 )); then
     return 1
   fi
   if (( HAS_FINDMNT_CMD )); then
@@ -257,9 +257,6 @@ if ! mkdir -p "$CHECK_TMP_BASE_DIR"; then
   echo "Failed to create check temp base directory: ${CHECK_TMP_BASE_DIR}" >&2
   exit 1
 fi
-if ! is_strict_secure_directory "$CHECK_TMP_BASE_DIR" "Check temp base directory"; then
-  exit 1
-fi
 if ! CHECK_TMPDIR="$(mktemp -d -p "$CHECK_TMP_BASE_DIR" -t wirtelprimpf-check-XXXXXX)"; then
   echo "Failed to create temporary directory" >&2
   exit 1
@@ -277,6 +274,15 @@ is_owned_by_current_user() {
     return 1
   fi
   [[ "$owner" == "$CURRENT_UID" ]]
+}
+
+is_owned_by_current_user_or_root() {
+  local path="$1"
+  local owner
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  [[ "$owner" == "$CURRENT_UID" || "$owner" == 0 ]]
 }
 
 is_strict_secure_directory() {
@@ -299,7 +305,7 @@ is_strict_secure_directory() {
     echo "${label} failed to read permissions: ${path}" >&2
     return 1
   fi
-  if (( 10#$perm & 022 )); then
+  if (( 8#$perm & 8#022 )); then
     echo "${label} must not be group/world writable: ${path}" >&2
     return 1
   fi
@@ -310,6 +316,10 @@ is_strict_secure_directory() {
   return 0
 }
 
+if ! is_strict_secure_directory "$CHECK_TMP_BASE_DIR" "Check temp base directory"; then
+  rmdir "$CHECK_TMPDIR" 2>/dev/null || true
+  exit 1
+fi
 if ! is_strict_secure_directory "$CHECK_TMPDIR" "Check temporary directory"; then
   rmdir "$CHECK_TMPDIR" 2>/dev/null || true
   exit 1
@@ -393,6 +403,9 @@ run_python_sandbox() {
     PYTHONNOUSERSITE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8 \
+    WIRTELPRIMPF_LOCAL_OUTDIR="$CHECK_TMPDIR/out" \
+    WIRTELPRIMPF_PROMPT_CONFIG="$ROOT_DIR/Sourcecode/wirtelprimpf_prompt_config.md" \
+    WIRTELPRIMPF_STORY_PROMPT_CONFIG="$ROOT_DIR/Sourcecode/wirtelprimpf_story_prompt_config.md" \
     "$@"
 }
 
@@ -414,19 +427,19 @@ run_command_sandboxed() {
       echo "Python command path must be canonical and non-symlinked: ${cmd[0]}" >&2
       return 1
     fi
-    if ! is_owned_by_current_user "$command_canonical"; then
-      echo "Python command must be owned by current user: ${cmd[0]}" >&2
+    if ! is_owned_by_current_user_or_root "$command_canonical"; then
+      echo "Python command must be owned by current user or root: ${cmd[0]}" >&2
       return 1
     fi
     if ! command_mode="$(stat -c '%a' "$command_canonical" 2>/dev/null)"; then
       echo "Failed to read python command permissions: ${cmd[0]}" >&2
       return 1
     fi
-    if (( 10#$command_mode & 022 )); then
+    if (( 8#$command_mode & 8#022 )); then
       echo "Python command must not be group/world writable: ${cmd[0]}" >&2
       return 1
     fi
-    if (( 10#$command_mode & 06000 )); then
+    if (( 8#$command_mode & 8#6000 )); then
       echo "Python command must not have setuid/setgid bits: ${cmd[0]}" >&2
       return 1
     fi
@@ -435,15 +448,15 @@ run_command_sandboxed() {
       echo "Python command directory must not be a symlink: ${command_path_dir}" >&2
       return 1
     fi
-    if ! is_owned_by_current_user "$command_path_dir"; then
-      echo "Python command directory must be owned by current user: ${command_path_dir}" >&2
+    if ! is_owned_by_current_user_or_root "$command_path_dir"; then
+      echo "Python command directory must be owned by current user or root: ${command_path_dir}" >&2
       return 1
     fi
     if ! command_dir_mode="$(stat -c '%a' "$command_path_dir" 2>/dev/null)"; then
       echo "Failed to read python command directory permissions: ${command_path_dir}" >&2
       return 1
     fi
-    if (( 10#$command_dir_mode & 022 )); then
+    if (( 8#$command_dir_mode & 8#022 )); then
       echo "Python command directory must not be group/world writable: ${command_path_dir}" >&2
       return 1
     fi
@@ -454,8 +467,8 @@ run_command_sandboxed() {
   elif [[ -L "${cmd[0]}" || ! -x "${cmd[0]}" ]]; then
     echo "Sandboxed command must be an executable non-symlink file: ${cmd[0]}" >&2
     return 1
-  elif ! is_owned_by_current_user "${cmd[0]}"; then
-    echo "Sandboxed command must be owned by current user: ${cmd[0]}" >&2
+  elif ! is_owned_by_current_user_or_root "${cmd[0]}"; then
+    echo "Sandboxed command must be owned by current user or root: ${cmd[0]}" >&2
     return 1
   elif [[ -z "${BASH_PATH}" || -L "${BASH_PATH}" || ! -x "${BASH_PATH}" ]]; then
     echo "Required bash interpreter unavailable or insecure: ${BASH_PATH:-not-found}" >&2
@@ -471,15 +484,15 @@ run_command_sandboxed() {
       echo "Sandboxed command directory must not be a symlink: ${command_path_dir}" >&2
       return 1
     fi
-    if ! is_owned_by_current_user "$command_path_dir"; then
-      echo "Sandboxed command directory must be owned by current user: ${command_path_dir}" >&2
+    if ! is_owned_by_current_user_or_root "$command_path_dir"; then
+      echo "Sandboxed command directory must be owned by current user or root: ${command_path_dir}" >&2
       return 1
     fi
     if ! command_dir_mode="$(stat -c '%a' "$command_path_dir" 2>/dev/null)"; then
       echo "Failed to read sandboxed command directory permissions: ${command_path_dir}" >&2
       return 1
     fi
-    if (( 10#$command_dir_mode & 022 )); then
+    if (( 8#$command_dir_mode & 8#022 )); then
       echo "Sandboxed command directory must not be group/world writable: ${command_path_dir}" >&2
       return 1
     fi
@@ -488,19 +501,19 @@ run_command_sandboxed() {
       echo "Failed to read bash interpreter canonical path: ${BASH_PATH:-not-found}" >&2
       return 1
     fi
-    if ! is_owned_by_current_user "$bash_canonical"; then
-      echo "Bash interpreter must be owned by current user: $bash_canonical" >&2
+    if ! is_owned_by_current_user_or_root "$bash_canonical"; then
+      echo "Bash interpreter must be owned by current user or root: $bash_canonical" >&2
       return 1
     fi
     if ! bash_mode="$(stat -c '%a' "$bash_canonical" 2>/dev/null)"; then
       echo "Failed to read bash interpreter permissions: $bash_canonical" >&2
       return 1
     fi
-    if (( 10#$bash_mode & 022 )); then
+    if (( 8#$bash_mode & 8#022 )); then
       echo "Bash interpreter must not be group/world writable: $bash_canonical" >&2
       return 1
     fi
-    if (( 10#$bash_mode & 06000 )); then
+    if (( 8#$bash_mode & 8#6000 )); then
       echo "Bash interpreter must not have setuid/setgid bits: $bash_canonical" >&2
       return 1
     fi
@@ -508,11 +521,11 @@ run_command_sandboxed() {
       echo "Failed to read sandboxed command permissions: ${cmd[0]}" >&2
       return 1
     fi
-    if (( 10#$command_mode & 022 )); then
+    if (( 8#$command_mode & 8#022 )); then
       echo "Sandboxed command must not be group/world writable: ${cmd[0]}" >&2
       return 1
     fi
-    if (( 10#$command_mode & 06000 )); then
+    if (( 8#$command_mode & 8#6000 )); then
       echo "Sandboxed command must not have setuid/setgid bits: ${cmd[0]}" >&2
       return 1
     fi
@@ -524,6 +537,9 @@ run_command_sandboxed() {
       TERM="xterm-256color" \
       USER="" \
       LOGNAME="" \
+      WIRTELPRIMPF_LOCAL_OUTDIR="$CHECK_TMPDIR/out" \
+      WIRTELPRIMPF_PROMPT_CONFIG="$ROOT_DIR/Sourcecode/wirtelprimpf_prompt_config.md" \
+      WIRTELPRIMPF_STORY_PROMPT_CONFIG="$ROOT_DIR/Sourcecode/wirtelprimpf_story_prompt_config.md" \
       "$command_canonical" "${cmd[@]:1}"
   fi
 }
@@ -567,7 +583,7 @@ require_file() {
     echo "${label} failed to read permissions: ${path}" >&2
     return 1
   fi
-  if (( 10#$perm & 022 )); then
+  if (( 8#$perm & 8#022 )); then
     echo "${label} must not be group/world writable: ${path}" >&2
     return 1
   fi
@@ -585,7 +601,8 @@ require_executable() {
   fi
 }
 
-if ! require_executable "$PY" "Python interpreter"; then
+if [[ -L "$PY" || ! -f "$PY" || ! -x "$PY" ]] || ! is_owned_by_current_user_or_root "$PY"; then
+  echo "Python interpreter must be an executable regular file owned by current user or root: ${PY}" >&2
   exit 1
 fi
 if ! require_file "$PY_SCRIPT" "Generator script"; then

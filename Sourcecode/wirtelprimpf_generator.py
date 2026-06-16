@@ -25,6 +25,13 @@ import tempfile
 from openai import OpenAI
 from PIL import Image
 
+OPERANDI_CLASSIC: Final = "classic"
+OPERANDI_STORY: Final = "story"
+OPERANDI_VALUES: Final = frozenset({OPERANDI_CLASSIC, OPERANDI_STORY})
+PROMPT_CONFIG_MAIN_SECTION: Final = "hauptteil"
+STORY_HISTORY_COUNT: Final = 10
+STORY_ENTRY_TARGET: Final = "ungefaehr eine halbe DIN-A4-Seite"
+STORY_DOCUMENT_NAME: Final = "wirtelprimpf_fortlaufende_geschichte.md"
 FLEX_PROCESSING_DEFAULT: str = "flex"
 FLEX_PROCESSING_MODES = frozenset({FLEX_PROCESSING_DEFAULT})
 FLEX_PROCESSING_ENABLED_VALUES = {"1", "true", "yes", "on", "enabled", "enable"}
@@ -107,6 +114,14 @@ class RunSummary:
     prompts: int = 0
     total: int = 0
     exit_code: int = 0
+
+
+@dataclass(frozen=True)
+class GenerationPlan:
+    prompt: str
+    story_part: str | None = None
+    story_entry_markdown: str | None = None
+    story_document_append: str | None = None
 
 
 @dataclass(frozen=True)
@@ -614,7 +629,11 @@ class Config:
     image_size: str
     output_resolution: str
     flex_processing_mode: str | None
+    operandi: str
     prompt_config_path: Path
+    story_prompt_config_path: Path
+    story_model: str
+    story_document_path: Path
     commit_author_name: str
     commit_author_email: str
     major_version_bump: int
@@ -626,7 +645,8 @@ class Config:
 def load_config() -> Config:
     default_outdir = Path.home() / "Hintergrundbilder"
     config_home = Path(env("XDG_CONFIG_HOME", str(Path.home() / ".config")) or str(Path.home() / ".config"))
-    default_prompt_config = config_home / "wirtelprimpf" / "prompt_config.json"
+    default_prompt_config = config_home / "wirtelprimpf" / "prompt_config.md"
+    default_story_prompt_config = config_home / "wirtelprimpf" / "story_prompt_config.md"
     repo_path = env("WIRTELPRIMPF_REPO_PATH")
     resolved_repo_path = normalize_repo_path(Path(repo_path).expanduser()) if repo_path else None
     repo_slug = normalize_repo_slug(env("WIRTELPRIMPF_REPO_SLUG"))
@@ -641,8 +661,20 @@ def load_config() -> Config:
         image_size=parse_image_size(env("WIRTELPRIMPF_IMAGE_SIZE", "1536x1024") or "1536x1024"),
         output_resolution=parse_output_resolution(env("WIRTELPRIMPF_OUTPUT_RESOLUTION", "2k") or "2k"),
         flex_processing_mode=parse_flex_processing(),
+        operandi=parse_operandi(env("WIRTELPRIMPF_OPERANDI", OPERANDI_CLASSIC)),
         prompt_config_path=Path(
             env("WIRTELPRIMPF_PROMPT_CONFIG", str(default_prompt_config)) or str(default_prompt_config)
+        ).expanduser(),
+        story_prompt_config_path=Path(
+            env("WIRTELPRIMPF_STORY_PROMPT_CONFIG", str(default_story_prompt_config)) or str(default_story_prompt_config)
+        ).expanduser(),
+        story_model=env("WIRTELPRIMPF_STORY_MODEL", "gpt-5-mini") or "gpt-5-mini",
+        story_document_path=Path(
+            env(
+                "WIRTELPRIMPF_STORY_DOCUMENT",
+                str(Path(env("WIRTELPRIMPF_LOCAL_OUTDIR", str(default_outdir)) or str(default_outdir)) / STORY_DOCUMENT_NAME),
+            )
+            or str(default_outdir / STORY_DOCUMENT_NAME)
         ).expanduser(),
         commit_author_name=env("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Wirtelprimpf Bot") or "Wirtelprimpf Bot",
         commit_author_email=env("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "wirtelprimpf@example.invalid")
@@ -674,6 +706,28 @@ def parse_patches_per_minor(name: str, value: str | None) -> int:
     if parsed != DEFAULT_PATCHES_PER_MINOR:
         raise RuntimeError(f"Invalid {name} value: {value!r}. Expected {DEFAULT_PATCHES_PER_MINOR}")
     return parsed
+
+
+def parse_operandi(value: str | None) -> str:
+    raw = (value or OPERANDI_CLASSIC).strip().lower()
+    aliases = {
+        "1": OPERANDI_CLASSIC,
+        "classic": OPERANDI_CLASSIC,
+        "klassisch": OPERANDI_CLASSIC,
+        "alt": OPERANDI_CLASSIC,
+        "old": OPERANDI_CLASSIC,
+        "2": OPERANDI_STORY,
+        "story": OPERANDI_STORY,
+        "geschichte": OPERANDI_STORY,
+        "fortlaufend": OPERANDI_STORY,
+        "operandi2": OPERANDI_STORY,
+    }
+    normalized = aliases.get(raw, raw)
+    if normalized not in OPERANDI_VALUES:
+        raise RuntimeError(
+            f"Invalid WIRTELPRIMPF_OPERANDI value: {value!r}. Expected classic/1 or story/2"
+        )
+    return normalized
 
 
 def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -991,7 +1045,7 @@ def bullet_list(values: list[str]) -> str:
     return "\n".join(f"- {value}" for value in values)
 
 
-def load_prompt_config(path: Path) -> dict[str, object]:
+def load_json_prompt_config(path: Path) -> dict[str, object]:
     if path.is_symlink():
         raise ValueError(f"Invalid prompt config path (symlink): {path}")
     if not path.is_file():
@@ -1012,7 +1066,99 @@ def load_prompt_config(path: Path) -> dict[str, object]:
     return data
 
 
+def _clean_markdown_list_item(line: str) -> str:
+    stripped = line.strip()
+    stripped = re.sub(r"^\s*[-*+]\s+", "", stripped)
+    stripped = re.sub(r"^\s*\d+[.)]\s+", "", stripped)
+    return stripped.strip()
+
+
+def load_markdown_prompt_config(path: Path) -> dict[str, list[str] | str]:
+    if path.is_symlink():
+        raise ValueError(f"Invalid prompt config path (symlink): {path}")
+    if not path.is_file():
+        raise ValueError(f"Prompt config path must be a regular file: {path}")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"prompt config file is not valid UTF-8: {path}") from exc
+    except OSError as exc:
+        raise ValueError(f"failed to read prompt config file: {path}: {exc}") from exc
+
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        heading = re.match(r"^##\s+(.+?)\s*$", line)
+        if heading:
+            current = heading.group(1).strip()
+            if not current:
+                raise ValueError(f"empty markdown section heading in {path}")
+            sections.setdefault(current, [])
+            continue
+        if current is None:
+            continue
+        cleaned = _clean_markdown_list_item(line)
+        if cleaned:
+            sections[current].append(cleaned)
+
+    if not sections:
+        raise ValueError(f"Prompt config Markdown has no '##' sections: {path}")
+
+    main_key = None
+    for key in sections:
+        if key.strip().lower() == PROMPT_CONFIG_MAIN_SECTION:
+            main_key = key
+            break
+    if main_key is None or not sections[main_key]:
+        raise ValueError(f"Prompt config Markdown must contain a non-empty '## Hauptteil' section: {path}")
+
+    pools = {key: values for key, values in sections.items() if key != main_key}
+    if not pools:
+        raise ValueError(f"Prompt config Markdown must contain at least one category section besides Hauptteil: {path}")
+    for key, values in pools.items():
+        if not values:
+            raise ValueError(f"Prompt config Markdown section {key!r} must contain at least one item")
+
+    return {"main": "\n".join(sections[main_key]).strip(), "sections": pools}
+
+
+def load_prompt_config(path: Path) -> dict[str, object]:
+    if path.suffix.lower() == ".json":
+        return load_json_prompt_config(path)
+    parsed = load_markdown_prompt_config(path)
+    return {"_format": "markdown", **parsed}
+
+
+def is_markdown_prompt_config(data: dict[str, object]) -> bool:
+    return data.get("_format") == "markdown"
+
+
 def build_prompt(data: dict[str, object]) -> str:
+    if is_markdown_prompt_config(data):
+        main = require_string(data, "main")
+        raw_sections = data.get("sections")
+        if not isinstance(raw_sections, dict):
+            raise ValueError("Prompt config Markdown sections must be an object")
+        selected = []
+        format_values: dict[str, str] = {}
+        for section, raw_values in raw_sections.items():
+            if not isinstance(section, str) or not isinstance(raw_values, list) or not raw_values:
+                raise ValueError("Prompt config Markdown sections must contain non-empty string lists")
+            if not all(isinstance(value, str) for value in raw_values):
+                raise ValueError(f"Prompt config Markdown section {section!r} contains non-string values")
+            choice = random.choice(raw_values)
+            selected.append(f"{section}:\n- {choice}")
+            placeholder = re.sub(r"[^A-Za-z0-9_]+", "_", section.strip().lower()).strip("_")
+            if placeholder:
+                format_values[placeholder] = choice
+        try:
+            main = main.format(**format_values)
+        except KeyError as exc:
+            raise ValueError(f"Prompt config Markdown Hauptteil expects unknown placeholder: {exc.args[0]!r}") from exc
+        prompt = f"{main}\n\nAusgewaehlte Kategorien:\n\n" + "\n\n".join(selected)
+        return validate_prompt(prompt)
+
     template = require_string(data, "template")
     values = {
         "fixed_image_rules": bullet_list(require_list(data, "fixed_image_rules")),
@@ -1030,6 +1176,8 @@ def build_prompt(data: dict[str, object]) -> str:
 
 
 def birthday_config(data: dict[str, object]) -> dict[str, object]:
+    if is_markdown_prompt_config(data):
+        return {}
     return require_dict(data, "birthday")
 
 
@@ -1072,9 +1220,139 @@ def build_birthday_prompts(now: datetime, birthday: dict[str, object]) -> list[s
 def build_prompts(config_path: Path, now: datetime) -> list[str]:
     data = load_prompt_config(config_path)
     birthday = birthday_config(data)
-    if is_birthday_run(now, birthday):
+    if birthday and is_birthday_run(now, birthday):
         return build_birthday_prompts(now, birthday)
     return [build_prompt(data)]
+
+
+def build_classic_plans(config_path: Path, now: datetime) -> list[GenerationPlan]:
+    return [GenerationPlan(prompt=prompt) for prompt in build_prompts(config_path, now)]
+
+
+def _extract_text_response(response: object) -> str:
+    output_text = getattr(response, "output_text", None)
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+    chunks: list[str] = []
+    for item in getattr(response, "output", []) or []:
+        for content in getattr(item, "content", []) or []:
+            text = getattr(content, "text", None)
+            if isinstance(text, str) and text.strip():
+                chunks.append(text.strip())
+    if chunks:
+        return "\n\n".join(chunks).strip()
+    raise RuntimeError("OpenAI text response did not include text output")
+
+
+def load_recent_story_entries(story_document_path: Path, *, limit: int = STORY_HISTORY_COUNT) -> list[str]:
+    if not story_document_path.exists():
+        return []
+    if story_document_path.is_symlink() or not story_document_path.is_file():
+        raise ValueError(f"Story document must be a regular non-symlink file: {story_document_path}")
+    try:
+        text = story_document_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"story document is not valid UTF-8: {story_document_path}") from exc
+    entries = re.split(r"(?m)^##\s+", text)
+    cleaned = []
+    for entry in entries[1:]:
+        stripped = entry.strip()
+        if stripped:
+            cleaned.append("## " + stripped)
+    return cleaned[-limit:]
+
+
+def build_story_generation_config(config_path: Path) -> str:
+    data = load_prompt_config(config_path)
+    if not is_markdown_prompt_config(data):
+        return build_prompt(data)
+    main = require_string(data, "main")
+    raw_sections = data.get("sections")
+    if not isinstance(raw_sections, dict):
+        raise ValueError("Story prompt config Markdown sections must be an object")
+    selected = []
+    for section, raw_values in raw_sections.items():
+        if not isinstance(section, str) or not isinstance(raw_values, list) or not raw_values:
+            raise ValueError("Story prompt config Markdown sections must contain non-empty string lists")
+        if not all(isinstance(value, str) for value in raw_values):
+            raise ValueError(f"Story prompt config Markdown section {section!r} contains non-string values")
+        selected.append(f"### {section}\n{random.choice(raw_values)}")
+    return f"{main}\n\n" + "\n\n".join(selected)
+
+
+def build_story_text_prompt(story_config: str, recent_entries: list[str]) -> str:
+    history = "\n\n".join(recent_entries) if recent_entries else "Noch keine vergangenen Teile vorhanden."
+    return (
+        "Schreibe den naechsten stuendlichen Teil einer endlos fortlaufenden Geschichte.\n"
+        "Hauptfiguren sind zwei Hauskatzen, eine Moehre und eine Maus. Jede Folge deckt genau eine Stunde Handlung ab.\n"
+        f"Der neue Eintrag soll {STORY_ENTRY_TARGET} fuellen, auf Deutsch sein und als Markdown ohne H1 beginnen.\n"
+        "Orientiere dich an den letzten Eintraegen, ohne sie zu wiederholen. Wenn keine Historie existiert, beginne natuerlich.\n\n"
+        "Regeln fuer diesen Teil:\n"
+        f"{story_config}\n\n"
+        f"Letzte {STORY_HISTORY_COUNT} Eintraege:\n"
+        f"{history}\n"
+    )
+
+
+def generate_story_part(client: OpenAI, *, model: str, story_config: str, recent_entries: list[str]) -> str:
+    response = client.responses.create(
+        model=model,
+        input=build_story_text_prompt(story_config, recent_entries),
+    )
+    story = _extract_text_response(response)
+    if len(story) < 500:
+        raise ValueError("Generated story part is unexpectedly short")
+    return story.strip()
+
+
+def build_story_image_prompt(story_part: str, story_config: str) -> str:
+    prompt = (
+        "Generiere ein Bild zu diesem Teil der fortlaufenden Wirtelprimpf-Geschichte.\n"
+        "Nutze dieselben Regeln wie fuer den Textteil, aber formuliere das Ergebnis als sichtbare Bildszene.\n"
+        "Kein langer lesbarer Text im Bild, keine Wasserzeichen.\n\n"
+        "Regeln:\n"
+        f"{story_config}\n\n"
+        "Geschichtsteil:\n"
+        f"{story_part}"
+    )
+    if len(prompt) > 6000:
+        prompt = prompt[:5900].rstrip() + "\n\n[Geschichtsteil fuer Bildprompt gekuerzt.]"
+    return validate_prompt(prompt)
+
+
+def build_story_plans(config: Config, now: datetime, client: OpenAI | None, *, dry_run: bool) -> list[GenerationPlan]:
+    story_config = build_story_generation_config(config.story_prompt_config_path)
+    recent_entries = load_recent_story_entries(config.story_document_path)
+    if dry_run:
+        story_part = (
+            "DRY-RUN: Hier wuerde der naechste einstuendige Teil der fortlaufenden Geschichte stehen. "
+            "Der echte Lauf nutzt die letzten Eintraege und die zufaellig gezogenen Regeln aus der zweiten Markdown-Konfig."
+        )
+    else:
+        if client is None:
+            raise RuntimeError("OpenAI client is required for story generation")
+        story_part = generate_story_part(
+            client,
+            model=config.story_model,
+            story_config=story_config,
+            recent_entries=recent_entries,
+        )
+    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    story_entry = f"## {timestamp}\n\n{story_part.strip()}\n"
+    return [
+        GenerationPlan(
+            prompt=build_story_image_prompt(story_part, story_config),
+            story_part=story_part,
+            story_entry_markdown=story_entry,
+            story_document_append="\n" + story_entry,
+        )
+    ]
+
+
+def build_generation_plans(config: Config, now: datetime, client: OpenAI | None, *, dry_run: bool) -> list[GenerationPlan]:
+    if config.operandi == OPERANDI_STORY:
+        return build_story_plans(config, now, client, dry_run=dry_run)
+    return build_classic_plans(config.prompt_config_path, now)
 
 
 def is_retryable_generation_error(exc: Exception) -> bool:
@@ -1282,6 +1560,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
 
     report["details"].update(
         {
+            "operandi": config.operandi,
             "major_version_bump": config.major_version_bump,
             "breaking_change": config.breaking_change,
             "patches_per_minor": config.patches_per_minor,
@@ -1290,17 +1569,21 @@ def status_report(config: Config | None = None) -> dict[str, object]:
         }
     )
 
-    prompt_config = config.prompt_config_path
-    checks.append({"name": "prompt_config_file", "ok": prompt_config.exists(), "path": str(prompt_config)})
-    if not prompt_config.exists():
-        report["ok"] = False
-        report["status"] = STATUS_ERROR
-        report["exit_code"] = 1
-        checks.append({"name": "prompt_config_parse", "ok": False, "message": "Prompt config file missing"})
-        return report
+    prompt_config_paths = [config.prompt_config_path]
+    if config.operandi == OPERANDI_STORY:
+        prompt_config_paths.append(config.story_prompt_config_path)
+
+    for prompt_config in prompt_config_paths:
+        checks.append({"name": "prompt_config_file", "ok": prompt_config.exists(), "path": str(prompt_config)})
+        if not prompt_config.exists():
+            report["ok"] = False
+            report["status"] = STATUS_ERROR
+            report["exit_code"] = 1
+            checks.append({"name": "prompt_config_parse", "ok": False, "message": "Prompt config file missing"})
+            return report
 
     try:
-        prompts = build_prompts(prompt_config, datetime.now())
+        plans = build_generation_plans(config, datetime.now(), None, dry_run=True)
     except Exception as exc:
         report["ok"] = False
         report["status"] = STATUS_ERROR
@@ -1311,7 +1594,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
             {
                 "name": "prompt_config_parse",
                 "ok": True,
-                "prompt_count": len(prompts),
+                "prompt_count": len(plans),
             }
         )
         local_outdir_exists = config.local_outdir.exists()
@@ -1532,9 +1815,17 @@ def main() -> None:
                     runtime_mode,
                 )
             _die(f"Prompt config file not found: {config.prompt_config_path}")
+        if config.operandi == OPERANDI_STORY and not config.story_prompt_config_path.exists():
+            if args.json:
+                emit_unexpected_failure(
+                    f"Story prompt config file not found: {config.story_prompt_config_path}",
+                    args,
+                    runtime_mode,
+                )
+            _die(f"Story prompt config file not found: {config.story_prompt_config_path}")
 
         try:
-            prompts = build_prompts(config.prompt_config_path, datetime.now())
+            plans = build_generation_plans(config, datetime.now(), None, dry_run=True)
         except Exception as exc:
             runtime_version = resolve_runtime_version(
                 patch_count=(
@@ -1569,7 +1860,7 @@ def main() -> None:
                 )
             _die(f"Prompt config validation failed: {exc}")
 
-        total_prompts = len(prompts)
+        total_prompts = len(plans)
 
         if args.check_config:
             check_config_details = publish_state_summary(config)
@@ -1619,7 +1910,7 @@ def main() -> None:
                             check_config=True,
                             details=check_config_details,
                             local_outdir=str(config.local_outdir),
-                            prompt_count=len(prompts),
+                            prompt_count=len(plans),
                             model=config.image_model,
                             image_size=config.image_size,
                             output_resolution=config.output_resolution,
@@ -1632,6 +1923,7 @@ def main() -> None:
             print("Prompt configuration is valid.")
             print(f"Resolved config: local_outdir={config.local_outdir}")
             print(f"model={config.image_model} size={config.image_size} output_resolution={config.output_resolution}")
+            print(f"operandi={config.operandi}")
             print(f"repo_path={config.repo_path or '<disabled>'}")
             print(f"prompts={total_prompts}")
             print(f"exit_code: 0")
@@ -1645,7 +1937,7 @@ def main() -> None:
             if args.json:
                 emit_unexpected_failure(f"Failed to prepare repository: {exc}", args, runtime_mode)
             _die(f"Failed to prepare repository: {exc}")
-        summary = RunSummary(total=len(prompts))
+        summary = RunSummary(total=len(plans))
         output_resolution_size = parse_resolution(config.output_resolution)
 
         if args.dry_run:
@@ -1683,7 +1975,7 @@ def main() -> None:
             if current_version is None:
                 current_version = fallback_version
 
-            for index, prompt in enumerate(prompts, start=1):
+            for index, plan in enumerate(plans, start=1):
                 if args.json:
                     print(
                         format_json(
@@ -1697,13 +1989,15 @@ def main() -> None:
                                 type="dry_run",
                                 index=index,
                                 total=total_prompts,
-                                prompt_preview=prompt[:140],
+                                prompt_preview=plan.prompt[:140],
                             ),
                             compact=True,
                         )
                     )
                 else:
-                    print(f"[DRY-RUN {index}/{total_prompts}] {prompt[:140]}...")
+                    print(f"[DRY-RUN {index}/{total_prompts}] {plan.prompt[:140]}...")
+                    if plan.story_entry_markdown:
+                        print(plan.story_entry_markdown[:220] + "...")
                 summary.skipped += 1
                 summary.prompts += 1
             summary.exit_code = 0
@@ -1711,16 +2005,22 @@ def main() -> None:
             return
 
         client = OpenAI()
-        for index, prompt in enumerate(prompts, start=1):
+        if config.operandi == OPERANDI_STORY:
+            plans = build_generation_plans(config, datetime.now(), client, dry_run=False)
+            total_prompts = len(plans)
+            summary.total = len(plans)
+
+        for index, plan in enumerate(plans, start=1):
             timestamp = build_timestamp()
-            suffix = f"_geburtstag-{index:02d}" if len(prompts) > 1 else ""
+            suffix = f"_geburtstag-{index:02d}" if len(plans) > 1 else ""
             stem = f"wirtelprimpf_{timestamp}{suffix}"
             local_png = config.local_outdir / f"{stem}.png"
             local_prompt = config.local_outdir / f"{stem}.txt"
+            local_story = config.local_outdir / f"{stem}.story.md" if plan.story_entry_markdown else None
 
             request: dict[str, object] = {
                 "model": config.image_model,
-                "prompt": prompt,
+                "prompt": plan.prompt,
                 "size": config.image_size,
             }
             if config.flex_processing_mode:
@@ -1745,7 +2045,21 @@ def main() -> None:
             try:
                 write_bytes_atomically(local_png, decode_image_bytes(image_b64))
                 resize_cover(local_png, output_resolution_size)
-                write_text_atomically(local_prompt, prompt)
+                write_text_atomically(local_prompt, plan.prompt)
+                if local_story is not None and plan.story_entry_markdown is not None:
+                    write_text_atomically(local_story, plan.story_entry_markdown)
+                if plan.story_document_append:
+                    existing_story_document = ""
+                    if config.story_document_path.exists():
+                        if config.story_document_path.is_symlink() or not config.story_document_path.is_file():
+                            raise RuntimeError(f"Story document must be a regular non-symlink file: {config.story_document_path}")
+                        existing_story_document = config.story_document_path.read_text(encoding="utf-8")
+                    elif not config.story_document_path.parent.exists():
+                        config.story_document_path.parent.mkdir(parents=True, exist_ok=True)
+                    write_text_atomically(
+                        config.story_document_path,
+                        existing_story_document.rstrip() + "\n" + plan.story_document_append.lstrip(),
+                    )
             except Exception as exc:
                 print(f"Write/transform failed for {stem}: {exc}", file=sys.stderr)
                 summary.failed += 1
@@ -1756,16 +2070,29 @@ def main() -> None:
             summary.prompts += 1
             print(f"Local image: {local_png}")
             print(f"Local prompt: {local_prompt}")
+            if local_story is not None:
+                print(f"Local story: {local_story}")
+            if plan.story_document_append:
+                print(f"Story document: {config.story_document_path}")
 
             if repo_outdir is None:
                 continue
 
             repo_png = repo_outdir / local_png.name
             repo_prompt = repo_outdir / local_prompt.name
+            repo_paths = [repo_png, repo_prompt]
             try:
                 shutil.copy2(local_png, repo_png)
                 shutil.copy2(local_prompt, repo_prompt)
-                commit_and_push(config, [repo_png, repo_prompt], stem)
+                if local_story is not None:
+                    repo_story = repo_outdir / local_story.name
+                    shutil.copy2(local_story, repo_story)
+                    repo_paths.append(repo_story)
+                if plan.story_document_append:
+                    repo_story_document = repo_outdir / STORY_DOCUMENT_NAME
+                    shutil.copy2(config.story_document_path, repo_story_document)
+                    repo_paths.append(repo_story_document)
+                commit_and_push(config, repo_paths, stem)
                 print(f"Repository image: {repo_png}")
                 print(f"Repository prompt: {repo_prompt}")
             except Exception as exc:

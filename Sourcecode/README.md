@@ -12,7 +12,8 @@ and push only when a configured minor boundary is reached.
 ## Files
 
 - `wirtelprimpf_generator.py`: portable generator.
-- `wirtelprimpf_prompt_config.json`: default prompt building blocks and template.
+- `wirtelprimpf_prompt_config.md`: default prompt building blocks and template.
+- `wirtelprimpf_story_prompt_config.md`: second prompt config for the continuing story mode.
 - `wirtelprimpf-set-openai-key`: helper that writes an API key to a private env file.
 - `env.example`: documented environment variables.
 - `requirements.txt`: Python dependency list.
@@ -41,7 +42,8 @@ python3 -m venv ~/.local/share/wirtelprimpf-venv
 
 install -Dm0755 Sourcecode/wirtelprimpf_generator.py ~/.local/bin/wirtelprimpf_generator.py
 install -Dm0755 Sourcecode/wirtelprimpf-set-openai-key ~/.local/bin/wirtelprimpf-set-openai-key
-install -Dm0644 Sourcecode/wirtelprimpf_prompt_config.json ~/.config/wirtelprimpf/prompt_config.json
+install -Dm0644 Sourcecode/wirtelprimpf_prompt_config.md ~/.config/wirtelprimpf/prompt_config.md
+install -Dm0644 Sourcecode/wirtelprimpf_story_prompt_config.md ~/.config/wirtelprimpf/story_prompt_config.md
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf.service ~/.config/systemd/user/wirtelprimpf.service
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf.timer ~/.config/systemd/user/wirtelprimpf.timer
 ```
@@ -122,43 +124,62 @@ Runtime state is stored in:
 
 ### Prompt Configuration
 
-Prompt construction is configured in a separate JSON file:
+Prompt construction is configured in a separate Markdown file:
 
 ```bash
-WIRTELPRIMPF_PROMPT_CONFIG=$HOME/.config/wirtelprimpf/prompt_config.json
+WIRTELPRIMPF_PROMPT_CONFIG=$HOME/.config/wirtelprimpf/prompt_config.md
 ```
 
-The config contains the random pools for `settings`, `actions`, `jokes`,
-`moods`, and `styles`, plus `fixed_image_rules`, plus the final `template`. The
-template can reference these placeholders:
-
-```text
-{setting}
-{action}
-{joke}
-{mood}
-{style}
-{fixed_image_rules}
-
-Birthday variants also use:
-{birthday_rules}
-{age}
-```
+The config uses `## Hauptteil` as the interpreted main part. Every other `##`
+section is treated as a category, and each run randomly picks one line from
+each category.
 
 The local mirror file is intentionally separate from the repository default. If you changed
 local rules, keep them intact and check drift before syncing:
 
 ```bash
-PROMPT_CONFIG="${WIRTELPRIMPF_PROMPT_CONFIG:-$HOME/.config/wirtelprimpf/prompt_config.json}"
-cmp -s Sourcecode/wirtelprimpf_prompt_config.json "$PROMPT_CONFIG" || echo "Local prompt config differs from default"
+PROMPT_CONFIG="${WIRTELPRIMPF_PROMPT_CONFIG:-$HOME/.config/wirtelprimpf/prompt_config.md}"
+cmp -s Sourcecode/wirtelprimpf_prompt_config.md "$PROMPT_CONFIG" || echo "Local prompt config differs from default"
 
 # Optional intentional sync from repository default (back up custom file first).
 if [[ -e "$PROMPT_CONFIG" ]]; then
   cp -p -- "$PROMPT_CONFIG" "$PROMPT_CONFIG.bak"
 fi
 mkdir -p -- "$(dirname -- "$PROMPT_CONFIG")"
-install -m 600 Sourcecode/wirtelprimpf_prompt_config.json "$PROMPT_CONFIG"
+install -m 600 Sourcecode/wirtelprimpf_prompt_config.md "$PROMPT_CONFIG"
 ```
+
+### Operandi
+
+The generator supports two working modes:
+
+```bash
+WIRTELPRIMPF_OPERANDI=classic
+```
+
+`classic` is the previous behavior: build one image prompt from the first
+Markdown config, write the PNG next to a `.txt` prompt file, and optionally
+publish both to Git.
+
+```bash
+WIRTELPRIMPF_OPERANDI=story
+WIRTELPRIMPF_STORY_PROMPT_CONFIG=$HOME/.config/wirtelprimpf/story_prompt_config.md
+WIRTELPRIMPF_STORY_MODEL=gpt-5-mini
+WIRTELPRIMPF_STORY_DOCUMENT=$HOME/Hintergrundbilder/wirtelprimpf_fortlaufende_geschichte.md
+```
+
+`story` loads the second Markdown config, randomly picks one line from each
+category, reads the last 10 entries from the story document, generates the next
+one-hour story part, then generates an image prompt for that part. The run
+writes:
+
+- `wirtelprimpf_*.png`
+- `wirtelprimpf_*.txt` with the image prompt
+- `wirtelprimpf_*.story.md` with the new story part
+- `wirtelprimpf_fortlaufende_geschichte.md`, appended after each successful run
+
+For systemd, set `WIRTELPRIMPF_OPERANDI=story` in
+`~/.config/wirtelprimpf/openai.env` or via a user-service override.
 
 ### Resolution
 
@@ -173,7 +194,7 @@ WIRTELPRIMPF_OUTPUT_RESOLUTION=2k
 `WIRTELPRIMPF_OUTPUT_RESOLUTION=2k` writes a final `2560x1440` PNG. Other
 supported aliases are `4k` (`3840x2160`), `qhd`, `1440p`, `uhd`, `2160p`,
 `original`, `source`, and `none`. Custom values like `1920x1080` are accepted.
-Flex Processing ist standardmäßig aktiv und wird als `processing: high` an die
+Flex Processing ist standardmäßig aktiv und wird als `service_tier: flex` an die
 OpenAI-Images-API-Anfrage angehängt.
 
 Steuerung:
@@ -187,11 +208,7 @@ WIRTELPRIMPF_FLEX_PROCESSING=off
 ```
 
 ```bash
-WIRTELPRIMPF_FLEX_PROCESSING=low
-```
-
-```bash
-WIRTELPRIMPF_FLEX_PROCESSING=high
+WIRTELPRIMPF_FLEX_PROCESSING=flex
 ```
 
 Wenn `WIRTELPRIMPF_FLEX_PROCESSING` nicht gesetzt ist, bleibt Flex Processing
