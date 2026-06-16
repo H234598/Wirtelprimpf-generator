@@ -180,8 +180,9 @@ output, so they point at the newest story image/prompt/story triplet.
 
 `story` loads the second Markdown config, randomly picks one line from each
 category, reads the last 10 entries from the story document, generates the next
-one-hour story part, then generates an image prompt for that part. The run
-writes:
+one-hour story part, then generates an image prompt for that part. The first
+part of a new story document targets about one full DIN-A4 page; later parts
+target about half a DIN-A4 page. The run writes:
 
 - `wirtelprimpf_*.png`
 - `wirtelprimpf_*.txt` with the image prompt

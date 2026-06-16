@@ -32,6 +32,7 @@ OPERANDI_VALUES: Final = frozenset({OPERANDI_CLASSIC, OPERANDI_STORY, OPERANDI_B
 PROMPT_CONFIG_MAIN_SECTION: Final = "hauptteil"
 STORY_HISTORY_COUNT: Final = 10
 STORY_ENTRY_TARGET: Final = "ungefaehr eine halbe DIN-A4-Seite"
+STORY_FIRST_ENTRY_TARGET: Final = "ungefaehr eine ganze DIN-A4-Seite"
 STORY_DOCUMENT_PREFIX: Final = "Wirtelprimpf_Story"
 STORY_DOCUMENT_NAME: Final = "Wirtelprimpf_Story_I.md"
 LEGACY_STORY_DOCUMENT_NAME: Final = "wirtelprimpf_fortlaufende_geschichte.md"
@@ -1542,10 +1543,11 @@ def build_story_generation_config(config_path: Path) -> str:
 def build_story_text_prompt(story_config: str, recent_entries: list[str], closing_instruction: str = "") -> str:
     history = "\n\n".join(recent_entries) if recent_entries else "Noch keine vergangenen Teile vorhanden."
     closing_block = f"\nAbschlusssteuerung:\n{closing_instruction}\n" if closing_instruction else ""
+    entry_target = STORY_ENTRY_TARGET if recent_entries else STORY_FIRST_ENTRY_TARGET
     return (
         "Schreibe den naechsten stuendlichen Teil einer endlos fortlaufenden Geschichte.\n"
         "Hauptfiguren sind zwei Hauskatzen, eine Moehre und eine Maus. Jede Folge deckt genau eine Stunde Handlung ab.\n"
-        f"Der neue Eintrag soll {STORY_ENTRY_TARGET} fuellen, auf Deutsch sein und als Markdown ohne H1 beginnen.\n"
+        f"Der neue Eintrag soll {entry_target} fuellen, auf Deutsch sein und als Markdown ohne H1 beginnen.\n"
         "Orientiere dich an den letzten Eintraegen, ohne sie zu wiederholen. Wenn keine Historie existiert, beginne natuerlich.\n\n"
         "Regeln fuer diesen Teil:\n"
         f"{story_config}\n"
