@@ -145,6 +145,7 @@ class GenerationPlan:
     story_document_append: str | None = None
     story_document_path: Path | None = None
     story_state_after_success: StoryState | None = None
+    story_title_after_success: bool = False
 
 
 @dataclass(frozen=True)
@@ -1746,6 +1747,48 @@ def generate_story_part(
     return story.strip()
 
 
+def story_document_has_title(text: str) -> bool:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        return stripped.startswith("# ") and not stripped.startswith("## ")
+    return False
+
+
+def clean_story_title(value: str) -> str:
+    title = value.strip()
+    title = re.sub(r"^#+\s*", "", title)
+    title = title.strip(" \t\r\n\"'“”„`")
+    title = re.sub(r"\s+", " ", title)
+    if not title:
+        raise ValueError("Generated story title is empty")
+    if len(title) > 120:
+        title = title[:120].rstrip()
+    return title
+
+
+def generate_story_title(client: OpenAI, *, model: str, story_document: str) -> str:
+    excerpt = story_document[-12000:] if len(story_document) > 12000 else story_document
+    response = client.responses.create(
+        model=model,
+        input=(
+            "Denk dir einen kurzen, literarischen deutschen Titel fuer diese abgeschlossene "
+            "Wirtelprimpf-Geschichte aus. Gib nur den Titel aus, ohne Markdown, ohne Anfuehrungszeichen, "
+            "ohne Erklaerung. Der Titel soll neugierig machen und zur fertigen Geschichte passen.\n\n"
+            f"Geschichte:\n{excerpt}"
+        ),
+    )
+    return clean_story_title(_extract_text_response(response))
+
+
+def add_story_title_if_missing(client: OpenAI, *, model: str, story_document: str) -> str:
+    if story_document_has_title(story_document):
+        return story_document
+    title = generate_story_title(client, model=model, story_document=story_document)
+    return f"# {title}\n\n{story_document.lstrip()}"
+
+
 def build_story_image_prompt(story_part: str, story_config: str) -> str:
     prompt = (
         "Generiere ein Bild zu diesem Teil der fortlaufenden Wirtelprimpf-Geschichte.\n"
@@ -1784,6 +1827,7 @@ def build_story_plans(config: Config, now: datetime, client: OpenAI | None, *, d
         )
     timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
     story_entry = f"## {timestamp}\n\n{story_part.strip()}\n"
+    title_after_success = story_state.closing_remaining == 1
     return [
         GenerationPlan(
             prompt=build_story_image_prompt(story_part, story_image_config),
@@ -1793,6 +1837,7 @@ def build_story_plans(config: Config, now: datetime, client: OpenAI | None, *, d
             story_document_append="\n" + story_entry,
             story_document_path=story_document_path,
             story_state_after_success=story_state_after_success(story_state),
+            story_title_after_success=title_after_success,
         )
     ]
 
@@ -2564,10 +2609,14 @@ def main() -> None:
                         existing_story_document = story_document_path.read_text(encoding="utf-8")
                     elif not story_document_path.parent.exists():
                         story_document_path.parent.mkdir(parents=True, exist_ok=True)
-                    write_text_atomically(
-                        story_document_path,
-                        existing_story_document.rstrip() + "\n" + plan.story_document_append.lstrip(),
-                    )
+                    updated_story_document = existing_story_document.rstrip() + "\n" + plan.story_document_append.lstrip()
+                    if plan.story_title_after_success:
+                        updated_story_document = add_story_title_if_missing(
+                            client,
+                            model=config.story_model,
+                            story_document=updated_story_document,
+                        )
+                    write_text_atomically(story_document_path, updated_story_document)
                     if plan.story_state_after_success is not None:
                         write_story_state(config.story_state_path, plan.story_state_after_success)
                 rotate_working_outputs(

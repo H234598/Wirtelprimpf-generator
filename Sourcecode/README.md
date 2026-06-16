@@ -215,6 +215,10 @@ IV, and so on. Turn the switch off again after the request has been accepted;
 the persisted state prevents a still-enabled switch from immediately closing
 every new volume.
 
+When the final closing part is written, the generator asks the story model for
+a short title and prepends it as an H1 if the story document does not already
+have one.
+
 For systemd, set `WIRTELPRIMPF_OPERANDI=story` in
 `~/.config/wirtelprimpf/openai.env` or via a user-service override.
 
