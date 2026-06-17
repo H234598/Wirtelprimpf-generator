@@ -92,6 +92,12 @@ Die TTS-Engine wird in den Einstellungen per Dropdown gewählt:
 
 Hinweis: Fedora `/usr/bin/piper` ist häufig die GTK-App zur Mauskonfiguration, nicht Piper-TTS. Das Applet erkennt diesen Fall und fällt in `Auto` auf die nächste Engine zurück.
 
+Der echte Piper-TTS-Befehl kann lokal installiert werden mit:
+
+```bash
+python3 -m pip install --user piper-tts
+```
+
 Das Feld `Piper-Stimmenmodell` enthält links ein Download-Menü für Thorsten-Voice-Modelle. Downloads landen unter `~/.local/share/piper/voices` und setzen den Modellpfad automatisch.
 
 Custom-TTS ist ein sicherer Template-Modus ohne Shell:

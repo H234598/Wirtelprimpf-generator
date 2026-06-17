@@ -773,16 +773,25 @@ def chunk_text(text: str, max_len: int = 2400) -> Iterable[str]:
 
 
 def piper_tts_command() -> Optional[str]:
-    command = shutil.which("piper-tts") or shutil.which("piper")
-    if not command:
-        return None
-    try:
-        proc = subprocess.run([command, "--help"], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=3)
-    except Exception:
-        return None
-    help_text = proc.stdout or ""
-    if "--model" in help_text and "--output_file" in help_text:
-        return command
+    candidates: List[Path] = []
+    for raw in [
+        os.environ.get("WIRTELPRIMPF_TTS_PIPER_COMMAND"),
+        str(Path.home() / ".local" / "bin" / "piper"),
+        str(Path.home() / ".local" / "bin" / "piper-tts"),
+        shutil.which("piper-tts"),
+        shutil.which("piper"),
+    ]:
+        p = expand_path(raw)
+        if p and p.exists() and os.access(p, os.X_OK) and p not in candidates:
+            candidates.append(p)
+    for command in candidates:
+        try:
+            proc = subprocess.run([str(command), "--help"], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=3)
+        except Exception:
+            continue
+        help_text = proc.stdout or ""
+        if "--model" in help_text and "--output_file" in help_text:
+            return str(command)
     return None
 
 
@@ -994,24 +1003,39 @@ def run_auto_tts(text: str, story_file: Path, lock_path: Path, preferred_engine:
         if STOP_REQUESTED:
             return 130
         if engine == "piper":
-            player = shutil.which("aplay") or shutil.which("paplay")
+            player = shutil.which("paplay") or shutil.which("aplay")
             if not player:
                 eprint("Piper is available, but no aplay/paplay audio player was found.")
                 return 127
             with tempfile.NamedTemporaryFile(prefix="wirtel-tts-", suffix=".wav", dir=str(lock_path.parent), delete=False) as tmp_audio:
                 audio_path = Path(tmp_audio.name)
             try:
-                CURRENT_CHILD = subprocess.Popen(base + ["--output_file", str(audio_path)], stdin=subprocess.PIPE, text=True, start_new_session=True)
-                assert CURRENT_CHILD.stdin is not None
-                CURRENT_CHILD.stdin.write(chunk)
-                CURRENT_CHILD.stdin.close()
+                CURRENT_CHILD = subprocess.Popen(
+                    base + ["--output_file", str(audio_path)],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    start_new_session=True,
+                )
                 write_lock(lock_path, CURRENT_CHILD.pid, story_file, engine)
-                rc = CURRENT_CHILD.wait()
+                try:
+                    _stdout, stderr = CURRENT_CHILD.communicate(input=chunk, timeout=120)
+                except subprocess.TimeoutExpired:
+                    CURRENT_CHILD.kill()
+                    _stdout, stderr = CURRENT_CHILD.communicate()
+                    eprint("Piper-TTS timed out while generating audio.")
+                    if stderr:
+                        eprint(stderr.strip())
+                    return 124
+                rc = CURRENT_CHILD.returncode
                 CURRENT_CHILD = None
                 if rc != 0:
+                    if stderr:
+                        eprint(stderr.strip())
                     return rc
                 play_cmd = [player, str(audio_path)] if Path(player).name == "paplay" else [player, "-q", str(audio_path)]
-                CURRENT_CHILD = subprocess.Popen(play_cmd, start_new_session=True)
+                CURRENT_CHILD = subprocess.Popen(play_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
             finally:
                 try:
                     if CURRENT_CHILD is None or CURRENT_CHILD.poll() is not None:
@@ -1021,7 +1045,16 @@ def run_auto_tts(text: str, story_file: Path, lock_path: Path, preferred_engine:
         else:
             CURRENT_CHILD = subprocess.Popen(base + [chunk], start_new_session=True)
         write_lock(lock_path, CURRENT_CHILD.pid, story_file, engine)
-        rc = CURRENT_CHILD.wait()
+        try:
+            _stdout, stderr = CURRENT_CHILD.communicate(timeout=300)
+        except subprocess.TimeoutExpired:
+            CURRENT_CHILD.kill()
+            _stdout, stderr = CURRENT_CHILD.communicate()
+            eprint(f"{engine} audio playback timed out.")
+            if stderr:
+                eprint(stderr.strip())
+            return 124
+        rc = CURRENT_CHILD.returncode
         if engine == "piper":
             try:
                 audio_path.unlink(missing_ok=True)
@@ -1029,6 +1062,8 @@ def run_auto_tts(text: str, story_file: Path, lock_path: Path, preferred_engine:
                 pass
         CURRENT_CHILD = None
         if rc != 0:
+            if stderr:
+                eprint(stderr.strip())
             return rc
     return 0
 
@@ -1281,7 +1316,8 @@ def setup_plan(args: ScanArgs) -> Dict[str, Any]:
         "",
         "# Empfohlene Laufzeitpakete:",
         "sudo apt install python3 xdg-utils speech-dispatcher zenity",
-        "# Optionaler besserer TTS-Pfad: piper plus deutsches .onnx-Stimmenmodell, dann WIRTELPRIMPF_TTS_PIPER_MODEL setzen.",
+        "# Optionaler besserer TTS-Pfad: echter Piper-TTS-Befehl plus deutsches .onnx-Stimmenmodell.",
+        "python3 -m pip install --user piper-tts",
         "# Optionaler TTS-Fallback:",
         "sudo apt install espeak-ng",
         "",
