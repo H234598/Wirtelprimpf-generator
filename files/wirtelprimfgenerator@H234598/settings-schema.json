@@ -3,6 +3,7 @@
     "type": "layout",
     "pages": [
       "main-page",
+      "generator-page",
       "about-page"
     ],
     "main-page": {
@@ -17,6 +18,20 @@
         "behavior-section",
         "actions-section",
         "settings-logo-footer-section"
+      ]
+    },
+    "generator-page": {
+      "type": "page",
+      "title": "Generator",
+      "sections": [
+        "generator-config-section"
+      ]
+    },
+    "generator-config-section": {
+      "type": "section",
+      "title": "Generator- und systemd-Einstellungen",
+      "keys": [
+        "generator-config-editor"
       ]
     },
     "about-page": {
@@ -124,6 +139,13 @@
     "file": "SettingsLogo.py",
     "widget": "WirtelPoem",
     "description": "Zentriertes Zufallsgedicht",
+    "default": ""
+  },
+  "generator-config-editor": {
+    "type": "custom",
+    "file": "SettingsLogo.py",
+    "widget": "GeneratorConfigEditor",
+    "description": "Generator-Konfiguration",
     "default": ""
   },
   "output-dir": {

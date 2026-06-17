@@ -2,6 +2,7 @@
 
 import os
 import random
+import subprocess
 import threading
 import urllib.request
 
@@ -218,6 +219,186 @@ class WirtelPoem(SettingsWidget):
             "Dort haengt das Bild, wach und gelassen,\n"
             "und wartet, bis die Geschichte spricht."
         ),
+        (
+            "Der Timer spricht: Nun sei es Zeit,\n"
+            "die Stunde steht im Festtagskleid.\n"
+            "Wirtelprimpf nickt, der Prompt wird rund,\n"
+            "und lacht den trocknen Cron gesund."
+        ),
+        (
+            "Ein Bit fiel tief ins Morgenrot,\n"
+            "der Log vermerkte: halbwegs tot.\n"
+            "Doch Wirtelprimpf, mit feinem Sinn,\n"
+            "schrieb trotzdem noch ein Bildchen hin."
+        ),
+        (
+            "Die Regel kam im Stahlhelm an,\n"
+            "und fragte streng: Was darf ich dann?\n"
+            "Der Zufall sprach: Sei nicht so hart,\n"
+            "wir reisen heute Gegenwart."
+        ),
+        (
+            "Im Prompt sass eine kluge List,\n"
+            "die wusste, was zu fade ist.\n"
+            "Sie bog den Satz mit leisem Schwung,\n"
+            "und ploetzlich roch die Seite jung."
+        ),
+        (
+            "Ein Bild erstand aus Rand und Ruh,\n"
+            "der Text zog seine Schuhe zu.\n"
+            "Dann gingen beide, sehr apart,\n"
+            "durch Unsinn mit Verstand gepaart."
+        ),
+        (
+            "Der Pfad war lang, der Cache war leer,\n"
+            "die Nacht tat informatisch schwer.\n"
+            "Da sprach der Dienst mit sanftem Hohn:\n"
+            "Ich starte, denn ich wohn hier schon."
+        ),
+        (
+            "Ein Service lag im Userraum,\n"
+            "und traeumte seinen Rootlos-Traum.\n"
+            "Er starb kurz weg, ganz ohne Schmerz,\n"
+            "systemd schrieb es sich ans Herz."
+        ),
+        (
+            "Die Stunde sass im Warteflur,\n"
+            "und kaute still auf der Zensur.\n"
+            "Wirtelprimpf trat elegant vorbei,\n"
+            "mit Bild, Idee und Spott dabei."
+        ),
+        (
+            "Wenn Schwarz sich sanft zum Witze neigt,\n"
+            "und keiner gleich den Zeiger zeigt,\n"
+            "dann darf ein Satz am Abgrund stehn,\n"
+            "und trotzdem sauber weitergehn."
+        ),
+        (
+            "Ein Prompt, der nur Befehle kennt,\n"
+            "ist wie ein Ofen, der nicht brennt.\n"
+            "Gib ihm ein Ziel, doch lass ihm Raum,\n"
+            "dann baut er mehr als Tabellen-Schaum."
+        ),
+        (
+            "Die erste Seite braucht Gewicht,\n"
+            "sonst glaubt ihr selbst der Zufall nicht.\n"
+            "Drum tritt sie ein mit hellem Klang,\n"
+            "und nimmt die Langweil gleich gefang."
+        ),
+        (
+            "Im Arbeitsordner, frisch sortiert,\n"
+            "hat Sinn die Schuhe poliert.\n"
+            "Der Link zeigt hin, die Story wacht,\n"
+            "und laechelt kurz: Ich bin gemacht."
+        ),
+        (
+            "Ein Bild sah seinen Namen stehn,\n"
+            "und wollte nicht nach Schema gehn.\n"
+            "Es nahm die Regel, bog sie klein,\n"
+            "und liess noch etwas Seele rein."
+        ),
+        (
+            "Der Zufall ist ein feiner Koch,\n"
+            "doch Salz allein ertraegt man doch.\n"
+            "Er braucht Idee, Gefahr und Scherz,\n"
+            "sonst schmeckt der Plot nach Aktenherz."
+        ),
+        (
+            "Die Technik nickt, die Kunst sagt: Halt,\n"
+            "so wirst du nur verwaltet alt.\n"
+            "Wirtelprimpf mischt beides schlau,\n"
+            "und macht aus Grau ein tieferes Blau."
+        ),
+        (
+            "Ein Satz, der nur Kulissen schiebt,\n"
+            "hat nie gewusst, was Lesen liebt.\n"
+            "Drum kriegt er heute keinen Lohn,\n"
+            "und wandert in die Revision."
+        ),
+        (
+            "Der Tod stand kurz im Nebensatz,\n"
+            "doch fand dort keinen rechten Platz.\n"
+            "Er blieb als Pointe, knapp und fein,\n"
+            "und durfte nicht der Inhalt sein."
+        ),
+        (
+            "Wenn Witz und Wunde sich begegnen,\n"
+            "muss keiner gleich den Text enteignen.\n"
+            "Ein kluger Ton, ein schiefer Blick,\n"
+            "und Ernst bekommt sein Echo zurueck."
+        ),
+        (
+            "Der Prompt trug stolz sein Regelhemd,\n"
+            "doch wirkte darin leicht verklemmt.\n"
+            "Da schnitt der Zufall eine Naht,\n"
+            "und ploetzlich klang der Apparat."
+        ),
+        (
+            "Ein Titel schlief im letzten Teil,\n"
+            "noch namenlos, doch nicht sehr heil.\n"
+            "Als Schluss und Sinn sich endlich trafen,\n"
+            "stand er dort, um aufzuwachen."
+        ),
+        (
+            "Der Log war duenn, der Fehler breit,\n"
+            "die Ausrede trug Abendkleid.\n"
+            "Wirtelprimpf las, verwarf den Tand,\n"
+            "und schrieb den Grund mit ruhiger Hand."
+        ),
+        (
+            "Ein Dropdown waehlt, ein Schalter denkt,\n"
+            "ein Timer wird zurechtgelenkt.\n"
+            "So fuegt sich, was im System geschieht,\n"
+            "zu einem fast anmutigen Lied."
+        ),
+        (
+            "Die Stimme klang wie Blech im Wind,\n"
+            "als haette Klang ein krankes Kind.\n"
+            "Dann kam ein Modell mit besserem Ton,\n"
+            "und rettete die Lesefunktion."
+        ),
+        (
+            "Nicht jede Pointe muss beissen,\n"
+            "doch darf sie kurz am Abgrund gleissen.\n"
+            "Wer klug lacht, lacht nicht blind,\n"
+            "sondern weiss, wo Narben sind."
+        ),
+        (
+            "Die Datei, sie mochte Klarheit sehr,\n"
+            "doch Klarheit ohne Traum bleibt leer.\n"
+            "Drum legt der Text, ganz ungeniert,\n"
+            "ein Raetsel hin, das funktioniert."
+        ),
+        (
+            "Ein Commit ging bei Nacht hinaus,\n"
+            "mit ernster Stirn und kleinem Applaus.\n"
+            "Der Push kam nach, der Dienst erwacht,\n"
+            "und alles wirkte fast durchdacht."
+        ),
+        (
+            "Wenn Einstellungen alles koennen,\n"
+            "muss Kunst sich nicht in Listen sonnen.\n"
+            "Sie nutzt die Knopfe, bleibt doch frei,\n"
+            "und schreibt am Rand Magie vorbei."
+        ),
+        (
+            "Der alte Satz vom grauen Dreh\n"
+            "tat jeder ersten Seite weh.\n"
+            "Nun tritt ein Blick mit Laune ein,\n"
+            "und laesst den Plot gefaehrlich sein."
+        ),
+        (
+            "Ein Backup roch nach altem Staub,\n"
+            "der Fehler war erstaunlich taub.\n"
+            "Doch wer beim Lesen sauber misst,\n"
+            "merkt frueh, wo Unsinn heimisch ist."
+        ),
+        (
+            "Der Schluss ist selten wirklich Schluss,\n"
+            "wenn Zufall weiter atmen muss.\n"
+            "Wirtelprimpf macht die Tuer nur klein,\n"
+            "damit noch Licht hindurch kann sein."
+        ),
     )
 
     def __init__(self, info, key, settings):
@@ -379,6 +560,377 @@ class PiperModelChooser(SettingsWidget):
         self._set_chooser_filename(model_path)
         self._set_status("Gespeichert: %s" % model_path)
         return False
+
+    def _set_status(self, text):
+        self.status.set_text(text)
+
+
+class GeneratorConfigEditor(SettingsWidget):
+    env_path = os.path.expanduser("~/.config/wirtelprimpf/openai.env")
+    systemd_user_dir = os.path.expanduser("~/.config/systemd/user")
+
+    env_fields = (
+        ("OPENAI_API_KEY", "OpenAI API Key", "secret", ()),
+        ("WIRTELPRIMPF_LOCAL_OUTDIR", "Lokaler Output", "entry", ()),
+        ("WIRTELPRIMPF_WORKING_DIR", "Working-Verzeichnis", "entry", ()),
+        ("WIRTELPRIMPF_REPO_PATH", "Git-Repo-Pfad", "entry", ()),
+        ("WIRTELPRIMPF_REPO_SLUG", "GitHub Repo-Slug", "entry", ()),
+        ("WIRTELPRIMPF_REPO_SUBDIR", "Repo-Unterordner", "entry", ()),
+        ("WIRTELPRIMPF_REPO_BRANCH", "Repo-Branch", "entry", ()),
+        ("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Git Autor Name", "entry", ()),
+        ("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "Git Autor Mail", "entry", ()),
+        ("WIRTELPRIMPF_MAJOR_VERSION_BUMP", "Major-Version-Sprung", "entry", ()),
+        ("WIRTELPRIMPF_BREAKING_CHANGE", "Breaking Change", "combo", ("false", "true")),
+        ("WIRTELPRIMPF_PATCHES_PER_MINOR", "Patches pro Minor", "entry", ()),
+        ("WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE", "Minor Pushes pro Release", "entry", ()),
+        ("WIRTELPRIMPF_IMAGE_MODEL", "Bildmodell", "entry", ()),
+        ("WIRTELPRIMPF_IMAGE_SIZE", "Bildgroesse", "entry", ()),
+        ("WIRTELPRIMPF_FLEX_PROCESSING", "Flex Processing", "combo", ("on", "off", "flex")),
+        ("WIRTELPRIMPF_OPERANDI", "Modus", "combo", ("story", "classic", "both")),
+        ("WIRTELPRIMPF_PROMPT_CONFIG", "Bildregeln", "entry", ()),
+        ("WIRTELPRIMPF_STORY_PROMPT_CONFIG", "Storyregeln", "entry", ()),
+        ("WIRTELPRIMPF_STORY_MODEL", "Storymodell", "entry", ()),
+        ("WIRTELPRIMPF_STORY_DOCUMENT", "Story-Dokument", "entry", ()),
+        ("WIRTELPRIMPF_STORY_STATE", "Story-Status", "entry", ()),
+        ("WIRTELPRIMPF_STORY_FINISH", "Story abschliessen", "combo", ("false", "true")),
+        ("WIRTELPRIMPF_STORY_FINISH_PARTS_MIN", "Finish Teile min", "entry", ()),
+        ("WIRTELPRIMPF_STORY_FINISH_PARTS_MAX", "Finish Teile max", "entry", ()),
+        ("WIRTELPRIMPF_OUTPUT_RESOLUTION", "Ausgabe-Aufloesung", "entry", ()),
+        ("SLEEP_SECONDS", "Watch Sleep Seconds", "entry", ()),
+        ("DEFAULT_RETRY_DELAY_SECONDS", "Watch Retry Delay", "entry", ()),
+        ("MAX_STALE_LOCK_SECONDS", "Watch Lock Timeout", "entry", ()),
+    )
+
+    defaults = {
+        "WIRTELPRIMPF_REPO_SLUG": "H234598/Katzenbilder",
+        "WIRTELPRIMPF_REPO_BRANCH": "main",
+        "WIRTELPRIMPF_MAJOR_VERSION_BUMP": "0",
+        "WIRTELPRIMPF_BREAKING_CHANGE": "false",
+        "WIRTELPRIMPF_PATCHES_PER_MINOR": "25",
+        "WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE": "5",
+        "WIRTELPRIMPF_IMAGE_MODEL": "gpt-image-1",
+        "WIRTELPRIMPF_IMAGE_SIZE": "1024x1536",
+        "WIRTELPRIMPF_FLEX_PROCESSING": "on",
+        "WIRTELPRIMPF_OPERANDI": "story",
+        "WIRTELPRIMPF_STORY_MODEL": "gpt-5",
+        "WIRTELPRIMPF_STORY_FINISH": "false",
+        "WIRTELPRIMPF_STORY_FINISH_PARTS_MIN": "8",
+        "WIRTELPRIMPF_STORY_FINISH_PARTS_MAX": "16",
+        "WIRTELPRIMPF_OUTPUT_RESOLUTION": "4k",
+        "SLEEP_SECONDS": "300",
+        "DEFAULT_RETRY_DELAY_SECONDS": "60",
+        "MAX_STALE_LOCK_SECONDS": "900",
+    }
+
+    systemd_fields = (
+        ("generator_timer_enabled", "Generator-Timer aktiv", "switch", "true"),
+        ("generator_on_calendar", "Generator OnCalendar", "entry", "hourly"),
+        ("generator_randomized_delay", "Generator RandomizedDelaySec", "entry", "120"),
+        ("generator_persistent", "Generator Persistent", "switch", "true"),
+        ("watch_timer_enabled", "Watch-Timer aktiv", "switch", "true"),
+        ("watch_on_boot", "Watch OnBootSec", "entry", "1min"),
+        ("watch_persistent", "Watch Persistent", "switch", "true"),
+        ("watch_restart_sec", "Watch RestartSec", "entry", "30"),
+    )
+
+    def __init__(self, info, key, settings):
+        SettingsWidget.__init__(self)
+        self.set_orientation(Gtk.Orientation.VERTICAL)
+        self.set_spacing(8)
+        self.set_hexpand(True)
+        self.set_vexpand(True)
+        self.env_widgets = {}
+        self.systemd_widgets = {}
+        self.status = Gtk.Label(label="")
+        self.status.set_halign(Gtk.Align.START)
+        self.status.set_line_wrap(True)
+
+        env_values = self._read_env_file()
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_min_content_height(520)
+        scroller.set_hexpand(True)
+        scroller.set_vexpand(True)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        content.set_margin_start(8)
+        content.set_margin_end(8)
+        content.set_margin_top(8)
+        content.set_margin_bottom(8)
+        scroller.add(content)
+
+        content.pack_start(self._section_label("Generator-Environment"), False, True, 0)
+        for name, label, kind, options in self.env_fields:
+            widget = self._make_value_widget(kind, options)
+            self._set_widget_value(widget, env_values.get(name, self.defaults.get(name, "")))
+            self.env_widgets[name] = widget
+            content.pack_start(self._make_row(label, widget), False, True, 0)
+
+        content.pack_start(self._section_label("systemd User-Units"), False, True, 0)
+        systemd_values = self._read_systemd_values()
+        for name, label, kind, default in self.systemd_fields:
+            widget = self._make_value_widget(kind, ())
+            self._set_widget_value(widget, systemd_values.get(name, default))
+            self.systemd_widgets[name] = widget
+            content.pack_start(self._make_row(label, widget), False, True, 0)
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        buttons.set_halign(Gtk.Align.START)
+        save_button = Gtk.Button(label="Speichern")
+        save_button.connect("clicked", self._on_save)
+        restart_button = Gtk.Button(label="Speichern + Restart")
+        restart_button.connect("clicked", self._on_save_restart)
+        run_button = Gtk.Button(label="Generator jetzt starten")
+        run_button.connect("clicked", self._on_start_generator)
+        timer_button = Gtk.Button(label="Timer neu starten")
+        timer_button.connect("clicked", self._on_restart_timers)
+        for button in (save_button, restart_button, run_button, timer_button):
+            buttons.pack_start(button, False, False, 0)
+
+        self.pack_start(scroller, True, True, 0)
+        self.pack_start(buttons, False, True, 0)
+        self.pack_start(self.status, False, True, 0)
+        self.content_widget = scroller
+
+    def _section_label(self, text):
+        label = Gtk.Label()
+        label.set_markup("<b>%s</b>" % GLib.markup_escape_text(text))
+        label.set_halign(Gtk.Align.START)
+        label.set_margin_top(8)
+        return label
+
+    def _make_row(self, label_text, widget):
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        row.set_hexpand(True)
+        label = Gtk.Label(label=label_text)
+        label.set_halign(Gtk.Align.START)
+        label.set_size_request(230, -1)
+        row.pack_start(label, False, False, 0)
+        row.pack_start(widget, True, True, 0)
+        return row
+
+    def _make_value_widget(self, kind, options):
+        if kind == "combo":
+            combo = Gtk.ComboBoxText()
+            for option in options:
+                combo.append(option, option)
+            combo.set_hexpand(True)
+            return combo
+        if kind == "switch":
+            switch = Gtk.Switch()
+            switch.set_halign(Gtk.Align.START)
+            return switch
+        entry = Gtk.Entry()
+        entry.set_hexpand(True)
+        if kind == "secret":
+            entry.set_visibility(False)
+            entry.set_invisible_char("*")
+        return entry
+
+    def _set_widget_value(self, widget, value):
+        value = "" if value is None else str(value)
+        if isinstance(widget, Gtk.ComboBoxText):
+            widget.set_active_id(value)
+            if widget.get_active_id() is None:
+                widget.append(value, value)
+                widget.set_active_id(value)
+        elif isinstance(widget, Gtk.Switch):
+            widget.set_active(value.lower() in ("1", "yes", "true", "on"))
+        else:
+            widget.set_text(value)
+
+    def _get_widget_value(self, widget):
+        if isinstance(widget, Gtk.ComboBoxText):
+            return widget.get_active_id() or ""
+        if isinstance(widget, Gtk.Switch):
+            return "true" if widget.get_active() else "false"
+        return widget.get_text()
+
+    def _read_env_file(self):
+        values = {}
+        try:
+            with open(self.env_path, "r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = self._unquote_env_value(value.strip())
+                    values[key] = value
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            self._set_status("Env-Datei konnte nicht gelesen werden: %s" % exc)
+        return values
+
+    def _unquote_env_value(self, value):
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        return value.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
+
+    def _quote_env_value(self, value):
+        value = "" if value is None else str(value)
+        if value == "":
+            return ""
+        needs_quotes = any(char.isspace() or char in "\"'#$\\;" for char in value)
+        if not needs_quotes:
+            return value
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        return '"%s"' % escaped
+
+    def _write_env_file(self):
+        os.makedirs(os.path.dirname(self.env_path), exist_ok=True)
+        values = {name: self._get_widget_value(widget) for name, widget in self.env_widgets.items()}
+        lines = [
+            "# Wirtelprimpf generator settings.",
+            "# Written by the Cinnamon applet settings UI.",
+            "",
+        ]
+        for name, _label, _kind, _options in self.env_fields:
+            lines.append("%s=%s" % (name, self._quote_env_value(values.get(name, ""))))
+        with open(self.env_path, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+        os.chmod(self.env_path, 0o600)
+
+    def _read_systemd_values(self):
+        return {
+            "generator_timer_enabled": self._unit_enabled("wirtelprimpf.timer"),
+            "watch_timer_enabled": self._unit_enabled("wirtelprimpf-version-watch.timer"),
+            "generator_on_calendar": self._systemctl_show("wirtelprimpf.timer", "OnCalendar") or "hourly",
+            "generator_randomized_delay": self._systemctl_show("wirtelprimpf.timer", "RandomizedDelayUSec").replace("us", "") or "120",
+            "generator_persistent": self._systemctl_show("wirtelprimpf.timer", "Persistent") or "true",
+            "watch_on_boot": self._systemctl_show("wirtelprimpf-version-watch.timer", "OnBootUSec").replace("us", "") or "1min",
+            "watch_persistent": self._systemctl_show("wirtelprimpf-version-watch.timer", "Persistent") or "true",
+            "watch_restart_sec": self._systemctl_show("wirtelprimpf-version-watch.service", "RestartUSec").replace("us", "") or "30",
+        }
+
+    def _unit_enabled(self, unit):
+        result = self._run(["systemctl", "--user", "is-enabled", unit], check=False)
+        return "true" if result.returncode == 0 else "false"
+
+    def _systemctl_show(self, unit, prop):
+        result = self._run(["systemctl", "--user", "show", unit, "-p", prop, "--value"], check=False)
+        if result.returncode != 0:
+            return ""
+        return result.stdout.strip()
+
+    def _write_dropin(self, unit, content):
+        dropin_dir = os.path.join(self.systemd_user_dir, "%s.d" % unit)
+        os.makedirs(dropin_dir, exist_ok=True)
+        with open(os.path.join(dropin_dir, "override.conf"), "w", encoding="utf-8") as handle:
+            handle.write(content)
+
+    def _write_systemd_dropins(self):
+        env = {name: self._get_widget_value(widget) for name, widget in self.env_widgets.items()}
+        sysvals = {name: self._get_widget_value(widget) for name, widget in self.systemd_widgets.items()}
+
+        self._write_dropin(
+            "wirtelprimpf.service",
+            "\n".join(
+                [
+                    "[Service]",
+                    "Environment=",
+                    "Environment=WIRTELPRIMPF_OPERANDI=%s" % env.get("WIRTELPRIMPF_OPERANDI", "story"),
+                    "",
+                ]
+            ),
+        )
+        self._write_dropin(
+            "wirtelprimpf.timer",
+            "\n".join(
+                [
+                    "[Timer]",
+                    "OnCalendar=",
+                    "OnCalendar=%s" % sysvals.get("generator_on_calendar", "hourly"),
+                    "RandomizedDelaySec=%s" % sysvals.get("generator_randomized_delay", "120"),
+                    "Persistent=%s" % sysvals.get("generator_persistent", "true"),
+                    "",
+                ]
+            ),
+        )
+        watch_env_lines = ["Environment="]
+        for key in ("SLEEP_SECONDS", "DEFAULT_RETRY_DELAY_SECONDS", "MAX_STALE_LOCK_SECONDS"):
+            value = env.get(key, self.defaults.get(key, ""))
+            if value:
+                watch_env_lines.append("Environment=%s=%s" % (key, value))
+        self._write_dropin(
+            "wirtelprimpf-version-watch.service",
+            "\n".join(["[Service]", "RestartSec=%s" % sysvals.get("watch_restart_sec", "30")] + watch_env_lines + [""]),
+        )
+        self._write_dropin(
+            "wirtelprimpf-version-watch.timer",
+            "\n".join(
+                [
+                    "[Timer]",
+                    "OnBootSec=",
+                    "OnBootSec=%s" % sysvals.get("watch_on_boot", "1min"),
+                    "Persistent=%s" % sysvals.get("watch_persistent", "true"),
+                    "Unit=wirtelprimpf-version-watch.service",
+                    "",
+                ]
+            ),
+        )
+
+    def _apply_enabled_state(self):
+        sysvals = {name: self._get_widget_value(widget) for name, widget in self.systemd_widgets.items()}
+        for unit, key in (
+            ("wirtelprimpf.timer", "generator_timer_enabled"),
+            ("wirtelprimpf-version-watch.timer", "watch_timer_enabled"),
+        ):
+            if sysvals.get(key) == "true":
+                self._run(["systemctl", "--user", "enable", "--now", unit])
+            else:
+                self._run(["systemctl", "--user", "disable", "--now", unit], check=False)
+
+    def _save(self):
+        self._write_env_file()
+        self._write_systemd_dropins()
+        self._run(["systemctl", "--user", "daemon-reload"])
+        self._apply_enabled_state()
+
+    def _on_save(self, _button):
+        try:
+            self._save()
+            self._set_status("Gespeichert.")
+        except Exception as exc:
+            self._set_status("Speichern fehlgeschlagen: %s" % exc)
+
+    def _on_save_restart(self, _button):
+        try:
+            self._save()
+            self._restart_timers_and_watch()
+            self._set_status("Gespeichert und neu gestartet.")
+        except Exception as exc:
+            self._set_status("Restart fehlgeschlagen: %s" % exc)
+
+    def _on_start_generator(self, _button):
+        try:
+            self._run(["systemctl", "--user", "start", "wirtelprimpf.service"])
+            self._set_status("Generator gestartet.")
+        except Exception as exc:
+            self._set_status("Generatorstart fehlgeschlagen: %s" % exc)
+
+    def _on_restart_timers(self, _button):
+        try:
+            self._run(["systemctl", "--user", "daemon-reload"])
+            self._restart_timers_and_watch()
+            self._set_status("Timer neu gestartet.")
+        except Exception as exc:
+            self._set_status("Timer-Restart fehlgeschlagen: %s" % exc)
+
+    def _restart_timers_and_watch(self):
+        for unit in ("wirtelprimpf.timer", "wirtelprimpf-version-watch.timer"):
+            self._run(["systemctl", "--user", "restart", unit], check=False)
+        self._run(["systemctl", "--user", "restart", "wirtelprimpf-version-watch.service"], check=False)
+
+    def _run(self, args, check=True):
+        result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if check and result.returncode != 0:
+            message = result.stderr.strip() or result.stdout.strip() or "exit %s" % result.returncode
+            raise RuntimeError("%s: %s" % (" ".join(args), message))
+        return result
 
     def _set_status(self, text):
         self.status.set_text(text)
