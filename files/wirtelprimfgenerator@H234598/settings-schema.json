@@ -36,7 +36,7 @@
     },
     "about-page": {
       "type": "page",
-      "title": "About",
+      "title": "Über",
       "sections": [
         "about-section"
       ]
@@ -116,7 +116,7 @@
       "type": "section",
       "title": "Wirtelprimfgenerator Story Menu",
       "keys": [
-        "about-version"
+        "about-info"
       ]
     }
   },
@@ -146,6 +146,13 @@
     "file": "SettingsLogo.py",
     "widget": "GeneratorConfigEditor",
     "description": "Generator-Konfiguration",
+    "default": ""
+  },
+  "about-info": {
+    "type": "custom",
+    "file": "SettingsLogo.py",
+    "widget": "AboutWirtelprimpf",
+    "description": "Über Wirtelprimfgenerator",
     "default": ""
   },
   "output-dir": {
@@ -290,6 +297,6 @@
   },
   "about-version": {
     "type": "label",
-    "description": "Version: 0.3.2\nAuthor: H234598\nRepo-aware Cinnamon applet for Katzenbilder/Wirtelprimpf latest images, story files and TTS state."
+    "description": "Version: 0.3.2"
   }
 }

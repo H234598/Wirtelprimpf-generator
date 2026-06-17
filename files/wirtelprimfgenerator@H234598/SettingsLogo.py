@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import os
+import json
 import random
 import subprocess
 import threading
@@ -127,6 +128,86 @@ class FooterLogo(_ResponsiveLogo):
     top_margin = 18
     bottom_margin = 0
     max_height = 110
+
+
+class AboutWirtelprimpf(SettingsWidget):
+    repo_url = "https://github.com/H234598/Katzenbilder"
+
+    def __init__(self, info, key, settings):
+        SettingsWidget.__init__(self)
+        self.set_orientation(Gtk.Orientation.VERTICAL)
+        self.set_spacing(10)
+        self.set_margin_start(18)
+        self.set_margin_end(18)
+        self.set_margin_top(12)
+        self.set_margin_bottom(18)
+        self.set_hexpand(True)
+
+        metadata = self._read_metadata()
+        name = metadata.get("name", "Wirtelprimfgenerator Story Menu")
+        version = metadata.get("version", "")
+        author = metadata.get("author", "H234598")
+        description = metadata.get(
+            "description",
+            "Cinnamon applet for Wirtelprimpf images, stories and TTS.",
+        )
+
+        title = Gtk.Label()
+        title.set_markup("<big><b>%s</b></big>" % GLib.markup_escape_text(name))
+        title.set_halign(Gtk.Align.START)
+        self.pack_start(title, False, True, 0)
+
+        subtitle = Gtk.Label(label="Version %s - %s" % (version, author))
+        subtitle.set_halign(Gtk.Align.START)
+        self.pack_start(subtitle, False, True, 0)
+
+        body = Gtk.Label(
+            label=(
+                "%s\n\n"
+                "Dieses Applet haelt den Wirtelprimpf-Arbeitsfluss erreichbar: "
+                "aktuelle Bilder, Storyteile, Full-Story, Vorlesen, Piper-Stimmen "
+                "und Generator-/systemd-Steuerung liegen an einem Ort.\n\n"
+                "Die Applet-Einstellungen schreiben bewusst in die echten lokalen "
+                "Wirtelprimpf-Konfigurationsflaechen. API-Key, Outputpfade, Modelle, "
+                "Storymodus, Bildmodus, Watcher-Werte und Timer bleiben damit nicht "
+                "neben dem System stehen, sondern steuern den laufenden Generator."
+            )
+            % description
+        )
+        body.set_halign(Gtk.Align.START)
+        body.set_justify(Gtk.Justification.LEFT)
+        body.set_line_wrap(True)
+        body.set_selectable(True)
+        self.pack_start(body, False, True, 0)
+
+        bullets = Gtk.Label(
+            label=(
+                "Kurzfassung:\n"
+                "- Menue zeigt Latest, Full Story und die letzten Storyteile.\n"
+                "- TTS kann ueber Auto, Piper, Speech Dispatcher, eSpeak oder Custom laufen.\n"
+                "- Der Generator-Tab steuert openai.env und systemd-User-Units.\n"
+                "- Die Wirtelgedichte wechseln zufaellig beim Oeffnen der Einstellungen."
+            )
+        )
+        bullets.set_halign(Gtk.Align.START)
+        bullets.set_justify(Gtk.Justification.LEFT)
+        bullets.set_line_wrap(True)
+        bullets.set_selectable(True)
+        self.pack_start(bullets, False, True, 0)
+
+        link = Gtk.LinkButton.new_with_label(self.repo_url, "GitHub: H234598/Katzenbilder")
+        link.set_halign(Gtk.Align.START)
+        self.pack_start(link, False, True, 0)
+
+        self.content_widget = body
+
+    def _read_metadata(self):
+        metadata_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "metadata.json")
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except Exception:
+            return {}
 
 
 class WirtelPoem(SettingsWidget):
