@@ -54,7 +54,7 @@
       "keys": [
         "open-command",
         "tts-engine",
-        "tts-piper-model",
+        "tts-piper-model-ui",
         "tts-command"
       ]
     },
@@ -160,11 +160,20 @@
     }
   },
   "tts-piper-model": {
-    "type": "filechooser",
+    "type": "entry",
+    "description": "Piper-Stimmenmodell",
+    "tooltip": "Pfad zu einem Piper-TTS-.onnx-Modell.",
+    "default": ""
+  },
+  "tts-piper-model-ui": {
+    "type": "custom",
+    "file": "SettingsLogo.py",
+    "widget": "PiperModelChooser",
+    "target": "tts-piper-model",
     "description": "Piper-Stimmenmodell",
     "tooltip": "Pfad zu einem Piper-TTS-.onnx-Modell. Fedora /usr/bin/piper ist oft die Mauskonfigurations-App und kein TTS.",
     "default": "",
-    "select-dir": false
+    "dependency": "tts-engine=piper"
   },
   "tts-command": {
     "type": "entry",

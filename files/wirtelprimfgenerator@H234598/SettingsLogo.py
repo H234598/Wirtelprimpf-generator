@@ -2,9 +2,11 @@
 
 import os
 import random
+import threading
+import urllib.request
 
 from JsonSettingsWidgets import SettingsWidget
-from gi.repository import Gdk, GdkPixbuf, Gtk
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 
 
 class _ResponsiveLogo(SettingsWidget):
@@ -235,3 +237,148 @@ class WirtelPoem(SettingsWidget):
 
         self.content_widget = label
         self.pack_start(label, True, True, 0)
+
+
+class PiperModelChooser(SettingsWidget):
+    voice_dir = os.path.expanduser("~/.local/share/piper/voices")
+    voices = (
+        (
+            "Thorsten medium",
+            "de_DE-thorsten-medium.onnx",
+            "https://huggingface.co/Thorsten-Voice/Piper/resolve/main/de_DE-thorsten-medium.onnx",
+            "https://huggingface.co/Thorsten-Voice/Piper/resolve/main/de_DE-thorsten-medium.onnx.json",
+        ),
+        (
+            "Thorsten high",
+            "de_DE-thorsten-high.onnx",
+            "https://huggingface.co/Thorsten-Voice/Piper/resolve/main/de_DE-thorsten-high.onnx",
+            "https://huggingface.co/Thorsten-Voice/Piper/resolve/main/de_DE-thorsten-high.onnx.json",
+        ),
+        (
+            "Thorsten emotional",
+            "de_DE-thorsten_emotional-medium.onnx",
+            "https://huggingface.co/Thorsten-Voice/Piper/resolve/main/de_DE-thorsten_emotional-medium.onnx",
+            "https://huggingface.co/Thorsten-Voice/Piper/resolve/main/de_DE-thorsten_emotional-medium.onnx.json",
+        ),
+    )
+
+    def __init__(self, info, key, settings):
+        SettingsWidget.__init__(self)
+        self.key = info.get("target", key)
+        self.settings = settings
+        self.set_orientation(Gtk.Orientation.VERTICAL)
+        self.set_spacing(4)
+        self.set_hexpand(True)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_hexpand(True)
+
+        label = Gtk.Label(label=info.get("description", "Piper-Stimmenmodell"))
+        label.set_halign(Gtk.Align.START)
+        label.set_hexpand(True)
+        row.pack_start(label, True, True, 0)
+
+        self.status = Gtk.Label(label="")
+        self.status.set_halign(Gtk.Align.START)
+
+        download_button = Gtk.MenuButton()
+        download_button.set_label("Download")
+        download_button.set_tooltip_text("Piper-Stimmenmodell herunterladen")
+        download_button.set_popup(self._build_download_menu())
+        row.pack_start(download_button, False, False, 0)
+        self.download_button = download_button
+
+        chooser = Gtk.FileChooserButton(
+            title="Piper-Stimmenmodell waehlen",
+            action=Gtk.FileChooserAction.OPEN,
+        )
+        chooser.set_hexpand(True)
+        chooser.set_tooltip_text(info.get("tooltip", ""))
+        model_filter = Gtk.FileFilter()
+        model_filter.set_name("Piper ONNX (*.onnx)")
+        model_filter.add_pattern("*.onnx")
+        chooser.add_filter(model_filter)
+        chooser.connect("file-set", self._on_file_set)
+        row.pack_start(chooser, True, True, 0)
+        self.chooser = chooser
+
+        self.pack_start(row, False, True, 0)
+        self.pack_start(self.status, False, True, 0)
+        self.content_widget = row
+
+        self._set_chooser_filename(settings.get_value(self.key))
+        settings.listen(self.key, self._on_setting_changed)
+
+    def _build_download_menu(self):
+        menu = Gtk.Menu()
+        for label, filename, model_url, config_url in self.voices:
+            item = Gtk.MenuItem(label=label)
+            item.connect("activate", self._download_voice, filename, model_url, config_url)
+            menu.append(item)
+        menu.append(Gtk.SeparatorMenuItem())
+        folder_item = Gtk.MenuItem(label="Stimmenordner oeffnen")
+        folder_item.connect("activate", self._open_uri, "file://" + os.path.abspath(os.path.expanduser(self.voice_dir)))
+        menu.append(folder_item)
+        project_item = Gtk.MenuItem(label="Thorsten-Voice/Piper oeffnen")
+        project_item.connect("activate", self._open_uri, "https://huggingface.co/Thorsten-Voice/Piper/tree/main")
+        menu.append(project_item)
+        menu.show_all()
+        return menu
+
+    def _open_uri(self, _item, uri):
+        try:
+            Gtk.show_uri_on_window(None, uri, Gtk.get_current_event_time())
+        except Exception as exc:
+            self._set_status("Oeffnen fehlgeschlagen: %s" % exc)
+
+    def _on_setting_changed(self, _key, value):
+        self._set_chooser_filename(value)
+
+    def _on_file_set(self, chooser):
+        filename = chooser.get_filename()
+        if filename:
+            self.settings.set_value(self.key, filename)
+            self._set_status("")
+
+    def _set_chooser_filename(self, filename):
+        if filename and os.path.exists(filename):
+            self.chooser.set_filename(filename)
+
+    def _download_voice(self, _item, filename, model_url, config_url):
+        self.download_button.set_sensitive(False)
+        self._set_status("Download laeuft...")
+        thread = threading.Thread(
+            target=self._download_voice_worker,
+            args=(filename, model_url, config_url),
+            daemon=True,
+        )
+        thread.start()
+
+    def _download_voice_worker(self, filename, model_url, config_url):
+        try:
+            os.makedirs(self.voice_dir, exist_ok=True)
+            model_path = os.path.join(self.voice_dir, filename)
+            config_path = model_path + ".json"
+            self._download_url(model_url, model_path)
+            self._download_url(config_url, config_path)
+            GLib.idle_add(self._download_finished, model_path, None)
+        except Exception as exc:
+            GLib.idle_add(self._download_finished, "", str(exc))
+
+    def _download_url(self, url, target):
+        tmp = target + ".tmp"
+        urllib.request.urlretrieve(url, tmp)
+        os.replace(tmp, target)
+
+    def _download_finished(self, model_path, error):
+        self.download_button.set_sensitive(True)
+        if error:
+            self._set_status("Download fehlgeschlagen: %s" % error)
+            return False
+        self.settings.set_value(self.key, model_path)
+        self._set_chooser_filename(model_path)
+        self._set_status("Gespeichert: %s" % model_path)
+        return False
+
+    def _set_status(self, text):
+        self.status.set_text(text)
