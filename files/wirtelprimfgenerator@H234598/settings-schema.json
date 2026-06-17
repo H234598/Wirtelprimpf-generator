@@ -54,6 +54,7 @@
       "keys": [
         "open-command",
         "tts-engine",
+        "tts-piper-model",
         "tts-command"
       ]
     },
@@ -147,7 +148,7 @@
   "tts-engine": {
     "type": "combobox",
     "description": "TTS-Engine",
-    "tooltip": "Auto sucht eine passende Engine. Piper braucht ein deutsches .onnx-Modell, z.B. über WIRTELPRIMPF_TTS_PIPER_MODEL. Custom nutzt das TTS-Kommando unten.",
+    "tooltip": "Auto sucht eine passende Engine. Piper braucht den Piper-TTS-Befehl und ein deutsches .onnx-Modell. Custom nutzt das TTS-Kommando unten.",
     "default": "auto",
     "options": {
       "Auto": "auto",
@@ -157,6 +158,13 @@
       "eSpeak": "espeak",
       "Custom command": "custom"
     }
+  },
+  "tts-piper-model": {
+    "type": "filechooser",
+    "description": "Piper-Stimmenmodell",
+    "tooltip": "Pfad zu einem Piper-TTS-.onnx-Modell. Fedora /usr/bin/piper ist oft die Mauskonfigurations-App und kein TTS.",
+    "default": "",
+    "select-dir": false
   },
   "tts-command": {
     "type": "entry",

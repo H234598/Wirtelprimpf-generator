@@ -61,6 +61,7 @@ class ScanArgs:
     state_dir: Path = DEFAULT_STATE_DIR
     open_command: str = "xdg-open"
     tts_engine: str = "auto"
+    tts_piper_model: str = ""
     tts_command: str = ""
     story_image_glob: str = ""
     generated_image_glob: str = ""
@@ -771,8 +772,23 @@ def chunk_text(text: str, max_len: int = 2400) -> Iterable[str]:
         yield buf
 
 
-def candidate_piper_models() -> List[Path]:
+def piper_tts_command() -> Optional[str]:
+    command = shutil.which("piper-tts") or shutil.which("piper")
+    if not command:
+        return None
+    try:
+        proc = subprocess.run([command, "--help"], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=3)
+    except Exception:
+        return None
+    help_text = proc.stdout or ""
+    if "--model" in help_text and "--output_file" in help_text:
+        return command
+    return None
+
+
+def candidate_piper_models(configured_model: str = "") -> List[Path]:
     configured = [
+        configured_model,
         os.environ.get("WIRTELPRIMPF_TTS_PIPER_MODEL"),
         os.environ.get("PIPER_VOICE"),
         os.environ.get("PIPER_MODEL"),
@@ -788,6 +804,11 @@ def candidate_piper_models() -> List[Path]:
         home / ".local" / "share" / "piper",
         home / ".config" / "piper",
         home / "piper" / "voices",
+        Path("/usr/local/share/piper/voices"),
+        Path("/usr/local/share/piper"),
+        Path("/usr/share/piper/voices"),
+        Path("/usr/share/piper"),
+        Path("/usr/share/piper-voices"),
     ]:
         if not base.exists():
             continue
@@ -830,10 +851,10 @@ def normalize_tts_engine(value: str) -> str:
     return normalized
 
 
-def tts_engine_argv(engine: str) -> Tuple[str, List[str]]:
+def tts_engine_argv(engine: str, piper_model: str = "") -> Tuple[str, List[str]]:
     if engine == "piper":
-        piper = shutil.which("piper")
-        models = candidate_piper_models()
+        piper = piper_tts_command()
+        models = candidate_piper_models(piper_model)
         if piper and models:
             return "piper", [piper, "--model", str(models[0])]
         return "none", []
@@ -855,13 +876,13 @@ def tts_engine_argv(engine: str) -> Tuple[str, List[str]]:
     return "none", []
 
 
-def available_tts(preferred: str = "auto") -> Tuple[str, List[str]]:
+def available_tts(preferred: str = "auto", piper_model: str = "") -> Tuple[str, List[str]]:
     preferred = normalize_tts_engine(preferred)
     if preferred != "auto":
-        return tts_engine_argv(preferred)
-    piper = shutil.which("piper")
+        return tts_engine_argv(preferred, piper_model)
+    piper = piper_tts_command()
     if piper:
-        models = candidate_piper_models()
+        models = candidate_piper_models(piper_model)
         if models:
             return "piper", [piper, "--model", str(models[0])]
     if shutil.which("spd-say"):
@@ -876,7 +897,9 @@ def available_tts(preferred: str = "auto") -> Tuple[str, List[str]]:
 def tts_missing_message(engine: str) -> str:
     engine = normalize_tts_engine(engine)
     if engine == "piper":
-        return "Piper braucht das piper-Kommando und ein deutsches .onnx-Modell, z.B. WIRTELPRIMPF_TTS_PIPER_MODEL=/pfad/stimme.onnx"
+        if shutil.which("piper") and not piper_tts_command():
+            return "Piper-TTS fehlt: /usr/bin/piper ist hier die Fedora-Mauskonfigurations-App. Installiere Piper-TTS oder setze ein Custom-TTS-Kommando."
+        return "Piper braucht Piper-TTS und ein deutsches .onnx-Modell, z.B. in den Applet-Einstellungen oder WIRTELPRIMPF_TTS_PIPER_MODEL=/pfad/stimme.onnx"
     if engine == "spd-say":
         return "Speech Dispatcher fehlt: installiere speech-dispatcher/spd-say"
     if engine == "espeak-ng":
@@ -961,9 +984,9 @@ def run_custom_tts(command: str, text: str, text_file: Path, story_file: Path, l
     return rc
 
 
-def run_auto_tts(text: str, story_file: Path, lock_path: Path, preferred_engine: str) -> int:
+def run_auto_tts(text: str, story_file: Path, lock_path: Path, preferred_engine: str, piper_model: str) -> int:
     global CURRENT_CHILD
-    engine, base = available_tts(preferred_engine)
+    engine, base = available_tts(preferred_engine, piper_model)
     if not base:
         eprint(tts_missing_message(preferred_engine))
         return 127
@@ -1047,7 +1070,7 @@ def tts_read_files(files: List[Path], args: ScanArgs, output_dir: Optional[Path]
             elif args.tts_command.strip() and selected_engine == "auto":
                 rc = run_custom_tts(args.tts_command.strip(), text, tmp_text, file_path, paths["lock"])
             else:
-                rc = run_auto_tts(text, file_path, paths["lock"], selected_engine)
+                rc = run_auto_tts(text, file_path, paths["lock"], selected_engine, args.tts_piper_model)
             if rc != 0 or STOP_REQUESTED:
                 return {"ok": False, "returncode": rc, "completed": completed, "stopped": STOP_REQUESTED}
             save_completed_state(paths["state"], file_path, output_dir)
@@ -1222,7 +1245,7 @@ def doctor(args: ScanArgs) -> Dict[str, Any]:
             tts_ok = False
             tts_msg = str(exc)
     else:
-        engine, _base = available_tts(selected_engine)
+        engine, _base = available_tts(selected_engine, args.tts_piper_model)
         tts_ok = engine != "none"
         tts_msg = engine if tts_ok else tts_missing_message(selected_engine)
     add_check(checks, "TTS", tts_ok, tts_msg)
@@ -1298,6 +1321,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR))
     parser.add_argument("--open-command", default="xdg-open")
     parser.add_argument("--tts-engine", default="auto")
+    parser.add_argument("--tts-piper-model", default="")
     parser.add_argument("--tts-command", default="")
     parser.add_argument("--story-image-glob", default="")
     parser.add_argument("--generated-image-glob", default="")
@@ -1314,6 +1338,7 @@ def ns_to_scan_args(ns: argparse.Namespace) -> ScanArgs:
         state_dir=Path(os.path.expanduser(os.path.expandvars(ns.state_dir or str(DEFAULT_STATE_DIR)))),
         open_command=ns.open_command or "xdg-open",
         tts_engine=normalize_tts_engine(ns.tts_engine or "auto"),
+        tts_piper_model=ns.tts_piper_model or "",
         tts_command=ns.tts_command or "",
         story_image_glob=ns.story_image_glob or "",
         generated_image_glob=ns.generated_image_glob or "",

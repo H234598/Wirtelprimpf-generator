@@ -85,10 +85,12 @@ Falls der Outputordner nicht gefunden wird, setze ihn in den Applet-Optionen. Di
 
 Die TTS-Engine wird in den Einstellungen per Dropdown gewählt:
 
-- `Auto`: sucht `piper` mit deutschem Modell, danach `spd-say`, danach `espeak-ng` und `espeak`.
-- `Piper`: erzwingt Piper und braucht ein deutsches `.onnx`-Modell, zum Beispiel über `WIRTELPRIMPF_TTS_PIPER_MODEL=/pfad/zur/stimme.onnx`.
+- `Auto`: sucht Piper-TTS mit deutschem Modell, danach `spd-say`, danach `espeak-ng` und `espeak`.
+- `Piper`: erzwingt Piper-TTS und braucht ein deutsches `.onnx`-Modell, entweder über das Feld `Piper-Stimmenmodell` oder über `WIRTELPRIMPF_TTS_PIPER_MODEL=/pfad/zur/stimme.onnx`.
 - `Speech Dispatcher`, `eSpeak NG`, `eSpeak`: erzwingen die jeweilige lokale Engine.
 - `Custom command`: nutzt das Custom-TTS-Kommando unten.
+
+Hinweis: Fedora `/usr/bin/piper` ist häufig die GTK-App zur Mauskonfiguration, nicht Piper-TTS. Das Applet erkennt diesen Fall und fällt in `Auto` auf die nächste Engine zurück.
 
 Custom-TTS ist ein sicherer Template-Modus ohne Shell:
 

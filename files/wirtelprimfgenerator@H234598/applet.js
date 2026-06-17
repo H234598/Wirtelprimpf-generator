@@ -38,6 +38,7 @@ WirtelApplet.prototype = {
         this.pythonCommand = "python3";
         this.openCommand = "xdg-open";
         this.ttsEngine = "auto";
+        this.ttsPiperModel = "";
         this.ttsCommand = "";
         this.storyImageGlob = "";
         this.generatedImageGlob = "";
@@ -83,6 +84,7 @@ WirtelApplet.prototype = {
         bind("python-command", "pythonCommand");
         bind("open-command", "openCommand");
         bind("tts-engine", "ttsEngine");
+        bind("tts-piper-model", "ttsPiperModel");
         bind("tts-command", "ttsCommand");
         bind("story-image-glob", "storyImageGlob");
         bind("generated-image-glob", "generatedImageGlob");
@@ -146,6 +148,7 @@ WirtelApplet.prototype = {
             "--output-dir", this.outputDir || "",
             "--open-command", this.openCommand || "xdg-open",
             "--tts-engine", this.ttsEngine || "auto",
+            "--tts-piper-model", this.ttsPiperModel || "",
             "--tts-command", this.ttsCommand || "",
             "--story-image-glob", this.storyImageGlob || "",
             "--generated-image-glob", this.generatedImageGlob || "",
@@ -380,7 +383,7 @@ WirtelApplet.prototype = {
     },
 
     _openAppletSettings: function() {
-        Util.spawnCommandLine("cinnamon-settings applets " + UUID);
+        Util.spawnCommandLine("xlet-settings applet " + UUID + " -i " + this.instanceId);
     },
 
     _openProjectRepository: function() {
