@@ -8,6 +8,7 @@ Version `0.3.2` übernimmt die relevanten Produktmuster aus Speed of Cinnamon:
 
 - responsive Logo in den Cinnamon-Optionen über `SettingsLogo.py` und `assets/settings-*.png`;
 - Settings mit Seiten/Layout, About-Seite, TTS-Engine-Auswahl und Aktionsbuttons;
+- zentriertes Zufallsgedicht in den Einstellungen, mit elf Varianten pro Öffnen;
 - `Run doctor` und `Copy setup plan` direkt aus Menü und Optionen;
 - Runtime-State unter `~/.local/state/wirtelprimfgenerator-applet` mit Migration aus der alten `~/.config`-Position;
 - Helper/Backend-Grenze: Cinnamon macht UI, Python scannt Dateien, verwaltet State und TTS;

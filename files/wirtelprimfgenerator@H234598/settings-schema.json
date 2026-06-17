@@ -119,8 +119,11 @@
     "default": ""
   },
   "main-menu-settings-map": {
-    "type": "label",
-    "description": "Im kleinen Kreis der Stunden steht ein Name,\nhell wie ein Fenster über schlafendem Code.\nEin Bild atmet, eine Geschichte hebt den Blick,\nund Wirtelprimpf ordnet die Funken zu Sinn.\nWer liest, tritt leise in die Maschine ein;\nwer hört, findet Wärme im Takt der Datei."
+    "type": "custom",
+    "file": "SettingsLogo.py",
+    "widget": "WirtelPoem",
+    "description": "Zentriertes Zufallsgedicht",
+    "default": ""
   },
   "output-dir": {
     "type": "filechooser",

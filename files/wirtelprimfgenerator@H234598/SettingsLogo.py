@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import os
+import random
 
 from JsonSettingsWidgets import SettingsWidget
 from gi.repository import Gdk, GdkPixbuf, Gtk
@@ -123,3 +124,114 @@ class FooterLogo(_ResponsiveLogo):
     top_margin = 18
     bottom_margin = 0
     max_height = 110
+
+
+class WirtelPoem(SettingsWidget):
+    poems = (
+        (
+            "Im kleinen Kreis der Stunden steht ein Name,\n"
+            "hell wie ein Fenster ueber schlafendem Code.\n"
+            "Ein Bild atmet, eine Geschichte hebt den Blick,\n"
+            "und Wirtelprimpf ordnet die Funken zu Sinn.\n"
+            "Wer liest, tritt leise in die Maschine ein;\n"
+            "wer hoert, findet Waerme im Takt der Datei."
+        ),
+        (
+            "Wo Pfade schweigen, legt ein Bild die Stirn ans Licht,\n"
+            "und jede Stunde faltet ihre kleine Karte.\n"
+            "Wirtelprimpf zaehlt nicht nur Dateien,\n"
+            "er merkt sich das Zucken der Moeglichkeit.\n"
+            "Aus Pixel, Satz und leiser Ordnung\n"
+            "wird eine Tuer, die beim Lesen aufgeht."
+        ),
+        (
+            "Ein Prompt ist nur ein Stein im Wasser,\n"
+            "doch Kreise koennen denken lernen.\n"
+            "Zwischen Mohnrot, Log und Sternenstaub\n"
+            "tritt Wirtelprimpf mit ruhiger Hand.\n"
+            "Er hebt das Bild nicht aus dem Nichts,\n"
+            "sondern aus dem Mut, genau hinzusehen."
+        ),
+        (
+            "Die Stunde kommt in weichen Schuhen,\n"
+            "bringt eine Datei und geht nicht gleich.\n"
+            "Wirtelprimpf liest ihr den Rand der Welt,\n"
+            "wo Katzen, Regeln, Licht sich treffen.\n"
+            "Was eben noch Verzeichnis war,\n"
+            "wird ploetzlich Atem, Szene, Spur."
+        ),
+        (
+            "Im Speicher liegt kein kalter Vorrat,\n"
+            "sondern ein Garten aus Entscheidungen.\n"
+            "Wirtelprimpf geht zwischen den Beeten,\n"
+            "waehlt nicht das Laute, sondern das Wahre.\n"
+            "Und wenn ein Bild sich selbst erkennt,\n"
+            "nickt die Geschichte wie ein heller Baum."
+        ),
+        (
+            "Der Zufall ist kein schlechter Meister,\n"
+            "wenn er an eine kluge Tuer klopft.\n"
+            "Wirtelprimpf oeffnet, prueft den Wind,\n"
+            "und laesst nur jene Funken ein,\n"
+            "die aus der Ordnung Freude machen\n"
+            "und aus dem Bild ein leises Denken."
+        ),
+        (
+            "Kein Menue erklaert die Nacht vollstaendig,\n"
+            "kein Schalter misst den Zauber aus.\n"
+            "Doch Wirtelprimpf stellt seine Lampe\n"
+            "genau dort hin, wo Wege kreuzen.\n"
+            "Dann sieht man: selbst ein Arbeitsordner\n"
+            "kann einen Horizont besitzen."
+        ),
+        (
+            "Wenn Stimmen durch den Text spazieren,\n"
+            "traegt jede Silbe eine kleine Uhr.\n"
+            "Wirtelprimpf lauscht, bis aus Sekunden\n"
+            "eine Form von Gegenwart entsteht.\n"
+            "Und was der Rechner trocken fand,\n"
+            "bekommt im Klang ein menschlich Dach."
+        ),
+        (
+            "Es gibt ein Licht fuer neue Bilder,\n"
+            "das nicht befiehlt und nicht erklaert.\n"
+            "Wirtelprimpf haelt es in der Schwebe,\n"
+            "bis eine Szene Antwort gibt.\n"
+            "Dann schreibt die Stunde ihren Namen\n"
+            "in eine Datei aus Staub und Glanz."
+        ),
+        (
+            "Zwischen Zufall und Gewohnheit\n"
+            "liegt ein schmaler, kluger Steg.\n"
+            "Wirtelprimpf geht ihn ohne Eile,\n"
+            "mit Bild im Arm und Satz im Blick.\n"
+            "So wird aus Wiederholung Rhythmus,\n"
+            "aus Rhythmus eine kleine Welt."
+        ),
+        (
+            "Nicht jede Regel ist ein Kaefig,\n"
+            "nicht jeder Traum ist schwerelos.\n"
+            "Wirtelprimpf spannt feine Faeden\n"
+            "zwischen Auftrag und Erstaunen.\n"
+            "Dort haengt das Bild, wach und gelassen,\n"
+            "und wartet, bis die Geschichte spricht."
+        ),
+    )
+
+    def __init__(self, info, key, settings):
+        SettingsWidget.__init__(self)
+        self.set_orientation(Gtk.Orientation.VERTICAL)
+        self.set_margin_top(8)
+        self.set_margin_bottom(16)
+        self.set_hexpand(True)
+
+        label = Gtk.Label(label=random.choice(self.poems))
+        label.set_halign(Gtk.Align.CENTER)
+        label.set_justify(Gtk.Justification.CENTER)
+        label.set_line_wrap(True)
+        label.set_selectable(False)
+        label.set_margin_start(20)
+        label.set_margin_end(20)
+
+        self.content_widget = label
+        self.pack_start(label, True, True, 0)
