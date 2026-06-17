@@ -35,7 +35,7 @@
     },
     "menu-map-section": {
       "type": "section",
-      "title": "Menü-Plan",
+      "title": "Wirtelgedicht",
       "keys": [
         "main-menu-settings-map"
       ]
@@ -53,6 +53,7 @@
       "title": "Öffnen und Vorlesen",
       "keys": [
         "open-command",
+        "tts-engine",
         "tts-command"
       ]
     },
@@ -119,7 +120,7 @@
   },
   "main-menu-settings-map": {
     "type": "label",
-    "description": "Das Panel-Menü bleibt bewusst klein: Aktuelles Bild → Story/Generated, Story → Read Story/Read part/TTS sowie Diagnose-Aktionen. Read part zeigt nur Last 1h bis Last 15h. Persistente Einstellungen liegen hier; dynamische Listen werden direkt aus dem Katzenbilder-Outputordner gelesen."
+    "description": "Im kleinen Kreis der Stunden steht ein Name,\nhell wie ein Fenster über schlafendem Code.\nEin Bild atmet, eine Geschichte hebt den Blick,\nund Wirtelprimpf ordnet die Funken zu Sinn.\nWer liest, tritt leise in die Maschine ein;\nwer hört, findet Wärme im Takt der Datei."
   },
   "output-dir": {
     "type": "filechooser",
@@ -140,10 +141,24 @@
     "tooltip": "Standard: xdg-open. Alternativ z.B. xreader, ebook-viewer, code oder nemo. Wird ohne Shell als Argumentliste gestartet.",
     "default": "xdg-open"
   },
+  "tts-engine": {
+    "type": "combobox",
+    "description": "TTS-Engine",
+    "tooltip": "Auto sucht eine passende Engine. Piper braucht ein deutsches .onnx-Modell, z.B. über WIRTELPRIMPF_TTS_PIPER_MODEL. Custom nutzt das TTS-Kommando unten.",
+    "default": "auto",
+    "options": {
+      "Auto": "auto",
+      "Piper": "piper",
+      "Speech Dispatcher": "spd-say",
+      "eSpeak NG": "espeak-ng",
+      "eSpeak": "espeak",
+      "Custom command": "custom"
+    }
+  },
   "tts-command": {
     "type": "entry",
-    "description": "TTS-Kommando optional",
-    "tooltip": "Leer = auto: piper mit deutschem Modell, danach spd-say deutsch, danach espeak-ng/espeak. Sicherer Template-Modus ohne Shell; Platzhalter: {file}, {text_file}, {text}.",
+    "description": "Custom-TTS-Kommando",
+    "tooltip": "Nur bei TTS-Engine Custom erforderlich. Sicherer Template-Modus ohne Shell; Platzhalter: {file}, {text_file}, {text}.",
     "default": ""
   },
   "story-image-glob": {
@@ -233,6 +248,6 @@
   },
   "about-version": {
     "type": "label",
-    "description": "Version: 0.3.1\nAuthor: H234598\nRepo-aware Cinnamon applet for Katzenbilder/Wirtelprimpf latest images, story files and TTS state."
+    "description": "Version: 0.3.2\nAuthor: H234598\nRepo-aware Cinnamon applet for Katzenbilder/Wirtelprimpf latest images, story files and TTS state."
   }
 }

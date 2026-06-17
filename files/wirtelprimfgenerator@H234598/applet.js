@@ -37,6 +37,7 @@ WirtelApplet.prototype = {
         this.outputDir = "";
         this.pythonCommand = "python3";
         this.openCommand = "xdg-open";
+        this.ttsEngine = "auto";
         this.ttsCommand = "";
         this.storyImageGlob = "";
         this.generatedImageGlob = "";
@@ -81,6 +82,7 @@ WirtelApplet.prototype = {
         bind("output-dir", "outputDir");
         bind("python-command", "pythonCommand");
         bind("open-command", "openCommand");
+        bind("tts-engine", "ttsEngine");
         bind("tts-command", "ttsCommand");
         bind("story-image-glob", "storyImageGlob");
         bind("generated-image-glob", "generatedImageGlob");
@@ -143,6 +145,7 @@ WirtelApplet.prototype = {
             "--state-dir", this.stateDir,
             "--output-dir", this.outputDir || "",
             "--open-command", this.openCommand || "xdg-open",
+            "--tts-engine", this.ttsEngine || "auto",
             "--tts-command", this.ttsCommand || "",
             "--story-image-glob", this.storyImageGlob || "",
             "--generated-image-glob", this.generatedImageGlob || "",

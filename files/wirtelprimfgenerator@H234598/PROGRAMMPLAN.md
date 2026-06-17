@@ -16,18 +16,11 @@ Speed of Cinnamon trennt Cinnamon-UI und Backend klar: Das Applet besitzt Panel-
 4. Runtime-State unter `~/.local/state/...` statt Konfiguration als Datenablage;
 5. gehärtete Custom-Kommandos ohne implizite Shell.
 
-## Menüstruktur
+## Einstellungen
 
-```text
-Aktuelles Bild
-  Story
-  Generated
-  Story
-  Read Story
-  Read part: nur Last 1h bis Last 15h
-  TTS
-Setup / Diagnose
-```
+Die Cinnamon-Einstellungen spiegeln die Laufzeitentscheidungen des Applets: Outputordner, Python-Backend, Öffnen-Kommando, TTS-Engine, Custom-TTS-Kommando, Dateimuster, Scan-Tiefe, Panel-Verhalten, Benachrichtigungen, GitHub-Link und Diagnoseaktionen.
+
+Die TTS-Engine ist bewusst ein Dropdown: `Auto`, `Piper`, `Speech Dispatcher`, `eSpeak NG`, `eSpeak` oder `Custom command`. Dadurch ist sichtbar, ob die automatische Erkennung laufen soll oder ob eine konkrete Stimme/Engine erzwungen wird.
 
 ## State
 
@@ -44,7 +37,7 @@ Storyteile: generierte `wirtelprimpf_YYYY-MM-DD_*.md`, gefiltert gegen die `## Y
 - State wird atomar geschrieben (`tmp` + `fsync` + `os.replace`).
 - TTS-Lock enthält Parent-PID, Child-PID und aktuelle Datei.
 - Stop tötet Child und Parent, entfernt Lock und cancelt `spd-say`.
-- Auto-TTS bevorzugt `piper` mit deutschem Modell, dann `spd-say` mit deutscher Stimme, dann `espeak-ng`/`espeak`.
+- Auto-TTS bevorzugt `piper` mit deutschem Modell, dann `spd-say` mit deutscher Stimme, dann `espeak-ng`/`espeak`; das Dropdown kann jede Engine gezielt erzwingen.
 - `last_file` wird nur nach erfolgreichem Returncode gespeichert.
 
 ## Offene Integrationspunkte

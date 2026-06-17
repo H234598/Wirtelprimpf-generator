@@ -4,10 +4,10 @@ Cinnamon-Applet für den Output von `H234598/Katzenbilder`: aktuelles Story-Bild
 
 ## Speed-of-Cinnamon-Abgleich
 
-Version `0.3.1` übernimmt die relevanten Produktmuster aus Speed of Cinnamon:
+Version `0.3.2` übernimmt die relevanten Produktmuster aus Speed of Cinnamon:
 
 - responsive Logo in den Cinnamon-Optionen über `SettingsLogo.py` und `assets/settings-*.png`;
-- Settings mit Seiten/Layout, About-Seite, Menü-Landkarte und Aktionsbuttons;
+- Settings mit Seiten/Layout, About-Seite, TTS-Engine-Auswahl und Aktionsbuttons;
 - `Run doctor` und `Copy setup plan` direkt aus Menü und Optionen;
 - Runtime-State unter `~/.local/state/wirtelprimfgenerator-applet` mit Migration aus der alten `~/.config`-Position;
 - Helper/Backend-Grenze: Cinnamon macht UI, Python scannt Dateien, verwaltet State und TTS;
@@ -82,11 +82,12 @@ Falls der Outputordner nicht gefunden wird, setze ihn in den Applet-Optionen. Di
 
 ## TTS
 
-Leer gelassenes TTS-Kommando nutzt automatisch `piper`, wenn ein deutsches
-Piper-Modell gefunden wird, danach `spd-say` mit deutscher Stimme, danach
-`espeak-ng` und `espeak`. Fuer bessere Stimmen setze zum Beispiel
-`WIRTELPRIMPF_TTS_PIPER_MODEL=/pfad/zur/stimme.onnx` oder trage ein eigenes
-TTS-Kommando ein.
+Die TTS-Engine wird in den Einstellungen per Dropdown gewählt:
+
+- `Auto`: sucht `piper` mit deutschem Modell, danach `spd-say`, danach `espeak-ng` und `espeak`.
+- `Piper`: erzwingt Piper und braucht ein deutsches `.onnx`-Modell, zum Beispiel über `WIRTELPRIMPF_TTS_PIPER_MODEL=/pfad/zur/stimme.onnx`.
+- `Speech Dispatcher`, `eSpeak NG`, `eSpeak`: erzwingen die jeweilige lokale Engine.
+- `Custom command`: nutzt das Custom-TTS-Kommando unten.
 
 Custom-TTS ist ein sicherer Template-Modus ohne Shell:
 

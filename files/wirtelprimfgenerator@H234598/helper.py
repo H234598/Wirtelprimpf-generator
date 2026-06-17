@@ -60,6 +60,7 @@ class ScanArgs:
     output_dir: str = ""
     state_dir: Path = DEFAULT_STATE_DIR
     open_command: str = "xdg-open"
+    tts_engine: str = "auto"
     tts_command: str = ""
     story_image_glob: str = ""
     generated_image_glob: str = ""
@@ -810,7 +811,54 @@ def candidate_piper_models() -> List[Path]:
     return out
 
 
-def available_tts() -> Tuple[str, List[str]]:
+def normalize_tts_engine(value: str) -> str:
+    normalized = (value or "auto").strip().lower()
+    aliases = {
+        "": "auto",
+        "speech-dispatcher": "spd-say",
+        "speech_dispatcher": "spd-say",
+        "speechdispatcher": "spd-say",
+        "spd": "spd-say",
+        "espeakng": "espeak-ng",
+        "espeak_ng": "espeak-ng",
+        "command": "custom",
+        "custom-command": "custom",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in {"auto", "piper", "spd-say", "espeak-ng", "espeak", "custom"}:
+        return "auto"
+    return normalized
+
+
+def tts_engine_argv(engine: str) -> Tuple[str, List[str]]:
+    if engine == "piper":
+        piper = shutil.which("piper")
+        models = candidate_piper_models()
+        if piper and models:
+            return "piper", [piper, "--model", str(models[0])]
+        return "none", []
+    if engine == "spd-say":
+        spd = shutil.which("spd-say")
+        if spd:
+            return "spd-say", [spd, "-w", "-l", "de", "-t", "female1", "-r", "-10", "-p", "-5"]
+        return "none", []
+    if engine == "espeak-ng":
+        espeak_ng = shutil.which("espeak-ng")
+        if espeak_ng:
+            return "espeak-ng", [espeak_ng, "-v", "de+f3", "-s", "155", "-p", "35"]
+        return "none", []
+    if engine == "espeak":
+        espeak = shutil.which("espeak")
+        if espeak:
+            return "espeak", [espeak, "-v", "de+f3", "-s", "155", "-p", "35"]
+        return "none", []
+    return "none", []
+
+
+def available_tts(preferred: str = "auto") -> Tuple[str, List[str]]:
+    preferred = normalize_tts_engine(preferred)
+    if preferred != "auto":
+        return tts_engine_argv(preferred)
     piper = shutil.which("piper")
     if piper:
         models = candidate_piper_models()
@@ -823,6 +871,19 @@ def available_tts() -> Tuple[str, List[str]]:
     if shutil.which("espeak"):
         return "espeak", ["espeak", "-v", "de+f3", "-s", "155", "-p", "35"]
     return "none", []
+
+
+def tts_missing_message(engine: str) -> str:
+    engine = normalize_tts_engine(engine)
+    if engine == "piper":
+        return "Piper braucht das piper-Kommando und ein deutsches .onnx-Modell, z.B. WIRTELPRIMPF_TTS_PIPER_MODEL=/pfad/stimme.onnx"
+    if engine == "spd-say":
+        return "Speech Dispatcher fehlt: installiere speech-dispatcher/spd-say"
+    if engine == "espeak-ng":
+        return "eSpeak NG fehlt: installiere espeak-ng"
+    if engine == "espeak":
+        return "eSpeak fehlt: installiere espeak"
+    return "Installiere piper mit deutschem Stimmenmodell, speech-dispatcher/spd-say oder espeak-ng"
 
 
 def write_lock(lock_path: Path, child_pid: Optional[int], current_file: Optional[Path], command: str) -> None:
@@ -900,11 +961,11 @@ def run_custom_tts(command: str, text: str, text_file: Path, story_file: Path, l
     return rc
 
 
-def run_auto_tts(text: str, story_file: Path, lock_path: Path) -> int:
+def run_auto_tts(text: str, story_file: Path, lock_path: Path, preferred_engine: str) -> int:
     global CURRENT_CHILD
-    engine, base = available_tts()
+    engine, base = available_tts(preferred_engine)
     if not base:
-        eprint("No TTS engine found. Install piper plus a German voice model, speech-dispatcher/spd-say, or espeak-ng.")
+        eprint(tts_missing_message(preferred_engine))
         return 127
     for chunk in chunk_text(text):
         if STOP_REQUESTED:
@@ -978,7 +1039,15 @@ def tts_read_files(files: List[Path], args: ScanArgs, output_dir: Optional[Path]
             text = extract_text(file_path)
             tmp_text = args.state_dir / "tts-current.txt"
             tmp_text.write_text(text, encoding="utf-8")
-            rc = run_custom_tts(args.tts_command.strip(), text, tmp_text, file_path, paths["lock"]) if args.tts_command.strip() else run_auto_tts(text, file_path, paths["lock"])
+            selected_engine = normalize_tts_engine(args.tts_engine)
+            if selected_engine == "custom":
+                if not args.tts_command.strip():
+                    return {"ok": False, "errors": ["TTS-Engine Custom braucht ein TTS-Kommando."]}
+                rc = run_custom_tts(args.tts_command.strip(), text, tmp_text, file_path, paths["lock"])
+            elif args.tts_command.strip() and selected_engine == "auto":
+                rc = run_custom_tts(args.tts_command.strip(), text, tmp_text, file_path, paths["lock"])
+            else:
+                rc = run_auto_tts(text, file_path, paths["lock"], selected_engine)
             if rc != 0 or STOP_REQUESTED:
                 return {"ok": False, "returncode": rc, "completed": completed, "stopped": STOP_REQUESTED}
             save_completed_state(paths["state"], file_path, output_dir)
@@ -1143,7 +1212,8 @@ def doctor(args: ScanArgs) -> Dict[str, Any]:
     add_check(checks, "Full Story", len(result.get("full_stories", [])) > 0, f"{len(result.get('full_stories', []))} Story-Datei(en)")
     add_check(checks, "Storyteile", len(result.get("all_current_story_parts", [])) > 0, f"{len(result.get('all_current_story_parts', []))} Teil(e) in aktueller Story")
     add_check(checks, "Open command", command_exists(args.open_command), args.open_command or "xdg-open")
-    if args.tts_command.strip():
+    selected_engine = normalize_tts_engine(args.tts_engine)
+    if selected_engine == "custom" or (args.tts_command.strip() and selected_engine == "auto"):
         try:
             build_custom_tts_argv(args.tts_command, "Test", args.state_dir / "tts-current.txt", Path("test.md"))
             tts_ok = True
@@ -1152,9 +1222,9 @@ def doctor(args: ScanArgs) -> Dict[str, Any]:
             tts_ok = False
             tts_msg = str(exc)
     else:
-        engine, _base = available_tts()
+        engine, _base = available_tts(selected_engine)
         tts_ok = engine != "none"
-        tts_msg = engine if tts_ok else "Installiere piper mit deutschem Stimmenmodell, speech-dispatcher/spd-say oder espeak-ng"
+        tts_msg = engine if tts_ok else tts_missing_message(selected_engine)
     add_check(checks, "TTS", tts_ok, tts_msg)
     dialog = file_dialog_available()
     add_check(checks, "Dateidialog", dialog != "none", dialog if dialog != "none" else "Installiere zenity oder kdialog")
@@ -1227,6 +1297,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR))
     parser.add_argument("--open-command", default="xdg-open")
+    parser.add_argument("--tts-engine", default="auto")
     parser.add_argument("--tts-command", default="")
     parser.add_argument("--story-image-glob", default="")
     parser.add_argument("--generated-image-glob", default="")
@@ -1242,6 +1313,7 @@ def ns_to_scan_args(ns: argparse.Namespace) -> ScanArgs:
         output_dir=ns.output_dir or "",
         state_dir=Path(os.path.expanduser(os.path.expandvars(ns.state_dir or str(DEFAULT_STATE_DIR)))),
         open_command=ns.open_command or "xdg-open",
+        tts_engine=normalize_tts_engine(ns.tts_engine or "auto"),
         tts_command=ns.tts_command or "",
         story_image_glob=ns.story_image_glob or "",
         generated_image_glob=ns.generated_image_glob or "",
