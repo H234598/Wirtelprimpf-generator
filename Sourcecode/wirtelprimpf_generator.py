@@ -76,6 +76,7 @@ IMAGE_PAYLOAD_MAX_BYTES: Final = 80 * 1024 * 1024
 REPO_SLUG_PATTERN: Final = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 REPO_BRANCH_PATTERN: Final = re.compile(r"^(?!/|.*//|.*\.\.|.*\/$)[A-Za-z0-9._-]{1,120}(?:/[A-Za-z0-9._-]{1,120})*$")
 GIT_TIMEOUT_SECONDS: Final = 120
+GIT_FALLBACK_OBJECT_DIR: Final = "objects-teladi"
 GENERATION_RETRIES: Final = 3
 GENERATION_RETRY_BASE_SECONDS: Final = 2
 COMMAND_PATHS: Final = ("/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin")
@@ -1084,7 +1085,12 @@ def operandi_includes(config: Config, mode: str) -> bool:
     return False
 
 
-def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def run(
+    command: list[str],
+    cwd: Path | None = None,
+    *,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     if not command:
         raise RuntimeError("No command supplied")
 
@@ -1092,6 +1098,9 @@ def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProc
     secure_command = [command_path, *command[1:]]
 
     try:
+        env = _command_env()
+        if extra_env:
+            env.update(extra_env)
         return subprocess.run(
             secure_command,
             cwd=cwd,
@@ -1099,7 +1108,7 @@ def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProc
             text=True,
             capture_output=True,
             timeout=GIT_TIMEOUT_SECONDS,
-            env=_command_env(),
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"Command timed out after {GIT_TIMEOUT_SECONDS}s: {' '.join(secure_command)}") from exc
@@ -1109,6 +1118,62 @@ def run(command: list[str], cwd: Path | None = None) -> subprocess.CompletedProc
         if stderr:
             message = f"{message}: {stderr}"
         raise RuntimeError(message) from exc
+
+
+def _git_object_permission_failure(exc: RuntimeError) -> bool:
+    message = str(exc).lower()
+    return (
+        "insufficient permission for adding an object to repository database" in message
+        or ("unable to create temporary file" in message and ".git/objects" in message)
+    )
+
+
+def _git_dir_for_repo(repo_path: Path) -> Path:
+    git_marker = repo_path / ".git"
+    if git_marker.is_dir():
+        return git_marker
+    if git_marker.is_file():
+        text = git_marker.read_text(encoding="utf-8", errors="replace").strip()
+        prefix = "gitdir:"
+        if text.lower().startswith(prefix):
+            raw = text[len(prefix) :].strip()
+            candidate = Path(raw)
+            if not candidate.is_absolute():
+                candidate = repo_path / candidate
+            if candidate.is_dir():
+                return candidate.resolve()
+    raise RuntimeError(f"Cannot resolve git directory for repository: {repo_path}")
+
+
+def _git_object_fallback_env(repo_path: Path) -> dict[str, str]:
+    git_dir = _git_dir_for_repo(repo_path)
+    objects_dir = git_dir / "objects"
+    if objects_dir.is_symlink() or not objects_dir.is_dir():
+        raise RuntimeError(f"Invalid Git objects directory: {objects_dir}")
+
+    fallback_dir = git_dir / GIT_FALLBACK_OBJECT_DIR
+    if fallback_dir.is_symlink():
+        raise RuntimeError(f"Git fallback object directory must not be a symlink: {fallback_dir}")
+    fallback_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _assert_private_directory(fallback_dir, label="Git fallback object directory")
+
+    info_dir = objects_dir / "info"
+    info_dir.mkdir(parents=True, exist_ok=True)
+    alternates_path = info_dir / "alternates"
+    fallback_resolved = str(fallback_dir.resolve())
+    existing: list[str] = []
+    if alternates_path.exists():
+        if alternates_path.is_symlink() or not alternates_path.is_file():
+            raise RuntimeError(f"Invalid Git alternates file: {alternates_path}")
+        existing = [line.strip() for line in alternates_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if fallback_resolved not in existing:
+        write_text_atomically(alternates_path, "\n".join([*existing, fallback_resolved]) + "\n")
+
+    alternate_dirs = [str(objects_dir.resolve()), *[line for line in existing if line != fallback_resolved]]
+    return {
+        "GIT_OBJECT_DIRECTORY": fallback_resolved,
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES": os.pathsep.join(alternate_dirs),
+    }
 
 
 def ensure_repo(config: Config) -> Path | None:
@@ -1156,13 +1221,29 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
     if config.repo_path is None:
         return
 
+    git_extra_env: dict[str, str] | None = None
+
+    def git_run(command: list[str]) -> subprocess.CompletedProcess[str]:
+        nonlocal git_extra_env
+        try:
+            return run(command, cwd=config.repo_path, extra_env=git_extra_env)
+        except RuntimeError as exc:
+            if git_extra_env is None and _git_object_permission_failure(exc):
+                git_extra_env = _git_object_fallback_env(config.repo_path)
+                print(
+                    "Git object directory is not fully writable; retrying with local fallback object store.",
+                    file=sys.stderr,
+                )
+                return run(command, cwd=config.repo_path, extra_env=git_extra_env)
+            raise
+
     try:
         relative_paths = [str(path.relative_to(config.repo_path)) for path in paths]
     except ValueError as exc:
         raise RuntimeError(f"Cannot publish paths not in repository path {config.repo_path!r}") from exc
 
-    run(["git", "add", *relative_paths], cwd=config.repo_path)
-    status = run(["git", "status", "--porcelain", "--", *relative_paths], cwd=config.repo_path)
+    git_run(["git", "add", *relative_paths])
+    status = git_run(["git", "status", "--porcelain", "--", *relative_paths])
     if not status.stdout.strip():
         return
 
@@ -1178,7 +1259,7 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
     push_performed = False
     release_ready = False
 
-    run(
+    git_run(
         [
             "git",
             "-c",
@@ -1188,13 +1269,12 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
             "commit",
             "-m",
             f"Add Wirtelprimpf image: {title}",
-        ],
-        cwd=config.repo_path,
+        ]
     )
 
     if next_patch_count % PUBLISH_PUSH_INTERVAL_PATCHES == 0:
         try:
-            run(["git", "push", "origin", config.repo_branch], cwd=config.repo_path)
+            git_run(["git", "push", "origin", config.repo_branch])
         except RuntimeError as exc:
             write_publish_state(
                 state_path,
