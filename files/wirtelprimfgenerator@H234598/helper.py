@@ -49,6 +49,7 @@ WORKING_DIR_NAME = "working"
 WORKING_IMAGE_NAME = "latest.png"
 WORKING_STORY_NAME = "latest.md"
 WORKING_FULL_STORY_NAME = "Full_Story.md"
+ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
 STOP_REQUESTED = False
 CURRENT_CHILD: Optional[subprocess.Popen[Any]] = None
@@ -103,15 +104,24 @@ def is_relative_to(path: Path, root: Path) -> bool:
         return False
 
 
+def expand_env_vars(value: str, env: Optional[Dict[str, str]]) -> str:
+    if not env:
+        return value
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1) or match.group(2)
+        return str(env.get(name, match.group(0)))
+
+    return ENV_VAR_RE.sub(replace, value)
+
+
 def expand_path(value: Optional[str], base: Optional[Path] = None, env: Optional[Dict[str, str]] = None) -> Optional[Path]:
     if not value:
         return None
     raw = str(value).strip()
     if not raw:
         return None
-    if env is not None:
-        for key, val in env.items():
-            raw = raw.replace("${" + key + "}", val).replace("$" + key, val)
+    raw = expand_env_vars(raw, env)
     raw = os.path.expandvars(os.path.expanduser(raw))
     p = Path(raw)
     if not p.is_absolute() and base is not None:
@@ -198,8 +208,7 @@ def parse_shell_env_file(path: Path) -> Dict[str, str]:
                 value = parts[0] if parts else ""
             except Exception:
                 value = value.strip('"\'')
-            for k, v in {**env, **parsed}.items():
-                value = value.replace("${" + k + "}", v).replace("$" + k, v)
+            value = expand_env_vars(value, {**env, **parsed})
             value = os.path.expandvars(os.path.expanduser(value))
             parsed[key] = value
     except Exception as exc:

@@ -9,6 +9,7 @@ check:
 	$(PYTHON) -m py_compile Sourcecode/wirtelprimpf_generator.py
 	$(PYTHON) -m py_compile files/$(UUID)/helper.py files/$(UUID)/SettingsLogo.py
 	$(PYTHON) tests/test_semver.py
+	$(PYTHON) tests/test_helper_env.py
 	$(PYTHON) tests/test_settings_schema.py
 	@test -f files/$(UUID)/assets/settings-header-logo.png
 	@test -f files/$(UUID)/assets/settings-footer-logo.png
