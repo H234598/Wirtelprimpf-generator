@@ -92,7 +92,9 @@ contains a valid local Git repository.
 Git-Publish policy:
 
 - The runtime version is derived from the SemVer `VERSION` constant plus the
-  generated-image patch count in the publish-state file.
+  generated-image patch offset in the publish-state file.
+- When `VERSION` changes, the generator treats that value as the new SemVer
+  base and starts counting generated-image patches from that point.
 - Patch commits below the internal publish boundary are recorded locally only.
 - Every 100 generated-image commits, the generator attempts the remote push.
 - After 10 successful publish pushes, it emits a release-cadence notice.
@@ -369,6 +371,8 @@ The JSON form can be used for automation and is emitted as one compact object pe
     "gh_available": false,
     "openai_key_present": true,
     "semver_base": "0.6.0",
+    "semver_base_patch_count": 0,
+    "semver_patch_offset": 65,
     "publish_push_count": 0,
     "publish_push_interval_patches": 100,
     "publish_release_push_interval": 10

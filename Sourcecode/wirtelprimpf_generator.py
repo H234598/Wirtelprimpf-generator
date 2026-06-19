@@ -150,6 +150,8 @@ class GenerationPlan:
 class PublishState:
     patch_count: int = 0
     publish_push_count: int = 0
+    semver_base: str = VERSION
+    semver_base_patch_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -197,21 +199,38 @@ def extract_minor_version(version: str) -> str:
 
 def _derive_version_numbers(
     patch_count: int,
+    *,
+    semver_base_patch_count: int = 0,
 ) -> tuple[int, int, int]:
     if patch_count < 0:
         raise ValueError(f"patch_count must be >= 0, got {patch_count!r}")
-    return BASE_VERSION_MAJOR, BASE_VERSION_MINOR, BASE_VERSION_PATCH + patch_count
+    if semver_base_patch_count < 0:
+        raise ValueError(f"semver_base_patch_count must be >= 0, got {semver_base_patch_count!r}")
+    if semver_base_patch_count > patch_count:
+        raise ValueError(
+            f"semver_base_patch_count must be <= patch_count, got {semver_base_patch_count!r} > {patch_count!r}"
+        )
+    patch_offset = patch_count - semver_base_patch_count
+    return BASE_VERSION_MAJOR, BASE_VERSION_MINOR, BASE_VERSION_PATCH + patch_offset
 
 
 def derive_version_from_patch_count(
     patch_count: int,
+    *,
+    semver_base_patch_count: int = 0,
 ) -> str:
-    major_version, minor_version, patch_version = _derive_version_numbers(patch_count)
+    major_version, minor_version, patch_version = _derive_version_numbers(
+        patch_count,
+        semver_base_patch_count=semver_base_patch_count,
+    )
     return f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}"
 
 
-def resolve_runtime_version(*, patch_count: int) -> str:
-    return derive_version_from_patch_count(patch_count)
+def resolve_runtime_version(*, patch_count: int, semver_base_patch_count: int = 0) -> str:
+    return derive_version_from_patch_count(
+        patch_count,
+        semver_base_patch_count=semver_base_patch_count,
+    )
 
 
 def build_status_envelope(
@@ -718,6 +737,8 @@ def read_publish_state(path: Path) -> PublishState:
         raise RuntimeError(f"invalid publish state: patch_count must be a non-boolean integer in {path}: {raw_patch_count!r}")
     patch_count = raw_patch_count
     publish_push_count = payload.get("publish_push_count", payload.get("minor_push_count", 0))
+    semver_base = payload.get("semver_base")
+    raw_semver_base_patch_count = payload.get("semver_base_patch_count", 0)
     if patch_count < 0:
         raise RuntimeError(f"invalid publish state: patch_count must be >= 0 in {path}: {patch_count!r}")
     if (
@@ -728,7 +749,37 @@ def read_publish_state(path: Path) -> PublishState:
         raise RuntimeError(
             f"invalid publish state: publish_push_count must be a non-boolean integer >= 0 in {path}: {publish_push_count!r}"
         )
-    return PublishState(patch_count=patch_count, publish_push_count=publish_push_count)
+    if semver_base is None:
+        semver_base = VERSION
+        semver_base_patch_count = 0
+    elif not isinstance(semver_base, str) or not semver_base.strip():
+        raise RuntimeError(f"invalid publish state: semver_base must be a non-empty string in {path}: {semver_base!r}")
+    elif semver_base != VERSION:
+        semver_base = VERSION
+        semver_base_patch_count = patch_count
+    else:
+        if (
+            not isinstance(raw_semver_base_patch_count, int)
+            or isinstance(raw_semver_base_patch_count, bool)
+            or raw_semver_base_patch_count < 0
+        ):
+            raise RuntimeError(
+                "invalid publish state: semver_base_patch_count must be a non-boolean integer "
+                f">= 0 in {path}: {raw_semver_base_patch_count!r}"
+            )
+        semver_base_patch_count = raw_semver_base_patch_count
+
+    if semver_base_patch_count > patch_count:
+        raise RuntimeError(
+            "invalid publish state: semver_base_patch_count must be <= patch_count in "
+            f"{path}: {semver_base_patch_count!r} > {patch_count!r}"
+        )
+    return PublishState(
+        patch_count=patch_count,
+        publish_push_count=publish_push_count,
+        semver_base=semver_base,
+        semver_base_patch_count=semver_base_patch_count,
+    )
 
 
 def write_publish_state(path: Path, state: PublishState) -> None:
@@ -736,6 +787,8 @@ def write_publish_state(path: Path, state: PublishState) -> None:
         "patch_count": state.patch_count,
         "patch_version": state.patch_count,
         "publish_push_count": state.publish_push_count,
+        "semver_base": state.semver_base,
+        "semver_base_patch_count": state.semver_base_patch_count,
     }
     write_bytes_atomically(path, json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
 
@@ -1119,6 +1172,7 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
     next_patch_count = publish_state.patch_count + 1
     runtime_version = resolve_runtime_version(
         patch_count=next_patch_count,
+        semver_base_patch_count=publish_state.semver_base_patch_count,
     )
     next_publish_push_count = publish_state.publish_push_count
     push_performed = False
@@ -1144,7 +1198,12 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
         except RuntimeError as exc:
             write_publish_state(
                 state_path,
-                PublishState(patch_count=next_patch_count, publish_push_count=next_publish_push_count),
+                PublishState(
+                    patch_count=next_patch_count,
+                    publish_push_count=next_publish_push_count,
+                    semver_base=publish_state.semver_base,
+                    semver_base_patch_count=publish_state.semver_base_patch_count,
+                ),
             )
             raise RuntimeError(
                 f"Publish boundary reached, commit recorded but push failed for {title}: {exc}"
@@ -1155,7 +1214,12 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
 
     write_publish_state(
         state_path,
-        PublishState(patch_count=next_patch_count, publish_push_count=next_publish_push_count),
+        PublishState(
+            patch_count=next_patch_count,
+            publish_push_count=next_publish_push_count,
+            semver_base=publish_state.semver_base,
+            semver_base_patch_count=publish_state.semver_base_patch_count,
+        ),
     )
     if push_performed and release_ready:
         print(
@@ -2120,7 +2184,10 @@ def status_report(config: Config | None = None) -> dict[str, object]:
     if config.repo_path is not None and repo_checks.get("ok", True):
         try:
             publish_state = read_publish_state(publish_state_path(config.repo_path))
-            major_version, minor_version, patch_version = _derive_version_numbers(publish_state.patch_count)
+            major_version, minor_version, patch_version = _derive_version_numbers(
+                publish_state.patch_count,
+                semver_base_patch_count=publish_state.semver_base_patch_count,
+            )
         except Exception as exc:
             report["ok"] = False
             report["status"] = STATUS_ERROR
@@ -2136,6 +2203,9 @@ def status_report(config: Config | None = None) -> dict[str, object]:
                     "patch_count": publish_state.patch_count,
                     "patch_version": patch_version,
                     "publish_push_count": publish_state.publish_push_count,
+                    "semver_base": publish_state.semver_base,
+                    "semver_base_patch_count": publish_state.semver_base_patch_count,
+                    "semver_patch_offset": publish_state.patch_count - publish_state.semver_base_patch_count,
                 }
             )
             report["version"] = f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}"
@@ -2160,7 +2230,10 @@ def publish_state_summary(config: Config) -> dict[str, object] | None:
     except Exception as exc:  # pragma: no cover - defensive path
         return {"publish_state_error": f"Failed to read publish state: {exc}"}
 
-    major_version, minor_version, patch_version = _derive_version_numbers(publish_state.patch_count)
+    major_version, minor_version, patch_version = _derive_version_numbers(
+        publish_state.patch_count,
+        semver_base_patch_count=publish_state.semver_base_patch_count,
+    )
     patches_into_publish_window = publish_state.patch_count % PUBLISH_PUSH_INTERVAL_PATCHES
     patches_until_publish = (
         PUBLISH_PUSH_INTERVAL_PATCHES
@@ -2183,7 +2256,9 @@ def publish_state_summary(config: Config) -> dict[str, object] | None:
         "patch_count": publish_state.patch_count,
         "version": f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}",
         "publish_push_count": publish_state.publish_push_count,
-        "semver_base": VERSION,
+        "semver_base": publish_state.semver_base,
+        "semver_base_patch_count": publish_state.semver_base_patch_count,
+        "semver_patch_offset": publish_state.patch_count - publish_state.semver_base_patch_count,
         "publish_push_interval_patches": PUBLISH_PUSH_INTERVAL_PATCHES,
         "publish_release_push_interval": PUBLISH_RELEASE_PUSH_INTERVAL,
         "patches_until_next_publish": patches_until_publish,

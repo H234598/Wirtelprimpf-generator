@@ -6,7 +6,9 @@ DIST := dist
 check:
 	$(PYTHON) -m json.tool files/$(UUID)/metadata.json >/dev/null
 	$(PYTHON) -m json.tool files/$(UUID)/settings-schema.json >/dev/null
+	$(PYTHON) -m py_compile Sourcecode/wirtelprimpf_generator.py
 	$(PYTHON) -m py_compile files/$(UUID)/helper.py files/$(UUID)/SettingsLogo.py
+	$(PYTHON) tests/test_semver.py
 	@test -f files/$(UUID)/assets/settings-header-logo.png
 	@test -f files/$(UUID)/assets/settings-footer-logo.png
 	@test -f files/$(UUID)/assets/settings-generator-atelier.png

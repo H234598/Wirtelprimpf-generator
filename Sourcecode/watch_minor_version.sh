@@ -1256,7 +1256,34 @@ parsed = re.match(r"^(\d+)\.(\d+)\.(\d+)(.*)$", version)
 if not parsed:
     raise SystemExit(f"invalid version format: {version!r}")
 major_str, minor_str, patch_str, suffix = parsed.groups()
-patch_version = int(patch_str) + state_patch_count
+state_semver_base = None
+state_semver_base_patch_count = 0
+if state_path.exists():
+    state_semver_base = payload.get("semver_base")
+    if state_semver_base is None:
+        state_semver_base_patch_count = 0
+    elif not isinstance(state_semver_base, str) or not state_semver_base.strip():
+        raise SystemExit(f"invalid publish state: semver_base must be a non-empty string in {state_path}: {state_semver_base!r}")
+    elif state_semver_base != version:
+        state_semver_base_patch_count = state_patch_count
+    else:
+        raw_base_patch_count = payload.get("semver_base_patch_count", 0)
+        if (
+            not isinstance(raw_base_patch_count, int)
+            or isinstance(raw_base_patch_count, bool)
+            or raw_base_patch_count < 0
+        ):
+            raise SystemExit(
+                "invalid publish state: semver_base_patch_count must be a non-boolean integer "
+                f">= 0 in {state_path}: {raw_base_patch_count!r}"
+            )
+        state_semver_base_patch_count = raw_base_patch_count
+if state_semver_base_patch_count > state_patch_count:
+    raise SystemExit(
+        "invalid publish state: semver_base_patch_count must be <= patch_count in "
+        f"{state_path}: {state_semver_base_patch_count!r} > {state_patch_count!r}"
+    )
+patch_version = int(patch_str) + (state_patch_count - state_semver_base_patch_count)
 print(f"{major_str}.{minor_str}.{patch_version}{suffix}")
 
 PY
