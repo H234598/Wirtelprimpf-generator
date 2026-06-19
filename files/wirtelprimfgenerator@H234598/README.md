@@ -4,7 +4,7 @@ Cinnamon-Applet für den Output von `H234598/Katzenbilder`: aktuelles Story-Bild
 
 ## Speed-of-Cinnamon-Abgleich
 
-Version `0.3.2` übernimmt die relevanten Produktmuster aus Speed of Cinnamon:
+Version `0.6.0` übernimmt die relevanten Produktmuster aus Speed of Cinnamon:
 
 - responsive Logo in den Cinnamon-Optionen über `SettingsLogo.py` und `assets/settings-*.png`;
 - Settings mit Seiten/Layout, About-Seite, TTS-Engine-Auswahl und Aktionsbuttons;

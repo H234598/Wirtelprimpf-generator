@@ -365,9 +365,5 @@
     "description": "TTS-State zurücksetzen",
     "tooltip": "Löscht nur den gemerkten 'letzte Datei'-State, nicht deine Storydateien.",
     "callback": "_resetTtsStateFromSettings"
-  },
-  "about-version": {
-    "type": "label",
-    "description": "Version: 0.4.0"
   }
 }

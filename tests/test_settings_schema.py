@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import json
 import sys
 import types
 import unittest
@@ -126,6 +127,12 @@ class SettingsSchemaTests(unittest.TestCase):
 
         self.assertEqual(widget.ids, list(OFFICIAL_IMAGE_MODELS))
         self.assertEqual(widget.get_active_id(), "gpt-image-2")
+
+    def test_no_stale_about_version_setting_key(self):
+        schema_path = ROOT / "files" / "wirtelprimfgenerator@H234598" / "settings-schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        self.assertNotIn("about-version", schema)
 
 
 if __name__ == "__main__":
