@@ -22,7 +22,6 @@ ABOUT_IMAGE_CHOICES = {
 }
 IMAGE_MODEL_CHOICES = (
     "gpt-image-2",
-    "gpt-image-2-2026-04-21",
     "gpt-image-1.5",
     "gpt-image-1",
     "gpt-image-1-mini",
