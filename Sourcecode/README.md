@@ -7,7 +7,7 @@ secrets.
 The generator creates one Wirtelprimpf-style cat image with the OpenAI Images
 API, writes the PNG and prompt text file to a local output directory, and can
 optionally copy both files into a Git repository folder, commit every patch,
-and push only when a configured minor boundary is reached.
+and push only when the internal publish boundary is reached.
 
 ## Files
 
@@ -18,7 +18,7 @@ and push only when a configured minor boundary is reached.
 - `env.example`: documented environment variables.
 - `requirements.txt`: Python dependency list.
 - `systemd-user/wirtelprimpf.service`: optional user service template.
-- `systemd-user/wirtelprimpf.timer`: optional hourly timer template.
+- `systemd-user/wirtelprimpf.timer`: optional two-hour timer template.
 
 ## Requirements
 
@@ -74,25 +74,12 @@ WIRTELPRIMPF_REPO_SUBDIR=Wirtelprimpf
 WIRTELPRIMPF_REPO_BRANCH=main
 WIRTELPRIMPF_GIT_AUTHOR_NAME="Wirtelprimpf Bot"
 WIRTELPRIMPF_GIT_AUTHOR_EMAIL=wirtelprimpf@example.invalid
-WIRTELPRIMPF_PATCHES_PER_MINOR=100
-WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE=10
-WIRTELPRIMPF_MAJOR_VERSION_BUMP=0
-WIRTELPRIMPF_BREAKING_CHANGE=false
-
-# Optional: local publishing policy for commit cadence.
-# Default behavior in this repository documentation:
-# - every patch change is committed
-# - patch number equals patch count inside the current minor window
-#   (after each commit: .1, .2, ... .99, .100)
-# - exactly every 100 committed patches, minor increases by 1
-# - exactly every 100 minor increases, major increases by 1
-# - patch commits below the minor boundary stay local and are not pushed
-# - push only at the 100-patch minor boundary
-# - release is prepared every 10 minor pushes
-# - for breaking changes or new API features, bump major manually
-# - configure WIRTELPRIMPF_MAJOR_VERSION_BUMP=N to add a manual major offset
-#
-# Every committed patch is also the patch version number.
+# Versioning follows SemVer:
+# - VERSION in wirtelprimpf_generator.py is the SemVer base.
+# - every committed generated image increments the patch component
+# - major/minor changes are made deliberately by changing VERSION
+# - patch commits below the internal publish boundary stay local
+# - the generator attempts a remote push every 100 generated-image commits
 ```
 
 If `WIRTELPRIMPF_REPO_PATH` is unset, the generator creates local files only
@@ -104,17 +91,11 @@ contains a valid local Git repository.
 
 Git-Publish policy:
 
-- `WIRTELPRIMPF_PATCHES_PER_MINOR` is fixed to `100`; the runtime
-  rejects any other value.
-- `WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE` controls how many pushed minor
-  boundaries should be grouped before a release should be prepared. Default:
-  `10`.
-- Set `WIRTELPRIMPF_BREAKING_CHANGE=true` (or `on`/`1`) for a one-time major
-  bump on this execution (in addition to `WIRTELPRIMPF_MAJOR_VERSION_BUMP`).
-
-Patch commits below the minor boundary are recorded locally only. At the
-100-patch minor boundary, the generator attempts the remote push and advances
-the minor-push counter; after 10 minor pushes it emits a release-cadence notice.
+- The runtime version is derived from the SemVer `VERSION` constant plus the
+  generated-image patch count in the publish-state file.
+- Patch commits below the internal publish boundary are recorded locally only.
+- Every 100 generated-image commits, the generator attempts the remote push.
+- After 10 successful publish pushes, it emits a release-cadence notice.
 
 Runtime state is stored in:
 
@@ -180,7 +161,7 @@ output, so they point at the newest story image/prompt/story triplet.
 
 `story` loads the second Markdown config, randomly picks one line from each
 category, reads the last 10 entries from the story document, generates the next
-one-hour story part, then generates an image prompt for that part. The first
+two-hour story part, then generates an image prompt for that part. The first
 part of a new story document targets about one full DIN-A4 page; later parts
 target about half a DIN-A4 page. When there is no previous story entry, the
 text prompt also receives one temporary high-level story direction for the
@@ -264,11 +245,11 @@ set +a
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py
 ```
 
-### Wiederhol-Checks bei Minor-Version-Sprung
+### Wiederhol-Checks bei Versionssprung
 
 Für den gewünschten Ablauf:
 
-- Warten auf `major.minor`-Änderung von `VERSION` in `wirtelprimpf_generator.py`
+- Warten auf eine aus `VERSION` plus Publish-State abgeleitete SemVer-Änderung
 - Bei Änderung: kompletten Check-Block einmal ausführen
 - Danach weiter in den Wartezustand gehen (`repeat`)
 
@@ -304,8 +285,9 @@ Ein einmaliger Check kann auch unabhängig laufen:
 
 `check_wirtelprimpf.sh` verwendet temporäre Dateien mit automatischer Aufräumung.
 
-`watch_minor_version.sh` beobachtet den in der Generator-Logik berechneten Minor-Release-Fortschritt.
-Standard ist: 100 Patches -> minor+, 100 Minors -> major+ (mit Patch-Suffix/Prefix).
+`watch_minor_version.sh` beobachtet dieselbe SemVer-Ableitung wie der Generator.
+Standard ist: `VERSION` liefert Major/Minor/Basis-Patch, der Publish-State addiert
+den generierten Patch-Zähler.
 
 Fehlertoleranzverhalten:
 - Der Watcher beendet sich mit `exit 1`, wenn keine nutzbare Python-Interpretation gefunden wird.
@@ -346,7 +328,7 @@ systemctl --user status wirtelprimpf-version-watch.timer --no-pager
 
 Der Dienst läuft im Dauermodus:
 - Ein einzelner Watcher-Prozess hält exklusiv den Lock.
-- Bei jeder erkannten Minor-Änderung wird genau ein Check-Block ausgeführt.
+- Bei jeder erkannten Versionsänderung wird genau ein Check-Block ausgeführt.
 - Danach kehrt er in das Intervall zurück.
 
 Validation helpers:
@@ -377,7 +359,7 @@ The JSON form can be used for automation and is emitted as one compact object pe
 ```json
 {
   "ok": true,
-  "version": "0.5.6-hardening",
+  "version": "0.6.65",
   "timestamp": "2026-06-02T19:23:00Z",
   "mode": "status",
   "status": "ok",
@@ -386,9 +368,10 @@ The JSON form can be used for automation and is emitted as one compact object pe
     "git_available": true,
     "gh_available": false,
     "openai_key_present": true,
-    "major_version_bump": 0,
-    "breaking_change": false,
-    "effective_major_version_base": 0
+    "semver_base": "0.6.0",
+    "publish_push_count": 0,
+    "publish_push_interval_patches": 100,
+    "publish_release_push_interval": 10
   },
   "checks": [
     {"name": "prompt_config_file", "ok": true, "path": "..."},
@@ -430,7 +413,7 @@ line in its text output.
 - `1`: unrecoverable setup/configuration failure for execution paths (invalid config, repo/path issues, or missing API key when generation is attempted)
 - `2`: partial failure (one or more prompts/images failed, but at least one succeeded)
 
-## Hourly Timer
+## Two-hour Timer
 
 ```bash
 systemctl --user daemon-reload

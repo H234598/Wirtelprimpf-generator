@@ -3,12 +3,35 @@
 import os
 import json
 import random
+import re
 import subprocess
 import threading
 import urllib.request
 
 from JsonSettingsWidgets import SettingsWidget
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+
+
+GENERATOR_IMAGE_CHOICES = {
+    "atelier": "settings-generator-atelier.png",
+    "machine": "settings-generator-machine.png",
+}
+ABOUT_IMAGE_CHOICES = {
+    "story": "settings-about-story.png",
+    "book": "settings-about-book.png",
+}
+IMAGE_MODEL_CHOICES = (
+    "gpt-image-2",
+    "gpt-image-2-2026-04-21",
+    "gpt-image-1.5",
+    "gpt-image-1",
+    "gpt-image-1-mini",
+)
+
+
+def _choice_asset(choices, value, default_key):
+    selected = (value or default_key).strip()
+    return choices.get(selected, choices[default_key])
 
 
 class _ResponsiveLogo(SettingsWidget):
@@ -30,8 +53,7 @@ class _ResponsiveLogo(SettingsWidget):
         self._source_pixbuf = None
         self._scaled_pixbuf = None
         self._drawing_area = None
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        logo_path = os.path.join(base_dir, "assets", self.asset_name)
+        self._base_dir = os.path.dirname(os.path.abspath(__file__))
 
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         box.set_halign(Gtk.Align.FILL)
@@ -39,7 +61,7 @@ class _ResponsiveLogo(SettingsWidget):
         box.set_tooltip_text("Open the Katzenbilder GitHub repository")
 
         try:
-            self._source_pixbuf = GdkPixbuf.Pixbuf.new_from_file(logo_path)
+            self._source_pixbuf = self._load_source_pixbuf()
             self._drawing_area = Gtk.DrawingArea()
             self._drawing_area.set_halign(Gtk.Align.FILL)
             self._drawing_area.set_hexpand(True)
@@ -62,6 +84,25 @@ class _ResponsiveLogo(SettingsWidget):
 
         self.content_widget = event_box
         self.pack_start(event_box, True, True, 0)
+
+    def _asset_path(self):
+        return os.path.join(self._base_dir, "assets", self.asset_name)
+
+    def _load_source_pixbuf(self):
+        return GdkPixbuf.Pixbuf.new_from_file(self._asset_path())
+
+    def _reload_source_pixbuf(self):
+        if self._drawing_area is None:
+            return
+        try:
+            self._source_pixbuf = self._load_source_pixbuf()
+        except Exception:
+            return
+        self._scaled_pixbuf = None
+        self._last_render_size = (0, 0)
+        allocation = self._drawing_area.get_allocation()
+        self._set_render_width(allocation.width or 720)
+        self._drawing_area.queue_draw()
 
     def _open_project_repository(self, *_args):
         try:
@@ -128,6 +169,37 @@ class FooterLogo(_ResponsiveLogo):
     top_margin = 18
     bottom_margin = 0
     max_height = 110
+
+
+class _ConfigurableImage(_ResponsiveLogo):
+    setting_key = ""
+    default_key = ""
+    choices = {}
+    top_margin = 8
+    bottom_margin = 16
+    max_height = 170
+
+    def __init__(self, info, key, settings):
+        self.settings = settings
+        self.asset_name = _choice_asset(self.choices, settings.get_value(self.setting_key), self.default_key)
+        _ResponsiveLogo.__init__(self, info, key, settings)
+        settings.listen(self.setting_key, self._on_choice_changed)
+
+    def _on_choice_changed(self, _key, value):
+        self.asset_name = _choice_asset(self.choices, value, self.default_key)
+        self._reload_source_pixbuf()
+
+
+class GeneratorImage(_ConfigurableImage):
+    setting_key = "generator-image-choice"
+    default_key = "atelier"
+    choices = GENERATOR_IMAGE_CHOICES
+
+
+class AboutImage(_ConfigurableImage):
+    setting_key = "about-image-choice"
+    default_key = "story"
+    choices = ABOUT_IMAGE_CHOICES
 
 
 class AboutWirtelprimpf(SettingsWidget):
@@ -660,11 +732,7 @@ class GeneratorConfigEditor(SettingsWidget):
         ("WIRTELPRIMPF_REPO_BRANCH", "Repo-Branch", "entry", ()),
         ("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Git Autor Name", "entry", ()),
         ("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "Git Autor Mail", "entry", ()),
-        ("WIRTELPRIMPF_MAJOR_VERSION_BUMP", "Major-Version-Sprung", "entry", ()),
-        ("WIRTELPRIMPF_BREAKING_CHANGE", "Breaking Change", "combo", ("false", "true")),
-        ("WIRTELPRIMPF_PATCHES_PER_MINOR", "Patches pro Minor", "entry", ()),
-        ("WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE", "Minor Pushes pro Release", "entry", ()),
-        ("WIRTELPRIMPF_IMAGE_MODEL", "Bildmodell", "entry", ()),
+        ("WIRTELPRIMPF_IMAGE_MODEL", "Bildmodell", "combo", IMAGE_MODEL_CHOICES),
         ("WIRTELPRIMPF_IMAGE_SIZE", "Bildgroesse", "entry", ()),
         ("WIRTELPRIMPF_FLEX_PROCESSING", "Flex Processing", "combo", ("on", "off", "flex")),
         ("WIRTELPRIMPF_OPERANDI", "Modus", "combo", ("story", "classic", "both")),
@@ -685,27 +753,23 @@ class GeneratorConfigEditor(SettingsWidget):
     defaults = {
         "WIRTELPRIMPF_REPO_SLUG": "H234598/Katzenbilder",
         "WIRTELPRIMPF_REPO_BRANCH": "main",
-        "WIRTELPRIMPF_MAJOR_VERSION_BUMP": "0",
-        "WIRTELPRIMPF_BREAKING_CHANGE": "false",
-        "WIRTELPRIMPF_PATCHES_PER_MINOR": "25",
-        "WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE": "5",
-        "WIRTELPRIMPF_IMAGE_MODEL": "gpt-image-1",
-        "WIRTELPRIMPF_IMAGE_SIZE": "1024x1536",
+        "WIRTELPRIMPF_IMAGE_MODEL": "gpt-image-2",
+        "WIRTELPRIMPF_IMAGE_SIZE": "1536x1024",
         "WIRTELPRIMPF_FLEX_PROCESSING": "on",
         "WIRTELPRIMPF_OPERANDI": "story",
-        "WIRTELPRIMPF_STORY_MODEL": "gpt-5",
+        "WIRTELPRIMPF_STORY_MODEL": "gpt-5-mini",
         "WIRTELPRIMPF_STORY_FINISH": "false",
-        "WIRTELPRIMPF_STORY_FINISH_PARTS_MIN": "8",
-        "WIRTELPRIMPF_STORY_FINISH_PARTS_MAX": "16",
-        "WIRTELPRIMPF_OUTPUT_RESOLUTION": "4k",
+        "WIRTELPRIMPF_STORY_FINISH_PARTS_MIN": "3",
+        "WIRTELPRIMPF_STORY_FINISH_PARTS_MAX": "5",
+        "WIRTELPRIMPF_OUTPUT_RESOLUTION": "2k",
         "SLEEP_SECONDS": "300",
-        "DEFAULT_RETRY_DELAY_SECONDS": "60",
+        "DEFAULT_RETRY_DELAY_SECONDS": "5",
         "MAX_STALE_LOCK_SECONDS": "900",
     }
 
     systemd_fields = (
         ("generator_timer_enabled", "Generator-Timer aktiv", "switch", "true"),
-        ("generator_on_calendar", "Generator OnCalendar", "entry", "hourly"),
+        ("generator_interval_minutes", "Generator-Intervall (Minuten)", "minutes", "120"),
         ("generator_randomized_delay", "Generator RandomizedDelaySec", "entry", "120"),
         ("generator_persistent", "Generator Persistent", "switch", "true"),
         ("watch_timer_enabled", "Watch-Timer aktiv", "switch", "true"),
@@ -802,6 +866,11 @@ class GeneratorConfigEditor(SettingsWidget):
             switch = Gtk.Switch()
             switch.set_halign(Gtk.Align.START)
             return switch
+        if kind == "minutes":
+            spin = Gtk.SpinButton.new_with_range(1, 10080, 1)
+            spin.set_numeric(True)
+            spin.set_hexpand(True)
+            return spin
         entry = Gtk.Entry()
         entry.set_hexpand(True)
         if kind == "secret":
@@ -818,6 +887,8 @@ class GeneratorConfigEditor(SettingsWidget):
                 widget.set_active_id(value)
         elif isinstance(widget, Gtk.Switch):
             widget.set_active(value.lower() in ("1", "yes", "true", "on"))
+        elif isinstance(widget, Gtk.SpinButton):
+            widget.set_value(self._minutes_value(value, 120))
         else:
             widget.set_text(value)
 
@@ -826,7 +897,59 @@ class GeneratorConfigEditor(SettingsWidget):
             return widget.get_active_id() or ""
         if isinstance(widget, Gtk.Switch):
             return "true" if widget.get_active() else "false"
+        if isinstance(widget, Gtk.SpinButton):
+            return str(int(widget.get_value()))
         return widget.get_text()
+
+    def _minutes_value(self, value, default):
+        text = "" if value is None else str(value).strip().lower()
+        if not text:
+            return int(default)
+        units = (
+            ("min", 1),
+            ("m", 1),
+            ("h", 60),
+            ("d", 1440),
+            ("s", 1 / 60),
+        )
+        for suffix, multiplier in units:
+            if text.endswith(suffix):
+                number = text[: -len(suffix)].strip()
+                try:
+                    minutes = float(number) * multiplier
+                except ValueError:
+                    return int(default)
+                return max(1, int(round(minutes)))
+        try:
+            return max(1, int(text))
+        except ValueError:
+            return int(default)
+
+    def _timer_interval_minutes(self):
+        dropin_value = self._read_timer_dropin_value("OnUnitActiveSec")
+        if dropin_value:
+            return str(self._minutes_value(dropin_value, 120))
+        monotonic = self._systemctl_show("wirtelprimpf.timer", "TimersMonotonic")
+        match = None
+        if monotonic:
+            match = re.search(r"OnUnitActiveUSec=([^;]+)", monotonic)
+        if match:
+            return str(self._minutes_value(match.group(1), 120))
+        return "120"
+
+    def _read_timer_dropin_value(self, name):
+        path = os.path.join(self.systemd_user_dir, "wirtelprimpf.timer.d", "override.conf")
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if line.startswith(name + "="):
+                        return line.split("=", 1)[1].strip()
+        except FileNotFoundError:
+            return ""
+        except Exception:
+            return ""
+        return ""
 
     def _read_env_file(self):
         values = {}
@@ -879,7 +1002,7 @@ class GeneratorConfigEditor(SettingsWidget):
         return {
             "generator_timer_enabled": self._unit_enabled("wirtelprimpf.timer"),
             "watch_timer_enabled": self._unit_enabled("wirtelprimpf-version-watch.timer"),
-            "generator_on_calendar": self._systemctl_show("wirtelprimpf.timer", "OnCalendar") or "hourly",
+            "generator_interval_minutes": self._timer_interval_minutes(),
             "generator_randomized_delay": self._systemctl_show("wirtelprimpf.timer", "RandomizedDelayUSec").replace("us", "") or "120",
             "generator_persistent": self._systemctl_show("wirtelprimpf.timer", "Persistent") or "true",
             "watch_on_boot": self._systemctl_show("wirtelprimpf-version-watch.timer", "OnBootUSec").replace("us", "") or "1min",
@@ -924,7 +1047,10 @@ class GeneratorConfigEditor(SettingsWidget):
                 [
                     "[Timer]",
                     "OnCalendar=",
-                    "OnCalendar=%s" % sysvals.get("generator_on_calendar", "hourly"),
+                    "OnBootSec=",
+                    "OnUnitActiveSec=",
+                    "OnBootSec=%smin" % self._minutes_value(sysvals.get("generator_interval_minutes"), 120),
+                    "OnUnitActiveSec=%smin" % self._minutes_value(sysvals.get("generator_interval_minutes"), 120),
                     "RandomizedDelaySec=%s" % sysvals.get("generator_randomized_delay", "120"),
                     "Persistent=%s" % sysvals.get("generator_persistent", "true"),
                     "",

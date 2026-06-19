@@ -2,7 +2,7 @@
   "uuid": "wirtelprimfgenerator@H234598",
   "name": "Wirtelprimfgenerator Story Menu",
   "description": "Repo-aware Cinnamon applet for H234598/Katzenbilder: latest Wirtelprimpf images, story files, story parts and TTS reading state.",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "comments": "Version: 0.3.2",
   "icon": "image-x-generic",
   "author": "H234598",

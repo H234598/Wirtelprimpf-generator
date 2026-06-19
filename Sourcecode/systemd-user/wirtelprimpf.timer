@@ -1,8 +1,9 @@
 [Unit]
-Description=Generate a Wirtelprimpf image every hour
+Description=Generate a Wirtelprimpf image every two hours
 
 [Timer]
-OnCalendar=hourly
+OnBootSec=120min
+OnUnitActiveSec=120min
 Persistent=true
 RandomizedDelaySec=120
 

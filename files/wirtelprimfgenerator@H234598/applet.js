@@ -14,6 +14,11 @@ const Main = imports.ui.main;
 
 const UUID = "wirtelprimfgenerator@H234598";
 const DEFAULT_GITHUB_URL = "https://github.com/H234598/Katzenbilder";
+const PANEL_ICON_FILES = {
+    "orbit": "panel-icon.png",
+    "moon": "panel-icon-moon.png",
+    "spark": "panel-icon-spark.png"
+};
 
 function _(s) { return s; }
 
@@ -31,7 +36,6 @@ WirtelApplet.prototype = {
         this.instanceId = instanceId;
         this.appletDir = this.metadata.path || (GLib.get_home_dir() + "/.local/share/cinnamon/applets/" + UUID);
         this.helperPath = GLib.build_filenamev([this.appletDir, "helper.py"]);
-        this.iconPath = GLib.build_filenamev([this.appletDir, "assets", "panel-icon.png"]);
         this.stateDir = GLib.build_filenamev([GLib.get_home_dir(), ".local", "state", "wirtelprimfgenerator-applet"]);
 
         this.outputDir = "";
@@ -49,6 +53,7 @@ WirtelApplet.prototype = {
         this.showPanelLabel = true;
         this.notifyErrors = true;
         this.githubUrl = DEFAULT_GITHUB_URL;
+        this.panelIconChoice = "orbit";
 
         this._scanInProgress = false;
         this._lastScan = null;
@@ -95,6 +100,7 @@ WirtelApplet.prototype = {
         bind("show-panel-label", "showPanelLabel");
         bind("notify-errors", "notifyErrors");
         bind("github-url", "githubUrl");
+        bind("panel-icon-choice", "panelIconChoice");
     },
 
     _onSettingsChanged: function() {
@@ -119,14 +125,20 @@ WirtelApplet.prototype = {
     },
 
     _setIdlePresentation: function() {
+        let iconPath = this._panelIconPath();
         try {
-            if (GLib.file_test(this.iconPath, GLib.FileTest.EXISTS)) this.set_applet_icon_path(this.iconPath);
+            if (GLib.file_test(iconPath, GLib.FileTest.EXISTS)) this.set_applet_icon_path(iconPath);
             else this.set_applet_icon_symbolic_name("image-x-generic");
         } catch (e) {
             this.set_applet_icon_symbolic_name("image-x-generic");
         }
         this.set_applet_label(this.showPanelLabel ? "WP" : "");
         this.set_applet_tooltip(_("Wirtelprimfgenerator"));
+    },
+
+    _panelIconPath: function() {
+        let iconFile = PANEL_ICON_FILES[this.panelIconChoice] || PANEL_ICON_FILES["orbit"];
+        return GLib.build_filenamev([this.appletDir, "assets", iconFile]);
     },
 
     _setReading: function(reading) {

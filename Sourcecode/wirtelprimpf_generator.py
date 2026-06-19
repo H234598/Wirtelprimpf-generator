@@ -111,12 +111,10 @@ ENV_BLACKLIST: Final = frozenset(
 OPENAI_ENV_PREFIXES: Final = ("OPENAI_", "AZURE_OPENAI_")
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.5.42-hardening"
+VERSION: Final = "0.6.0"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
-DEFAULT_PATCHES_PER_MINOR: Final = 100
-PATCHES_PER_MINOR_FOR_MINOR: Final = DEFAULT_PATCHES_PER_MINOR
-MINORS_PER_MAJOR: Final = 100
-DEFAULT_MINOR_PUSHES_PER_RELEASE: Final = 10
+PUBLISH_PUSH_INTERVAL_PATCHES: Final = 100
+PUBLISH_RELEASE_PUSH_INTERVAL: Final = 10
 STATUS_OK: Final = "ok"
 STATUS_ERROR: Final = "error"
 MODE_STATUS: Final = "status"
@@ -151,7 +149,7 @@ class GenerationPlan:
 @dataclass(frozen=True)
 class PublishState:
     patch_count: int = 0
-    minor_push_count: int = 0
+    publish_push_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -163,15 +161,15 @@ class StoryState:
     close_request_seen: bool = False
 
 
-def _parse_version_base(version: str) -> tuple[int, int, str]:
+def _parse_version_base(version: str) -> tuple[int, int, int, str]:
     m = re.match(r"^(\d+)\.(\d+)\.(\d+)(.*)$", version.strip())
     if not m:
         raise RuntimeError(f"Invalid VERSION value: {version!r}")
-    major, minor, _patch, suffix = m.groups()
-    return int(major), int(minor), suffix
+    major, minor, patch, suffix = m.groups()
+    return int(major), int(minor), int(patch), suffix
 
 
-BASE_VERSION_MAJOR, BASE_VERSION_MINOR, VERSION_SUFFIX = _parse_version_base(VERSION)
+BASE_VERSION_MAJOR, BASE_VERSION_MINOR, BASE_VERSION_PATCH, VERSION_SUFFIX = _parse_version_base(VERSION)
 
 
 def format_json(value: object, *, compact: bool = False, indent: int = 2) -> str:
@@ -199,58 +197,21 @@ def extract_minor_version(version: str) -> str:
 
 def _derive_version_numbers(
     patch_count: int,
-    *,
-    patches_per_minor: int = DEFAULT_PATCHES_PER_MINOR,
-    minors_per_major: int = MINORS_PER_MAJOR,
-    major_version_base: int = BASE_VERSION_MAJOR,
 ) -> tuple[int, int, int]:
     if patch_count < 0:
         raise ValueError(f"patch_count must be >= 0, got {patch_count!r}")
-    if patches_per_minor <= 0:
-        raise ValueError(f"patches_per_minor must be > 0, got {patches_per_minor!r}")
-    if patches_per_minor != DEFAULT_PATCHES_PER_MINOR:
-        raise ValueError(
-            f"patches_per_minor must remain {DEFAULT_PATCHES_PER_MINOR}, got {patches_per_minor!r}"
-        )
-    if minors_per_major <= 0:
-        raise ValueError(f"minors_per_major must be > 0, got {minors_per_major!r}")
-
-    if patch_count == 0:
-        return major_version_base, BASE_VERSION_MINOR, 0
-
-    patch_version = patch_count % patches_per_minor
-    if patch_version == 0:
-        patch_version = PATCHES_PER_MINOR_FOR_MINOR
-
-    minor_increments = patch_count // patches_per_minor
-    major_addition, minor_offset = divmod(BASE_VERSION_MINOR + minor_increments, minors_per_major)
-    major_version = major_version_base + major_addition
-    return major_version, minor_offset, patch_version
+    return BASE_VERSION_MAJOR, BASE_VERSION_MINOR, BASE_VERSION_PATCH + patch_count
 
 
 def derive_version_from_patch_count(
     patch_count: int,
-    *,
-    patches_per_minor: int = DEFAULT_PATCHES_PER_MINOR,
-    minors_per_major: int = MINORS_PER_MAJOR,
-    major_version_base: int = BASE_VERSION_MAJOR,
 ) -> str:
-    major_version, minor_version, patch_version = _derive_version_numbers(
-        patch_count,
-        patches_per_minor=patches_per_minor,
-        minors_per_major=minors_per_major,
-        major_version_base=major_version_base,
-    )
+    major_version, minor_version, patch_version = _derive_version_numbers(patch_count)
     return f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}"
 
 
-def resolve_runtime_version(*, patch_count: int, patches_per_minor: int, major_version_base: int) -> str:
-    return derive_version_from_patch_count(
-        patch_count,
-        patches_per_minor=patches_per_minor,
-        minors_per_major=MINORS_PER_MAJOR,
-        major_version_base=major_version_base,
-    )
+def resolve_runtime_version(*, patch_count: int) -> str:
+    return derive_version_from_patch_count(patch_count)
 
 
 def build_status_envelope(
@@ -756,25 +717,25 @@ def read_publish_state(path: Path) -> PublishState:
     if not isinstance(raw_patch_count, int) or isinstance(raw_patch_count, bool):
         raise RuntimeError(f"invalid publish state: patch_count must be a non-boolean integer in {path}: {raw_patch_count!r}")
     patch_count = raw_patch_count
-    minor_push_count = payload.get("minor_push_count", 0)
+    publish_push_count = payload.get("publish_push_count", payload.get("minor_push_count", 0))
     if patch_count < 0:
         raise RuntimeError(f"invalid publish state: patch_count must be >= 0 in {path}: {patch_count!r}")
     if (
-        not isinstance(minor_push_count, int)
-        or isinstance(minor_push_count, bool)
-        or minor_push_count < 0
+        not isinstance(publish_push_count, int)
+        or isinstance(publish_push_count, bool)
+        or publish_push_count < 0
     ):
         raise RuntimeError(
-            f"invalid publish state: minor_push_count must be a non-boolean integer >= 0 in {path}: {minor_push_count!r}"
+            f"invalid publish state: publish_push_count must be a non-boolean integer >= 0 in {path}: {publish_push_count!r}"
         )
-    return PublishState(patch_count=patch_count, minor_push_count=minor_push_count)
+    return PublishState(patch_count=patch_count, publish_push_count=publish_push_count)
 
 
 def write_publish_state(path: Path, state: PublishState) -> None:
     payload = {
         "patch_count": state.patch_count,
         "patch_version": state.patch_count,
-        "minor_push_count": state.minor_push_count,
+        "publish_push_count": state.publish_push_count,
     }
     write_bytes_atomically(path, json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
 
@@ -930,10 +891,6 @@ def publish_state_path(repo_path: Path) -> Path:
     return repo_path / ".git" / PUBLISH_STATE_FILE
 
 
-def effective_major_version_base(config: Config) -> int:
-    return BASE_VERSION_MAJOR + config.major_version_bump + (1 if config.breaking_change else 0)
-
-
 @dataclass(frozen=True)
 class Config:
     local_outdir: Path
@@ -957,10 +914,6 @@ class Config:
     story_finish_parts_max: int
     commit_author_name: str
     commit_author_email: str
-    major_version_bump: int
-    breaking_change: bool
-    patches_per_minor: int
-    minor_pushes_per_release: int
 
 
 def load_config() -> Config:
@@ -1031,33 +984,7 @@ def load_config() -> Config:
         commit_author_name=env("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Wirtelprimpf Bot") or "Wirtelprimpf Bot",
         commit_author_email=env("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "wirtelprimpf@example.invalid")
         or "wirtelprimpf@example.invalid",
-        major_version_bump=parse_non_negative_int(
-            "WIRTELPRIMPF_MAJOR_VERSION_BUMP",
-            env("WIRTELPRIMPF_MAJOR_VERSION_BUMP"),
-            default=0,
-        ),
-        breaking_change=parse_bool_flag(
-            "WIRTELPRIMPF_BREAKING_CHANGE",
-            env("WIRTELPRIMPF_BREAKING_CHANGE"),
-            default=False,
-        ),
-        patches_per_minor=parse_patches_per_minor(
-            "WIRTELPRIMPF_PATCHES_PER_MINOR",
-            env("WIRTELPRIMPF_PATCHES_PER_MINOR"),
-        ),
-        minor_pushes_per_release=parse_positive_int(
-            "WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE",
-            env("WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE"),
-            default=DEFAULT_MINOR_PUSHES_PER_RELEASE,
-        ),
     )
-
-
-def parse_patches_per_minor(name: str, value: str | None) -> int:
-    parsed = parse_positive_int(name, value, default=DEFAULT_PATCHES_PER_MINOR)
-    if parsed != DEFAULT_PATCHES_PER_MINOR:
-        raise RuntimeError(f"Invalid {name} value: {value!r}. Expected {DEFAULT_PATCHES_PER_MINOR}")
-    return parsed
 
 
 def parse_operandi(value: str | None) -> str:
@@ -1192,10 +1119,8 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
     next_patch_count = publish_state.patch_count + 1
     runtime_version = resolve_runtime_version(
         patch_count=next_patch_count,
-        patches_per_minor=config.patches_per_minor,
-        major_version_base=effective_major_version_base(config),
     )
-    next_minor_push_count = publish_state.minor_push_count
+    next_publish_push_count = publish_state.publish_push_count
     push_performed = False
     release_ready = False
 
@@ -1213,32 +1138,32 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
         cwd=config.repo_path,
     )
 
-    if next_patch_count % config.patches_per_minor == 0:
+    if next_patch_count % PUBLISH_PUSH_INTERVAL_PATCHES == 0:
         try:
             run(["git", "push", "origin", config.repo_branch], cwd=config.repo_path)
         except RuntimeError as exc:
             write_publish_state(
                 state_path,
-                PublishState(patch_count=next_patch_count, minor_push_count=next_minor_push_count),
+                PublishState(patch_count=next_patch_count, publish_push_count=next_publish_push_count),
             )
             raise RuntimeError(
-                f"Minor boundary reached, commit recorded but push failed for {title}: {exc}"
+                f"Publish boundary reached, commit recorded but push failed for {title}: {exc}"
             ) from exc
         push_performed = True
-        next_minor_push_count += 1
-        release_ready = next_minor_push_count % config.minor_pushes_per_release == 0
+        next_publish_push_count += 1
+        release_ready = next_publish_push_count % PUBLISH_RELEASE_PUSH_INTERVAL == 0
 
     write_publish_state(
         state_path,
-        PublishState(patch_count=next_patch_count, minor_push_count=next_minor_push_count),
+        PublishState(patch_count=next_patch_count, publish_push_count=next_publish_push_count),
     )
     if push_performed and release_ready:
         print(
-            f"Release cadence reached: {config.minor_pushes_per_release} minor pushes. "
+            f"Release cadence reached: {PUBLISH_RELEASE_PUSH_INTERVAL} publish pushes. "
             "Consider creating a release now."
         )
     print(
-        f"version={runtime_version} patches_committed={next_patch_count} minor_pushes={next_minor_push_count} "
+        f"version={runtime_version} patches_committed={next_patch_count} publish_pushes={next_publish_push_count} "
         f"pushed={push_performed}"
     )
 
@@ -1726,7 +1651,7 @@ def build_story_text_prompt(story_config: str, recent_entries: list[str], closin
     initial_direction_block = initial_story_direction_block(recent_entries)
     entry_target = STORY_ENTRY_TARGET if recent_entries else STORY_FIRST_ENTRY_TARGET
     return (
-        "Schreibe den naechsten stuendlichen Teil einer endlos fortlaufenden Geschichte.\n"
+        "Schreibe den naechsten Teil einer endlos fortlaufenden Geschichte im aktuellen Generierungstakt.\n"
         "Hauptfiguren sind zwei Hauskatzen, eine Moehre und eine Maus. Jede Folge deckt genau eine Stunde Handlung ab.\n"
         f"Der neue Eintrag soll {entry_target} fuellen, auf Deutsch sein und als Markdown ohne H1 beginnen.\n"
         "Schreibe als lebendige Prosa mit Tempo, Witz, Waerme und konkreten Bildern; kein Drehbuch, keine Szenenanweisungen, keine Dialogliste.\n"
@@ -1823,7 +1748,7 @@ def build_story_plans(config: Config, now: datetime, client: OpenAI | None, *, d
     recent_entries = load_recent_story_entries(story_document_path)
     if dry_run:
         story_part = (
-            "DRY-RUN: Hier wuerde der naechste einstuendige Teil der fortlaufenden Geschichte stehen. "
+            "DRY-RUN: Hier wuerde der naechste Teil der fortlaufenden Geschichte stehen. "
             "Der echte Lauf nutzt die letzten Eintraege und die zufaellig gezogenen Regeln aus der zweiten Markdown-Konfig."
         )
         if closing_instruction:
@@ -1962,8 +1887,12 @@ def emit_summary(
 ) -> None:
     if args.json:
         ok = summary.exit_code == 0
+        version = VERSION
+        if isinstance(details, dict) and isinstance(details.get("version"), str):
+            version = details["version"]
         payload = build_status_envelope(
             ok=ok,
+            version=version,
             mode=mode,
             status=STATUS_OK if ok else STATUS_ERROR,
             exit_code=summary.exit_code,
@@ -2034,50 +1963,15 @@ def status_report(config: Config | None = None) -> dict[str, object]:
 
     if config is None:
         checks.append({"name": "load_config", "ok": False, "message": "Configuration loading failed"})
-        versioning_ok = True
-        versioning_values = [
-            ("major_version_bump", "WIRTELPRIMPF_MAJOR_VERSION_BUMP", lambda: parse_non_negative_int("WIRTELPRIMPF_MAJOR_VERSION_BUMP", env("WIRTELPRIMPF_MAJOR_VERSION_BUMP"), default=0)),
-            ("breaking_change", "WIRTELPRIMPF_BREAKING_CHANGE", lambda: parse_bool_flag("WIRTELPRIMPF_BREAKING_CHANGE", env("WIRTELPRIMPF_BREAKING_CHANGE"), default=False)),
-            ("patches_per_minor", "WIRTELPRIMPF_PATCHES_PER_MINOR", lambda: parse_patches_per_minor("WIRTELPRIMPF_PATCHES_PER_MINOR", env("WIRTELPRIMPF_PATCHES_PER_MINOR"))),
-            ("minor_pushes_per_release", "WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE", lambda: parse_positive_int(
-                "WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE",
-                env("WIRTELPRIMPF_MINOR_PUSHES_PER_RELEASE"),
-                default=DEFAULT_MINOR_PUSHES_PER_RELEASE,
-            )),
-        ]
-        effective_base = BASE_VERSION_MAJOR
-        for key, env_name, parse_fn in versioning_values:
-            raw = env(env_name)
-            report["details"][key] = raw
-            try:
-                report["details"][key] = parse_fn()
-            except Exception as exc:
-                checks.append({"name": "versioning", "ok": False, "message": str(exc)})
-                versioning_ok = False
-
-        if versioning_ok:
-            report["details"]["effective_major_version_base"] = (
-                effective_base
-                + int(report["details"].get("major_version_bump", 0))
-                + (1 if report["details"].get("breaking_change") else 0)
-            )
-        else:
-            report["details"]["effective_major_version_base"] = effective_base
-            report["ok"] = False
-            report["status"] = STATUS_ERROR
-            report["exit_code"] = 1
-            return report
         return report
 
     report["details"].update(
         {
             "operandi": config.operandi,
             "working_dir": str(config.working_dir),
-            "major_version_bump": config.major_version_bump,
-            "breaking_change": config.breaking_change,
-            "patches_per_minor": config.patches_per_minor,
-            "minor_pushes_per_release": config.minor_pushes_per_release,
-            "effective_major_version_base": effective_major_version_base(config),
+            "semver_base": VERSION,
+            "publish_push_interval_patches": PUBLISH_PUSH_INTERVAL_PATCHES,
+            "publish_release_push_interval": PUBLISH_RELEASE_PUSH_INTERVAL,
         }
     )
 
@@ -2226,12 +2120,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
     if config.repo_path is not None and repo_checks.get("ok", True):
         try:
             publish_state = read_publish_state(publish_state_path(config.repo_path))
-            major_version, minor_version, patch_version = _derive_version_numbers(
-                publish_state.patch_count,
-                patches_per_minor=config.patches_per_minor,
-                minors_per_major=MINORS_PER_MAJOR,
-                major_version_base=effective_major_version_base(config),
-            )
+            major_version, minor_version, patch_version = _derive_version_numbers(publish_state.patch_count)
         except Exception as exc:
             report["ok"] = False
             report["status"] = STATUS_ERROR
@@ -2246,10 +2135,7 @@ def status_report(config: Config | None = None) -> dict[str, object]:
                     "minor_version": minor_version,
                     "patch_count": publish_state.patch_count,
                     "patch_version": patch_version,
-                    "minor_push_count": publish_state.minor_push_count,
-                    "major_version_bump": config.major_version_bump,
-                    "breaking_change": config.breaking_change,
-                    "effective_major_version_base": effective_major_version_base(config),
+                    "publish_push_count": publish_state.publish_push_count,
                 }
             )
             report["version"] = f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}"
@@ -2274,26 +2160,21 @@ def publish_state_summary(config: Config) -> dict[str, object] | None:
     except Exception as exc:  # pragma: no cover - defensive path
         return {"publish_state_error": f"Failed to read publish state: {exc}"}
 
-    major_version, minor_version, patch_version = _derive_version_numbers(
-        publish_state.patch_count,
-        patches_per_minor=config.patches_per_minor,
-        minors_per_major=MINORS_PER_MAJOR,
-        major_version_base=effective_major_version_base(config),
+    major_version, minor_version, patch_version = _derive_version_numbers(publish_state.patch_count)
+    patches_into_publish_window = publish_state.patch_count % PUBLISH_PUSH_INTERVAL_PATCHES
+    patches_until_publish = (
+        PUBLISH_PUSH_INTERVAL_PATCHES
+        if patches_into_publish_window == 0
+        else PUBLISH_PUSH_INTERVAL_PATCHES - patches_into_publish_window
     )
-    patch_position_in_minor = publish_state.patch_count % config.patches_per_minor
-    patches_until_minor = (
-        config.patches_per_minor
-        if patch_position_in_minor == 0
-        else config.patches_per_minor - patch_position_in_minor
-    )
-    minor_pushes_into_release_window = publish_state.minor_push_count % config.minor_pushes_per_release
-    minor_pushes_until_release = (
-        config.minor_pushes_per_release
-        if minor_pushes_into_release_window == 0
-        else config.minor_pushes_per_release - minor_pushes_into_release_window
+    publish_pushes_into_release_window = publish_state.publish_push_count % PUBLISH_RELEASE_PUSH_INTERVAL
+    publish_pushes_until_release = (
+        PUBLISH_RELEASE_PUSH_INTERVAL
+        if publish_pushes_into_release_window == 0
+        else PUBLISH_RELEASE_PUSH_INTERVAL - publish_pushes_into_release_window
     )
     release_ready = (
-        publish_state.minor_push_count > 0 and minor_pushes_into_release_window == 0
+        publish_state.publish_push_count > 0 and publish_pushes_into_release_window == 0
     )
     return {
         "patch_version": patch_version,
@@ -2301,14 +2182,12 @@ def publish_state_summary(config: Config) -> dict[str, object] | None:
         "major_version": major_version,
         "patch_count": publish_state.patch_count,
         "version": f"{major_version}.{minor_version}.{patch_version}{VERSION_SUFFIX}",
-        "minor_push_count": publish_state.minor_push_count,
-        "major_version_bump": config.major_version_bump,
-        "breaking_change": config.breaking_change,
-        "effective_major_version_base": effective_major_version_base(config),
-        "patches_per_minor": config.patches_per_minor,
-        "minor_pushes_per_release": config.minor_pushes_per_release,
-        "patches_until_next_minor": patches_until_minor,
-        "minor_pushes_until_release": minor_pushes_until_release,
+        "publish_push_count": publish_state.publish_push_count,
+        "semver_base": VERSION,
+        "publish_push_interval_patches": PUBLISH_PUSH_INTERVAL_PATCHES,
+        "publish_release_push_interval": PUBLISH_RELEASE_PUSH_INTERVAL,
+        "patches_until_next_publish": patches_until_publish,
+        "publish_pushes_until_release": publish_pushes_until_release,
         "release_ready": release_ready,
     }
 
@@ -2366,7 +2245,6 @@ def main() -> None:
             _die("OPENAI_API_KEY environment variable is required")
 
         config = load_config()
-        effective_major_base = effective_major_version_base(config)
         if not config.prompt_config_path.exists():
             if args.json:
                 emit_unexpected_failure(
@@ -2393,8 +2271,6 @@ def main() -> None:
                     if config.repo_path
                     else 0
                 ),
-                patches_per_minor=config.patches_per_minor,
-                major_version_base=effective_major_version_base(config),
             )
             if args.check_config and args.json:
                 print(
@@ -2455,8 +2331,6 @@ def main() -> None:
             if not isinstance(current_version, str):
                 current_version = resolve_runtime_version(
                     patch_count=0,
-                    patches_per_minor=config.patches_per_minor,
-                    major_version_base=effective_major_base,
                 )
             if args.json:
                 print(
@@ -2505,8 +2379,6 @@ def main() -> None:
         if args.dry_run:
             fallback_version = resolve_runtime_version(
                 patch_count=0,
-                patches_per_minor=config.patches_per_minor,
-                major_version_base=effective_major_base,
             )
             dry_run_details = publish_state_summary(config)
             if (
@@ -2563,7 +2435,7 @@ def main() -> None:
                 summary.skipped += 1
                 summary.prompts += 1
             summary.exit_code = 0
-            emit_summary(summary, args, compact=True, mode=MODE_DRY_RUN)
+            emit_summary(summary, args, compact=True, mode=MODE_DRY_RUN, details=dry_run_details)
             return
 
         client = OpenAI()

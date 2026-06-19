@@ -12,6 +12,7 @@
       "sections": [
         "settings-logo-header-section",
         "menu-map-section",
+        "image-style-section",
         "folders-section",
         "commands-section",
         "matching-section",
@@ -24,7 +25,15 @@
       "type": "page",
       "title": "Generator",
       "sections": [
+        "generator-image-section",
         "generator-config-section"
+      ]
+    },
+    "generator-image-section": {
+      "type": "section",
+      "title": "",
+      "keys": [
+        "generator-page-image"
       ]
     },
     "generator-config-section": {
@@ -38,7 +47,15 @@
       "type": "page",
       "title": "Über",
       "sections": [
+        "about-image-section",
         "about-section"
+      ]
+    },
+    "about-image-section": {
+      "type": "section",
+      "title": "",
+      "keys": [
+        "about-page-image"
       ]
     },
     "settings-logo-header-section": {
@@ -53,6 +70,15 @@
       "title": "Wirtelgedicht",
       "keys": [
         "main-menu-settings-map"
+      ]
+    },
+    "image-style-section": {
+      "type": "section",
+      "title": "Bildchen",
+      "keys": [
+        "panel-icon-choice",
+        "generator-image-choice",
+        "about-image-choice"
       ]
     },
     "folders-section": {
@@ -133,6 +159,51 @@
     "widget": "FooterLogo",
     "description": "Wirtelprimfgenerator footer logo",
     "default": ""
+  },
+  "generator-page-image": {
+    "type": "custom",
+    "file": "SettingsLogo.py",
+    "widget": "GeneratorImage",
+    "description": "Generator-Bildchen",
+    "default": ""
+  },
+  "about-page-image": {
+    "type": "custom",
+    "file": "SettingsLogo.py",
+    "widget": "AboutImage",
+    "description": "Über-Bildchen",
+    "default": ""
+  },
+  "panel-icon-choice": {
+    "type": "combobox",
+    "description": "Taskleisten-Bildchen",
+    "tooltip": "Wählt das Bildchen im Cinnamon-Panel.",
+    "default": "orbit",
+    "options": {
+      "Wirtel-Orbit": "orbit",
+      "Mondfenster": "moon",
+      "Prompt-Funke": "spark"
+    }
+  },
+  "generator-image-choice": {
+    "type": "combobox",
+    "description": "Generator-Bildchen",
+    "tooltip": "Wählt das Bild im Generator-Tab der Einstellungen.",
+    "default": "atelier",
+    "options": {
+      "Prompt-Atelier": "atelier",
+      "Sternmaschine": "machine"
+    }
+  },
+  "about-image-choice": {
+    "type": "combobox",
+    "description": "Über-Bildchen",
+    "tooltip": "Wählt das Bild im Über-Tab der Einstellungen.",
+    "default": "story",
+    "options": {
+      "Storyfenster": "story",
+      "Sternbuch": "book"
+    }
   },
   "main-menu-settings-map": {
     "type": "custom",
@@ -297,6 +368,6 @@
   },
   "about-version": {
     "type": "label",
-    "description": "Version: 0.3.2"
+    "description": "Version: 0.4.0"
   }
 }

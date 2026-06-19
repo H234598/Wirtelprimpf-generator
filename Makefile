@@ -9,7 +9,13 @@ check:
 	$(PYTHON) -m py_compile files/$(UUID)/helper.py files/$(UUID)/SettingsLogo.py
 	@test -f files/$(UUID)/assets/settings-header-logo.png
 	@test -f files/$(UUID)/assets/settings-footer-logo.png
+	@test -f files/$(UUID)/assets/settings-generator-atelier.png
+	@test -f files/$(UUID)/assets/settings-generator-machine.png
+	@test -f files/$(UUID)/assets/settings-about-story.png
+	@test -f files/$(UUID)/assets/settings-about-book.png
 	@test -f files/$(UUID)/assets/panel-icon.png
+	@test -f files/$(UUID)/assets/panel-icon-moon.png
+	@test -f files/$(UUID)/assets/panel-icon-spark.png
 
 install-local:
 	./scripts/install-local.sh

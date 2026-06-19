@@ -609,28 +609,7 @@ dependency_signature() {
 }
 
 validate_runtime_env() {
-  local value
-  local name
-  value="${WIRTELPRIMPF_PATCHES_PER_MINOR:-100}"
-  if [[ ! "$value" =~ ^[0-9]+$ ]] || [[ "$value" -ne 100 ]]; then
-    log "invalid WIRTELPRIMPF_PATCHES_PER_MINOR (must be 100): ${value}"
-    exit 1
-  fi
-
-  value="${WIRTELPRIMPF_MAJOR_VERSION_BUMP:-0}"
-  if [[ ! "$value" =~ ^[0-9]+$ ]]; then
-    log "invalid WIRTELPRIMPF_MAJOR_VERSION_BUMP: ${value}"
-    exit 1
-  fi
-
-  value="${WIRTELPRIMPF_BREAKING_CHANGE:-0}"
-  case "${value,,}" in
-    1|true|yes|on|enabled|enable|0|false|no|off|disabled|disable) ;;
-    *)
-      log "invalid WIRTELPRIMPF_BREAKING_CHANGE: ${value}"
-      exit 1
-      ;;
-  esac
+  return 0
 }
 
 is_regular_file() {
@@ -1237,10 +1216,6 @@ import re
 import sys
 from pathlib import Path
 
-PATCHES_PER_MINOR = 100
-MINORS_PER_MAJOR = 100
-PATCHES_PER_MINOR_FOR_MINOR = PATCHES_PER_MINOR
-
 script_path = Path(sys.argv[1])
 state_path = Path(sys.argv[2])
 state_patch_count = 0
@@ -1280,55 +1255,9 @@ version = match.group(1).strip()
 parsed = re.match(r"^(\d+)\.(\d+)\.(\d+)(.*)$", version)
 if not parsed:
     raise SystemExit(f"invalid version format: {version!r}")
-major_str, minor_str, _patch_str, suffix = parsed.groups()
-patches_per_minor_raw = os.environ.get("WIRTELPRIMPF_PATCHES_PER_MINOR", "100")
-major_bump_raw = os.environ.get("WIRTELPRIMPF_MAJOR_VERSION_BUMP", "0")
-breaking_raw = os.environ.get("WIRTELPRIMPF_BREAKING_CHANGE", "0")
-
-def parse_positive_int(name, value):
-    try:
-        parsed = int(value)
-    except (ValueError, TypeError):
-        raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 1")
-    if parsed < 1:
-        raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 1")
-    return parsed
-
-def parse_non_negative_int(name, value):
-    try:
-        parsed = int(value)
-    except (ValueError, TypeError):
-        raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 0")
-    if parsed < 0:
-        raise SystemExit(f"invalid {name} value: {value!r}. Expected integer >= 0")
-    return parsed
-
-def parse_bool(name, value):
-    normalized = str(value).strip().lower()
-    if normalized in {"1", "true", "yes", "on", "enabled", "enable"}:
-        return True
-    if normalized in {"0", "false", "no", "off", "disabled", "disable"}:
-        return False
-    raise SystemExit(f"invalid {name} value: {value!r}")
-
-patches_per_minor = parse_positive_int("WIRTELPRIMPF_PATCHES_PER_MINOR", patches_per_minor_raw)
-if patches_per_minor != PATCHES_PER_MINOR:
-    raise SystemExit(f"invalid WIRTELPRIMPF_PATCHES_PER_MINOR value: {patches_per_minor!r}, expected {PATCHES_PER_MINOR}")
-major_bump = parse_non_negative_int("WIRTELPRIMPF_MAJOR_VERSION_BUMP", major_bump_raw)
-breaking_change = parse_bool("WIRTELPRIMPF_BREAKING_CHANGE", breaking_raw)
-
-if state_patch_count == 0:
-    print(f"{major_str}.{minor_str}.0{suffix}")
-    raise SystemExit(0)
-
-patch_version = state_patch_count % patches_per_minor
-if patch_version == 0:
-    patch_version = PATCHES_PER_MINOR_FOR_MINOR
-
-minor_increments = state_patch_count // patches_per_minor
-major_addition, minor_offset = divmod(int(minor_str) + minor_increments, MINORS_PER_MAJOR)
-major_version = int(major_str) + major_addition + major_bump + (1 if breaking_change else 0)
-print(f"{major_version}.{minor_offset}.{patch_version}{suffix}")
+major_str, minor_str, patch_str, suffix = parsed.groups()
+patch_version = int(patch_str) + state_patch_count
+print(f"{major_str}.{minor_str}.{patch_version}{suffix}")
 
 PY
 }
@@ -1405,7 +1334,7 @@ apply_version_change() {
     return 1
   fi
 
-  log "minor version changed: $previous -> $current"
+  log "version changed: $previous -> $current"
 
   if run_check_script_sandboxed "$CHECKS_SCRIPT"; then
     if ! refresh_state_timestamp; then
@@ -1442,7 +1371,7 @@ resolve_current_minor_version() {
 
   if [[ "$next_script_sig" != "$SCRIPT_DEPENDENCY_SIGNATURE" || "$next_state_sig" != "$PUBLISH_STATE_SIGNATURE" ]]; then
     if ! current="$(get_minor_version)"; then
-      log "failed to compute current minor version"
+      log "failed to compute current version"
       return 1
     fi
     SCRIPT_DEPENDENCY_SIGNATURE="$next_script_sig"
@@ -1453,7 +1382,7 @@ resolve_current_minor_version() {
   fi
 
   if [[ -z "$current" ]]; then
-    log "current minor version is empty"
+    log "current version is empty"
     return 1
   fi
   if ! is_valid_version "$current"; then
@@ -1514,11 +1443,11 @@ validate_runtime_env
 acquire_lock
 
 if ! init_state="$(get_minor_version)"; then
-  log "failed to derive initial minor version from publish state"
+  log "failed to derive initial version from publish state"
   exit 1
 fi
 if [[ -z "$init_state" ]]; then
-  log "failed to derive initial minor version from publish state"
+  log "failed to derive initial version from publish state"
   exit 1
 fi
 if ! is_valid_version "$init_state"; then

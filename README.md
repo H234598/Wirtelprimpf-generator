@@ -21,5 +21,5 @@ Key aus einer privaten lokalen Environment-Datei, siehe
 ## Automatisierung
 
 Der Generator kann lokal manuell ausgefuehrt oder ueber einen systemd-User-Timer
-stuendlich gestartet werden. Die portable Referenzimplementierung liegt unter
+alle zwei Stunden gestartet werden. Die portable Referenzimplementierung liegt unter
 `Sourcecode/`.
