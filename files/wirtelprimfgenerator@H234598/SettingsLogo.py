@@ -806,15 +806,16 @@ class GeneratorConfigEditor(SettingsWidget):
 
         content.pack_start(self._section_label("Generator-Environment"), False, True, 0)
         for name, label, kind, options in self.env_fields:
-            widget = self._make_value_widget(kind, options)
-            self._set_widget_value(widget, env_values.get(name, self.defaults.get(name, "")))
+            default_value = self.defaults.get(name, "")
+            widget = self._make_value_widget(kind, options, default_value)
+            self._set_widget_value(widget, env_values.get(name, default_value))
             self.env_widgets[name] = widget
             content.pack_start(self._make_row(label, widget), False, True, 0)
 
         content.pack_start(self._section_label("systemd User-Units"), False, True, 0)
         systemd_values = self._read_systemd_values()
         for name, label, kind, default in self.systemd_fields:
-            widget = self._make_value_widget(kind, ())
+            widget = self._make_value_widget(kind, (), default)
             self._set_widget_value(widget, systemd_values.get(name, default))
             self.systemd_widgets[name] = widget
             content.pack_start(self._make_row(label, widget), False, True, 0)
@@ -854,11 +855,13 @@ class GeneratorConfigEditor(SettingsWidget):
         row.pack_start(widget, True, True, 0)
         return row
 
-    def _make_value_widget(self, kind, options):
+    def _make_value_widget(self, kind, options, default=""):
         if kind == "combo":
             combo = Gtk.ComboBoxText()
             for option in options:
                 combo.append(option, option)
+            combo._wirtel_options = tuple(options)
+            combo._wirtel_default = str(default or (options[0] if options else ""))
             combo.set_hexpand(True)
             return combo
         if kind == "switch":
@@ -882,8 +885,13 @@ class GeneratorConfigEditor(SettingsWidget):
         if isinstance(widget, Gtk.ComboBoxText):
             widget.set_active_id(value)
             if widget.get_active_id() is None:
-                widget.append(value, value)
-                widget.set_active_id(value)
+                fallback = getattr(widget, "_wirtel_default", "")
+                if fallback:
+                    widget.set_active_id(fallback)
+            if widget.get_active_id() is None:
+                options = getattr(widget, "_wirtel_options", ())
+                if options:
+                    widget.set_active_id(options[0])
         elif isinstance(widget, Gtk.Switch):
             widget.set_active(value.lower() in ("1", "yes", "true", "on"))
         elif isinstance(widget, Gtk.SpinButton):
