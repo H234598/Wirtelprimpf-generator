@@ -1269,6 +1269,8 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
             "commit",
             "-m",
             f"Add Wirtelprimpf image: {title}",
+            "--",
+            *relative_paths,
         ]
     )
 
