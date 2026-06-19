@@ -134,6 +134,24 @@ class SettingsSchemaTests(unittest.TestCase):
 
         self.assertNotIn("about-version", schema)
 
+    def test_version_watch_controls_are_not_in_settings_editor(self):
+        source = SETTINGS_LOGO_PATH.read_text(encoding="utf-8")
+
+        forbidden = (
+            "SLEEP_SECONDS",
+            "DEFAULT_RETRY_DELAY_SECONDS",
+            "MAX_STALE_LOCK_SECONDS",
+            "watch_timer_enabled",
+            "watch_on_boot",
+            "watch_persistent",
+            "watch_restart_sec",
+            "wirtelprimpf-version-watch.timer",
+            "wirtelprimpf-version-watch.service",
+        )
+        for needle in forbidden:
+            with self.subTest(needle=needle):
+                self.assertNotIn(needle, source)
+
 
 if __name__ == "__main__":
     unittest.main()

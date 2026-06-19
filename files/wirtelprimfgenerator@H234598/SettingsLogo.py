@@ -744,9 +744,6 @@ class GeneratorConfigEditor(SettingsWidget):
         ("WIRTELPRIMPF_STORY_FINISH_PARTS_MIN", "Finish Teile min", "entry", ()),
         ("WIRTELPRIMPF_STORY_FINISH_PARTS_MAX", "Finish Teile max", "entry", ()),
         ("WIRTELPRIMPF_OUTPUT_RESOLUTION", "Ausgabe-Aufloesung", "entry", ()),
-        ("SLEEP_SECONDS", "Watch Sleep Seconds", "entry", ()),
-        ("DEFAULT_RETRY_DELAY_SECONDS", "Watch Retry Delay", "entry", ()),
-        ("MAX_STALE_LOCK_SECONDS", "Watch Lock Timeout", "entry", ()),
     )
 
     defaults = {
@@ -761,9 +758,6 @@ class GeneratorConfigEditor(SettingsWidget):
         "WIRTELPRIMPF_STORY_FINISH_PARTS_MIN": "3",
         "WIRTELPRIMPF_STORY_FINISH_PARTS_MAX": "5",
         "WIRTELPRIMPF_OUTPUT_RESOLUTION": "2k",
-        "SLEEP_SECONDS": "300",
-        "DEFAULT_RETRY_DELAY_SECONDS": "5",
-        "MAX_STALE_LOCK_SECONDS": "900",
     }
 
     systemd_fields = (
@@ -771,10 +765,6 @@ class GeneratorConfigEditor(SettingsWidget):
         ("generator_interval_minutes", "Generator-Intervall (Minuten)", "minutes", "120"),
         ("generator_randomized_delay", "Generator RandomizedDelaySec", "entry", "120"),
         ("generator_persistent", "Generator Persistent", "switch", "true"),
-        ("watch_timer_enabled", "Watch-Timer aktiv", "switch", "true"),
-        ("watch_on_boot", "Watch OnBootSec", "entry", "1min"),
-        ("watch_persistent", "Watch Persistent", "switch", "true"),
-        ("watch_restart_sec", "Watch RestartSec", "entry", "30"),
     )
 
     def __init__(self, info, key, settings):
@@ -1008,13 +998,9 @@ class GeneratorConfigEditor(SettingsWidget):
     def _read_systemd_values(self):
         return {
             "generator_timer_enabled": self._unit_enabled("wirtelprimpf.timer"),
-            "watch_timer_enabled": self._unit_enabled("wirtelprimpf-version-watch.timer"),
             "generator_interval_minutes": self._timer_interval_minutes(),
             "generator_randomized_delay": self._systemctl_show("wirtelprimpf.timer", "RandomizedDelayUSec").replace("us", "") or "120",
             "generator_persistent": self._systemctl_show("wirtelprimpf.timer", "Persistent") or "true",
-            "watch_on_boot": self._systemctl_show("wirtelprimpf-version-watch.timer", "OnBootUSec").replace("us", "") or "1min",
-            "watch_persistent": self._systemctl_show("wirtelprimpf-version-watch.timer", "Persistent") or "true",
-            "watch_restart_sec": self._systemctl_show("wirtelprimpf-version-watch.service", "RestartUSec").replace("us", "") or "30",
         }
 
     def _unit_enabled(self, unit):
@@ -1064,34 +1050,10 @@ class GeneratorConfigEditor(SettingsWidget):
                 ]
             ),
         )
-        watch_env_lines = ["Environment="]
-        for key in ("SLEEP_SECONDS", "DEFAULT_RETRY_DELAY_SECONDS", "MAX_STALE_LOCK_SECONDS"):
-            value = env.get(key, self.defaults.get(key, ""))
-            if value:
-                watch_env_lines.append("Environment=%s=%s" % (key, value))
-        self._write_dropin(
-            "wirtelprimpf-version-watch.service",
-            "\n".join(["[Service]", "RestartSec=%s" % sysvals.get("watch_restart_sec", "30")] + watch_env_lines + [""]),
-        )
-        self._write_dropin(
-            "wirtelprimpf-version-watch.timer",
-            "\n".join(
-                [
-                    "[Timer]",
-                    "OnBootSec=",
-                    "OnBootSec=%s" % sysvals.get("watch_on_boot", "1min"),
-                    "Persistent=%s" % sysvals.get("watch_persistent", "true"),
-                    "Unit=wirtelprimpf-version-watch.service",
-                    "",
-                ]
-            ),
-        )
-
     def _apply_enabled_state(self):
         sysvals = {name: self._get_widget_value(widget) for name, widget in self.systemd_widgets.items()}
         for unit, key in (
             ("wirtelprimpf.timer", "generator_timer_enabled"),
-            ("wirtelprimpf-version-watch.timer", "watch_timer_enabled"),
         ):
             if sysvals.get(key) == "true":
                 self._run(["systemctl", "--user", "enable", "--now", unit])
@@ -1114,7 +1076,7 @@ class GeneratorConfigEditor(SettingsWidget):
     def _on_save_restart(self, _button):
         try:
             self._save()
-            self._restart_timers_and_watch()
+            self._restart_generator_timer()
             self._set_status("Gespeichert und neu gestartet.")
         except Exception as exc:
             self._set_status("Restart fehlgeschlagen: %s" % exc)
@@ -1129,15 +1091,13 @@ class GeneratorConfigEditor(SettingsWidget):
     def _on_restart_timers(self, _button):
         try:
             self._run(["systemctl", "--user", "daemon-reload"])
-            self._restart_timers_and_watch()
+            self._restart_generator_timer()
             self._set_status("Timer neu gestartet.")
         except Exception as exc:
             self._set_status("Timer-Restart fehlgeschlagen: %s" % exc)
 
-    def _restart_timers_and_watch(self):
-        for unit in ("wirtelprimpf.timer", "wirtelprimpf-version-watch.timer"):
-            self._run(["systemctl", "--user", "restart", unit], check=False)
-        self._run(["systemctl", "--user", "restart", "wirtelprimpf-version-watch.service"], check=False)
+    def _restart_generator_timer(self):
+        self._run(["systemctl", "--user", "restart", "wirtelprimpf.timer"], check=False)
 
     def _run(self, args, check=True):
         result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
