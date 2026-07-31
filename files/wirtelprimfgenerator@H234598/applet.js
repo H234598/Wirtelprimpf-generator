@@ -14,6 +14,8 @@ const Main = imports.ui.main;
 
 const UUID = "wirtelprimfgenerator@H234598";
 const DEFAULT_GITHUB_URL = "https://github.com/H234598/Katzenbilder";
+const HELPER_OUTPUT_LIMIT = 1024 * 1024;
+const RECENT_PART_LIMIT = 15;
 const PANEL_ICON_FILES = {
     "orbit": "panel-icon.png",
     "moon": "panel-icon-moon.png",
@@ -56,10 +58,22 @@ WirtelApplet.prototype = {
         this.panelIconChoice = "orbit";
 
         this._scanInProgress = false;
+        this._scanPending = false;
+        this._scanPendingOpen = false;
+        this._scanGeneration = 0;
+        this._scanProcess = null;
         this._lastScan = null;
         this._ttsProcess = null;
+        this._ttsGeneration = 0;
         this._ttsWaitId = 0;
         this._isReading = false;
+        this._removed = false;
+        this._helperProcesses = new Set();
+        this._menuBuilt = false;
+        this._menuFingerprint = "";
+        this._storyRows = [];
+        this._partRows = [];
+        this._errorRows = [];
 
         this.settings = new Settings.AppletSettings(this, UUID, instanceId);
         this._bindSettings();
@@ -70,6 +84,7 @@ WirtelApplet.prototype = {
         this.menuManager = new PopupMenu.PopupMenuManager(this);
         this.menu = new Applet.AppletPopupMenu(this, orientation);
         this.menuManager.addMenu(this.menu);
+        this._buildPersistentMenu();
 
         this._applet_context_menu.addAction(_("Einstellungen"), Lang.bind(this, this._openAppletSettings));
         this._applet_context_menu.addAction(_("Outputordner öffnen"), Lang.bind(this, this._openOutputFolderFromSettings));
@@ -109,6 +124,7 @@ WirtelApplet.prototype = {
     },
 
     on_applet_clicked: function(event) {
+        if (this._removed || !this.menu) return;
         if (this._isReading) {
             this._stopTts();
             return;
@@ -118,10 +134,38 @@ WirtelApplet.prototype = {
     },
 
     on_applet_removed_from_panel: function() {
+        if (this._removed) return;
+        this._removed = true;
+        this._scanGeneration += 1;
+        this._ttsGeneration += 1;
         if (this._ttsWaitId) {
             Mainloop.source_remove(this._ttsWaitId);
             this._ttsWaitId = 0;
         }
+        for (let proc of this._helperProcesses) {
+            try { proc.force_exit(); }
+            catch (e) {}
+        }
+        this._helperProcesses.clear();
+        this._scanProcess = null;
+        this._ttsProcess = null;
+        this._scanInProgress = false;
+        this._scanPending = false;
+        if (this.settings) {
+            try { this.settings.finalize(); }
+            catch (e2) {}
+            this.settings = null;
+        }
+        if (this.menuManager && this.menu) {
+            try { this.menuManager.removeMenu(this.menu); }
+            catch (e3) {}
+        }
+        if (this.menu) {
+            try { this.menu.destroy(); }
+            catch (e4) {}
+            this.menu = null;
+        }
+        this.menuManager = null;
     },
 
     _setIdlePresentation: function() {
@@ -171,18 +215,22 @@ WirtelApplet.prototype = {
     },
 
     _spawnJson: function(args, callback) {
+        if (this._removed) return null;
         try {
             let proc = Gio.Subprocess.new(args, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+            this._helperProcesses.add(proc);
             proc.communicate_utf8_async(null, null, Lang.bind(this, function(p, res) {
                 let stdout = "";
                 let stderr = "";
                 let status = 0;
                 try {
                     let result = p.communicate_utf8_finish(res);
-                    stdout = result[1] || "";
-                    stderr = result[2] || "";
+                    stdout = (result[1] || "").slice(0, HELPER_OUTPUT_LIMIT);
+                    stderr = (result[2] || "").slice(0, HELPER_OUTPUT_LIMIT);
                     status = p.get_exit_status ? p.get_exit_status() : 0;
                 } catch (e) { stderr = String(e); status = 1; }
+                this._helperProcesses.delete(p);
+                if (this._removed) return;
                 let data = null;
                 try { data = stdout ? JSON.parse(stdout) : {ok: false, errors: [stderr || "Kein Output"]}; }
                 catch (e2) { data = {ok: false, errors: ["JSON parse failed", String(e2), stdout]}; }
@@ -190,7 +238,11 @@ WirtelApplet.prototype = {
                 if (data && data.exit_status === undefined) data.exit_status = status;
                 callback(data);
             }));
-        } catch (e) { callback({ok: false, errors: [String(e)]}); }
+            return proc;
+        } catch (e) {
+            if (!this._removed) callback({ok: false, errors: [String(e)]});
+            return null;
+        }
     },
 
     _spawnDetached: function(args) {
@@ -199,134 +251,266 @@ WirtelApplet.prototype = {
     },
 
     _refreshScan: function(openAfter) {
-        if (this._scanInProgress) return;
+        if (this._removed) return;
+        if (this._scanInProgress) {
+            this._scanPending = true;
+            this._scanPendingOpen = this._scanPendingOpen || openAfter === true;
+            return;
+        }
         this._scanInProgress = true;
-        this._spawnJson(this._helperBaseArgs("scan"), Lang.bind(this, function(data) {
+        this._scanPending = false;
+        let generation = ++this._scanGeneration;
+        let scanProcess = this._spawnJson(this._helperBaseArgs("scan"), Lang.bind(this, function(data) {
+            if (this._removed || generation !== this._scanGeneration) return;
             this._scanInProgress = false;
+            this._scanProcess = null;
             if (!data || data.ok === false) {
                 this._buildErrorMenu(data && data.errors ? data.errors.join("\n") : _("Scan fehlgeschlagen"));
                 if (this.notifyErrors) this._notify(_("Scan fehlgeschlagen"), data && data.errors ? data.errors[0] : _("Unbekannter Fehler"));
-                return;
+            } else {
+                this._lastScan = data;
+                this._setReading(data.tts && data.tts.running ? true : (this._ttsProcess !== null));
+                this._buildMenuFromScan(data);
+                if (openAfter && this.menu && !this.menu.isOpen) this.menu.toggle();
             }
-            this._lastScan = data;
-            this._setReading(data.tts && data.tts.running ? true : (this._ttsProcess !== null));
-            this._buildMenuFromScan(data);
-            if (openAfter && !this.menu.isOpen) this.menu.toggle();
+            if (this._scanPending) {
+                let pendingOpen = this._scanPendingOpen;
+                this._scanPending = false;
+                this._scanPendingOpen = false;
+                this._refreshScan(pendingOpen);
+            }
         }));
+        if (!this._removed && generation === this._scanGeneration && this._scanInProgress) this._scanProcess = scanProcess;
+    },
+
+    _buildPersistentMenu: function() {
+        if (this._menuBuilt || !this.menu) return;
+        this._menuBuilt = true;
+
+        this._statusItem = this._addDisabled(this.menu, _("Lade …"));
+        this._statusSeparator = new PopupMenu.PopupSeparatorMenuItem();
+        this.menu.addMenuItem(this._statusSeparator);
+
+        this._currentImageMenu = new PopupMenu.PopupSubMenuMenuItem(_("Aktuelles Bild"));
+        this.menu.addMenuItem(this._currentImageMenu);
+        this._imageStoryItem = this._createAction(this._currentImageMenu.menu, _("Story"), Lang.bind(this, function() {
+            this._openPath(this._imageStoryItem._wpgPath);
+        }));
+        this._imageGeneratedItem = this._createAction(this._currentImageMenu.menu, _("Generated"), Lang.bind(this, function() {
+            this._openPath(this._imageGeneratedItem._wpgPath);
+        }));
+
+        this._storyMenu = new PopupMenu.PopupSubMenuMenuItem(_("Story"));
+        this.menu.addMenuItem(this._storyMenu);
+        this._readStoryMenu = new PopupMenu.PopupSubMenuMenuItem(_("Read Story"));
+        this._storyMenu.menu.addMenuItem(this._readStoryMenu);
+        this._storyEmptyItem = this._addDisabled(this._readStoryMenu.menu, _("Read Story – keine Full Story"));
+        this._readPartMenu = new PopupMenu.PopupSubMenuMenuItem(_("Read part"));
+        this._storyMenu.menu.addMenuItem(this._readPartMenu);
+        this._partEmptyItem = this._addDisabled(this._readPartMenu.menu, _("Keine Storyteile gefunden"));
+
+        this._ttsMenu = new PopupMenu.PopupSubMenuMenuItem(_("TTS"));
+        this._storyMenu.menu.addMenuItem(this._ttsMenu);
+        this._createAction(this._ttsMenu.menu, _("Continue reading"), Lang.bind(this, function() { this._startTts("tts-continue"); }));
+        this._createAction(this._ttsMenu.menu, _("Set"), Lang.bind(this, function() { this._startTts("tts-set"); }));
+        this._ttsStopSeparator = new PopupMenu.PopupSeparatorMenuItem();
+        this._ttsMenu.menu.addMenuItem(this._ttsStopSeparator);
+        this._ttsStopItem = this._createAction(this._ttsMenu.menu, _("Stop"), Lang.bind(this, this._stopTts));
+        this._ttsLastSeparator = new PopupMenu.PopupSeparatorMenuItem();
+        this._ttsMenu.menu.addMenuItem(this._ttsLastSeparator);
+        this._ttsLastHeadingItem = this._addDisabled(this._ttsMenu.menu, _("Letzte Datei:"));
+        this._ttsLastFileItem = this._addDisabled(this._ttsMenu.menu, "");
+
+        this._toolsMenu = new PopupMenu.PopupSubMenuMenuItem(_("Setup / Diagnose"));
+        this.menu.addMenuItem(this._toolsMenu);
+        this._createAction(this._toolsMenu.menu, _("Run doctor"), Lang.bind(this, this._runDoctorFromSettings));
+        this._createAction(this._toolsMenu.menu, _("Copy setup plan"), Lang.bind(this, this._copySetupPlanFromSettings));
+        this._createAction(this._toolsMenu.menu, _("Outputordner öffnen"), Lang.bind(this, this._openOutputFolderFromSettings));
+        this._createAction(this._toolsMenu.menu, _("Open applet settings"), Lang.bind(this, this._openAppletSettings));
+        this._createAction(this._toolsMenu.menu, _("GitHub öffnen"), Lang.bind(this, this._openProjectRepository));
+        this._createAction(this._toolsMenu.menu, _("Neu scannen"), Lang.bind(this, function() { this._refreshScan(false); }));
+        this._toolsStopItem = this._createAction(this._toolsMenu.menu, _("TTS stoppen"), Lang.bind(this, this._stopTts));
+
+        this._outputSeparator = new PopupMenu.PopupSeparatorMenuItem();
+        this.menu.addMenuItem(this._outputSeparator);
+        this._outputItem = this._createAction(this.menu, _("Output nicht gefunden"), Lang.bind(this, function() {
+            this._openPath(this._outputItem._wpgPath);
+        }));
+        this._storyCountItem = this._addDisabled(this.menu, "");
+
+        this._errorSeparator = new PopupMenu.PopupSeparatorMenuItem();
+        this.menu.addMenuItem(this._errorSeparator);
+        this._errorHeadingItem = this._addDisabled(this.menu, _("Hinweise:"));
+        for (let i = 0; i < 4; i++) this._errorRows.push(this._addDisabled(this.menu, ""));
+
+        this._errorActionSeparator = new PopupMenu.PopupSeparatorMenuItem();
+        this.menu.addMenuItem(this._errorActionSeparator);
+        this._errorRetryItem = this._createAction(this.menu, _("Erneut scannen"), Lang.bind(this, function() { this._refreshScan(false); }));
+        this._errorDoctorItem = this._createAction(this.menu, _("Run doctor"), Lang.bind(this, this._runDoctorFromSettings));
+        this._errorPlanItem = this._createAction(this.menu, _("Copy setup plan"), Lang.bind(this, this._copySetupPlanFromSettings));
+        this._errorSettingsItem = this._createAction(this.menu, _("Einstellungen"), Lang.bind(this, this._openAppletSettings));
+
+        this._mainItems = [this._statusSeparator, this._currentImageMenu, this._storyMenu, this._toolsMenu, this._outputSeparator, this._outputItem, this._storyCountItem];
+        this._errorActionItems = [this._errorActionSeparator, this._errorRetryItem, this._errorDoctorItem, this._errorPlanItem, this._errorSettingsItem];
+        this._setItemsVisible(this._mainItems, false);
+        this._setItemsVisible(this._errorActionItems, false);
+        this._setErrorRows([]);
+        this._setTtsRows(false, null);
+    },
+
+    _createAction: function(menu, label, callback) {
+        let item = new PopupMenu.PopupMenuItem(label || "");
+        item.connect("activate", callback);
+        menu.addMenuItem(item);
+        return item;
+    },
+
+    _setItemsVisible: function(items, visible) {
+        for (let item of items) {
+            if (!item || !item.actor) continue;
+            if (visible) item.actor.show();
+            else item.actor.hide();
+        }
+    },
+
+    _setErrorRows: function(errors) {
+        let visibleErrors = Array.isArray(errors) ? errors.slice(0, 4) : [];
+        let visible = visibleErrors.length > 0;
+        this._setItemsVisible([this._errorSeparator, this._errorHeadingItem], visible);
+        for (let i = 0; i < this._errorRows.length; i++) {
+            let row = this._errorRows[i];
+            if (i < visibleErrors.length) {
+                row.label.text = String(visibleErrors[i]);
+                row.actor.show();
+            } else {
+                row.label.text = "";
+                row.actor.hide();
+            }
+        }
+    },
+
+    _setPathItem: function(item, label, path) {
+        item._wpgPath = path || "";
+        item.label.text = path ? label : label + _(" – nicht gefunden");
+        item.setSensitive(!!path);
+    },
+
+    _setTtsRows: function(running, tts) {
+        let lastFile = tts && tts.last_file ? tts.last_file : "";
+        this._setItemsVisible([this._ttsStopSeparator, this._ttsStopItem, this._toolsStopItem], running);
+        this._setItemsVisible([this._ttsLastSeparator, this._ttsLastHeadingItem, this._ttsLastFileItem], !!lastFile);
+        this._ttsLastFileItem.label.text = lastFile ? (tts.last_file_label || lastFile) : "";
+    },
+
+    _updateStoryRows: function(stories) {
+        let values = Array.isArray(stories) ? stories : [];
+        while (this._storyRows.length < values.length) {
+            let row = this._createAction(this._readStoryMenu.menu, "", Lang.bind(this, function() {
+                this._openPath(row._wpgData ? row._wpgData.path : "");
+            }));
+            row._wpgData = null;
+            row.actor.hide();
+            this._storyRows.push(row);
+        }
+        for (let i = 0; i < this._storyRows.length; i++) {
+            let row = this._storyRows[i];
+            if (i < values.length) {
+                row._wpgData = values[i];
+                row.label.text = values[i].label || values[i].path || _("Story");
+                row.actor.show();
+            } else {
+                row._wpgData = null;
+                row.actor.hide();
+            }
+        }
+        this._setItemsVisible([this._storyEmptyItem], values.length === 0);
+    },
+
+    _updatePartRows: function(parts) {
+        let values = Array.isArray(parts) ? parts.slice(0, RECENT_PART_LIMIT) : [];
+        while (this._partRows.length < values.length) {
+            let row = this._createAction(this._readPartMenu.menu, "", Lang.bind(this, function() {
+                this._openPath(row._wpgData ? row._wpgData.path : "");
+            }));
+            row._wpgData = null;
+            row.actor.hide();
+            this._partRows.push(row);
+        }
+        for (let i = 0; i < this._partRows.length; i++) {
+            let row = this._partRows[i];
+            if (i < values.length) {
+                row._wpgData = values[i];
+                row.label.text = values[i].label || values[i].path || _("Storyteil");
+                row.actor.show();
+                let tooltip = values[i].tooltip || "";
+                if (tooltip && !row._wpgTooltip) {
+                    try { row._wpgTooltip = new Tooltips.Tooltip(row.actor, tooltip); }
+                    catch (e) {}
+                } else if (row._wpgTooltip && row._wpgTooltip.set_text) {
+                    try { row._wpgTooltip.set_text(tooltip); }
+                    catch (e2) {}
+                }
+            } else {
+                row._wpgData = null;
+                row.actor.hide();
+            }
+        }
+        this._setItemsVisible([this._partEmptyItem], values.length === 0);
     },
 
     _buildLoadingMenu: function(text) {
-        this.menu.removeAll();
-        let item = new PopupMenu.PopupMenuItem(text || _("Lade …"));
-        item.setSensitive(false);
-        this.menu.addMenuItem(item);
+        this._buildPersistentMenu();
+        this._menuFingerprint = "loading:" + (text || "");
+        this._statusItem.label.text = text || _("Lade …");
+        this._setItemsVisible(this._mainItems, false);
+        this._setItemsVisible(this._errorActionItems, false);
+        this._setErrorRows([]);
     },
 
     _buildErrorMenu: function(message) {
-        this.menu.removeAll();
-        this._addDisabled(this.menu, _("Fehler"));
-        this._addDisabled(this.menu, message || _("Unbekannter Fehler"));
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this.menu.addAction(_("Erneut scannen"), Lang.bind(this, function() { this._refreshScan(false); }));
-        this.menu.addAction(_("Run doctor"), Lang.bind(this, this._runDoctorFromSettings));
-        this.menu.addAction(_("Copy setup plan"), Lang.bind(this, this._copySetupPlanFromSettings));
-        this.menu.addAction(_("Einstellungen"), Lang.bind(this, this._openAppletSettings));
+        this._buildPersistentMenu();
+        this._menuFingerprint = "error:" + (message || "");
+        this._statusItem.label.text = _("Fehler");
+        this._setItemsVisible(this._mainItems, false);
+        this._setItemsVisible([this._toolsMenu], true);
+        this._setItemsVisible(this._errorActionItems, true);
+        this._setErrorRows([message || _("Unbekannter Fehler")]);
     },
 
     _buildMenuFromScan: function(data) {
-        this.menu.removeAll();
+        this._buildPersistentMenu();
+        let safeData = data || {};
+        let fingerprint = JSON.stringify({
+            output_dir: safeData.output_dir || "",
+            images: safeData.images || {},
+            full_stories: safeData.full_stories || [],
+            recent_parts: safeData.recent_parts || [],
+            tts: safeData.tts || {},
+            stats: safeData.stats || {},
+            errors: safeData.errors || [],
+            reading: this._isReading
+        });
+        if (fingerprint === this._menuFingerprint) return;
+        this._menuFingerprint = fingerprint;
 
-        let statusText = data.output_dir ? _("Wirtelprimpf") : _("Setup nötig");
-        if (data.tts && data.tts.running) statusText = _("TTS läuft · Klick aufs Panel stoppt");
-        this._addDisabled(this.menu, statusText);
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        let running = this._isReading || !!(safeData.tts && safeData.tts.running);
+        this._statusItem.label.text = running ? _("TTS läuft · Klick aufs Panel stoppt") : (safeData.output_dir ? _("Wirtelprimpf") : _("Setup nötig"));
+        this._setItemsVisible(this._mainItems, true);
+        this._setItemsVisible(this._errorActionItems, false);
 
-        let currentImage = new PopupMenu.PopupSubMenuMenuItem(_("Aktuelles Bild"));
-        this.menu.addMenuItem(currentImage);
-        this._addOpenOrDisabled(currentImage.menu, _("Story"), data.images && data.images.story ? data.images.story.path : null);
-        this._addOpenOrDisabled(currentImage.menu, _("Generated"), data.images && data.images.generated ? data.images.generated.path : null);
+        this._setPathItem(this._imageStoryItem, _("Story"), safeData.images && safeData.images.story ? safeData.images.story.path : "");
+        this._setPathItem(this._imageGeneratedItem, _("Generated"), safeData.images && safeData.images.generated ? safeData.images.generated.path : "");
+        this._updateStoryRows(safeData.full_stories || []);
+        this._updatePartRows(safeData.recent_parts || []);
+        this._setTtsRows(running, safeData.tts || {});
 
-        let story = new PopupMenu.PopupSubMenuMenuItem(_("Story"));
-        this.menu.addMenuItem(story);
-        this._addReadStory(story.menu, data);
-        this._addReadPart(story.menu, data);
-        this._addTts(story.menu, data);
-
-        let tools = new PopupMenu.PopupSubMenuMenuItem(_("Setup / Diagnose"));
-        this.menu.addMenuItem(tools);
-        tools.menu.addAction(_("Run doctor"), Lang.bind(this, this._runDoctorFromSettings));
-        tools.menu.addAction(_("Copy setup plan"), Lang.bind(this, this._copySetupPlanFromSettings));
-        tools.menu.addAction(_("Outputordner öffnen"), Lang.bind(this, this._openOutputFolderFromSettings));
-        tools.menu.addAction(_("Open applet settings"), Lang.bind(this, this._openAppletSettings));
-        tools.menu.addAction(_("GitHub öffnen"), Lang.bind(this, this._openProjectRepository));
-        tools.menu.addAction(_("Neu scannen"), Lang.bind(this, function() { this._refreshScan(false); }));
-        if (this._isReading || (data.tts && data.tts.running)) tools.menu.addAction(_("TTS stoppen"), Lang.bind(this, this._stopTts));
-
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        let outLabel = data.output_dir ? (_("Output: ") + data.output_dir) : _("Output nicht gefunden");
-        let outItem = new PopupMenu.PopupMenuItem(outLabel);
-        outItem.setSensitive(!!data.output_dir);
-        if (data.output_dir) outItem.connect("activate", Lang.bind(this, function() { this._openPath(data.output_dir); }));
-        this.menu.addMenuItem(outItem);
-        if (data.stats && data.stats.known_full_story_count !== undefined) this._addDisabled(this.menu, _("Storys gemerkt: ") + data.stats.known_full_story_count);
-        if (data.errors && data.errors.length > 0) {
-            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            this._addDisabled(this.menu, _("Hinweise:"));
-            for (let i = 0; i < Math.min(data.errors.length, 4); i++) this._addDisabled(this.menu, data.errors[i]);
-        }
-    },
-
-    _addReadStory: function(menu, data) {
-        let stories = data.full_stories || [];
-        if (stories.length === 0) { this._addDisabled(menu, _("Read Story – keine Full Story")); return; }
-        if (stories.length === 1) {
-            menu.addAction(_("Read Story"), Lang.bind(this, function() { this._openPath(stories[0].path); }));
-            return;
-        }
-        let sub = new PopupMenu.PopupSubMenuMenuItem(_("Read Story"));
-        menu.addMenuItem(sub);
-        for (let i = 0; i < stories.length; i++) {
-            let s = stories[i];
-            sub.menu.addAction(s.label, Lang.bind(this, function() { this._openPath(s.path); }));
-        }
-    },
-
-    _addReadPart: function(menu, data) {
-        let parts = data.recent_parts || [];
-        let sub = new PopupMenu.PopupSubMenuMenuItem(_("Read part"));
-        menu.addMenuItem(sub);
-        if (parts.length === 0) this._addDisabled(sub.menu, _("Keine Storyteile gefunden"));
-        else for (let i = 0; i < parts.length; i++) this._addPartItem(sub.menu, parts[i].label, parts[i].path, parts[i].tooltip || "");
-    },
-
-    _addTts: function(menu, data) {
-        let sub = new PopupMenu.PopupSubMenuMenuItem(_("TTS"));
-        menu.addMenuItem(sub);
-        sub.menu.addAction(_("Continue reading"), Lang.bind(this, function() { this._startTts("tts-continue"); }));
-        sub.menu.addAction(_("Set"), Lang.bind(this, function() { this._startTts("tts-set"); }));
-        if (this._isReading || (data.tts && data.tts.running)) {
-            sub.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            sub.menu.addAction(_("Stop"), Lang.bind(this, function() { this._stopTts(); }));
-        }
-        if (data.tts && data.tts.last_file) {
-            sub.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            this._addDisabled(sub.menu, _("Letzte Datei:"));
-            this._addDisabled(sub.menu, data.tts.last_file_label || data.tts.last_file);
-        }
-    },
-
-    _addPartItem: function(menu, label, path, tooltip) {
-        let item = new PopupMenu.PopupMenuItem(label);
-        item.connect("activate", Lang.bind(this, function() { this._openPath(path); }));
-        menu.addMenuItem(item);
-        if (tooltip && tooltip.length > 0) {
-            try { item._wpgTooltip = new Tooltips.Tooltip(item.actor, tooltip); } catch (e) {}
-        }
-    },
-
-    _addOpenOrDisabled: function(menu, label, path) {
-        if (path && path.length > 0) menu.addAction(label, Lang.bind(this, function() { this._openPath(path); }));
-        else this._addDisabled(menu, label + _(" – nicht gefunden"));
+        this._outputItem._wpgPath = safeData.output_dir || "";
+        this._outputItem.label.text = safeData.output_dir ? (_("Output: ") + safeData.output_dir) : _("Output nicht gefunden");
+        this._outputItem.setSensitive(!!safeData.output_dir);
+        let countKnown = safeData.stats && safeData.stats.known_full_story_count !== undefined;
+        this._storyCountItem.label.text = countKnown ? (_("Storys gemerkt: ") + safeData.stats.known_full_story_count) : "";
+        this._setItemsVisible([this._storyCountItem], countKnown);
+        this._setErrorRows(safeData.errors || []);
     },
 
     _addDisabled: function(menu, label) {
@@ -349,20 +533,25 @@ WirtelApplet.prototype = {
     },
 
     _startTts: function(command) {
-        if (this._isReading) return;
+        if (this._removed || this._isReading) return;
         let args = this._helperBaseArgs(command);
+        let generation = ++this._ttsGeneration;
         try {
-            this._ttsProcess = Gio.Subprocess.new(args, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+            let activeProcess = Gio.Subprocess.new(args, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+            this._ttsProcess = activeProcess;
+            this._helperProcesses.add(activeProcess);
             this._setReading(true);
-            this._ttsProcess.communicate_utf8_async(null, null, Lang.bind(this, function(proc, res) {
+            activeProcess.communicate_utf8_async(null, null, Lang.bind(this, function(proc, res) {
                 let stdout = "";
                 let stderr = "";
                 try {
                     let result = proc.communicate_utf8_finish(res);
-                    stdout = result[1] || "";
-                    stderr = result[2] || "";
+                    stdout = (result[1] || "").slice(0, HELPER_OUTPUT_LIMIT);
+                    stderr = (result[2] || "").slice(0, HELPER_OUTPUT_LIMIT);
                 } catch (e) { stderr = String(e); }
-                this._ttsProcess = null;
+                this._helperProcesses.delete(proc);
+                if (this._removed || generation !== this._ttsGeneration) return;
+                if (this._ttsProcess === proc) this._ttsProcess = null;
                 this._setReading(false);
                 if (stderr) global.log("[" + UUID + "] TTS stderr: " + stderr);
                 try {
@@ -380,17 +569,21 @@ WirtelApplet.prototype = {
     },
 
     _stopTts: function() {
-        this._spawnJson(this._helperBaseArgs("tts-stop"), Lang.bind(this, function(data) {}));
+        if (this._removed) return;
+        this._ttsGeneration += 1;
         if (this._ttsProcess !== null) {
             try { this._ttsProcess.send_signal(15); }
             catch (e1) { try { this._ttsProcess.force_exit(); } catch (e2) {} }
         }
+        this._ttsProcess = null;
         this._setReading(false);
-        if (this._ttsWaitId) Mainloop.source_remove(this._ttsWaitId);
-        this._ttsWaitId = Mainloop.timeout_add_seconds(1, Lang.bind(this, function() {
-            this._refreshScan(false);
+        if (this._ttsWaitId) {
+            Mainloop.source_remove(this._ttsWaitId);
             this._ttsWaitId = 0;
-            return false;
+        }
+        this._spawnJson(this._helperBaseArgs("tts-stop"), Lang.bind(this, function(data) {
+            if (this._removed) return;
+            this._refreshScan(false);
         }));
     },
 

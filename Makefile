@@ -8,6 +8,8 @@ check:
 	$(PYTHON) -m json.tool files/$(UUID)/settings-schema.json >/dev/null
 	$(PYTHON) -m py_compile Sourcecode/wirtelprimpf_generator.py
 	$(PYTHON) -m py_compile files/$(UUID)/helper.py files/$(UUID)/SettingsLogo.py
+	node --check files/$(UUID)/applet.js
+	node tests/test_applet_runtime.js
 	$(PYTHON) tests/test_semver.py
 	$(PYTHON) tests/test_git_object_fallback.py
 	$(PYTHON) tests/test_helper_env.py

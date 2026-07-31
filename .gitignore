@@ -3,6 +3,8 @@ Sourcecode/__pycache__/
 Sourcecode/*.pyc
 files/*/__pycache__/
 files/**/*.pyc
+tests/__pycache__/
+tests/*.pyc
 Sourcecode/.minor_version_state
 Sourcecode/.minor_version_state.started_at
 Sourcecode/.minor_version_watch.lock
