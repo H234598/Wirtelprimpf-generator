@@ -14,6 +14,30 @@ from urllib.request import Request, urlopen
 
 from .naming import ARCHIVE_CAPACITY, archive_domain, archive_name
 
+ARCHIVE_GITIGNORE = """# Lokale Laufzeit- und Migrationsartefakte.
+__pycache__/
+*.py[cod]
+.DS_Store
+*.part
+*.tmp
+/release-staging/
+/migration-work/
+
+# Binäre Publikationsmedien gehören ausschließlich in verifizierte Releases.
+/Wirtelprimpf/*.png
+/Wirtelprimpf/**/*.png
+/Wirtelprimpf/*.jpg
+/Wirtelprimpf/**/*.jpg
+/Wirtelprimpf/*.jpeg
+/Wirtelprimpf/**/*.jpeg
+/Wirtelprimpf/*.webp
+/Wirtelprimpf/**/*.webp
+/Wirtelprimpf/*.gif
+/Wirtelprimpf/**/*.gif
+/Wirtelprimpf/*.avif
+/Wirtelprimpf/**/*.avif
+"""
+
 
 class GitHubProvisionError(RuntimeError):
     """A GitHub archive provisioning step cannot be completed safely."""
@@ -246,6 +270,7 @@ GitHub Releases; `main` enthält kleine, reviewbare Verweise und Storytexte.
             path / "media-manifest.json",
             json.dumps(media_manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         )
+        _atomic_text(path / ".gitignore", ARCHIVE_GITIGNORE)
         _atomic_text(path / ".github/workflows/pages.yml", workflow)
         _atomic_text(path / ".nojekyll", "")
         source_license = self.generator_root / "LICENSE"
@@ -256,6 +281,7 @@ GitHub Releases; `main` enthält kleine, reviewbare Verweise und Storytexte.
             "LICENSE",
             "archive-manifest.json",
             "media-manifest.json",
+            ".gitignore",
             ".github/workflows/pages.yml",
             ".nojekyll",
         ]
