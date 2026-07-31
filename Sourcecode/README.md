@@ -1,3 +1,20 @@
+---
+tags:
+  - wirtelprimpf
+  - generator
+  - installation
+  - sourcecode
+  - systemd
+type: technical-documentation
+status: maintained
+date: 2026-07-31
+aliases:
+  - Wirtelprimpf Generator Sourcecode
+  - Generator Installationsanleitung
+created: 2026-07-31
+title: Wirtelprimpf Generator Sourcecode
+---
+
 # Wirtelprimpf Generator Sourcecode
 
 This folder contains the portable source for the Wirtelprimpf image generator.
@@ -18,6 +35,8 @@ referenced by the small manifest committed to the active publication archive.
 - `wirtelprimpf-set-openai-key`: helper that writes an API key to a private env file.
 - `env.example`: documented environment variables.
 - `requirements.txt`: Python dependency list.
+- `STORY_DIRECTIVES.md`: complete per-story-directives format, UI, installation, security, and operations guide.
+- `../files/wirtelprimfgenerator@H234598/story_directives_core.py`: shared story-directives CLI source used by Cinnamon and systemd.
 - `systemd-user/wirtelprimpf.service`: optional user service template.
 - `systemd-user/wirtelprimpf.timer`: optional two-hour timer template.
 
@@ -37,16 +56,28 @@ api.model.images.request
 
 ## Install Example
 
+The story-directives helper must be installed before the systemd service,
+because `wirtelprimpf.service` applies the active story directive through this
+stable CLI path in `ExecStartPre`.
+
 ```bash
 git clone https://github.com/H234598/Wirtelprimpf-generator ~/.local/share/wirtelprimpf-generator
 python3 -m venv ~/.local/share/wirtelprimpf-generator/.venv
 ~/.local/share/wirtelprimpf-generator/.venv/bin/pip install -e ~/.local/share/wirtelprimpf-generator
 
 install -Dm0755 Sourcecode/wirtelprimpf-set-openai-key ~/.local/bin/wirtelprimpf-set-openai-key
+install -Dm0755 files/wirtelprimfgenerator@H234598/story_directives_core.py ~/.local/bin/wirtelprimpf-story-directives
 install -Dm0644 Sourcecode/wirtelprimpf_prompt_config.md ~/.config/wirtelprimpf/prompt_config.md
 install -Dm0644 Sourcecode/wirtelprimpf_story_prompt_config.md ~/.config/wirtelprimpf/story_prompt_config.md
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf.service ~/.config/systemd/user/wirtelprimpf.service
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf.timer ~/.config/systemd/user/wirtelprimpf.timer
+```
+
+The Cinnamon installation path can install the same shared helper together with
+the applet:
+
+```bash
+make install-local
 ```
 
 ## Configuration
@@ -123,8 +154,8 @@ The config uses `## Hauptteil` as the interpreted main part. Every other `##`
 section is treated as a category, and each run randomly picks one line from
 each category.
 
-The local mirror file is intentionally separate from the repository default. If you changed
-local rules, keep them intact and check drift before syncing:
+The local mirror file is intentionally separate from the repository default.
+If you changed local rules, keep them intact and check drift before syncing:
 
 ```bash
 PROMPT_CONFIG="${WIRTELPRIMPF_PROMPT_CONFIG:-$HOME/.config/wirtelprimpf/prompt_config.md}"
@@ -156,6 +187,7 @@ WIRTELPRIMPF_STORY_PROMPT_CONFIG=$HOME/.config/wirtelprimpf/story_prompt_config.
 WIRTELPRIMPF_STORY_MODEL=gpt-5-mini
 WIRTELPRIMPF_STORY_DOCUMENT=$HOME/Hintergrundbilder/Wirtelprimpf_Story_I.md
 WIRTELPRIMPF_STORY_STATE=$HOME/Hintergrundbilder/wirtelprimpf_story_state.json
+WIRTELPRIMPF_STORY_DIRECTIVES=$HOME/.config/wirtelprimpf/story_directives.json
 WIRTELPRIMPF_WORKING_DIR=$HOME/Hintergrundbilder/working
 ```
 
@@ -188,6 +220,32 @@ When Git publishing is enabled, the same stable working files are copied into
 the repository under `Wirtelprimpf/working/`. The repository
 `Wirtelprimpf/working/Full_Story.md` link is written relative to the repository
 story document so GitHub can show the current full story snapshot.
+
+### Per-story directives
+
+The shared CLI resolves the effective current volume from
+`WIRTELPRIMPF_STORY_STATE`, loads the versioned directives ledger, and projects
+the active volume's complete directive into the managed section of
+`WIRTELPRIMPF_STORY_PROMPT_CONFIG`.
+
+Status:
+
+```bash
+~/.local/bin/wirtelprimpf-story-directives \
+  status --env-file ~/.config/wirtelprimpf/openai.env
+```
+
+Apply manually:
+
+```bash
+~/.local/bin/wirtelprimpf-story-directives \
+  apply --env-file ~/.config/wirtelprimpf/openai.env
+```
+
+The Cinnamon settings page shows the effective current story and the next two
+stories as editable. Every older story is shown read-only. Full format,
+migration, safety, and recovery details are documented in
+`Sourcecode/STORY_DIRECTIVES.md`.
 
 To close the current story arc, set:
 
@@ -246,10 +304,16 @@ an.
 
 ## Manual Run
 
+For story mode, apply the active directive before a direct generator run, just
+as the systemd service does:
+
 ```bash
 set -a
 . ~/.config/wirtelprimpf/openai.env
 set +a
+~/.local/share/wirtelprimpf-venv/bin/python \
+  ~/.local/bin/wirtelprimpf-story-directives \
+  apply --env-file ~/.config/wirtelprimpf/openai.env
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py
 ```
 
@@ -279,6 +343,7 @@ MAX_STALE_LOCK_SECONDS=1200 DEFAULT_RETRY_DELAY_SECONDS=10 ./Sourcecode/watch_mi
 ```
 
 Hinweise zu Minima:
+
 - `SLEEP_SECONDS >= 1`
 - `DEFAULT_RETRY_DELAY_SECONDS >= 1`
 - `MAX_STALE_LOCK_SECONDS >= 10`
@@ -289,26 +354,31 @@ Ein einmaliger Check kann auch unabhängig laufen:
 ./Sourcecode/check_wirtelprimpf.sh
 ```
 
-`watch_minor_version.sh` erzwingt einen einzelnen aktiven Lauf über Locking. Parallel-Starts werden auf demselben Host/Workdir abgeblockt.
+`watch_minor_version.sh` erzwingt einen einzelnen aktiven Lauf über Locking.
+Parallel-Starts werden auf demselben Host/Workdir abgeblockt.
 
-`check_wirtelprimpf.sh` verwendet temporäre Dateien mit automatischer Aufräumung.
+`check_wirtelprimpf.sh` verwendet temporäre Dateien mit automatischer
+Aufräumung.
 
 `watch_minor_version.sh` beobachtet dieselbe SemVer-Ableitung wie der Generator.
 Standard ist: `VERSION` liefert Major/Minor/Basis-Patch, der Publish-State addiert
 den generierten Patch-Zähler.
 
 Fehlertoleranzverhalten:
+
 - Der Watcher beendet sich mit `exit 1`, wenn keine nutzbare Python-Interpretation gefunden wird.
 - Er fällt auf einen sicher reparierten lokalen Stand zurück, wenn die State-Datei fehlt oder ungültig ist, und bricht ab, wenn diese Reparatur nicht geschrieben werden kann.
 - Er bricht bei fehlerhafter Versionsberechnung (`get_minor_version`) und beim Timestamp-Schreiben nicht still, sondern mit klarer Logmeldung.
 
 ### Dauerstart via systemd --user
 
-Du kannst den Watcher auch automatisch beim Benutzerstart laufen lassen:
+Du kannst den Watcher auch automatisch beim Benutzerstart laufen lassen.
+Watcher-Feintuning (`SLEEP_SECONDS`, `DEFAULT_RETRY_DELAY_SECONDS`,
+`MAX_STALE_LOCK_SECONDS`) erfolgt ausschließlich über Service-Overrides, zum
+Beispiel `systemctl --user edit wirtelprimpf-version-watch.service`, und nicht
+über `openai.env`.
 
-Watcher-Feintuning (`SLEEP_SECONDS`, `DEFAULT_RETRY_DELAY_SECONDS`, `MAX_STALE_LOCK_SECONDS`) erfolgt ausschließlich über Service-Overrides (z. B. `systemctl --user edit wirtelprimpf-version-watch.service`) und nicht über `openai.env`.
-
-Beispiel (ohne Secret-File, nur Watcher-Parameter):
+Beispiel ohne Secret-File, nur mit Watcher-Parametern:
 
 ```bash
 mkdir -p ~/.config/systemd/user/wirtelprimpf-version-watch.service.d
@@ -335,6 +405,7 @@ systemctl --user status wirtelprimpf-version-watch.timer --no-pager
 ```
 
 Der Dienst läuft im Dauermodus:
+
 - Ein einzelner Watcher-Prozess hält exklusiv den Lock.
 - Bei jeder erkannten Versionsänderung wird genau ein Check-Block ausgeführt.
 - Danach kehrt er in das Intervall zurück.
@@ -349,7 +420,7 @@ Validation helpers:
 ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --version
 ```
 
-Optional mit Repo-Kontext (für patch-state-reiche Checks):
+Optional mit Repo-Kontext für patch-state-reiche Checks:
 
 ```bash
 WIRTELPRIMPF_REPO_PATH=/path/to/local/git/repo WIRTELPRIMPF_REPO_SLUG= WIRTELPRIMPF_REPO_BRANCH=main \
@@ -361,8 +432,8 @@ WIRTELPRIMPF_REPO_PATH=/path/to/local/git/repo WIRTELPRIMPF_REPO_SLUG= WIRTELPRI
 ### Machine-readable status
 
 `--status` and `--check-config --json` print structured diagnostics and use the
-same stable envelope:
-The JSON form can be used for automation and is emitted as one compact object per line:
+same stable envelope. The JSON form can be used for automation and is emitted
+as one compact object per line:
 
 ```json
 {
@@ -393,35 +464,35 @@ The JSON form can be used for automation and is emitted as one compact object pe
 ```
 
 `--dry-run --json` also emits machine-readable records using the same top-level
-fields (`ok`, `version`, `timestamp`, `mode`, `status`, `exit_code`) per rendered prompt
-record.
+fields (`ok`, `version`, `timestamp`, `mode`, `status`, `exit_code`) per rendered
+prompt record.
 
 Praktische Fehlerauswertung:
 
-- `exit_code == 0` => Kein command-wide Fehler; bei `--status` können Einzelchecks (`checks`) fehlerhaft sein, ohne dass der Kommando-Exitcode steigt.
-- `exit_code == 1` => kritische Setup/Config- oder Repo-Fehler, keine erfolgreiche Ausführung.
-- `exit_code == 2` => partielle Ausführung; suche `checks` mit `"ok": false` und die zugehörigen `message`-Felder.
-- Für `dry_run`-Events gilt: `status` spiegelt den Laufstatus pro Block, `checks` enthält die Einzelbewertung je Prüfungspunkt.
+- `exit_code == 0`: kein command-wide Fehler; bei `--status` können Einzelchecks fehlerhaft sein, ohne dass der Kommando-Exitcode steigt.
+- `exit_code == 1`: kritische Setup-, Config- oder Repo-Fehler; keine erfolgreiche Ausführung.
+- `exit_code == 2`: partielle Ausführung; suche `checks` mit `"ok": false` und die zugehörigen `message`-Felder.
+- Für `dry_run`-Events gilt: `status` spiegelt den Laufstatus pro Block; `checks` enthält die Einzelbewertung.
 
-`mode` is a strict discriminator in machine-readable output and can only be:
-`status`, `check_config`, `dry_run`, or `run`.
+`mode` ist ein strikter Diskriminator und kann nur `status`, `check_config`,
+`dry_run` oder `run` sein.
 
-`exit_code` is treated as a top-level field for command-level results; nested
-`summary` payloads intentionally only carry metric counters (`success`, `failed`,
-`skipped`, `prompts`, `total`).
+`exit_code` ist ein Top-Level-Feld für kommandoweite Ergebnisse. Verschachtelte
+`summary`-Payloads enthalten absichtlich nur Zähler wie `success`, `failed`,
+`skipped`, `prompts` und `total`.
 
-`--status` includes a non-required `openai_key` check entry when no API key is
-present; it reports diagnostics without marking the command as failed, because API
-credentials are only required for actual generation calls.
+`--status` enthält einen nicht verpflichtenden `openai_key`-Check, wenn kein
+API-Key vorhanden ist. Die Diagnose markiert den Befehl nicht als fehlgeschlagen,
+weil Zugangsdaten erst für echte Generierungsaufrufe notwendig sind.
 
-For non-JSON `--status`, the command prints an explicit `mode` and `exit_code`
-line in its text output.
+Für nicht JSON-basiertes `--status` gibt der Befehl `mode` und `exit_code`
+ausdrücklich als Textzeilen aus.
 
 ### Exit codes
 
 - `0`: success
-- `1`: unrecoverable setup/configuration failure for execution paths (invalid config, repo/path issues, or missing API key when generation is attempted)
-- `2`: partial failure (one or more prompts/images failed, but at least one succeeded)
+- `1`: unrecoverable setup/configuration failure for execution paths
+- `2`: partial failure; at least one prompt or image failed while another succeeded
 
 ## Two-hour Timer
 
@@ -437,23 +508,29 @@ Logs:
 journalctl --user -u wirtelprimpf.service -n 100 --no-pager
 ```
 
-Wenn der Dienst wegen der neuen systemd-Härtung nicht startet oder sofort beendet wird, prüfe zuerst:
+Wenn der Dienst wegen der systemd-Härtung nicht startet oder sofort beendet
+wird, prüfe zuerst:
 
 ```bash
 systemd-analyze verify Sourcecode/systemd-user/wirtelprimpf.service
 journalctl --user -u wirtelprimpf.service -n 200 --no-pager
 ```
 
-`MemoryDenyWriteExecute=true` ist für den Python/OpenAI/Pillow-Pfad in der Regel unkritisch.
-Sollte der Dienst trotzdem mit Hardening-bezogenen `EACCES`/`Operation not permitted`-Fehlern starten oder abbrechen, prüfe zuerst den konkreten Fehler im Journal und deaktiviere diese Direktive testweise isoliert als letzten Schritt.
+`MemoryDenyWriteExecute=true` ist für den Python/OpenAI/Pillow-Pfad in der Regel
+unkritisch. Sollte der Dienst trotzdem mit Hardening-bezogenen
+`EACCES`- beziehungsweise `Operation not permitted`-Fehlern starten oder
+abbrechen, prüfe zuerst den konkreten Fehler im Journal und deaktiviere diese
+Direktive testweise isoliert als letzten Schritt.
 
 ## Output
 
-Each run creates two files:
+Classic mode creates:
 
 ```text
 wirtelprimpf_YYYY-MM-DD_HH-MM-SS.png
 wirtelprimpf_YYYY-MM-DD_HH-MM-SS.txt
 ```
 
-The `.txt` file contains the exact prompt used for the image.
+The `.txt` file contains the exact prompt used for the image. Story mode also
+creates the story-part Markdown, appends the active full-story document, and
+rotates the stable files under `working/` as described above.
