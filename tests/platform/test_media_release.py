@@ -86,6 +86,17 @@ class MediaReleaseTests(unittest.TestCase):
         self.assertIsNone(legacy.story_part_path)
         self.assertEqual(story.sha256, hashlib.sha256((self.source / story.source_path).read_bytes()).hexdigest())
 
+    def test_timestamp_image_with_an_exact_markdown_sidecar_is_story_media(self) -> None:
+        stem = "wirtelprimpf_2026-01-03_12-00-00-000003"
+        (self.source / f"{stem}.png").write_bytes(png_bytes(100, 50, (40, 60, 80)))
+        (self.source / f"{stem}.md").write_text("## 2026-01-03 12:00:00\n\nStory.\n", encoding="utf-8")
+
+        inventory = build_media_inventory(self.source, archive_index=1)
+        record = next(item for item in inventory.records if item.source_path == f"{stem}.png")
+
+        self.assertEqual(record.kind, "story")
+        self.assertEqual(record.story_part_path, f"{stem}.md")
+
     def test_release_plan_shards_below_asset_limit_and_uses_hash_bound_urls(self) -> None:
         inventory = build_media_inventory(self.source, archive_index=1)
         plan = build_release_plan(

@@ -178,7 +178,7 @@ class PublishReport:
 
 def _kind_for(path: Path, *, story_path: Path | None) -> str:
     lower = path.stem.lower()
-    if "_story-" in lower and story_path is not None:
+    if story_path is not None:
         return "story"
     if "geburtstag" in lower or "_classic-" in lower or TIMESTAMP_IMAGE_RE.match(path.stem):
         return "classic"
