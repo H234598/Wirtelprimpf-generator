@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CORE_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "story_directives_core.py"
 GENERATOR_PATH = ROOT / "Sourcecode" / "wirtelprimpf_generator.py"
 SERVICE_PATH = ROOT / "Sourcecode" / "systemd-user" / "wirtelprimpf.service"
+SOURCE_README_PATH = ROOT / "Sourcecode" / "README.md"
 MAKEFILE_PATH = ROOT / "Makefile"
 SETTINGS_SCHEMA_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "settings-schema.json"
 STORY_UI_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "StoryDirectives.py"
@@ -289,6 +290,16 @@ class StoryDirectivesIntegrationTests(unittest.TestCase):
         self.assertIn("wirtelprimpf-story-directives", install_script)
         self.assertIn("story_directives_core.py", install_script)
         self.assertIn("wirtelprimpf-story-directives is preserved", uninstall_script)
+
+    def test_source_readme_installs_directives_cli_before_service(self):
+        readme = SOURCE_README_PATH.read_text(encoding="utf-8")
+        helper_source = "files/wirtelprimfgenerator@H234598/story_directives_core.py"
+        helper_target = "~/.local/bin/wirtelprimpf-story-directives"
+        service_source = "Sourcecode/systemd-user/wirtelprimpf.service"
+
+        self.assertIn(helper_source, readme)
+        self.assertIn(helper_target, readme)
+        self.assertLess(readme.index(helper_source), readme.index(service_source))
 
     def test_make_check_compiles_and_runs_story_directives(self):
         makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
