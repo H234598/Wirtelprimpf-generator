@@ -13,7 +13,7 @@ RuntimeDirectoryMode=0700
 Environment=TMPDIR=%t/wirtelprimpf-generator
 Environment=TMP=%t/wirtelprimpf-generator
 Environment=TEMP=%t/wirtelprimpf-generator
-ExecStartPre=%h/.local/share/wirtelprimpf-venv/bin/python %h/.local/share/cinnamon/applets/wirtelprimfgenerator@H234598/story_directives_core.py apply --env-file %h/.config/wirtelprimpf/openai.env
+ExecStartPre=%h/.local/share/wirtelprimpf-generator/.venv/bin/python %h/.local/bin/wirtelprimpf-story-directives apply --env-file %h/.config/wirtelprimpf/openai.env
 ExecStart=%h/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator
 Restart=on-failure
 RestartSec=5min
