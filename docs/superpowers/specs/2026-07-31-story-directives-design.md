@@ -31,9 +31,13 @@ Story III wird initial mit folgenden inhaltlichen Leitplanken vorbelegt:
 
 ## Gewählte Architektur
 
-Die Vorgaben werden in einem versionierten JSON-Register unter `~/.config/wirtelprimpf/story_directives.json` gespeichert. Ein reines Python-Kernmodul übernimmt Schema, Validierung, sichere atomare Schreibvorgänge, Story-III-Initialisierung, Ermittlung des effektiv nächsten Bandes und die Übertragung der aktiven Vorgabe in die bestehende Markdown-Promptkonfiguration. Ein getrenntes GTK-Widget verwendet dieselbe Kernlogik und stellt die Bedienoberfläche in Cinnamon bereit.
+Die Vorgaben werden in einem versionierten JSON-Register unter `~/.config/wirtelprimpf/story_directives.json` gespeichert. Ein reines Python-Kernmodul übernimmt Schema, Validierung, sichere atomare Schreibvorgänge, Story-III-Initialisierung, Ermittlung des effektiven Bandes und die Übertragung der aktiven Vorgabe in die bestehende Markdown-Promptkonfiguration. Ein getrenntes GTK-Widget verwendet dieselbe Kernlogik und stellt die Bedienoberfläche in Cinnamon bereit.
 
-Der Generator selbst bleibt unverändert. Vor jedem systemd-Storylauf ruft `ExecStartPre` das Kernmodul auf. Dieses ersetzt ausschließlich die verwaltete Markdown-Sektion `## Zwingende Story-Vorgaben (verwaltet)` in der bestehenden Story-Promptdatei. Die bereits vorhandene Prompt-Parserlogik erkennt „Zwingende“ als fixen Abschnitt und übernimmt deshalb alle Zeilen statt einer zufälligen Auswahl.
+`make install-local` installiert das Kernmodul sowohl mit dem Applet als auch als gemeinsamen CLI-Helfer unter `~/.local/bin/wirtelprimpf-story-directives`. Die systemd-Unit ruft ausschließlich diesen stabilen CLI-Pfad auf und ist damit nicht vom internen Applet-Installationspfad abhängig. Bei einer manuellen Generatorinstallation muss derselbe Helfer zusätzlich installiert werden.
+
+Der Generator selbst bleibt unverändert. Vor jedem systemd-Storylauf ruft `ExecStartPre` den Helfer auf. Dieser ersetzt ausschließlich die verwaltete Markdown-Sektion `## Story-Vorgaben (verwaltet)` in der bestehenden Story-Promptdatei.
+
+Die Sektion ist bewusst **keine** „fixe“ Parsersektion: Der vorhandene Generator nimmt fixe Abschnitte nur in den Bildprompt auf. Stattdessen wird die gesamte mehrzeilige Vorgabe zu genau einem Listeneintrag einer regulären Kategorie zusammengeführt. Da die Kategorie nur diesen einen Eintrag besitzt, wird er deterministisch ausgewählt und erreicht sowohl Storytext als auch Bildprompt. Eine ältere Zwischenfassung mit der Überschrift `## Zwingende Story-Vorgaben (verwaltet)` wird beim Anwenden automatisch entfernt.
 
 ## Alternativen und Entscheidung
 
@@ -63,7 +67,7 @@ Vorteile: eindeutiges Schema, atomar speicherbar, leicht testbar, historisch sta
       "directive": "Actionstory.\nBlutig.\n...",
       "created_at": "2026-07-31T17:00:12Z",
       "updated_at": "2026-07-31T17:00:12Z",
-      "source": "initial-story-iii-request"
+      "source": "seed:story-iii"
     }
   }
 }
@@ -72,8 +76,7 @@ Vorteile: eindeutiges Schema, atomar speicherbar, leicht testbar, historisch sta
 Regeln:
 
 - `schema_version` ist exakt `1`.
-- Schlüssel in `stories` sind positive Dezimalzahlen ohne führende Sonderzeichen.
-- `volume` muss dem Schlüssel entsprechen.
+- Schlüssel in `stories` sind positive Bandnummern und müssen mit `volume` übereinstimmen.
 - `directive` ist UTF-8-Text bis maximal 20.000 Zeichen.
 - Leere Vorgaben werden beim Speichern entfernt.
 - `migrations.story_iii_seeded=true` verhindert, dass eine bewusst geleerte oder entfernte Story-III-Vorgabe später erneut automatisch erscheint.
@@ -96,7 +99,9 @@ Oben werden genau drei editierbare Karten gezeigt:
 
 Jede Karte zeigt Bandnummer, römische Bezeichnung, Status, den vollständigen Text und einen gemeinsamen Speicherknopf. Story III ist durch die Initialmigration bereits sichtbar, sobald sie in dieses Dreierfenster fällt.
 
-Darunter folgt **Vergangene Storys (read-only)**. Angezeigt werden alle Bände kleiner als der effektiv laufende Band, absteigend sortiert. Textfelder sind nicht editierbar und nicht speicherbar. Auch Bände ohne registrierte Vorgaben werden als „Keine gespeicherten Vorgaben“ kenntlich gemacht, sofern sie aus dem State ableitbar sind.
+Darunter folgt **Vergangene Storys (read-only)**. Angezeigt werden alle Bände kleiner als der effektiv laufende Band, absteigend sortiert. Textfelder sind nicht editierbar und nicht speicherbar. Bände ohne registrierte Vorgabe zeigen ausdrücklich „Keine gespeicherten Vorgaben.“
+
+Beim Speichern vergleicht die Kernlogik die im Fenster enthaltenen Bandnummern mit dem aktuell ermittelten Dreierfenster. Ist die Story während eines geöffneten Einstellungsfensters weitergesprungen, wird das veraltete Speichern verweigert und die Oberfläche lädt den neuen Stand. Damit lässt sich ein inzwischen vergangener Band nicht über ein altes Fenster nachträglich verändern.
 
 ## Prompt-Anwendung
 
@@ -106,31 +111,36 @@ Vor dem Storylauf:
 2. State und Register validieren;
 3. Story-III-Seed genau einmal ergänzen, solange die Migration noch nicht als ausgeführt markiert ist;
 4. effektiven Band bestimmen;
-5. bestehende verwaltete Promptsektion vollständig entfernen;
-6. bei vorhandener Vorgabe eine neue feste Sektion mit allen nichtleeren Zeilen anhängen;
+5. aktuelle sowie ältere verwaltete Promptsektion vollständig entfernen;
+6. bei vorhandener Vorgabe alle nichtleeren Eingabezeilen zu einem einzigen regulären Kategorien-Eintrag zusammenführen;
 7. atomar mit Modus `0600` schreiben.
 
-Ohne Vorgabe wird die verwaltete Sektion entfernt. Andere Promptabschnitte, lokale Anpassungen und Formatierungen bleiben unverändert.
+Ohne Vorgabe wird die verwaltete Sektion entfernt. Andere Promptabschnitte und lokale Anpassungen bleiben erhalten.
 
 ## Fehlerbehandlung und Sicherheit
 
-- Symlinks für State, Register und Promptdatei werden abgelehnt.
+- Symlinks für Environment, State, Register und Promptdatei werden abgelehnt.
 - JSON-Fehler, falsche Typen und widersprüchliche Bandnummern führen zu klaren Fehlermeldungen.
 - Dateien werden über temporäre Dateien im Zielverzeichnis und `os.replace` geschrieben.
 - Das Register und die Promptdatei erhalten nach verwalteten Schreibvorgängen Modus `0600`.
-- Der CLI-Befehl gibt bei Erfolg eine kompakte Statusmeldung aus und beendet sich bei Fehlern ungleich null, sodass systemd den Storylauf blockiert statt mit falschen Vorgaben fortzufahren.
+- Ein veraltetes editierbares Dreierfenster wird nicht gespeichert.
+- Der CLI-Befehl beendet sich bei Fehlern ungleich null, sodass systemd den Storylauf blockiert statt mit falschen Vorgaben fortzufahren.
 
 ## Tests
 
-Automatisiert werden mindestens geprüft:
+Automatisiert werden geprüft:
 
 - Story III wird genau einmal initialisiert, überschreibt keine Benutzeränderung und bleibt nach bewusstem Leeren leer.
 - `pending_new_volume=true` schaltet die wirksame Bandnummer vor dem Generatorlauf korrekt weiter.
-- Eine aktive Vorgabe wird vollständig als feste Markdown-Sektion eingetragen.
-- Eine alte verwaltete Sektion wird ersetzt, nicht dupliziert.
-- Eine leere Vorgabe entfernt die verwaltete Sektion.
-- Vergangene Bände werden vom Rollenmodell als read-only klassifiziert; nur laufend und zwei folgende sind editierbar.
+- Nur laufender Band und zwei Folgebände bilden das editierbare Fenster.
+- Ein veraltetes Fenster mit einem inzwischen vergangenen Band wird abgelehnt.
+- Die gesamte mehrzeilige Vorgabe wird als genau ein ausgewählter Kategorien-Eintrag gerendert.
+- Ein Integrationstest mit dem echten Generatorparser belegt, dass die Vorgabe sowohl Storytext als auch Bildprompt erreicht.
+- Die ältere Zwischenüberschrift wird ersetzt und bei leerer Vorgabe entfernt.
+- Atomare Schreibvorgänge, Modus `0600` und Symlink-Abweisung funktionieren.
 - Das Cinnamon-Schema referenziert die neue Seite und das neue Widget.
+- Die systemd-Unit verwendet den installierten gemeinsamen CLI-Pfad.
+- Der lokale Installer installiert den CLI-Helfer; der Uninstaller bewahrt ihn für die Generatorinstallation.
 - `make check` kompiliert Kernmodul und GTK-Widget und führt die neuen Tests aus.
 
 ## Nicht-Ziele
