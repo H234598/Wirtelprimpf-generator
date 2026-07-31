@@ -15,6 +15,7 @@ const Main = imports.ui.main;
 const UUID = "wirtelprimfgenerator@H234598";
 const DEFAULT_GITHUB_URL = "https://github.com/H234598/Katzenbilder";
 const HELPER_OUTPUT_LIMIT = 1024 * 1024;
+const FULL_STORY_LIMIT = 50;
 const RECENT_PART_LIMIT = 15;
 const PANEL_ICON_FILES = {
     "orbit": "panel-icon.png",
@@ -142,10 +143,7 @@ WirtelApplet.prototype = {
             Mainloop.source_remove(this._ttsWaitId);
             this._ttsWaitId = 0;
         }
-        for (let proc of this._helperProcesses) {
-            try { proc.force_exit(); }
-            catch (e) {}
-        }
+        for (let operation of Array.from(this._helperProcesses)) this._cancelHelperOperation(operation);
         this._helperProcesses.clear();
         this._scanProcess = null;
         this._ttsProcess = null;
@@ -161,11 +159,21 @@ WirtelApplet.prototype = {
             catch (e3) {}
         }
         if (this.menu) {
+            for (let row of this._partRows) {
+                if (row && row._wpgTooltip && row._wpgTooltip.destroy) {
+                    try { row._wpgTooltip.destroy(); }
+                    catch (e4) {}
+                }
+                if (row) row._wpgTooltip = null;
+            }
             try { this.menu.destroy(); }
-            catch (e4) {}
+            catch (e5) {}
             this.menu = null;
         }
         this.menuManager = null;
+        this._storyRows = [];
+        this._partRows = [];
+        this._errorRows = [];
     },
 
     _setIdlePresentation: function() {
@@ -214,12 +222,50 @@ WirtelApplet.prototype = {
         ];
     },
 
+    _trackHelperProcess: function(proc) {
+        let operation = {
+            process: proc,
+            cancellable: new Gio.Cancellable(),
+            finished: false
+        };
+        this._helperProcesses.add(operation);
+        return operation;
+    },
+
+    _finishHelperOperation: function(operation) {
+        if (!operation || operation.finished) return;
+        operation.finished = true;
+        this._helperProcesses.delete(operation);
+    },
+
+    _cancelHelperOperation: function(operation) {
+        if (!operation || operation.finished) return;
+        if (operation.cancellable) {
+            try { operation.cancellable.cancel(); }
+            catch (e1) {}
+        }
+        if (operation.process) {
+            try { operation.process.force_exit(); }
+            catch (e2) {}
+        }
+        this._finishHelperOperation(operation);
+    },
+
+    _helperOperationForProcess: function(proc) {
+        for (let operation of this._helperProcesses) {
+            if (operation && operation.process === proc) return operation;
+        }
+        return null;
+    },
+
     _spawnJson: function(args, callback) {
         if (this._removed) return null;
+        let proc = null;
+        let operation = null;
         try {
-            let proc = Gio.Subprocess.new(args, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
-            this._helperProcesses.add(proc);
-            proc.communicate_utf8_async(null, null, Lang.bind(this, function(p, res) {
+            proc = Gio.Subprocess.new(args, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+            operation = this._trackHelperProcess(proc);
+            proc.communicate_utf8_async(null, operation.cancellable, Lang.bind(this, function(p, res) {
                 let stdout = "";
                 let stderr = "";
                 let status = 0;
@@ -229,7 +275,7 @@ WirtelApplet.prototype = {
                     stderr = (result[2] || "").slice(0, HELPER_OUTPUT_LIMIT);
                     status = p.get_exit_status ? p.get_exit_status() : 0;
                 } catch (e) { stderr = String(e); status = 1; }
-                this._helperProcesses.delete(p);
+                this._finishHelperOperation(operation);
                 if (this._removed) return;
                 let data = null;
                 try { data = stdout ? JSON.parse(stdout) : {ok: false, errors: [stderr || "Kein Output"]}; }
@@ -240,12 +286,18 @@ WirtelApplet.prototype = {
             }));
             return proc;
         } catch (e) {
+            if (operation) this._cancelHelperOperation(operation);
+            else if (proc) {
+                try { proc.force_exit(); }
+                catch (e2) {}
+            }
             if (!this._removed) callback({ok: false, errors: [String(e)]});
             return null;
         }
     },
 
     _spawnDetached: function(args) {
+        if (this._removed) return;
         try { Gio.Subprocess.new(args, Gio.SubprocessFlags.NONE); }
         catch (e) { global.logError("[" + UUID + "] spawn failed: " + e); }
     },
@@ -305,6 +357,8 @@ WirtelApplet.prototype = {
         this._readStoryMenu = new PopupMenu.PopupSubMenuMenuItem(_("Read Story"));
         this._storyMenu.menu.addMenuItem(this._readStoryMenu);
         this._storyEmptyItem = this._addDisabled(this._readStoryMenu.menu, _("Read Story – keine Full Story"));
+        this._storyOverflowItem = this._addDisabled(this._readStoryMenu.menu, "");
+        this._storyOverflowItem.actor.hide();
         this._readPartMenu = new PopupMenu.PopupSubMenuMenuItem(_("Read part"));
         this._storyMenu.menu.addMenuItem(this._readPartMenu);
         this._partEmptyItem = this._addDisabled(this._readPartMenu.menu, _("Keine Storyteile gefunden"));
@@ -337,6 +391,7 @@ WirtelApplet.prototype = {
             this._openPath(this._outputItem._wpgPath);
         }));
         this._storyCountItem = this._addDisabled(this.menu, "");
+        this._rotationWarningItem = this._addDisabled(this.menu, "");
 
         this._errorSeparator = new PopupMenu.PopupSeparatorMenuItem();
         this.menu.addMenuItem(this._errorSeparator);
@@ -350,7 +405,7 @@ WirtelApplet.prototype = {
         this._errorPlanItem = this._createAction(this.menu, _("Copy setup plan"), Lang.bind(this, this._copySetupPlanFromSettings));
         this._errorSettingsItem = this._createAction(this.menu, _("Einstellungen"), Lang.bind(this, this._openAppletSettings));
 
-        this._mainItems = [this._statusSeparator, this._currentImageMenu, this._storyMenu, this._toolsMenu, this._outputSeparator, this._outputItem, this._storyCountItem];
+        this._mainItems = [this._statusSeparator, this._currentImageMenu, this._storyMenu, this._toolsMenu, this._outputSeparator, this._outputItem, this._storyCountItem, this._rotationWarningItem];
         this._errorActionItems = [this._errorActionSeparator, this._errorRetryItem, this._errorDoctorItem, this._errorPlanItem, this._errorSettingsItem];
         this._setItemsVisible(this._mainItems, false);
         this._setItemsVisible(this._errorActionItems, false);
@@ -402,8 +457,12 @@ WirtelApplet.prototype = {
         this._ttsLastFileItem.label.text = lastFile ? (tts.last_file_label || lastFile) : "";
     },
 
-    _updateStoryRows: function(stories) {
-        let values = Array.isArray(stories) ? stories : [];
+    _updateStoryRows: function(stories, totalCount) {
+        let allValues = Array.isArray(stories) ? stories : [];
+        let values = allValues.length > FULL_STORY_LIMIT ? allValues.slice(-FULL_STORY_LIMIT) : allValues;
+        let normalizedTotal = Number.isInteger(totalCount) && totalCount >= 0 ? totalCount : allValues.length;
+        normalizedTotal = Math.max(normalizedTotal, allValues.length);
+        let omittedCount = Math.max(0, normalizedTotal - values.length);
         while (this._storyRows.length < values.length) {
             let row = this._createAction(this._readStoryMenu.menu, "", Lang.bind(this, function() {
                 this._openPath(row._wpgData ? row._wpgData.path : "");
@@ -424,6 +483,14 @@ WirtelApplet.prototype = {
             }
         }
         this._setItemsVisible([this._storyEmptyItem], values.length === 0);
+        this._storyOverflowItem.label.text = omittedCount > 0
+            ? (omittedCount + _(" weitere vollständige Story-Bände nicht angezeigt"))
+            : "";
+        this._setItemsVisible([this._storyOverflowItem], omittedCount > 0);
+        this._rotationWarningItem.label.text = normalizedTotal >= FULL_STORY_LIMIT
+            ? (_("Archivgrenze erreicht: 50 vollständige Story-Bände · Repositorywechsel erforderlich"))
+            : "";
+        this._setItemsVisible([this._rotationWarningItem], normalizedTotal >= FULL_STORY_LIMIT);
     },
 
     _updatePartRows: function(parts) {
@@ -500,15 +567,19 @@ WirtelApplet.prototype = {
 
         this._setPathItem(this._imageStoryItem, _("Story"), safeData.images && safeData.images.story ? safeData.images.story.path : "");
         this._setPathItem(this._imageGeneratedItem, _("Generated"), safeData.images && safeData.images.generated ? safeData.images.generated.path : "");
-        this._updateStoryRows(safeData.full_stories || []);
+        let stats = safeData.stats || {};
+        let totalStoryCount = Number.isInteger(stats.current_full_story_count)
+            ? stats.current_full_story_count
+            : (Number.isInteger(stats.known_full_story_count) ? stats.known_full_story_count : (safeData.full_stories || []).length);
+        this._updateStoryRows(safeData.full_stories || [], totalStoryCount);
         this._updatePartRows(safeData.recent_parts || []);
         this._setTtsRows(running, safeData.tts || {});
 
         this._outputItem._wpgPath = safeData.output_dir || "";
         this._outputItem.label.text = safeData.output_dir ? (_("Output: ") + safeData.output_dir) : _("Output nicht gefunden");
         this._outputItem.setSensitive(!!safeData.output_dir);
-        let countKnown = safeData.stats && safeData.stats.known_full_story_count !== undefined;
-        this._storyCountItem.label.text = countKnown ? (_("Storys gemerkt: ") + safeData.stats.known_full_story_count) : "";
+        let countKnown = safeData.stats && (safeData.stats.current_full_story_count !== undefined || safeData.stats.known_full_story_count !== undefined);
+        this._storyCountItem.label.text = countKnown ? (_("Storys gemerkt: ") + totalStoryCount) : "";
         this._setItemsVisible([this._storyCountItem], countKnown);
         this._setErrorRows(safeData.errors || []);
     },
@@ -536,12 +607,14 @@ WirtelApplet.prototype = {
         if (this._removed || this._isReading) return;
         let args = this._helperBaseArgs(command);
         let generation = ++this._ttsGeneration;
+        let activeProcess = null;
+        let operation = null;
         try {
-            let activeProcess = Gio.Subprocess.new(args, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+            activeProcess = Gio.Subprocess.new(args, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
             this._ttsProcess = activeProcess;
-            this._helperProcesses.add(activeProcess);
+            operation = this._trackHelperProcess(activeProcess);
             this._setReading(true);
-            activeProcess.communicate_utf8_async(null, null, Lang.bind(this, function(proc, res) {
+            activeProcess.communicate_utf8_async(null, operation.cancellable, Lang.bind(this, function(proc, res) {
                 let stdout = "";
                 let stderr = "";
                 try {
@@ -549,7 +622,7 @@ WirtelApplet.prototype = {
                     stdout = (result[1] || "").slice(0, HELPER_OUTPUT_LIMIT);
                     stderr = (result[2] || "").slice(0, HELPER_OUTPUT_LIMIT);
                 } catch (e) { stderr = String(e); }
-                this._helperProcesses.delete(proc);
+                this._finishHelperOperation(operation);
                 if (this._removed || generation !== this._ttsGeneration) return;
                 if (this._ttsProcess === proc) this._ttsProcess = null;
                 this._setReading(false);
@@ -561,7 +634,12 @@ WirtelApplet.prototype = {
                 this._refreshScan(false);
             }));
         } catch (e) {
-            this._ttsProcess = null;
+            if (operation) this._cancelHelperOperation(operation);
+            else if (activeProcess) {
+                try { activeProcess.force_exit(); }
+                catch (e2) {}
+            }
+            if (this._ttsProcess === activeProcess) this._ttsProcess = null;
             this._setReading(false);
             global.logError("[" + UUID + "] Could not start TTS: " + e);
             if (this.notifyErrors) this._notify(_("TTS"), String(e));
@@ -572,8 +650,14 @@ WirtelApplet.prototype = {
         if (this._removed) return;
         this._ttsGeneration += 1;
         if (this._ttsProcess !== null) {
+            let operation = this._helperOperationForProcess(this._ttsProcess);
+            if (operation && operation.cancellable) {
+                try { operation.cancellable.cancel(); }
+                catch (e0) {}
+            }
             try { this._ttsProcess.send_signal(15); }
             catch (e1) { try { this._ttsProcess.force_exit(); } catch (e2) {} }
+            this._finishHelperOperation(operation);
         }
         this._ttsProcess = null;
         this._setReading(false);
@@ -588,6 +672,7 @@ WirtelApplet.prototype = {
     },
 
     _openAppletSettings: function() {
+        if (this._removed) return;
         Util.spawnCommandLine("xlet-settings applet " + UUID + " -i " + this.instanceId);
     },
 

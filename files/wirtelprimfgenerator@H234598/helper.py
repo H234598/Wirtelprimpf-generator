@@ -41,6 +41,7 @@ TEXT_EXTS = {".md", ".markdown", ".txt", ".text"}
 FULL_EXTS = {".md", ".markdown", ".epub"}
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".cache"}
 RECENT_PART_LIMIT = 15
+FULL_STORY_LIMIT = 50
 ROMAN_RE = re.compile(r"Story_([IVXLCDM]+)", re.IGNORECASE)
 WIRTEL_STEM_RE = re.compile(r"^wirtelprimpf_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(?:-\d+)?)(?:_(classic|story)-\d+)?$", re.IGNORECASE)
 ENTRY_HEADING_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s*$", re.MULTILINE)
@@ -670,13 +671,14 @@ def scan(args: ScanArgs) -> Dict[str, Any]:
 
     files = list(iter_files(output, args.max_depth))
     result["images"] = scan_images(output, files, args)
-    full = scan_full_stories(output, files, args)
+    all_full_stories = scan_full_stories(output, files, args)
+    full = all_full_stories[-FULL_STORY_LIMIT:]
     result["full_stories"] = full
     recent, all_parts, _infos = scan_parts(output, files, args, full)
     result["recent_parts"] = recent
     result["all_current_story_parts"] = all_parts
 
-    count = len(full)
+    count = len(all_full_stories)
     result["stats"]["current_full_story_count"] = count
     if count > 1:
         previous = stat.get("known_full_story_count")

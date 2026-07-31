@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,6 +71,43 @@ class HelperEnvExpansionTests(unittest.TestCase):
 
         self.assertEqual(parsed["WIRTEL_TEST_CHILD"], "/tmp/base/child")
         self.assertEqual(parsed["WIRTEL_TEST_LITERAL"], "$WIRTEL_TEST_BASE2/literal")
+
+    def test_scan_returns_only_newest_50_full_story_volumes_but_keeps_total_count(self):
+        stories = [
+            {
+                "label": f"Story_{index:03d}",
+                "roman": "I",
+                "roman_int": index,
+                "path": f"/stories/{index:03d}.md",
+                "mtime": float(index),
+            }
+            for index in range(1, 76)
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            output = root / "output"
+            output.mkdir()
+            args = self.helper.ScanArgs(output_dir=str(output), state_dir=root / "state", max_depth=1)
+            with patch.object(
+                self.helper,
+                "scan_full_stories",
+                return_value=stories,
+            ), patch.object(
+                self.helper,
+                "scan_images",
+                return_value={"story": None, "generated": None},
+            ), patch.object(
+                self.helper,
+                "scan_parts",
+                return_value=([], [], []),
+            ):
+                result = self.helper.scan(args)
+
+        self.assertEqual(len(result["full_stories"]), 50)
+        self.assertEqual(result["full_stories"][0]["roman_int"], 26)
+        self.assertEqual(result["full_stories"][-1]["roman_int"], 75)
+        self.assertEqual(result["stats"]["current_full_story_count"], 75)
+        self.assertEqual(result["stats"]["known_full_story_count"], 75)
 
 
 if __name__ == "__main__":

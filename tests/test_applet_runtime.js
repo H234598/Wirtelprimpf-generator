@@ -12,7 +12,9 @@ let constructorCount = 0;
 let nextSignalId = 1;
 const pendingProcesses = [];
 const removedSources = [];
+const tooltipInstances = [];
 let addedTimers = 0;
+let commandLineSpawns = 0;
 
 class Actor {
     constructor() { this.visible = true; }
@@ -70,6 +72,21 @@ class PopupSeparatorMenuItem extends PopupMenuItem {
     constructor() { super(""); }
 }
 
+class FakeCancellable {
+    constructor() { this.cancelCount = 0; }
+    cancel() { this.cancelCount += 1; }
+}
+
+class FakeTooltip {
+    constructor(_actor, text) {
+        this.text = text;
+        this.destroyCount = 0;
+        tooltipInstances.push(this);
+    }
+    set_text(text) { this.text = text; }
+    destroy() { this.destroyCount += 1; }
+}
+
 class FakeProcess {
     constructor(args) {
         this.args = args;
@@ -77,7 +94,11 @@ class FakeProcess {
         this.callback = null;
         pendingProcesses.push(this);
     }
-    communicate_utf8_async(_input, _cancellable, callback) { this.callback = callback; }
+    communicate_utf8_async(_input, cancellable, callback) {
+        this.communicateCancellable = cancellable;
+        if (this.args.includes("throw-async")) throw new Error("communicate scheduling failed");
+        this.callback = callback;
+    }
     communicate_utf8_finish(result) { return [true, result.stdout, result.stderr]; }
     get_exit_status() { return this.status || 0; }
     force_exit() { this.forceExitCount += 1; }
@@ -107,12 +128,13 @@ const context = {
                 PopupSeparatorMenuItem,
             },
             settings: { BindingDirection: { IN: 1 }, AppletSettings: class {} },
-            tooltips: { Tooltip: class {} },
+            tooltips: { Tooltip: FakeTooltip },
             main: { notify() {} },
         },
         lang: { bind: (owner, fn) => fn.bind(owner) },
         gi: {
             Gio: {
+                Cancellable: FakeCancellable,
                 Subprocess: {
                     new: (args) => new FakeProcess(args),
                 },
@@ -131,7 +153,7 @@ const context = {
             source_remove: (id) => removedSources.push(id),
             timeout_add_seconds: () => { addedTimers += 1; return 99; },
         },
-        misc: { util: { spawnCommandLine() {} } },
+        misc: { util: { spawnCommandLine() { commandLineSpawns += 1; } } },
     },
 };
 context.imports.ui.applet.TextIconApplet.prototype = { _init() {} };
@@ -193,9 +215,12 @@ function testPersistentMenuPools() {
     const applet = makeApplet();
     const initial = scanPayload("initial", 75);
     applet._buildMenuFromScan(initial);
-    assert.equal(applet._storyRows.length, 75, "all stories remain available until a visible limit is explicitly approved");
+    assert.equal(applet._storyRows.length, 50, "story row pool is capped at the approved 50 completed volumes");
     assert.equal(applet._partRows.length, 15, "recent part pool follows the existing 15-row product limit");
     assert.equal(applet.menu.removeAllCount, 0, "data rendering never clears the root menu");
+    assert.equal(applet._storyOverflowItem.actor.visible, true, "overflow notice is visible above the 50-volume limit");
+    assert.match(applet._storyOverflowItem.label.text, /25 weitere vollständige Story-Bände nicht angezeigt/);
+    assert.equal(applet._rotationWarningItem.actor.visible, true, "the repository-boundary warning is visible at 50 volumes");
 
     const warmedConstructors = constructorCount;
     for (let index = 0; index < 1000; index += 1) applet._buildMenuFromScan(initial);
@@ -205,7 +230,11 @@ function testPersistentMenuPools() {
     applet._buildMenuFromScan(current);
     assert.equal(constructorCount, warmedConstructors, "changed scan data reuses existing story and part rows");
     applet._storyRows[0].activate();
-    assert.equal(applet.openedPath, current.full_stories[0].path, "story action reads current pooled row data");
+    assert.equal(applet.openedPath, current.full_stories[25].path, "story action reads current data from the newest 50-volume window");
+
+    applet._buildMenuFromScan(scanPayload("below-limit", 49));
+    assert.equal(applet._storyOverflowItem.actor.visible, false, "overflow notice hides below the limit");
+    assert.equal(applet._rotationWarningItem.actor.visible, false, "repository-boundary warning hides below 50 volumes");
 
     applet._buildLoadingMenu("loading");
     applet._buildErrorMenu("failure");
@@ -237,12 +266,14 @@ function testSinglePendingScanAndGeneration() {
 
 function testOwnedProcessTeardown() {
     removedSources.length = 0;
+    pendingProcesses.length = 0;
+    tooltipInstances.length = 0;
     const applet = makeApplet();
-    const scan = new FakeProcess(["scan"]);
-    const tts = new FakeProcess(["tts"]);
-    applet._helperProcesses.add(scan);
-    applet._helperProcesses.add(tts);
-    applet._ttsProcess = tts;
+    applet._helperBaseArgs = (command) => ["helper", command];
+    const scan = applet._spawnJson(["helper", "scan"], () => {});
+    applet._startTts("tts-continue");
+    const tts = applet._ttsProcess;
+    applet._buildMenuFromScan(scanPayload("tooltips", 1));
     applet._ttsWaitId = 42;
     applet.settings = { finalized: 0, finalize() { this.finalized += 1; } };
     const settings = applet.settings;
@@ -252,13 +283,21 @@ function testOwnedProcessTeardown() {
 
     applet.on_applet_removed_from_panel();
     applet.on_applet_removed_from_panel();
+    assert.ok(scan.communicateCancellable instanceof FakeCancellable, "scan I/O owns a cancellable");
+    assert.ok(tts.communicateCancellable instanceof FakeCancellable, "TTS I/O owns a cancellable");
+    assert.equal(scan.communicateCancellable.cancelCount, 1, "teardown cancels scan I/O exactly once");
+    assert.equal(tts.communicateCancellable.cancelCount, 1, "teardown cancels TTS I/O exactly once");
     assert.equal(scan.forceExitCount, 1, "teardown stops active scan helper exactly once");
     assert.equal(tts.forceExitCount, 1, "teardown stops active TTS helper exactly once");
+    assert.equal(tooltipInstances.length, 15, "part rows own a bounded tooltip pool");
+    assert.ok(tooltipInstances.every((tooltip) => tooltip.destroyCount === 1), "teardown destroys every pooled tooltip exactly once");
     assert.deepEqual(removedSources, [42], "legacy wait timer is removed exactly once");
     assert.equal(settings.finalized, 1, "settings are finalized exactly once");
     assert.equal(manager.removed, 1, "menu manager releases the menu");
     assert.equal(menu.destroyCount, 1, "menu is destroyed exactly once");
     assert.equal(applet.menu, null, "menu reference is released");
+    assert.equal(applet._storyRows.length, 0, "story row references are released");
+    assert.equal(applet._partRows.length, 0, "part row references are released");
 }
 
 function testLateCallbacksAndTimerlessStop() {
@@ -274,7 +313,7 @@ function testLateCallbacksAndTimerlessStop() {
     const stopApplet = makeApplet();
     const tts = new FakeProcess(["tts"]);
     stopApplet._ttsProcess = tts;
-    stopApplet._helperProcesses.add(tts);
+    stopApplet._trackHelperProcess(tts);
     stopApplet._helperBaseArgs = () => ["helper", "tts-stop"];
     stopApplet._spawnJson = (_args, callback) => { callback({ ok: true }); };
     let refreshes = 0;
@@ -285,8 +324,37 @@ function testLateCallbacksAndTimerlessStop() {
     assert.equal(refreshes, 1, "TTS stop refreshes after the stop helper completes");
 }
 
+function testRemovedAppletCannotStartDetachedActions() {
+    pendingProcesses.length = 0;
+    commandLineSpawns = 0;
+    const applet = makeApplet();
+    applet._removed = true;
+
+    applet._spawnDetached(["xdg-open", "https://example.invalid"]);
+    applet._openAppletSettings();
+
+    assert.equal(pendingProcesses.length, 0, "removed applet cannot start detached subprocesses");
+    assert.equal(commandLineSpawns, 0, "removed applet cannot open settings through a stale action");
+}
+
+function testTtsSchedulingFailureReleasesOwnedOperation() {
+    pendingProcesses.length = 0;
+    const applet = makeApplet();
+    applet._helperBaseArgs = () => ["helper", "throw-async"];
+
+    applet._startTts("tts-continue");
+
+    assert.equal(pendingProcesses.length, 1);
+    assert.equal(pendingProcesses[0].forceExitCount, 1, "failed async setup terminates the owned subprocess");
+    assert.equal(applet._helperProcesses.size, 0, "failed async setup releases the operation registry entry");
+    assert.equal(applet._ttsProcess, null);
+    assert.equal(applet._isReading, false);
+}
+
 testPersistentMenuPools();
 testSinglePendingScanAndGeneration();
 testOwnedProcessTeardown();
 testLateCallbacksAndTimerlessStop();
+testRemovedAppletCannotStartDetachedActions();
+testTtsSchedulingFailureReleasesOwnedOperation();
 console.log("Wirtel applet runtime stability tests passed");
