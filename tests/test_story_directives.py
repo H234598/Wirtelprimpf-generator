@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import stat
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,10 +14,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "story_directives_core.py"
+GENERATOR_PATH = ROOT / "Sourcecode" / "wirtelprimpf_generator.py"
 SERVICE_PATH = ROOT / "Sourcecode" / "systemd-user" / "wirtelprimpf.service"
 MAKEFILE_PATH = ROOT / "Makefile"
 SETTINGS_SCHEMA_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "settings-schema.json"
 STORY_UI_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "StoryDirectives.py"
+INSTALL_SCRIPT_PATH = ROOT / "scripts" / "install-local.sh"
+UNINSTALL_SCRIPT_PATH = ROOT / "scripts" / "uninstall-local.sh"
 
 
 def load_core():
@@ -24,6 +28,16 @@ def load_core():
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Cannot load {CORE_PATH}")
     module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_generator():
+    spec = importlib.util.spec_from_file_location("wirtelprimpf_generator_under_test", GENERATOR_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Cannot load {GENERATOR_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -87,6 +101,17 @@ class StoryDirectivesCoreTests(unittest.TestCase):
             Path.home() / ".config" / "wirtelprimpf" / "custom.json",
         )
 
+    def test_editable_window_rejects_stale_or_past_volume(self):
+        ledger_path = self.root / "story_directives.json"
+        self.core.load_ledger(ledger_path, seed_story_iii=True)
+
+        with self.assertRaisesRegex(ValueError, "editable story window changed"):
+            self.core.save_editable_window(
+                ledger_path,
+                current_volume=3,
+                directives={2: "Vergangenheit ändern", 3: "Aktuell", 4: "Nächste"},
+            )
+
     def test_pending_new_volume_advances_effective_volume(self):
         self.assertEqual(
             self.core.effective_current_volume({"current_volume": 2, "pending_new_volume": True}),
@@ -120,7 +145,7 @@ class StoryDirectivesCoreTests(unittest.TestCase):
         self.assertEqual([item["volume"] for item in roles["past"]], [2, 1])
         self.assertTrue(all(not item["editable"] for item in roles["past"]))
 
-    def test_active_directive_is_appended_as_zwingende_fixed_section(self):
+    def test_active_directive_is_appended_as_single_selected_section(self):
         original = "# Konfiguration\n\n## Hauptteil\nBasisregel\n\n## Ort\n- Dachboden\n"
 
         rendered = self.core.replace_managed_prompt_section(
@@ -128,12 +153,12 @@ class StoryDirectivesCoreTests(unittest.TestCase):
             "Actionstory.\nBlutig.\nRiskante Mission.",
         )
 
-        self.assertIn("## Zwingende Story-Vorgaben (verwaltet)", rendered)
-        self.assertIn("- Actionstory.", rendered)
-        self.assertIn("- Blutig.", rendered)
-        self.assertIn("- Riskante Mission.", rendered)
+        self.assertIn("## Story-Vorgaben (verwaltet)", rendered)
+        self.assertIn("- Actionstory. Blutig. Riskante Mission.", rendered)
+        managed_block = rendered.split("## Story-Vorgaben (verwaltet)", 1)[1]
+        self.assertEqual(sum(1 for line in managed_block.splitlines() if line.startswith("- ")), 1)
         self.assertTrue(rendered.endswith("\n"))
-        self.assertEqual(rendered.count("## Zwingende Story-Vorgaben (verwaltet)"), 1)
+        self.assertEqual(rendered.count("## Story-Vorgaben (verwaltet)"), 1)
 
     def test_existing_managed_section_is_replaced_once(self):
         original = (
@@ -147,7 +172,23 @@ class StoryDirectivesCoreTests(unittest.TestCase):
         self.assertNotIn("- Alt", rendered)
         self.assertNotIn("- Weg damit", rendered)
         self.assertIn("## Stimmung\n- Warm", rendered)
-        self.assertEqual(rendered.count("## Zwingende Story-Vorgaben (verwaltet)"), 1)
+        self.assertEqual(rendered.count("## Story-Vorgaben (verwaltet)"), 1)
+
+    def test_managed_directive_reaches_story_text_and_image_configs(self):
+        generator = load_generator()
+        prompt_path = self.root / "story_prompt_config.md"
+        original = "## Hauptteil\nBasis\n\n## Ort\n- Hafen\n"
+        rendered = self.core.replace_managed_prompt_section(
+            original,
+            "Actionstory.\nBlutig.\nRiskante Mission.",
+        )
+        prompt_path.write_text(rendered, encoding="utf-8")
+
+        text_config, image_config = generator.build_story_generation_configs(prompt_path)
+
+        for expected in ("Actionstory.", "Blutig.", "Riskante Mission."):
+            self.assertIn(expected, text_config)
+            self.assertIn(expected, image_config)
 
     def test_blank_directive_removes_managed_section(self):
         original = (
@@ -233,12 +274,21 @@ class StoryDirectivesIntegrationTests(unittest.TestCase):
         self.assertEqual(widget["widget"], "StoryDirectivesEditor")
         self.assertTrue(STORY_UI_PATH.is_file())
 
-    def test_systemd_applies_directives_before_generator(self):
+    def test_systemd_applies_installed_directives_cli_before_generator(self):
         service = SERVICE_PATH.read_text(encoding="utf-8")
 
         self.assertIn("ExecStartPre=", service)
-        self.assertIn("story_directives_core.py apply", service)
+        self.assertIn("%h/.local/bin/wirtelprimpf-story-directives apply", service)
+        self.assertNotIn("cinnamon/applets", service)
         self.assertLess(service.index("ExecStartPre="), service.index("ExecStart="))
+
+    def test_local_install_manages_directives_cli(self):
+        install_script = INSTALL_SCRIPT_PATH.read_text(encoding="utf-8")
+        uninstall_script = UNINSTALL_SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("wirtelprimpf-story-directives", install_script)
+        self.assertIn("story_directives_core.py", install_script)
+        self.assertIn("wirtelprimpf-story-directives is preserved", uninstall_script)
 
     def test_make_check_compiles_and_runs_story_directives(self):
         makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
