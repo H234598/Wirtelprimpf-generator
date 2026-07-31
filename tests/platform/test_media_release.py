@@ -6,10 +6,13 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+from urllib.error import HTTPError
 
 from PIL import Image
 
 from wirtelprimpf_platform.media import (
+    GitHubReleaseBackend,
     MediaError,
     build_media_inventory,
     build_release_plan,
@@ -163,6 +166,42 @@ class MediaReleaseTests(unittest.TestCase):
 
         self.assertEqual(backend.releases[first.tag][first_asset.name], b"corrupt remote object")
         self.assertNotIn((first.tag, first_asset.name), backend.uploads)
+
+    def test_github_backend_retries_transient_public_404_after_upload(self) -> None:
+        destination = self.root / "downloaded.webp"
+        attempts = 0
+        transient_error = HTTPError(
+            "https://example.invalid/asset.webp",
+            404,
+            "Not Found",
+            hdrs=None,
+            fp=io.BytesIO(),
+        )
+
+        def eventually_visible(request, *, timeout):
+            nonlocal attempts
+            del timeout
+            attempts += 1
+            if attempts == 1:
+                transient_error.filename = request.full_url
+                raise transient_error
+            return io.BytesIO(b"public release asset")
+
+        backend = GitHubReleaseBackend("H234598", "Wirtelprimpf-0001")
+        failure = None
+        with (
+            patch("wirtelprimpf_platform.media.urlopen", side_effect=eventually_visible),
+            patch("wirtelprimpf_platform.media.PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS", (0.0,)),
+        ):
+            try:
+                backend.download_asset("archive-0001-media-0001", "asset.webp", destination)
+            except MediaError as exc:
+                failure = exc
+
+        self.assertIsNone(failure)
+        self.assertEqual(destination.read_bytes(), b"public release asset")
+        self.assertEqual(attempts, 2)
+        self.assertTrue(transient_error.fp.closed)
 
     def test_modified_source_after_inventory_is_rejected_before_staging(self) -> None:
         inventory = build_media_inventory(self.source, archive_index=1)

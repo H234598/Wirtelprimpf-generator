@@ -9,12 +9,14 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unicodedata
 import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
+from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -30,6 +32,7 @@ DERIVATIVE_WIDTHS = (640, 1280)
 SUPPORTED_SUFFIXES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 TIMESTAMP_IMAGE_RE = re.compile(r"^wirtelprimpf_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(?:-\d{6})?", re.IGNORECASE)
 SAFE_ASSET_RE = re.compile(r"[^A-Za-z0-9._-]+")
+PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0, 30.0)
 
 
 class MediaError(RuntimeError):
@@ -665,9 +668,18 @@ class GitHubReleaseBackend:
     def download_asset(self, tag: str, asset_name: str, destination: Path) -> None:
         url = _download_url(self.owner, self.repository, tag, asset_name)
         request = Request(url, headers={"User-Agent": "Wirtelprimpf-generator/1.0"})
-        try:
-            with urlopen(request, timeout=self.timeout_seconds) as response, destination.open("xb") as output:
-                shutil.copyfileobj(response, output, length=1024 * 1024)
-        except (OSError, ValueError) as exc:
-            destination.unlink(missing_ok=True)
-            raise MediaError(f"cannot download public asset {tag}/{asset_name}: {exc}") from exc
+        for attempt in range(len(PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS) + 1):
+            try:
+                with urlopen(request, timeout=self.timeout_seconds) as response, destination.open("xb") as output:
+                    shutil.copyfileobj(response, output, length=1024 * 1024)
+                return
+            except HTTPError as exc:
+                destination.unlink(missing_ok=True)
+                exc.close()
+                if exc.code == 404 and attempt < len(PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS):
+                    time.sleep(PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS[attempt])
+                    continue
+                raise MediaError(f"cannot download public asset {tag}/{asset_name}: {exc}") from exc
+            except (OSError, ValueError) as exc:
+                destination.unlink(missing_ok=True)
+                raise MediaError(f"cannot download public asset {tag}/{asset_name}: {exc}") from exc
