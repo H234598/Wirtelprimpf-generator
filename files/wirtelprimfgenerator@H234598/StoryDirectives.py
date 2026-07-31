@@ -25,9 +25,19 @@ ROLE_LABELS = {
 
 def _roman(value):
     numerals = (
-        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
     )
     remaining = int(value)
     result = []
@@ -70,7 +80,8 @@ class StoryDirectivesEditor(SettingsWidget):
             label=(
                 "Bearbeitbar sind immer die laufende Story und die zwei unmittelbar folgenden Storys. "
                 "Beim Start des Generators wird nur die Vorgabe des wirksamen aktuellen Bandes in die "
-                "Story-Prompt-Konfiguration übernommen. Vergangene Storys bleiben als unveränderliches Archiv sichtbar."
+                "Story-Prompt-Konfiguration übernommen. Vergangene Storys bleiben als unveränderliches "
+                "Archiv sichtbar."
             )
         )
         explanation.set_halign(Gtk.Align.START)
@@ -196,7 +207,10 @@ class StoryDirectivesEditor(SettingsWidget):
         text_view.set_editable(bool(item["editable"]))
         text_view.set_cursor_visible(bool(item["editable"]))
         text_view.set_accepts_tab(False)
-        text_view.get_buffer().set_text(item.get("directive", ""))
+        displayed_directive = item.get("directive", "")
+        if not item["editable"] and not displayed_directive.strip():
+            displayed_directive = "Keine gespeicherten Vorgaben."
+        text_view.get_buffer().set_text(displayed_directive)
 
         nested = Gtk.ScrolledWindow()
         nested.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -228,12 +242,17 @@ class StoryDirectivesEditor(SettingsWidget):
 
     def _on_save(self, _button):
         try:
-            paths, _current_volume, _ledger, _roles = self._read_context()
+            paths, current_volume, _ledger, _roles = self._read_context()
             directives = {
                 volume: self._buffer_text(buffer_)
                 for volume, buffer_ in self.editable_buffers.items()
             }
-            core.save_directives(paths["ledger"], directives, source="cinnamon-settings")
+            core.save_editable_window(
+                paths["ledger"],
+                current_volume=current_volume,
+                directives=directives,
+                source="cinnamon-settings",
+            )
             applied = core.apply_active_directive(env_path=self.env_path)
             self._reload()
             action = "aktualisiert" if applied["directive_applied"] else "entfernt"
@@ -241,6 +260,15 @@ class StoryDirectivesEditor(SettingsWidget):
                 "Gespeichert. Vorgabe für Story %s wurde im aktiven Prompt %s."
                 % (_roman(applied["current_volume"]), action)
             )
+        except ValueError as exc:
+            if "editable story window changed" in str(exc):
+                self._reload()
+                self._set_status(
+                    "Der laufende Band hat sich geändert. Die Ansicht wurde neu geladen; "
+                    "bitte Änderungen im aktuellen Dreierfenster erneut vornehmen."
+                )
+            else:
+                self._set_status("Speichern fehlgeschlagen: %s" % exc)
         except Exception as exc:
             self._set_status("Speichern fehlgeschlagen: %s" % exc)
 
