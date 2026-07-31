@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Manage per-volume Wirtelprimpf story directives.
-
-The module deliberately has no GTK or OpenAI dependency. It owns the versioned
-JSON ledger, resolves the effective current story volume from the generator
-state, and projects exactly one active directive into the existing Markdown
-story prompt configuration.
-"""
+"""Persist per-volume Wirtelprimpf directives and project the active one."""
 
 from __future__ import annotations
 
@@ -23,9 +17,10 @@ SCHEMA_VERSION: Final = 1
 LEDGER_FILE_NAME: Final = "story_directives.json"
 STORY_STATE_FILE_NAME: Final = "wirtelprimpf_story_state.json"
 STORY_PROMPT_FILE_NAME: Final = "story_prompt_config.md"
-MANAGED_SECTION_HEADING: Final = "Zwingende Story-Vorgaben (verwaltet)"
-MANAGED_SECTION_MARKER: Final = f"## {MANAGED_SECTION_HEADING}"
 MAX_DIRECTIVE_CHARS: Final = 20_000
+MANAGED_SECTION_HEADING: Final = "Story-Vorgaben (verwaltet)"
+LEGACY_MANAGED_SECTION_HEADINGS: Final = ("Zwingende Story-Vorgaben (verwaltet)",)
+MANAGED_SECTION_MARKER: Final = f"## {MANAGED_SECTION_HEADING}"
 
 STORY_III_DIRECTIVE: Final = """Actionstory.
 Blutig: sichtbare Verletzungen, Blutspuren und harte Konsequenzen dürfen Teil der Handlung sein, sofern sie der Spannung und Geschichte dienen und nicht nur Selbstzweck sind.
@@ -33,8 +28,11 @@ Eine düstere, schnörkellose Thriller- und Horrorenergie mit eskalierender Bedr
 James-Bond-Filmenergie: eine riskante Mission, elegante Täuschungen, überraschende Wendungen, ungewöhnliche Hilfsmittel, markante Schauplätze und ein gefährlicher Gegenspieler – alles organisch auf Morticia, Gomez, Maus und Möhre zugeschnitten.
 Trotz Härte bleiben Morticia und Gomez erkennbare, nicht vermenschlichte Hauskatzen mit grünen Augen; Spannung, schwarzer Humor und emotionale Bindung tragen die Action."""
 
+_MANAGED_SECTION_NAMES_RE: Final = "|".join(
+    re.escape(name) for name in (MANAGED_SECTION_HEADING, *LEGACY_MANAGED_SECTION_HEADINGS)
+)
 _MANAGED_SECTION_RE: Final = re.compile(
-    rf"(?ms)^##[ \t]+{re.escape(MANAGED_SECTION_HEADING)}[ \t]*\n.*?(?=^##[ \t]+|\Z)"
+    rf"(?ms)^##[ \t]+(?:{_MANAGED_SECTION_NAMES_RE})[ \t]*\n.*?(?=^##[ \t]+|\Z)"
 )
 
 
@@ -66,11 +64,11 @@ def atomic_write_text(path: Path, content: str, *, mode: int = 0o600) -> None:
     _ensure_safe_parent(path)
     temporary: Path | None = None
     try:
-        file_descriptor, temporary_name = tempfile.mkstemp(
+        descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
         )
         temporary = Path(temporary_name)
-        with os.fdopen(file_descriptor, "w", encoding="utf-8", newline="\n") as handle:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
@@ -90,11 +88,12 @@ def atomic_write_json(path: Path, payload: dict[str, object]) -> None:
 def read_env_file(path: Path) -> dict[str, str]:
     path = Path(path).expanduser()
     _require_regular_non_symlink(path, label="environment file")
-    values: dict[str, str] = {}
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except UnicodeDecodeError as exc:
         raise ValueError(f"Environment file is not valid UTF-8: {path}") from exc
+
+    values: dict[str, str] = {}
     for number, raw_line in enumerate(lines, start=1):
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
@@ -121,7 +120,7 @@ def read_env_file(path: Path) -> dict[str, str]:
 
 def _expand_home_placeholder(value: str) -> str:
     home = str(Path.home())
-    if value == "$HOME" or value == "${HOME}":
+    if value in {"$HOME", "${HOME}"}:
         return home
     if value.startswith("$HOME/"):
         return home + value[len("$HOME") :]
@@ -136,27 +135,23 @@ def _path_from(values: dict[str, str], key: str, default: Path) -> Path:
 
 
 def resolve_runtime_paths(env_path: Path) -> dict[str, Path]:
-    env_values = read_env_file(env_path)
+    values = read_env_file(env_path)
     home = Path.home()
-    local_outdir = _path_from(
-        env_values, "WIRTELPRIMPF_LOCAL_OUTDIR", home / "Hintergrundbilder"
-    )
+    output = _path_from(values, "WIRTELPRIMPF_LOCAL_OUTDIR", home / "Hintergrundbilder")
     config_home = Path(os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))).expanduser()
     return {
         "env": Path(env_path).expanduser(),
-        "local_outdir": local_outdir,
+        "local_outdir": output,
         "state": _path_from(
-            env_values,
-            "WIRTELPRIMPF_STORY_STATE",
-            local_outdir / STORY_STATE_FILE_NAME,
+            values, "WIRTELPRIMPF_STORY_STATE", output / STORY_STATE_FILE_NAME
         ),
         "ledger": _path_from(
-            env_values,
+            values,
             "WIRTELPRIMPF_STORY_DIRECTIVES",
             config_home / "wirtelprimpf" / LEDGER_FILE_NAME,
         ),
         "prompt": _path_from(
-            env_values,
+            values,
             "WIRTELPRIMPF_STORY_PROMPT_CONFIG",
             config_home / "wirtelprimpf" / STORY_PROMPT_FILE_NAME,
         ),
@@ -174,9 +169,9 @@ def load_story_state(path: Path) -> dict[str, object]:
         raise ValueError(f"Invalid story state JSON in {path}: {exc.msg}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"Story state must be a JSON object: {path}")
-    current_volume = payload.get("current_volume", 1)
+    current = payload.get("current_volume", 1)
     pending = payload.get("pending_new_volume", False)
-    if not isinstance(current_volume, int) or isinstance(current_volume, bool) or current_volume < 1:
+    if not isinstance(current, int) or isinstance(current, bool) or current < 1:
         raise ValueError(f"Story state current_volume must be an integer >= 1: {path}")
     if not isinstance(pending, bool):
         raise ValueError(f"Story state pending_new_volume must be boolean: {path}")
@@ -184,13 +179,13 @@ def load_story_state(path: Path) -> dict[str, object]:
 
 
 def effective_current_volume(story_state: dict[str, object]) -> int:
-    current_volume = story_state.get("current_volume", 1)
+    current = story_state.get("current_volume", 1)
     pending = story_state.get("pending_new_volume", False)
-    if not isinstance(current_volume, int) or isinstance(current_volume, bool) or current_volume < 1:
+    if not isinstance(current, int) or isinstance(current, bool) or current < 1:
         raise ValueError("current_volume must be an integer >= 1")
     if not isinstance(pending, bool):
         raise ValueError("pending_new_volume must be boolean")
-    return current_volume + 1 if pending else current_volume
+    return current + 1 if pending else current
 
 
 def _new_ledger(now: str) -> dict[str, object]:
@@ -203,7 +198,7 @@ def _new_ledger(now: str) -> dict[str, object]:
     }
 
 
-def _validate_story_entry(key: str, value: object) -> dict[str, object]:
+def _validate_story_entry(key: str, value: object) -> None:
     if not isinstance(value, dict):
         raise ValueError(f"Story directive {key!r} must be an object")
     try:
@@ -223,7 +218,6 @@ def _validate_story_entry(key: str, value: object) -> dict[str, object]:
             raise ValueError(f"Story directive {key!r} requires {timestamp_key}")
     if not isinstance(value.get("source"), str) or not str(value["source"]).strip():
         raise ValueError(f"Story directive {key!r} requires source")
-    return value
 
 
 def validate_ledger(payload: object) -> dict[str, object]:
@@ -236,8 +230,7 @@ def validate_ledger(payload: object) -> dict[str, object]:
     migrations = payload.get("migrations", {})
     if not isinstance(migrations, dict):
         raise ValueError("Story directive ledger migrations must be an object")
-    story_iii_seeded = migrations.get("story_iii_seeded", False)
-    if not isinstance(story_iii_seeded, bool):
+    if not isinstance(migrations.get("story_iii_seeded", False), bool):
         raise ValueError("Story directive migration story_iii_seeded must be boolean")
     stories = payload.get("stories")
     if not isinstance(stories, dict):
@@ -292,24 +285,21 @@ def load_ledger(
         changed = True
 
     stories = payload["stories"]
-    assert isinstance(stories, dict)
     migrations = payload.get("migrations")
+    assert isinstance(stories, dict)
     if migrations is None:
         migrations = {}
         payload["migrations"] = migrations
         changed = True
     assert isinstance(migrations, dict)
-    story_iii_seeded = migrations.get("story_iii_seeded", False)
-    if seed_story_iii and not story_iii_seeded:
+    if seed_story_iii and not migrations.get("story_iii_seeded", False):
         if "3" not in stories:
             stories["3"] = _story_entry(
-                3,
-                STORY_III_DIRECTIVE,
-                now=timestamp,
-                source="seed:story-iii",
+                3, STORY_III_DIRECTIVE, now=timestamp, source="seed:story-iii"
             )
         migrations["story_iii_seeded"] = True
         changed = True
+
     if changed:
         payload["updated_at"] = timestamp
         atomic_write_json(path, payload)
@@ -329,12 +319,12 @@ def save_directives(
     ledger = load_ledger(path, seed_story_iii=True, now=timestamp)
     stories = ledger["stories"]
     assert isinstance(stories, dict)
-    for raw_volume, directive in directives.items():
-        if not isinstance(raw_volume, int) or isinstance(raw_volume, bool) or raw_volume < 1:
-            raise ValueError(f"Story volume must be a positive integer: {raw_volume!r}")
+    for volume, directive in directives.items():
+        if not isinstance(volume, int) or isinstance(volume, bool) or volume < 1:
+            raise ValueError(f"Story volume must be a positive integer: {volume!r}")
         if not isinstance(directive, str):
-            raise ValueError(f"Directive for volume {raw_volume} must be a string")
-        key = str(raw_volume)
+            raise ValueError(f"Directive for volume {volume} must be a string")
+        key = str(volume)
         cleaned = directive.strip()
         if not cleaned:
             stories.pop(key, None)
@@ -342,7 +332,7 @@ def save_directives(
         previous = stories.get(key)
         created_at = previous.get("created_at") if isinstance(previous, dict) else None
         stories[key] = _story_entry(
-            raw_volume,
+            volume,
             cleaned,
             now=timestamp,
             source=source,
@@ -352,6 +342,26 @@ def save_directives(
     validate_ledger(ledger)
     atomic_write_json(Path(path).expanduser(), ledger)
     return ledger
+
+
+def save_editable_window(
+    path: Path,
+    *,
+    current_volume: int,
+    directives: dict[int, str],
+    now: str | None = None,
+    source: str = "cinnamon-settings",
+) -> dict[str, object]:
+    if not isinstance(current_volume, int) or isinstance(current_volume, bool) or current_volume < 1:
+        raise ValueError("current_volume must be an integer >= 1")
+    expected = {current_volume, current_volume + 1, current_volume + 2}
+    actual = set(directives)
+    if actual != expected:
+        raise ValueError(
+            "editable story window changed; reload before saving "
+            f"(expected {sorted(expected)}, got {sorted(actual)})"
+        )
+    return save_directives(path, directives, now=now, source=source)
 
 
 def story_roles(
@@ -390,7 +400,7 @@ def story_roles(
 
 
 def _directive_lines(directive: str) -> list[str]:
-    lines = []
+    lines: list[str] = []
     for raw_line in directive.splitlines():
         cleaned = re.sub(r"^\s*[-*+]\s+", "", raw_line.strip()).strip()
         if cleaned:
@@ -403,15 +413,14 @@ def replace_managed_prompt_section(prompt_text: str, directive: str) -> str:
         raise TypeError("prompt_text must be a string")
     if not isinstance(directive, str):
         raise TypeError("directive must be a string")
-    without_managed = _MANAGED_SECTION_RE.sub("", prompt_text)
-    without_managed = without_managed.rstrip()
+    without_managed = _MANAGED_SECTION_RE.sub("", prompt_text).rstrip()
     lines = _directive_lines(directive)
     if not lines:
         return without_managed + ("\n" if without_managed else "")
-    rendered = MANAGED_SECTION_MARKER + "\n" + "\n".join(f"- {line}" for line in lines)
-    if without_managed:
-        return without_managed + "\n\n" + rendered + "\n"
-    return rendered + "\n"
+    # A regular category with exactly one item is selected for both the story
+    # text and image configurations by the existing Markdown prompt parser.
+    rendered = MANAGED_SECTION_MARKER + "\n- " + " ".join(lines)
+    return (without_managed + "\n\n" if without_managed else "") + rendered + "\n"
 
 
 def apply_active_directive(*, env_path: Path | None = None) -> dict[str, object]:
@@ -419,15 +428,14 @@ def apply_active_directive(*, env_path: Path | None = None) -> dict[str, object]
         env_path or Path.home() / ".config" / "wirtelprimpf" / "openai.env"
     ).expanduser()
     paths = resolve_runtime_paths(resolved_env)
-    state = load_story_state(paths["state"])
-    current_volume = effective_current_volume(state)
+    current = effective_current_volume(load_story_state(paths["state"]))
     ledger = load_ledger(paths["ledger"], seed_story_iii=True)
     stories = ledger["stories"]
     assert isinstance(stories, dict)
-    active = stories.get(str(current_volume), {})
+    active = stories.get(str(current), {})
     directive = active.get("directive", "") if isinstance(active, dict) else ""
     if not isinstance(directive, str):
-        raise ValueError(f"Directive for story {current_volume} is invalid")
+        raise ValueError(f"Directive for story {current} is invalid")
 
     prompt_path = paths["prompt"]
     _require_regular_non_symlink(prompt_path, label="story prompt config")
@@ -443,7 +451,7 @@ def apply_active_directive(*, env_path: Path | None = None) -> dict[str, object]
         os.chmod(prompt_path, 0o600)
     return {
         "ok": True,
-        "current_volume": current_volume,
+        "current_volume": current,
         "directive_applied": bool(directive.strip()),
         "changed": changed,
         "directive_path": str(paths["ledger"]),
@@ -456,14 +464,13 @@ def status(*, env_path: Path | None = None) -> dict[str, object]:
         env_path or Path.home() / ".config" / "wirtelprimpf" / "openai.env"
     ).expanduser()
     paths = resolve_runtime_paths(resolved_env)
-    state = load_story_state(paths["state"])
-    current_volume = effective_current_volume(state)
+    current = effective_current_volume(load_story_state(paths["state"]))
     ledger = load_ledger(paths["ledger"], seed_story_iii=True)
     return {
         "ok": True,
-        "current_volume": current_volume,
+        "current_volume": current,
         "paths": {key: str(value) for key, value in paths.items()},
-        "roles": story_roles(current_volume, ledger),
+        "roles": story_roles(current, ledger),
     }
 
 
@@ -487,7 +494,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "apply"
             else status(env_path=args.env_file)
         )
-    except Exception as exc:  # noqa: BLE001 - CLI boundary
+    except Exception as exc:  # CLI boundary
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
         return 1
     print(json.dumps(payload, ensure_ascii=False))
