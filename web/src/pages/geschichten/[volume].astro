@@ -1,0 +1,13 @@
+---
+import StoryPart from "../../components/StoryPart.astro";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { loadSiteData } from "../../lib/data.ts";
+import type { StoryDocument } from "../../lib/content.ts";
+export function getStaticPaths(){return loadSiteData().stories.map((story)=>({params:{volume:String(story.volume)},props:{story}}));}
+interface Props { story: StoryDocument; }
+const { story } = Astro.props;
+---
+<BaseLayout title={story.title} description={`Wirtelprimpf Band ${story.volume} mit ${story.parts.length} Teilen.`} section="geschichten">
+  <header class="page-heading"><span class="eyebrow">Band {story.volume} · chronologische Leseansicht</span><h1>{story.title}</h1><p class="lede">{story.parts.length} Teile, vom Anfang bis zum aktuellen Schluss.</p></header>
+  <section class="section" style="padding-top:1rem"><div class="story-stream">{story.parts.map((part)=><StoryPart part={part} />)}</div></section>
+</BaseLayout>

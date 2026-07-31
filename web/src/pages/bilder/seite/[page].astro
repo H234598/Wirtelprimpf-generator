@@ -1,0 +1,9 @@
+---
+import MediaCard from "../../../components/MediaCard.astro";
+import BaseLayout from "../../../layouts/BaseLayout.astro";
+import { loadSiteData, type MediaItem } from "../../../lib/data.ts";
+export function getStaticPaths() { const pageSize=24; const media=loadSiteData().media; const pages=Math.ceil(media.length/pageSize); return Array.from({length:Math.max(0,pages-1)},(_,index)=>{const page=index+2;return {params:{page:String(page)},props:{page,items:media.slice((page-1)*pageSize,page*pageSize),pages}}}); }
+interface Props { page:number; items:MediaItem[]; pages:number; }
+const { page, items, pages } = Astro.props;
+---
+<BaseLayout title={`Bilder · Seite ${page}`} section="bilder"><header class="page-heading"><span class="eyebrow">Galerie</span><h1>Bilder · Seite {page}</h1></header><section class="section" style="padding-top:1rem"><div class="media-grid">{items.map((item)=><MediaCard item={item} />)}</div><nav class="pagination" aria-label="Galerieseiten">{Array.from({length:pages},(_,index)=><a href={index===0?"/bilder/":`/bilder/seite/${index+1}/`} aria-current={index+1===page?"page":undefined}>{index+1}</a>)}</nav></section></BaseLayout>

@@ -228,8 +228,8 @@
   },
   "output-dir": {
     "type": "filechooser",
-    "description": "Katzenbilder-/Outputordner",
-    "tooltip": "Leer lassen, wenn das Applet den Wirtelprimpf-Output automatisch finden soll. Es liest ~/.config/wirtelprimpf/openai.env und fällt auf ~/Hintergrundbilder sowie lokale Katzenbilder-GitHub-Klone zurück.",
+    "description": "Wirtelprimpf-Outputordner",
+    "tooltip": "Leer lassen, wenn das Applet den lokalen Wirtelprimpf-Output automatisch finden soll. Es liest ~/.config/wirtelprimpf/openai.env und fällt auf ~/Hintergrundbilder sowie das aktive Wirtelprimpf-####-Archiv zurück.",
     "default": "",
     "select-dir": true
   },
@@ -308,7 +308,7 @@
   "scan-max-depth": {
     "type": "spinbutton",
     "description": "Scan-Tiefe",
-    "tooltip": "Wie tief der Outputordner durchsucht wird. Für Katzenbilder reichen normalerweise 3-4 Ebenen.",
+    "tooltip": "Wie tief der lokale Wirtelprimpf-Outputordner durchsucht wird. Normalerweise reichen 3-4 Ebenen.",
     "default": 4,
     "min": 1,
     "max": 12,
@@ -336,7 +336,7 @@
     "type": "entry",
     "description": "GitHub-URL",
     "tooltip": "Wird vom Logo und vom Menüpunkt GitHub öffnen genutzt.",
-    "default": "https://github.com/H234598/Katzenbilder"
+    "default": "https://github.com/H234598/Wirtelprimpf-generator"
   },
   "run-doctor": {
     "type": "button",

@@ -1,0 +1,119 @@
+import { createHash } from "node:crypto";
+
+import { marked } from "marked";
+import sanitizeHtml from "sanitize-html";
+
+
+export interface StoryPart {
+  id: string;
+  timestamp: string;
+  markdown: string;
+  html: string;
+  sequence: number;
+}
+
+export interface StoryDocument {
+  volume: number;
+  filename: string;
+  title: string;
+  parts: StoryPart[];
+}
+
+
+export function renderSafeMarkdown(markdown: string): string {
+  const rendered = marked.parse(markdown, {
+    async: false,
+    breaks: false,
+    gfm: true,
+  });
+  return sanitizeHtml(String(rendered), {
+    allowedTags: [
+      "p", "strong", "em", "del", "blockquote", "ul", "ol", "li", "hr",
+      "h2", "h3", "h4", "code", "pre", "a", "br",
+    ],
+    allowedAttributes: {
+      a: ["href", "title"],
+    },
+    allowedSchemes: ["https", "http", "mailto"],
+    allowProtocolRelative: false,
+    disallowedTagsMode: "discard",
+    transformTags: {
+      a: (_tagName, attributes) => ({
+        tagName: "a",
+        attribs: {
+          ...attributes,
+          ...(attributes.href?.startsWith("http") ? { rel: "noopener noreferrer" } : {}),
+        },
+      }),
+    },
+  });
+}
+
+
+export function parseStoryDocument(markdown: string, filename: string, volume: number): StoryDocument {
+  if (!Number.isSafeInteger(volume) || volume < 1) {
+    throw new Error(`invalid story volume: ${volume}`);
+  }
+  const normalized = markdown.replace(/\r\n?/g, "\n");
+  const titleMatch = normalized.match(/^#\s+(.+?)\s*$/m);
+  const title = titleMatch?.[1]?.trim() || `Wirtelprimpf · Band ${volume}`;
+  const heading = /^##\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*$/gm;
+  const matches = [...normalized.matchAll(heading)];
+  const parts = matches.map((match, index): StoryPart => {
+    const timestamp = match[1];
+    if (!timestamp || match.index === undefined) {
+      throw new Error(`invalid story heading in ${filename}`);
+    }
+    const start = match.index + match[0].length;
+    const end = matches[index + 1]?.index ?? normalized.length;
+    const partMarkdown = normalized.slice(start, end).trim();
+    const digest = createHash("sha256")
+      .update(`${volume}\u0000${timestamp}\u0000${partMarkdown}`, "utf8")
+      .digest("hex")
+      .slice(0, 12);
+    return {
+      id: `band-${String(volume).padStart(4, "0")}-teil-${digest}`,
+      timestamp,
+      markdown: partMarkdown,
+      html: renderSafeMarkdown(partMarkdown),
+      sequence: index + 1,
+    };
+  });
+  return { volume, filename, title, parts };
+}
+
+
+export function sortStoryPartsNewestFirst(parts: readonly StoryPart[]): StoryPart[] {
+  return [...parts].sort((left, right) => {
+    const byTimestamp = right.timestamp.localeCompare(left.timestamp);
+    return byTimestamp || right.sequence - left.sequence;
+  });
+}
+
+
+export function assertReleaseAssetUrl(url: string, owner: string, repository: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch (error) {
+    throw new Error(`invalid release asset URL: ${String(error)}`);
+  }
+  const segments = parsed.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  const valid = parsed.protocol === "https:"
+    && parsed.hostname === "github.com"
+    && parsed.username === ""
+    && parsed.password === ""
+    && parsed.search === ""
+    && parsed.hash === ""
+    && segments.length === 6
+    && segments[0] === owner
+    && segments[1] === repository
+    && segments[2] === "releases"
+    && segments[3] === "download"
+    && /^archive-\d{4}-media-\d{4}$/.test(segments[4] ?? "")
+    && /^[A-Za-z0-9._-]*[a-f0-9]{16}[A-Za-z0-9._-]*$/.test(segments[5] ?? "");
+  if (!valid) {
+    throw new Error(`release asset URL violates archive contract: ${url}`);
+  }
+  return url;
+}

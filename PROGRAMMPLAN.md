@@ -2,7 +2,7 @@
 
 ## Ziel
 
-Ein Cinnamon-Applet als Seitenwagen für den Katzenbilder/Wirtelprimpf-Generator. Es zeigt Latest-Bilder, Storydateien und Storyteile, verwaltet TTS-State absturzsicher und bleibt UI-seitig klein.
+Ein Cinnamon-Applet als Seitenwagen für `Wirtelprimpf-generator` und das aktive `Wirtelprimpf-####`-Archiv. Es zeigt lokale Latest-Bilder, Storydateien und Storyteile, warnt an der 50-Bände-Grenze, verwaltet TTS-State absturzsicher und bleibt UI-seitig klein.
 
 ## Abgleich mit Speed of Cinnamon
 

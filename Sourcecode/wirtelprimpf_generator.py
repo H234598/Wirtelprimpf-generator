@@ -3,27 +3,39 @@
 
 from __future__ import annotations
 
+import argparse
 import base64
 import binascii
-import argparse
 import json
 import os
 import random
-import stat
+import re
 import shutil
+import stat
 import subprocess
 import sys
-from dataclasses import dataclass
-from datetime import datetime
+import tempfile
+import time
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final
-import re
-from datetime import timezone
-import time
-import tempfile
 
 from openai import OpenAI
 from PIL import Image
+
+from wirtelprimpf_platform.catalog import CatalogStore
+from wirtelprimpf_platform.cloudflare_credentials import CloudflareCredentialResolver
+from wirtelprimpf_platform.cloudflare_dns import CloudflareDNS, CloudflareHTTPTransport, resolve_zone_id
+from wirtelprimpf_platform.github_provision import GitHubProvisioner
+from wirtelprimpf_platform.hub import GitHubHubDispatcher, HubDispatchOutbox, HubDispatchRequest
+from wirtelprimpf_platform.incremental_media import IncrementalMediaPublisher
+from wirtelprimpf_platform.media import GitHubReleaseBackend, ReleaseBackend
+from wirtelprimpf_platform.naming import archive_target_for_volume
+from wirtelprimpf_platform.provision import RotationOrchestrator
+from wirtelprimpf_platform.runtime import PublicationRuntime
+from wirtelprimpf_platform.state import PlatformState, StateStore
+from wirtelprimpf_platform.target_switch import GeneratorTargetSwitcher, GitCatalogPublisher
 
 OPERANDI_CLASSIC: Final = "classic"
 OPERANDI_STORY: Final = "story"
@@ -112,7 +124,7 @@ ENV_BLACKLIST: Final = frozenset(
 OPENAI_ENV_PREFIXES: Final = ("OPENAI_", "AZURE_OPENAI_")
 _COMMAND_ENV_CACHE: dict[str, str] | None = None
 _SECURE_EXECUTABLE_CACHE: dict[str, str] = {}
-VERSION: Final = "0.6.0"
+VERSION: Final = "1.0.0"
 PUBLISH_STATE_FILE: Final = "wirtelprimpf_publish_state.json"
 PUBLISH_PUSH_INTERVAL_PATCHES: Final = 100
 PUBLISH_RELEASE_PUSH_INTERVAL: Final = 10
@@ -123,6 +135,9 @@ MODE_CHECK_CONFIG: Final = "check_config"
 MODE_DRY_RUN: Final = "dry_run"
 MODE_RUN: Final = "run"
 MODE_VALUES: Final = frozenset({MODE_STATUS, MODE_CHECK_CONFIG, MODE_DRY_RUN, MODE_RUN})
+MEDIA_MODE_GIT: Final = "git"
+MEDIA_MODE_RELEASE: Final = "release"
+MEDIA_MODES: Final = frozenset({MEDIA_MODE_GIT, MEDIA_MODE_RELEASE})
 
 
 @dataclass
@@ -939,6 +954,13 @@ def story_state_after_success(state: StoryState) -> StoryState:
     )
 
 
+def story_volume_for_plan(config: Config, plan: GenerationPlan) -> int:
+    if plan.story_state_after_success is not None:
+        return plan.story_state_after_success.current_volume
+    state = read_story_state(config.story_state_path)
+    return state.current_volume + (1 if state.pending_new_volume else 0)
+
+
 def publish_state_path(repo_path: Path) -> Path:
     if repo_path.name == ".git":
         return repo_path / PUBLISH_STATE_FILE
@@ -968,6 +990,19 @@ class Config:
     story_finish_parts_max: int
     commit_author_name: str
     commit_author_email: str
+    media_mode: str = MEDIA_MODE_GIT
+    github_owner: str = "H234598"
+    media_staging_path: Path | None = None
+    publish_immediately: bool = False
+    platform_state_path: Path | None = None
+    platform_catalog_path: Path | None = None
+    platform_generator_root: Path | None = None
+    platform_archive_root: Path | None = None
+    platform_factory_ref: str | None = None
+    cloudflare_zone: str = "telacore.org"
+    cloudflare_zone_id: str | None = None
+    settings_path: Path | None = None
+    hub_dispatch_state_path: Path | None = None
 
 
 def load_config() -> Config:
@@ -975,6 +1010,11 @@ def load_config() -> Config:
     config_home = Path(env("XDG_CONFIG_HOME", str(Path.home() / ".config")) or str(Path.home() / ".config"))
     default_prompt_config = config_home / "wirtelprimpf" / "prompt_config.md"
     default_story_prompt_config = config_home / "wirtelprimpf" / "story_prompt_config.md"
+    state_home = Path(env("XDG_STATE_HOME", str(Path.home() / ".local/state")) or str(Path.home() / ".local/state"))
+    share_home = Path(env("XDG_DATA_HOME", str(Path.home() / ".local/share")) or str(Path.home() / ".local/share"))
+    default_generator_root = share_home / "wirtelprimpf-generator"
+    default_archive_root = share_home / "wirtelprimpf" / "archives"
+    settings_path = config_home / "wirtelprimpf" / "openai.env"
     repo_path = env("WIRTELPRIMPF_REPO_PATH")
     resolved_repo_path = normalize_repo_path(Path(repo_path).expanduser()) if repo_path else None
     repo_slug = normalize_repo_slug(env("WIRTELPRIMPF_REPO_SLUG"))
@@ -1038,7 +1078,62 @@ def load_config() -> Config:
         commit_author_name=env("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Wirtelprimpf Bot") or "Wirtelprimpf Bot",
         commit_author_email=env("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "wirtelprimpf@example.invalid")
         or "wirtelprimpf@example.invalid",
+        media_mode=parse_media_mode(env("WIRTELPRIMPF_MEDIA_MODE", MEDIA_MODE_GIT)),
+        github_owner=normalize_github_owner(env("WIRTELPRIMPF_GITHUB_OWNER", "H234598") or "H234598"),
+        media_staging_path=Path(
+            env("WIRTELPRIMPF_MEDIA_STAGING", str(state_home / "wirtelprimpf/media-staging"))
+            or str(state_home / "wirtelprimpf/media-staging")
+        ).expanduser(),
+        publish_immediately=parse_bool_flag(
+            "WIRTELPRIMPF_PUBLISH_IMMEDIATELY",
+            env("WIRTELPRIMPF_PUBLISH_IMMEDIATELY"),
+            default=False,
+        ),
+        platform_state_path=Path(
+            env("WIRTELPRIMPF_PLATFORM_STATE", str(state_home / "wirtelprimpf/platform-state.json"))
+            or str(state_home / "wirtelprimpf/platform-state.json")
+        ).expanduser(),
+        platform_catalog_path=Path(
+            env(
+                "WIRTELPRIMPF_PLATFORM_CATALOG",
+                str(default_generator_root / "data/publication-catalog.json"),
+            )
+            or str(default_generator_root / "data/publication-catalog.json")
+        ).expanduser(),
+        platform_generator_root=Path(
+            env("WIRTELPRIMPF_GENERATOR_ROOT", str(default_generator_root)) or str(default_generator_root)
+        ).expanduser(),
+        platform_archive_root=Path(
+            env("WIRTELPRIMPF_ARCHIVE_ROOT", str(default_archive_root)) or str(default_archive_root)
+        ).expanduser(),
+        platform_factory_ref=(env("WIRTELPRIMPF_FACTORY_REF") or None),
+        cloudflare_zone=env("WIRTELPRIMPF_CLOUDFLARE_ZONE", "telacore.org") or "telacore.org",
+        cloudflare_zone_id=env("WIRTELPRIMPF_CLOUDFLARE_ZONE_ID") or None,
+        settings_path=Path(env("WIRTELPRIMPF_SETTINGS_PATH", str(settings_path)) or str(settings_path)).expanduser(),
+        hub_dispatch_state_path=Path(
+            env(
+                "WIRTELPRIMPF_HUB_DISPATCH_STATE",
+                str(state_home / "wirtelprimpf/hub-dispatch.json"),
+            )
+            or str(state_home / "wirtelprimpf/hub-dispatch.json")
+        ).expanduser(),
     )
+
+
+def parse_media_mode(value: str | None) -> str:
+    candidate = (value or MEDIA_MODE_GIT).strip().lower()
+    if candidate not in MEDIA_MODES:
+        raise RuntimeError(
+            f"Invalid WIRTELPRIMPF_MEDIA_MODE: {value!r}; expected {MEDIA_MODE_GIT!r} or {MEDIA_MODE_RELEASE!r}"
+        )
+    return candidate
+
+
+def normalize_github_owner(value: str) -> str:
+    candidate = value.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", candidate):
+        raise RuntimeError(f"Invalid WIRTELPRIMPF_GITHUB_OWNER: {value!r}")
+    return candidate
 
 
 def parse_operandi(value: str | None) -> str:
@@ -1217,9 +1312,206 @@ def ensure_repo(config: Config) -> Path | None:
     return repo_outdir
 
 
-def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
+def publish_release_image(
+    config: Config,
+    image_path: Path,
+    *,
+    source_path: str,
+    kind: str,
+    story_volume: int,
+    prompt_path: str | None = None,
+    story_part_path: str | None = None,
+    backend: ReleaseBackend | None = None,
+) -> tuple[dict[str, object], Path]:
+    """Publish generated image bytes outside Git and append their verified manifest record."""
+    if config.media_mode != MEDIA_MODE_RELEASE:
+        raise RuntimeError("release image publication requires WIRTELPRIMPF_MEDIA_MODE=release")
     if config.repo_path is None:
-        return
+        raise RuntimeError("release image publication requires WIRTELPRIMPF_REPO_PATH")
+    target = archive_target_for_volume(story_volume)
+    configured_owner = config.github_owner
+    configured_repository = config.repo_path.name
+    if config.repo_slug:
+        slug_owner, slug_repository = config.repo_slug.split("/", 1)
+        if slug_owner != configured_owner:
+            raise RuntimeError(
+                f"archive target mismatch: configured owner {slug_owner!r} != {configured_owner!r}"
+            )
+        configured_repository = slug_repository
+    if configured_repository != target.repository:
+        raise RuntimeError(
+            "archive target mismatch: "
+            f"story volume {story_volume} belongs to {target.repository}, not {configured_repository}"
+        )
+    staging_root = config.media_staging_path
+    if staging_root is None:
+        raise RuntimeError("release image publication requires WIRTELPRIMPF_MEDIA_STAGING")
+    manifest_path = config.repo_path / "media-manifest.json"
+    release_backend = backend or GitHubReleaseBackend(configured_owner, target.repository)
+    record = IncrementalMediaPublisher(
+        owner=configured_owner,
+        repository=target.repository,
+        archive_index=target.archive_index,
+        manifest_path=manifest_path,
+        staging_root=staging_root / target.repository,
+        backend=release_backend,
+    ).publish(
+        image_path,
+        source_path=source_path,
+        kind=kind,
+        prompt_path=prompt_path,
+        story_part_path=story_part_path,
+    )
+    return record, manifest_path
+
+
+def repository_revision(repo_path: Path | None) -> str | None:
+    if repo_path is None or not (repo_path / ".git").is_dir():
+        return None
+    revision = run(["git", "rev-parse", "HEAD"], cwd=repo_path).stdout.strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise RuntimeError(f"Invalid repository revision for {repo_path}: {revision!r}")
+    return revision
+
+
+def resolve_factory_ref(config: Config) -> str:
+    if config.platform_generator_root is None:
+        raise RuntimeError("WIRTELPRIMPF_GENERATOR_ROOT is required for archive rotation")
+    root = config.platform_generator_root
+    if not (root / ".git").is_dir():
+        raise RuntimeError(f"Generator root is not a Git checkout: {root}")
+    candidate = config.platform_factory_ref
+    if candidate is None:
+        candidate = run(["git", "rev-parse", "HEAD"], cwd=root).stdout.strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", candidate):
+        raise RuntimeError("WIRTELPRIMPF_FACTORY_REF must be a full lower-case Git commit SHA")
+    run(["git", "cat-file", "-e", f"{candidate}^{{commit}}"], cwd=root)
+    return candidate
+
+
+def build_rotation_orchestrator(config: Config) -> RotationOrchestrator:
+    required_paths = {
+        "WIRTELPRIMPF_PLATFORM_STATE": config.platform_state_path,
+        "WIRTELPRIMPF_PLATFORM_CATALOG": config.platform_catalog_path,
+        "WIRTELPRIMPF_GENERATOR_ROOT": config.platform_generator_root,
+        "WIRTELPRIMPF_ARCHIVE_ROOT": config.platform_archive_root,
+        "WIRTELPRIMPF_SETTINGS_PATH": config.settings_path,
+    }
+    missing = [name for name, value in required_paths.items() if value is None]
+    if missing:
+        raise RuntimeError(f"Archive rotation configuration is incomplete: {', '.join(missing)}")
+    token = CloudflareCredentialResolver().resolve(
+        explicit_token=os.environ.get("CLOUDFLARE_API_TOKEN")
+    )
+    assert config.platform_state_path is not None
+    assert config.platform_catalog_path is not None
+    assert config.platform_generator_root is not None
+    assert config.platform_archive_root is not None
+    assert config.settings_path is not None
+    transport = CloudflareHTTPTransport(token)
+    zone_id = config.cloudflare_zone_id or resolve_zone_id(transport, config.cloudflare_zone)
+    catalog_publisher = GitCatalogPublisher(
+        generator_root=config.platform_generator_root,
+        catalog_path=config.platform_catalog_path,
+    )
+    target_switcher = GeneratorTargetSwitcher(
+        settings_path=config.settings_path,
+        archive_root=config.platform_archive_root,
+        owner=config.github_owner,
+        publish_catalog=catalog_publisher.publish,
+    )
+    return RotationOrchestrator(
+        owner=config.github_owner,
+        pages_target=f"{config.github_owner.lower()}.github.io",
+        state_store=StateStore(config.platform_state_path),
+        catalog_store=CatalogStore(config.platform_catalog_path),
+        github=GitHubProvisioner(
+            owner=config.github_owner,
+            generator_root=config.platform_generator_root,
+            archive_root=config.platform_archive_root,
+            factory_ref=resolve_factory_ref(config),
+        ),
+        dns=CloudflareDNS(
+            zone_id=zone_id,
+            zone_name=config.cloudflare_zone,
+            transport=transport,
+        ),
+        target_switcher=target_switcher,
+    )
+
+
+def publication_runtime(config: Config) -> PublicationRuntime:
+    if config.platform_state_path is None:
+        raise RuntimeError("WIRTELPRIMPF_PLATFORM_STATE is required in release mode")
+    return PublicationRuntime(
+        state_store=StateStore(config.platform_state_path),
+        resume_rotation=lambda: build_rotation_orchestrator(config).run(),
+    )
+
+
+def ensure_platform_generation_ready(config: Config) -> tuple[Config, PlatformState, bool]:
+    """Resume any pending rotation and reconcile the one safe crash window."""
+    if config.media_mode != MEDIA_MODE_RELEASE:
+        return config, PlatformState(), False
+    story_state = read_story_state(config.story_state_path)
+    store = StateStore(config.platform_state_path) if config.platform_state_path else None
+    if store is None:
+        raise RuntimeError("WIRTELPRIMPF_PLATFORM_STATE is required in release mode")
+    before = store.load()
+    had_rotation = before.rotation is not None
+    state = publication_runtime(config).ensure_generation_ready(
+        story_volume=story_state.current_volume,
+        pending_new_volume=story_state.pending_new_volume,
+        source_revision=repository_revision(config.repo_path),
+    )
+    expected_repository = state.active_repository
+    actual_repository = config.repo_slug.split("/", 1)[1] if config.repo_slug else (
+        config.repo_path.name if config.repo_path else ""
+    )
+    if actual_repository != expected_repository:
+        if config.platform_archive_root is None:
+            raise RuntimeError("WIRTELPRIMPF_ARCHIVE_ROOT is required after archive rotation")
+        config = replace(
+            config,
+            repo_path=config.platform_archive_root / expected_repository,
+            repo_slug=f"{config.github_owner}/{expected_repository}",
+        )
+    return config, state, had_rotation and state.rotation is None
+
+
+def hub_dispatch_outbox(config: Config) -> HubDispatchOutbox:
+    if config.hub_dispatch_state_path is None:
+        raise RuntimeError("WIRTELPRIMPF_HUB_DISPATCH_STATE is required in release mode")
+    return HubDispatchOutbox(config.hub_dispatch_state_path)
+
+
+def retry_pending_hub_dispatch(config: Config) -> bool:
+    return hub_dispatch_outbox(config).dispatch_pending(
+        GitHubHubDispatcher(owner=config.github_owner)
+    )
+
+
+def stage_and_dispatch_hub(
+    config: Config,
+    *,
+    archive_repository: str,
+    archive_revision: str,
+    current_volume: int,
+) -> None:
+    outbox = hub_dispatch_outbox(config)
+    outbox.stage(
+        HubDispatchRequest(
+            archive_repository=archive_repository,
+            archive_revision=archive_revision,
+            current_volume=current_volume,
+        )
+    )
+    outbox.dispatch_pending(GitHubHubDispatcher(owner=config.github_owner))
+
+
+def commit_and_push(config: Config, paths: list[Path], title: str) -> str | None:
+    if config.repo_path is None:
+        return None
 
     git_extra_env: dict[str, str] | None = None
 
@@ -1245,7 +1537,10 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
     git_run(["git", "add", *relative_paths])
     status = git_run(["git", "status", "--porcelain", "--", *relative_paths])
     if not status.stdout.strip():
-        return
+        revision = git_run(["git", "rev-parse", "HEAD"]).stdout.strip()
+        if config.publish_immediately:
+            git_run(["git", "push", "origin", config.repo_branch])
+        return revision
 
     state_path = publish_state_path(config.repo_path)
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1274,7 +1569,7 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
         ]
     )
 
-    if next_patch_count % PUBLISH_PUSH_INTERVAL_PATCHES == 0:
+    if config.publish_immediately or next_patch_count % PUBLISH_PUSH_INTERVAL_PATCHES == 0:
         try:
             git_run(["git", "push", "origin", config.repo_branch])
         except RuntimeError as exc:
@@ -1312,6 +1607,7 @@ def commit_and_push(config: Config, paths: list[Path], title: str) -> None:
         f"version={runtime_version} patches_committed={next_patch_count} publish_pushes={next_publish_push_count} "
         f"pushed={push_performed}"
     )
+    return git_run(["git", "rev-parse", "HEAD"]).stdout.strip()
 
 
 def parse_resolution(value: str) -> tuple[int, int] | None:
@@ -2521,6 +2817,38 @@ def main() -> None:
             print(f"exit_code: 0")
             return
 
+        if config.media_mode == MEDIA_MODE_RELEASE and not args.dry_run:
+            try:
+                if retry_pending_hub_dispatch(config):
+                    print("Previously pending hub Pages dispatch was accepted by GitHub.")
+                config, platform_state, rotation_only = ensure_platform_generation_ready(config)
+            except Exception as exc:
+                if args.json:
+                    emit_unexpected_failure(f"Publication platform is not ready: {exc}", args, runtime_mode)
+                _die(f"Publication platform is not ready: {exc}")
+            if rotation_only:
+                message = (
+                    "Pending archive rotation completed safely; generation is deferred to the next scheduled run "
+                    f"and will target {platform_state.active_repository}."
+                )
+                if args.json:
+                    print(
+                        format_json(
+                            build_status_envelope(
+                                ok=True,
+                                mode=MODE_RUN,
+                                status=STATUS_OK,
+                                exit_code=0,
+                                version=VERSION,
+                                message=message,
+                            ),
+                            compact=True,
+                        )
+                    )
+                else:
+                    print(message)
+                return
+
         ensure_output_directory(config.local_outdir)
         config.local_outdir.mkdir(parents=True, exist_ok=True)
         ensure_private_output_directory(config.working_dir, env_name="WIRTELPRIMPF_WORKING_DIR")
@@ -2659,7 +2987,10 @@ def main() -> None:
                             story_document=updated_story_document,
                         )
                     write_text_atomically(story_document_path, updated_story_document)
-                    if plan.story_state_after_success is not None:
+                    if (
+                        plan.story_state_after_success is not None
+                        and not (config.media_mode == MEDIA_MODE_RELEASE and repo_outdir is not None)
+                    ):
                         write_story_state(config.story_state_path, plan.story_state_after_success)
                 rotate_working_outputs(
                     config,
@@ -2687,12 +3018,15 @@ def main() -> None:
             if repo_outdir is None:
                 continue
 
-            repo_png = repo_outdir / local_png.name
             repo_prompt = repo_outdir / local_prompt.name
-            repo_paths = [repo_png, repo_prompt]
+            repo_paths = [repo_prompt]
             try:
-                shutil.copy2(local_png, repo_png)
                 shutil.copy2(local_prompt, repo_prompt)
+                repo_png: Path | None = None
+                if config.media_mode == MEDIA_MODE_GIT:
+                    repo_png = repo_outdir / local_png.name
+                    shutil.copy2(local_png, repo_png)
+                    repo_paths.insert(0, repo_png)
                 if local_story is not None:
                     repo_story = repo_outdir / local_story.name
                     shutil.copy2(local_story, repo_story)
@@ -2702,18 +3036,81 @@ def main() -> None:
                     repo_story_document = repo_outdir / story_document_path.name
                     shutil.copy2(story_document_path, repo_story_document)
                     repo_paths.append(repo_story_document)
-                repo_paths.extend(
-                    sync_repo_working_outputs(
-                        repo_outdir,
+                release_record: dict[str, object] | None = None
+                published_story_volume: int | None = None
+                if config.media_mode == MEDIA_MODE_RELEASE:
+                    published_story_volume = story_volume_for_plan(config, plan)
+                    release_record, media_manifest = publish_release_image(
+                        config,
                         local_png,
-                        local_prompt,
-                        local_story,
-                        plan.story_document_path if plan.story_document_append else active_story_document_path(config),
+                        source_path=f"{config.repo_subdir}/{local_png.name}",
+                        kind=plan.kind,
+                        prompt_path=f"{config.repo_subdir}/{local_prompt.name}",
+                        story_part_path=(
+                            f"{config.repo_subdir}/{local_story.name}" if local_story is not None else None
+                        ),
+                        story_volume=published_story_volume,
                     )
-                )
-                commit_and_push(config, repo_paths, stem)
-                print(f"Repository image: {repo_png}")
+                    repo_paths.append(media_manifest)
+                else:
+                    repo_paths.extend(
+                        sync_repo_working_outputs(
+                            repo_outdir,
+                            local_png,
+                            local_prompt,
+                            local_story,
+                            plan.story_document_path if plan.story_document_append else active_story_document_path(config),
+                        )
+                    )
+                revision = commit_and_push(config, repo_paths, stem)
+                if plan.story_state_after_success is not None and config.media_mode == MEDIA_MODE_RELEASE:
+                    write_story_state(config.story_state_path, plan.story_state_after_success)
+                if config.media_mode == MEDIA_MODE_RELEASE:
+                    if revision is None or published_story_volume is None:
+                        raise RuntimeError("release publication lacks an exact archive revision or story volume")
+                    archive_repository = archive_target_for_volume(published_story_volume).repository
+                    try:
+                        stage_and_dispatch_hub(
+                            config,
+                            archive_repository=archive_repository,
+                            archive_revision=revision,
+                            current_volume=published_story_volume,
+                        )
+                        print(f"Hub Pages dispatch accepted for {archive_repository}@{revision}.")
+                    except Exception as exc:
+                        print(
+                            f"Hub Pages dispatch remains safely queued and will be retried before generation: {exc}",
+                            file=sys.stderr,
+                        )
+                if plan.story_state_after_success is not None and config.media_mode == MEDIA_MODE_RELEASE:
+                    if plan.story_state_after_success.pending_new_volume:
+                        completed_volume = plan.story_state_after_success.current_volume
+                        if revision is None:
+                            raise RuntimeError("published story completion has no verified Git revision")
+                        if completed_volume % 50 == 0:
+                            print(
+                                f"WARNUNG: {completed_volume} vollständige Story-Bände sind abgeschlossen; "
+                                "das nächste fortlaufende Wirtelprimpf-Repository wird jetzt provisioniert."
+                            )
+                        platform_state = publication_runtime(config).record_volume_completion(
+                            completed_volume,
+                            source_revision=revision,
+                        )
+                        print(
+                            f"Platform volume completed: {completed_volume}; "
+                            f"next_volume={platform_state.current_volume}; "
+                            f"active_repository={platform_state.active_repository}"
+                        )
+                if repo_png is not None:
+                    print(f"Repository image: {repo_png}")
+                if release_record is not None:
+                    print(
+                        "Release image: "
+                        f"{release_record['release_tag']}/{release_record['original']['asset_name']}"
+                    )
                 print(f"Repository prompt: {repo_prompt}")
+                if revision:
+                    print(f"Repository revision: {revision}")
             except Exception as exc:
                 print(f"Repository publish failed for {stem}: {exc}", file=sys.stderr)
                 summary.failed += 1

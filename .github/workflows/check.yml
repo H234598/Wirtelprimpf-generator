@@ -14,11 +14,11 @@ concurrency:
 
 jobs:
   applet:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout relevant repository paths
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: |
             .github
@@ -28,11 +28,13 @@ jobs:
             scripts
             tests
             docs
+            wirtelprimpf_platform
+            pyproject.toml
           sparse-checkout-cone-mode: true
           lfs: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
 
@@ -41,3 +43,91 @@ jobs:
 
       - name: Run repository checks
         run: make check
+
+  platform:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout generator sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            .github
+            Makefile
+            Sourcecode
+            files
+            scripts
+            tests
+            wirtelprimpf_platform
+            pyproject.toml
+            LICENSE
+            README.md
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install generator package
+        run: python -m pip install --disable-pip-version-check -e .
+
+      - name: Run platform contract tests
+        run: python -m unittest discover -s tests/platform -p 'test_*.py' -v
+
+      - name: Compile all Python sources
+        run: python -m compileall -q Sourcecode wirtelprimpf_platform scripts
+
+      - name: Verify CLI entrypoint
+        run: wirtelprimpf-platform mapping 51
+
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout site factory
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            web
+            scripts/validate_pages_artifact.py
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.13.1"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install exact web dependencies
+        working-directory: web
+        run: npm ci --ignore-scripts
+
+      - name: Test and type-check the site factory
+        working-directory: web
+        env:
+          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/web/fixtures/site
+          WIRTELPRIMPF_SITE_PROFILE: hub
+        run: |
+          npm test
+          npm run check
+
+      - name: Build and validate hub profile
+        env:
+          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/web/fixtures/site
+          WIRTELPRIMPF_SITE_PROFILE: hub
+          WIRTELPRIMPF_SITE_URL: https://wirtelprimpf.telacore.org
+        run: |
+          npm --prefix web run build
+          python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
+
+      - name: Build and validate archive profile
+        env:
+          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/web/fixtures/site
+          WIRTELPRIMPF_SITE_PROFILE: archive
+          WIRTELPRIMPF_SITE_URL: https://wirtelprimpf-0001.telacore.org
+        run: |
+          npm --prefix web run build
+          python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org

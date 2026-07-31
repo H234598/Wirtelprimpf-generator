@@ -1,0 +1,128 @@
+name: Publish Wirtelprimpf hub Pages
+run-name: >-
+  Wirtelprimpf hub${{ inputs.active_repository && format(' · {0}@{1}', inputs.active_repository, inputs.archive_ref) || '' }}
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "data/**"
+      - "web/**"
+      - "scripts/validate_pages_artifact.py"
+      - ".github/workflows/hub-pages.yml"
+  workflow_dispatch:
+    inputs:
+      active_repository:
+        description: Canonical active publication repository; leave empty for committed fallback data
+        required: false
+        type: string
+      archive_ref:
+        description: Full active archive commit SHA; required with active_repository
+        required: false
+        type: string
+      current_volume:
+        description: Positive global current story volume; required with active_repository
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wirtelprimpf-hub-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout generator and public data
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            data
+            web
+            scripts/validate_pages_artifact.py
+            wirtelprimpf_platform
+          sparse-checkout-cone-mode: true
+
+      - name: Resolve an exact current-story source
+        id: source
+        shell: bash
+        env:
+          INPUT_REPOSITORY: ${{ inputs.active_repository }}
+          INPUT_ARCHIVE_REF: ${{ inputs.archive_ref }}
+          INPUT_CURRENT_VOLUME: ${{ inputs.current_volume }}
+        run: |
+          set -euo pipefail
+          args=(
+            --data-root "${GITHUB_WORKSPACE}/data"
+            --external-root "${GITHUB_WORKSPACE}/current-archive"
+            --github-output "${GITHUB_OUTPUT}"
+          )
+          if [[ -n "${INPUT_REPOSITORY}" || -n "${INPUT_ARCHIVE_REF}" || -n "${INPUT_CURRENT_VOLUME}" ]]; then
+            args+=(
+              --repository "${INPUT_REPOSITORY}"
+              --revision "${INPUT_ARCHIVE_REF}"
+              --current-volume "${INPUT_CURRENT_VOLUME}"
+            )
+          fi
+          python3 -m wirtelprimpf_platform.hub "${args[@]}"
+
+      - name: Checkout exact active publication archive
+        if: steps.source.outputs.external == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ format('H234598/{0}', steps.source.outputs.repository) }}
+          ref: ${{ steps.source.outputs.revision }}
+          path: current-archive
+          lfs: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.13.1"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Install exact dependencies
+        working-directory: web
+        run: npm ci --ignore-scripts
+
+      - name: Build hub
+        env:
+          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/data
+          WIRTELPRIMPF_SITE_PROFILE: hub
+          WIRTELPRIMPF_SITE_URL: https://wirtelprimpf.telacore.org
+          WIRTELPRIMPF_CURRENT_STORY: ${{ steps.source.outputs.story_file }}
+          WIRTELPRIMPF_CURRENT_VOLUME: ${{ steps.source.outputs.current_volume }}
+          WIRTELPRIMPF_MEDIA_MANIFEST: ${{ steps.source.outputs.media_manifest }}
+          WIRTELPRIMPF_MEDIA_REPOSITORY: ${{ steps.source.outputs.repository }}
+        run: npm --prefix web run build
+
+      - name: Validate artifact fail-closed
+        run: python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
+
+      - name: Upload immutable Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy exact build artifact
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

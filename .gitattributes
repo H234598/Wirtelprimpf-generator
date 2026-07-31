@@ -1,0 +1,4 @@
+# The public fallback is a byte-identical source-story snapshot. Preserve its
+# intentional Markdown hard-break spaces and exclude only this path from Git's
+# trailing-whitespace diagnostics.
+data/current-story.md -whitespace

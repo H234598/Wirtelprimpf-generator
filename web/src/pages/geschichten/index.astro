@@ -1,0 +1,9 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { loadSiteData } from "../../lib/data.ts";
+const data = loadSiteData();
+---
+<BaseLayout title="Geschichten" description="Alle veröffentlichten Wirtelprimpf-Bände und ihre Kapitel." section="geschichten">
+  <header class="page-heading"><span class="eyebrow">Bibliothek</span><h1>Geschichten zum Wiederfinden</h1><p class="lede">Auf der Zentrale steht der neueste Teil oben. In der Bandansicht liest du die Geschichte ruhig von Anfang bis Ende.</p></header>
+  <section class="section" style="padding-top:1rem">{data.stories.length ? <div class="archive-grid">{data.stories.map((story)=><article class="archive-card"><span class="eyebrow">Band {story.volume}</span><h2>{story.title}</h2><p>{story.parts.length} veröffentlichte Teile</p><div class="card-actions"><a class="button" href={`/geschichten/${story.volume}/`}>Band lesen</a></div></article>)}</div> : <p class="empty-state">Noch kein validierter Storyband in diesem Datenstand.</p>}</section>
+</BaseLayout>

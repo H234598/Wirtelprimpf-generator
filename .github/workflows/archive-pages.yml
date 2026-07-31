@@ -1,0 +1,93 @@
+name: Build and publish a Wirtelprimpf archive
+
+on:
+  workflow_call:
+    inputs:
+      archive_index:
+        description: Four-digit publication archive index
+        required: true
+        type: string
+      custom_domain:
+        description: Verified telacore.org archive hostname
+        required: true
+        type: string
+      factory_ref:
+        description: Full generator commit SHA used by the calling workflow
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Validate immutable factory reference and archive inputs
+        shell: bash
+        env:
+          FACTORY_REF: ${{ inputs.factory_ref }}
+          ARCHIVE_INDEX: ${{ inputs.archive_index }}
+          CUSTOM_DOMAIN: ${{ inputs.custom_domain }}
+        run: |
+          set -euo pipefail
+          [[ "$FACTORY_REF" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ARCHIVE_INDEX" =~ ^[0-9]{1,4}$ ]]
+          printf -v expected_domain 'wirtelprimpf-%04d.telacore.org' "$((10#$ARCHIVE_INDEX))"
+          test "$CUSTOM_DOMAIN" = "$expected_domain"
+
+      - name: Checkout publication archive
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: archive
+          lfs: false
+
+      - name: Checkout pinned generator factory
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: H234598/Wirtelprimpf-generator
+          ref: ${{ inputs.factory_ref }}
+          path: factory
+          sparse-checkout: |
+            web
+            scripts/validate_pages_artifact.py
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.13.1"
+          cache: npm
+          cache-dependency-path: factory/web/package-lock.json
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Install exact factory dependencies
+        working-directory: factory/web
+        run: npm ci --ignore-scripts
+
+      - name: Build archive profile
+        env:
+          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/archive
+          WIRTELPRIMPF_SITE_PROFILE: archive
+          WIRTELPRIMPF_SITE_URL: https://${{ inputs.custom_domain }}
+        run: npm --prefix factory/web run build
+
+      - name: Validate archive artifact fail-closed
+        run: python3 factory/scripts/validate_pages_artifact.py factory/web/dist --expected-domain "${{ inputs.custom_domain }}"
+
+      - name: Upload immutable Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: factory/web/dist
+
+      - name: Deploy exact build artifact
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

@@ -47,7 +47,7 @@ class SemVerStateTests(unittest.TestCase):
 
         self.assertEqual(state.semver_base, self.generator.VERSION)
         self.assertEqual(state.semver_base_patch_count, 0)
-        self.assertEqual(self.version_for(state), "0.6.65")
+        self.assertEqual(self.version_for(state), "1.0.65")
 
     def test_matching_semver_base_uses_stored_patch_offset(self):
         state = self.read_state(
@@ -59,8 +59,8 @@ class SemVerStateTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(self.version_for(state), "0.6.5")
-        self.assertEqual(self.version_for(state, patch_count=66), "0.6.6")
+        self.assertEqual(self.version_for(state), "1.0.5")
+        self.assertEqual(self.version_for(state, patch_count=66), "1.0.6")
 
     def test_changed_semver_base_resets_patch_offset(self):
         state = self.read_state(
@@ -74,8 +74,8 @@ class SemVerStateTests(unittest.TestCase):
 
         self.assertEqual(state.semver_base, self.generator.VERSION)
         self.assertEqual(state.semver_base_patch_count, 65)
-        self.assertEqual(self.version_for(state), "0.6.0")
-        self.assertEqual(self.version_for(state, patch_count=66), "0.6.1")
+        self.assertEqual(self.version_for(state), "1.0.0")
+        self.assertEqual(self.version_for(state, patch_count=66), "1.0.1")
 
 
 if __name__ == "__main__":

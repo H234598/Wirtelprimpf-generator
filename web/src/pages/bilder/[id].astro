@@ -1,0 +1,13 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { loadSiteData, type MediaItem } from "../../lib/data.ts";
+export function getStaticPaths() { return loadSiteData().media.map((item) => ({ params: { id: item.asset_id }, props: { item } })); }
+interface Props { item: MediaItem; }
+const { item } = Astro.props;
+const large = item.variants.at(-1);
+const src = large?.url ?? item.original.url;
+---
+<BaseLayout title={item.source_path} description="Kanonische Wirtelprimpf-Bilddetailseite mit Release-Original." image={src} section="bilder">
+  <header class="page-heading"><span class="eyebrow">{item.kind === "story" ? "Storybild" : item.kind === "classic" ? "Atelierbild" : "Historisches Bild"}</span><h1>{item.source_path.replace(/\.[^.]+$/, "").replaceAll("_", " ")}</h1></header>
+  <section class="section" style="padding-top:1rem"><div class="detail-grid"><figure class="detail-image"><img src={src} width={large?.actual_width ?? item.width} height={large?.actual_height ?? item.height} alt="Wirtelprimpf-Szene" decoding="async" /></figure><aside class="detail-meta"><h2>Zum Bild</h2><p>Originalformat: {item.width} × {item.height} Pixel</p><p>Release: <code>{item.release_tag}</code></p><p>Asset-ID: <code>{item.asset_id}</code></p><a class="button" href={item.original.url} download={item.original.asset_name}>Original herunterladen</a><a href="/bilder/">← Zur Galerie</a></aside></div></section>
+</BaseLayout>

@@ -13,7 +13,7 @@ const St = imports.gi.St;
 const Main = imports.ui.main;
 
 const UUID = "wirtelprimfgenerator@H234598";
-const DEFAULT_GITHUB_URL = "https://github.com/H234598/Katzenbilder";
+const DEFAULT_GITHUB_URL = "https://github.com/H234598/Wirtelprimpf-generator";
 const HELPER_OUTPUT_LIMIT = 1024 * 1024;
 const FULL_STORY_LIMIT = 50;
 const RECENT_PART_LIMIT = 15;

@@ -1,0 +1,11 @@
+---
+import type { ArchiveEntry } from "../lib/data.ts";
+interface Props { entry: ArchiveEntry; }
+const { entry } = Astro.props;
+---
+<article class:list={["archive-card", { active: entry.active }]}>
+  <span class="eyebrow">{entry.active ? "Aktuelles Archiv" : "Versiegeltes Archiv"}</span>
+  <h3>{entry.repository}</h3>
+  <p>Bände {entry.volume_start}–{entry.volume_end}</p>
+  <div class="card-actions"><a class="button" href={entry.pages_url}>Archiv öffnen</a><a href={entry.github_url}>Quellen</a></div>
+</article>

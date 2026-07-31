@@ -1,0 +1,74 @@
+---
+import "../styles/global.css";
+import { loadSiteData } from "../lib/data.ts";
+
+interface Props {
+  title?: string;
+  description?: string;
+  image?: string;
+  section?: string;
+}
+
+const data = loadSiteData();
+const { title = data.title, description = data.intro, image, section = "" } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const fullTitle = title === data.title ? title : `${title} · ${data.title}`;
+const centralUrl = "https://wirtelprimpf.telacore.org/";
+---
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#21162a" />
+    <meta name="color-scheme" content="dark light" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://github.com https://*.githubusercontent.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" />
+    <meta name="generator" content={Astro.generator} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/wirtelprimpf-mark.svg" type="image/svg+xml" />
+    <link rel="alternate" type="application/atom+xml" title="Wirtelprimpf-Feed" href="/feed.xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    {image && <meta property="og:image" content={image} />}
+    <meta name="twitter:card" content={image ? "summary_large_image" : "summary"} />
+    <title>{fullTitle}</title>
+    <script is:inline>
+      try { document.documentElement.dataset.theme = localStorage.getItem("wirtelprimpf-theme") || "night"; } catch {}
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#inhalt">Zum Inhalt springen</a>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label={`${data.title} – Startseite`}>
+        <img src="/wirtelprimpf-mark.svg" width="52" height="52" alt="" />
+        <span><small>{data.profile === "hub" ? "Zentrale Landingpage" : `Publikationsarchiv ${String(data.archiveIndex).padStart(4, "0")}`}</small>{data.title}</span>
+      </a>
+      <nav aria-label="Hauptnavigation">
+        <a href="/" aria-current={section === "start" ? "page" : undefined}>Start</a>
+        <a href="/bilder/" aria-current={section === "bilder" ? "page" : undefined}>Bilder</a>
+        <a href="/geschichten/" aria-current={section === "geschichten" ? "page" : undefined}>Geschichten</a>
+        <a href="/projekt/" aria-current={section === "projekt" ? "page" : undefined}>Projekt</a>
+      </nav>
+      <button class="theme-toggle" type="button" aria-label="Farbschema wechseln" data-theme-toggle>◐</button>
+    </header>
+    <main id="inhalt"><slot /></main>
+    <footer class="site-footer">
+      <div><strong>Wirtelprimpf</strong><p>Fortlaufende Geschichten und Bilder, ruhig archiviert und frei zugänglich.</p></div>
+      <div class="footer-links">
+        {data.profile === "archive" && <a href={centralUrl}>Zur Zentrale</a>}
+        <a href="/projekt/status/">Publikationsstatus</a>
+        <a href={`https://github.com/H234598/${data.repository}`}>GitHub</a>
+      </div>
+    </footer>
+    <script is:inline>
+      document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
+        const next = document.documentElement.dataset.theme === 'paper' ? 'night' : 'paper';
+        document.documentElement.dataset.theme = next;
+        try { localStorage.setItem('wirtelprimpf-theme', next); } catch {}
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+---
+import type { StoryPart as StoryPartType } from "../lib/content.ts";
+interface Props { part: StoryPartType; newest?: boolean; }
+const { part, newest = false } = Astro.props;
+---
+<article class:list={["story-part", { newest }]} id={part.id}>
+  <header><span>Teil {part.sequence}</span><time datetime={part.timestamp.replace(" ", "T")}>{part.timestamp}</time>{newest && <strong>Neuester Teil</strong>}</header>
+  <div class="prose" set:html={part.html} />
+  <a class="permalink" href={`#${part.id}`} aria-label={`Direktlink zu Teil ${part.sequence}`}>#</a>
+</article>

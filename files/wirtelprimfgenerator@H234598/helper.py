@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Helper for wirtelprimfgenerator@H234598.
 
-Repo-specific defaults target H234598/Katzenbilder / Sourcecode/wirtelprimpf_generator.py:
+Repository defaults target H234598/Wirtelprimpf-generator and the active Wirtelprimpf-#### archive:
 - local outdir: $HOME/Hintergrundbilder
 - working dir: $HOME/Hintergrundbilder/working
 - repo subdir: Wirtelprimpf
@@ -35,7 +35,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 UUID = "wirtelprimfgenerator@H234598"
 DEFAULT_STATE_DIR = Path.home() / ".local" / "state" / "wirtelprimfgenerator-applet"
 LEGACY_STATE_DIR = Path.home() / ".config" / "wirtelprimfgenerator-applet"
-PROJECT_URL = "https://github.com/H234598/Katzenbilder"
+PROJECT_URL = "https://github.com/H234598/Wirtelprimpf-generator"
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".avif"}
 TEXT_EXTS = {".md", ".markdown", ".txt", ".text"}
 FULL_EXTS = {".md", ".markdown", ".epub"}
@@ -222,8 +222,9 @@ def wirtel_env_files() -> List[Path]:
     return [
         home / ".config" / "wirtelprimpf" / "openai.env",
         home / ".config" / "wirtelprimf" / "openai.env",
-        home / "GitHub" / "Katzenbilder" / "Sourcecode" / "env.example",
-        home / "github" / "Katzenbilder" / "Sourcecode" / "env.example",
+        home / ".local" / "share" / "wirtelprimpf-generator" / "Sourcecode" / "env.example",
+        home / "GitHub" / "Wirtelprimpf-generator" / "Sourcecode" / "env.example",
+        home / "github" / "Wirtelprimpf-generator" / "Sourcecode" / "env.example",
     ]
 
 
@@ -278,20 +279,17 @@ def resolve_output_dir(user_dir: str) -> Tuple[Optional[Path], str, List[str]]:
     home = Path.home()
     candidates = [
         home / "Hintergrundbilder",
-        home / "GitHub" / "Katzenbilder" / "Wirtelprimpf",
-        home / "github" / "Katzenbilder" / "Wirtelprimpf",
-        home / "Github" / "Katzenbilder" / "Wirtelprimpf",
-        home / "Projects" / "Katzenbilder" / "Wirtelprimpf",
-        home / "Code" / "Katzenbilder" / "Wirtelprimpf",
-        home / "GitHub" / "Katzenbilder",
-        home / "github" / "Katzenbilder",
-        home / "Github" / "Katzenbilder",
+        home / ".local" / "share" / "wirtelprimpf" / "archives" / "Wirtelprimpf-0001" / "Wirtelprimpf",
+        home / "GitHub" / "Wirtelprimpf-0001" / "Wirtelprimpf",
+        home / "github" / "Wirtelprimpf-0001" / "Wirtelprimpf",
+        home / "Projects" / "Wirtelprimpf-0001" / "Wirtelprimpf",
+        home / "Code" / "Wirtelprimpf-0001" / "Wirtelprimpf",
     ]
     for path in candidates:
         if path.exists() and path.is_dir():
             return path.resolve(), f"fallback:{path}", errors
 
-    errors.append("Kein Outputordner gefunden. Setze den Katzenbilder-/Outputordner in den Applet-Einstellungen oder WIRTELPRIMPF_LOCAL_OUTDIR.")
+    errors.append("Kein Wirtelprimpf-Outputordner gefunden. Setze ihn in den Applet-Einstellungen oder über WIRTELPRIMPF_LOCAL_OUTDIR.")
     return None, "not-found", errors
 
 
@@ -1335,7 +1333,7 @@ def setup_plan(args: ScanArgs) -> Dict[str, Any]:
         "# Generator-Konfiguration prüfen:",
         "test -f ~/.config/wirtelprimpf/openai.env && sed -n '1,120p' ~/.config/wirtelprimpf/openai.env",
         "",
-        "# Erwartete Katzenbilder-Defaults:",
+        "# Erwartete Wirtelprimpf-Plattformdefaults:",
         "echo \"WIRTELPRIMPF_LOCAL_OUTDIR=$HOME/Hintergrundbilder\"",
         "echo \"WIRTELPRIMPF_WORKING_DIR=$HOME/Hintergrundbilder/working\"",
         "ls -la \"$HOME/Hintergrundbilder\" \"$HOME/Hintergrundbilder/working\" 2>/dev/null || true",

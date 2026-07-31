@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=82"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wirtelprimpf-generator"
+version = "1.0.0"
+description = "Generator, release publisher, archive provisioner, Pages factory and local admin for Wirtelprimpf"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "H234598" }]
+dependencies = [
+  "openai==2.36.0",
+  "Pillow==12.2.0"
+]
+
+[project.scripts]
+wirtelprimpf-generator = "Sourcecode.wirtelprimpf_generator:main"
+wirtelprimpf-platform = "wirtelprimpf_platform.cli:main"
+wirtelprimpf-admin = "wirtelprimpf_platform.cli:admin_main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["Sourcecode*", "wirtelprimpf_platform*"]
+
+[tool.setuptools.package-data]
+Sourcecode = ["*.md", "*.txt", "env.example", "systemd-user/*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"wirtelprimpf_platform/admin.py" = ["E501"] # Embedded, self-contained HTML/CSS/JS template.

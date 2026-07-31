@@ -1,10 +1,10 @@
 # Wirtelprimfgenerator Story Menu
 
-Cinnamon-Applet für den Output von `H234598/Katzenbilder`: aktuelles Story-Bild, aktuelles Generated-/Classic-Bild, Full-Story-Dateien, Storyteile und TTS mit crash-sicherem Lese-State.
+Cinnamon-Applet für `H234598/Wirtelprimpf-generator`: aktuelles lokales Story-Bild, Generated-/Classic-Bild, Full-Story-Dateien, Storyteile, 50-Bände-Archivwarnung und TTS mit crash-sicherem Lese-State.
 
 ## Speed-of-Cinnamon-Abgleich
 
-Version `0.6.0` übernimmt die relevanten Produktmuster aus Speed of Cinnamon:
+Version `0.7.0` übernimmt die relevanten Produktmuster aus Speed of Cinnamon und den getrennten Generator-/Archivvertrag:
 
 - responsive Logo in den Cinnamon-Optionen über `SettingsLogo.py` und `assets/settings-*.png`;
 - Settings mit Seiten/Layout, About-Seite, TTS-Engine-Auswahl und Aktionsbuttons;
@@ -71,7 +71,7 @@ Während TTS läuft, zeigt das Panel `■`; ein Klick darauf stoppt das Vorlesen
 
 ## Dateierkennung
 
-Das Applet liest `~/.config/wirtelprimpf/openai.env` und nutzt die Katzenbilder-Defaults:
+Das Applet liest `~/.config/wirtelprimpf/openai.env` und nutzt die Wirtelprimpf-Plattformdefaults:
 
 ```text
 WIRTELPRIMPF_LOCAL_OUTDIR=$HOME/Hintergrundbilder
@@ -118,4 +118,4 @@ Pipes und Redirections absichtlich nicht direkt verwenden. Falls du wirklich ein
 
 ## GitHub-Layout
 
-Für ein Speed-of-Cinnamon-artiges Repo kann dieser Applet-Ordner unter `files/wirtelprimfgenerator@H234598/` eingecheckt werden. Die Optionen öffnen standardmäßig `https://github.com/H234598/Katzenbilder`.
+Der Applet-Ordner liegt im Generatorrepository unter `files/wirtelprimfgenerator@H234598/`. Die Optionen öffnen standardmäßig `https://github.com/H234598/Wirtelprimpf-generator`; Publikationsdaten stammen aus dem lokalen Output und dem jeweils aktiven `Wirtelprimpf-####`-Archiv.

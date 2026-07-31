@@ -1,0 +1,29 @@
+[Unit]
+Description=Loopback-only Wirtelprimpf atelier settings
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/wirtelprimpf-generator
+EnvironmentFile=-%h/.config/wirtelprimpf/openai.env
+ExecStart=%h/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-admin --settings %h/.config/wirtelprimpf/openai.env --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=%h/.config/wirtelprimpf
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=default.target

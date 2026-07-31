@@ -10,10 +10,11 @@ check:
 	$(PYTHON) -m py_compile files/$(UUID)/helper.py files/$(UUID)/SettingsLogo.py
 	node --check files/$(UUID)/applet.js
 	node tests/test_applet_runtime.js
-	$(PYTHON) tests/test_semver.py
-	$(PYTHON) tests/test_git_object_fallback.py
-	$(PYTHON) tests/test_helper_env.py
-	$(PYTHON) tests/test_settings_schema.py
+	$(PYTHON) -m unittest tests.test_semver
+	$(PYTHON) -m unittest tests.test_git_object_fallback
+	$(PYTHON) -m unittest tests.test_release_publication
+	$(PYTHON) -m unittest tests.test_helper_env
+	$(PYTHON) -m unittest tests.test_settings_schema
 	@test -f files/$(UUID)/assets/settings-header-logo.png
 	@test -f files/$(UUID)/assets/settings-footer-logo.png
 	@test -f files/$(UUID)/assets/settings-generator-atelier.png

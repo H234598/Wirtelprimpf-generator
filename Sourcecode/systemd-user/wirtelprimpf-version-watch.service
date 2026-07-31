@@ -6,10 +6,10 @@ StartLimitBurst=3
 
 [Service]
 Type=simple
-WorkingDirectory=%h/.local/share/wirtelprimpf/github/Katzenbilder
+WorkingDirectory=%h/.local/share/wirtelprimpf-generator
 ProtectHome=read-only
-ReadWritePaths=%h/.local/share/wirtelprimpf/github/Katzenbilder
-ExecStart=%h/.local/share/wirtelprimpf/github/Katzenbilder/Sourcecode/watch_minor_version.sh
+ReadWritePaths=%h/.local/share/wirtelprimpf-generator
+ExecStart=%h/.local/share/wirtelprimpf-generator/Sourcecode/watch_minor_version.sh
 Restart=on-failure
 RestartSec=10
 Environment=SLEEP_SECONDS=300
@@ -26,8 +26,8 @@ RestrictRealtime=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
-StandardError=append:%h/.local/share/wirtelprimpf/github/Katzenbilder/Sourcecode/watch_service.log
-StandardOutput=append:%h/.local/share/wirtelprimpf/github/Katzenbilder/Sourcecode/watch_service.log
+StandardError=append:%h/.local/share/wirtelprimpf-generator/Sourcecode/watch_service.log
+StandardOutput=append:%h/.local/share/wirtelprimpf-generator/Sourcecode/watch_service.log
 
 [Install]
 WantedBy=default.target

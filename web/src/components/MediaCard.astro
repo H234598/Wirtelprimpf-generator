@@ -1,0 +1,20 @@
+---
+import type { MediaItem } from "../lib/data.ts";
+
+interface Props { item: MediaItem; priority?: boolean; }
+const { item, priority = false } = Astro.props;
+const small = item.variants[0];
+const src = small?.url ?? item.original.url;
+const srcset = item.variants.map((variant) => `${variant.url} ${variant.actual_width}w`).join(", ");
+const label = item.kind === "story" ? "Storybild" : item.kind === "classic" ? "Atelierbild" : "Historisches Bild";
+---
+<article class="media-card" data-kind={item.kind}>
+  <a href={`/bilder/${item.asset_id}/`}>
+    <div class="media-frame" style={`--ratio:${item.width}/${item.height}`}>
+      <img src={src} srcset={srcset || undefined} sizes="(max-width: 720px) 92vw, (max-width: 1100px) 45vw, 30vw" width={small?.actual_width ?? item.width} height={small?.actual_height ?? item.height} alt={`${label} aus Wirtelprimpf`} loading={priority ? "eager" : "lazy"} fetchpriority={priority ? "high" : "auto"} decoding="async" />
+      <span class="kind-badge">{label}</span>
+    </div>
+    <h3>{item.source_path.replace(/\.[^.]+$/, "").replaceAll("_", " ")}</h3>
+    <p>Im Release <code>{item.release_tag}</code> hashgebunden archiviert.</p>
+  </a>
+</article>

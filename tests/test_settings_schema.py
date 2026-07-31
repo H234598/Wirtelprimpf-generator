@@ -152,6 +152,30 @@ class SettingsSchemaTests(unittest.TestCase):
             with self.subTest(needle=needle):
                 self.assertNotIn(needle, source)
 
+    def test_applet_uses_split_generator_identity_and_preserves_platform_settings(self):
+        schema_path = ROOT / "files" / "wirtelprimfgenerator@H234598" / "settings-schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        settings_source = SETTINGS_LOGO_PATH.read_text(encoding="utf-8")
+        helper_source = (SETTINGS_LOGO_PATH.parent / "helper.py").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            schema["github-url"]["default"],
+            "https://github.com/H234598/Wirtelprimpf-generator",
+        )
+        for source in (settings_source, helper_source):
+            self.assertNotIn("H234598/Katzenbilder", source)
+        for env_name in (
+            "WIRTELPRIMPF_MEDIA_MODE",
+            "WIRTELPRIMPF_PLATFORM_STATE",
+            "WIRTELPRIMPF_HUB_DISPATCH_STATE",
+            "WIRTELPRIMPF_GENERATOR_ROOT",
+            "WIRTELPRIMPF_ARCHIVE_ROOT",
+            "WIRTELPRIMPF_PLATFORM_CATALOG",
+            "CLOUDFLARE_API_TOKEN",
+        ):
+            with self.subTest(env_name=env_name):
+                self.assertIn(env_name, settings_source)
+
 
 if __name__ == "__main__":
     unittest.main()

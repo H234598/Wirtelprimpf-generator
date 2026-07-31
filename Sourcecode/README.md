@@ -4,10 +4,11 @@ This folder contains the portable source for the Wirtelprimpf image generator.
 It is deliberately free of local machine paths, GitHub account names, and
 secrets.
 
-The generator creates one Wirtelprimpf-style cat image with the OpenAI Images
-API, writes the PNG and prompt text file to a local output directory, and can
-optionally copy both files into a Git repository folder, commit every patch,
-and push only when the internal publish boundary is reached.
+The generator creates Wirtelprimpf images and continuing story parts with the
+OpenAI API. Local PNGs remain in the private output directory. In the production
+`release` mode, originals and two WebP derivatives are published as immutable
+GitHub Release assets, publicly downloaded, SHA-256 verified and only then
+referenced by the small manifest committed to the active publication archive.
 
 ## Files
 
@@ -37,10 +38,10 @@ api.model.images.request
 ## Install Example
 
 ```bash
-python3 -m venv ~/.local/share/wirtelprimpf-venv
-~/.local/share/wirtelprimpf-venv/bin/pip install -r Sourcecode/requirements.txt
+git clone https://github.com/H234598/Wirtelprimpf-generator ~/.local/share/wirtelprimpf-generator
+python3 -m venv ~/.local/share/wirtelprimpf-generator/.venv
+~/.local/share/wirtelprimpf-generator/.venv/bin/pip install -e ~/.local/share/wirtelprimpf-generator
 
-install -Dm0755 Sourcecode/wirtelprimpf_generator.py ~/.local/bin/wirtelprimpf_generator.py
 install -Dm0755 Sourcecode/wirtelprimpf-set-openai-key ~/.local/bin/wirtelprimpf-set-openai-key
 install -Dm0644 Sourcecode/wirtelprimpf_prompt_config.md ~/.config/wirtelprimpf/prompt_config.md
 install -Dm0644 Sourcecode/wirtelprimpf_story_prompt_config.md ~/.config/wirtelprimpf/story_prompt_config.md
@@ -68,18 +69,20 @@ with:
 For Git publishing, set these values in the env file:
 
 ```bash
-WIRTELPRIMPF_REPO_PATH=/path/to/local/git/worktree
-WIRTELPRIMPF_REPO_SLUG=OWNER/REPOSITORY
+WIRTELPRIMPF_REPO_PATH=$HOME/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
+WIRTELPRIMPF_REPO_SLUG=H234598/Wirtelprimpf-0001
 WIRTELPRIMPF_REPO_SUBDIR=Wirtelprimpf
 WIRTELPRIMPF_REPO_BRANCH=main
+WIRTELPRIMPF_MEDIA_MODE=release
+WIRTELPRIMPF_MEDIA_STAGING=$HOME/.local/state/wirtelprimpf/media-staging
+WIRTELPRIMPF_PUBLISH_IMMEDIATELY=true
 WIRTELPRIMPF_GIT_AUTHOR_NAME="Wirtelprimpf Bot"
 WIRTELPRIMPF_GIT_AUTHOR_EMAIL=wirtelprimpf@example.invalid
 # Versioning follows SemVer:
 # - VERSION in wirtelprimpf_generator.py is the SemVer base.
 # - every committed generated image increments the patch component
 # - major/minor changes are made deliberately by changing VERSION
-# - patch commits below the internal publish boundary stay local
-# - the generator attempts a remote push every 100 generated-image commits
+# - verified release publications are pushed immediately
 ```
 
 If `WIRTELPRIMPF_REPO_PATH` is unset, the generator creates local files only
@@ -89,15 +92,18 @@ If `WIRTELPRIMPF_REPO_PATH` points to a non-repository directory, set
 `WIRTELPRIMPF_REPO_SLUG` is optional when `WIRTELPRIMPF_REPO_PATH` already
 contains a valid local Git repository.
 
-Git-Publish policy:
+Publication policy:
 
 - The runtime version is derived from the SemVer `VERSION` constant plus the
   generated-image patch offset in the publish-state file.
 - When `VERSION` changes, the generator treats that value as the new SemVer
   base and starts counting generated-image patches from that point.
-- Patch commits below the internal publish boundary are recorded locally only.
-- Every 100 generated-image commits, the generator attempts the remote push.
-- After 10 successful publish pushes, it emits a release-cadence notice.
+- Every new image is uploaded as original, 640-WebP, 1280-WebP and immutable
+  record JSON; all four public downloads must match their local SHA-256 values.
+- Git receives prompt, story documents and `media-manifest.json`, never the PNG.
+- Each verified publication commit is pushed immediately.
+- Exactly 50 completed story volumes belong to one archive. Boundary completion
+  blocks further generation until the next sequential archive is fully ready.
 
 Runtime state is stored in:
 
@@ -370,7 +376,7 @@ The JSON form can be used for automation and is emitted as one compact object pe
     "git_available": true,
     "gh_available": false,
     "openai_key_present": true,
-    "semver_base": "0.6.0",
+    "semver_base": "1.0.0",
     "semver_base_patch_count": 0,
     "semver_patch_offset": 65,
     "publish_push_count": 0,

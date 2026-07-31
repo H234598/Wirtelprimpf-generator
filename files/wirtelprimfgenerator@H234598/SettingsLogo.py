@@ -34,7 +34,7 @@ def _choice_asset(choices, value, default_key):
 
 
 class _ResponsiveLogo(SettingsWidget):
-    github_url = "https://github.com/H234598/Katzenbilder"
+    github_url = "https://github.com/H234598/Wirtelprimpf-generator"
     asset_name = ""
     top_margin = 10
     bottom_margin = 10
@@ -57,7 +57,7 @@ class _ResponsiveLogo(SettingsWidget):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         box.set_halign(Gtk.Align.FILL)
         box.set_hexpand(True)
-        box.set_tooltip_text("Open the Katzenbilder GitHub repository")
+        box.set_tooltip_text("Wirtelprimpf-generator auf GitHub öffnen")
 
         try:
             self._source_pixbuf = self._load_source_pixbuf()
@@ -77,7 +77,7 @@ class _ResponsiveLogo(SettingsWidget):
 
         event_box = Gtk.EventBox()
         event_box.set_visible_window(False)
-        event_box.set_tooltip_text("Open the Katzenbilder GitHub repository")
+        event_box.set_tooltip_text("Wirtelprimpf-generator auf GitHub öffnen")
         event_box.connect("button-press-event", self._open_project_repository)
         event_box.add(box)
 
@@ -202,7 +202,7 @@ class AboutImage(_ConfigurableImage):
 
 
 class AboutWirtelprimpf(SettingsWidget):
-    repo_url = "https://github.com/H234598/Katzenbilder"
+    repo_url = "https://github.com/H234598/Wirtelprimpf-generator"
 
     def __init__(self, info, key, settings):
         SettingsWidget.__init__(self)
@@ -266,7 +266,7 @@ class AboutWirtelprimpf(SettingsWidget):
         bullets.set_selectable(True)
         self.pack_start(bullets, False, True, 0)
 
-        link = Gtk.LinkButton.new_with_label(self.repo_url, "GitHub: H234598/Katzenbilder")
+        link = Gtk.LinkButton.new_with_label(self.repo_url, "GitHub: H234598/Wirtelprimpf-generator")
         link.set_halign(Gtk.Align.START)
         self.pack_start(link, False, True, 0)
 
@@ -723,12 +723,25 @@ class GeneratorConfigEditor(SettingsWidget):
 
     env_fields = (
         ("OPENAI_API_KEY", "OpenAI API Key", "secret", ()),
+        ("CLOUDFLARE_API_TOKEN", "Cloudflare API Token", "secret", ()),
         ("WIRTELPRIMPF_LOCAL_OUTDIR", "Lokaler Output", "entry", ()),
         ("WIRTELPRIMPF_WORKING_DIR", "Working-Verzeichnis", "entry", ()),
         ("WIRTELPRIMPF_REPO_PATH", "Git-Repo-Pfad", "entry", ()),
         ("WIRTELPRIMPF_REPO_SLUG", "GitHub Repo-Slug", "entry", ()),
         ("WIRTELPRIMPF_REPO_SUBDIR", "Repo-Unterordner", "entry", ()),
         ("WIRTELPRIMPF_REPO_BRANCH", "Repo-Branch", "entry", ()),
+        ("WIRTELPRIMPF_GITHUB_OWNER", "GitHub Eigentümer", "entry", ()),
+        ("WIRTELPRIMPF_MEDIA_MODE", "Medienpublikation", "combo", ("release", "git")),
+        ("WIRTELPRIMPF_MEDIA_STAGING", "Release-Staging", "entry", ()),
+        ("WIRTELPRIMPF_PUBLISH_IMMEDIATELY", "Sofort publizieren", "combo", ("true", "false")),
+        ("WIRTELPRIMPF_PLATFORM_STATE", "Plattformstatus", "entry", ()),
+        ("WIRTELPRIMPF_HUB_DISPATCH_STATE", "Hub-Outbox", "entry", ()),
+        ("WIRTELPRIMPF_GENERATOR_ROOT", "Generator-Checkout", "entry", ()),
+        ("WIRTELPRIMPF_ARCHIVE_ROOT", "Archivwurzel", "entry", ()),
+        ("WIRTELPRIMPF_PLATFORM_CATALOG", "Publikationskatalog", "entry", ()),
+        ("WIRTELPRIMPF_SETTINGS_PATH", "Private Einstellungen", "entry", ()),
+        ("WIRTELPRIMPF_CLOUDFLARE_ZONE", "Cloudflare-Zone", "entry", ()),
+        ("WIRTELPRIMPF_CLOUDFLARE_ZONE_ID", "Cloudflare-Zonen-ID", "entry", ()),
         ("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Git Autor Name", "entry", ()),
         ("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "Git Autor Mail", "entry", ()),
         ("WIRTELPRIMPF_IMAGE_MODEL", "Bildmodell", "combo", IMAGE_MODEL_CHOICES),
@@ -747,8 +760,21 @@ class GeneratorConfigEditor(SettingsWidget):
     )
 
     defaults = {
-        "WIRTELPRIMPF_REPO_SLUG": "H234598/Katzenbilder",
+        "WIRTELPRIMPF_REPO_PATH": "~/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001",
+        "WIRTELPRIMPF_REPO_SLUG": "H234598/Wirtelprimpf-0001",
+        "WIRTELPRIMPF_REPO_SUBDIR": "Wirtelprimpf",
         "WIRTELPRIMPF_REPO_BRANCH": "main",
+        "WIRTELPRIMPF_GITHUB_OWNER": "H234598",
+        "WIRTELPRIMPF_MEDIA_MODE": "release",
+        "WIRTELPRIMPF_MEDIA_STAGING": "~/.local/state/wirtelprimpf/media-staging",
+        "WIRTELPRIMPF_PUBLISH_IMMEDIATELY": "true",
+        "WIRTELPRIMPF_PLATFORM_STATE": "~/.local/state/wirtelprimpf/platform-state.json",
+        "WIRTELPRIMPF_HUB_DISPATCH_STATE": "~/.local/state/wirtelprimpf/hub-dispatch.json",
+        "WIRTELPRIMPF_GENERATOR_ROOT": "~/.local/share/wirtelprimpf-generator",
+        "WIRTELPRIMPF_ARCHIVE_ROOT": "~/.local/share/wirtelprimpf/archives",
+        "WIRTELPRIMPF_PLATFORM_CATALOG": "~/.local/share/wirtelprimpf-generator/data/publication-catalog.json",
+        "WIRTELPRIMPF_SETTINGS_PATH": "~/.config/wirtelprimpf/openai.env",
+        "WIRTELPRIMPF_CLOUDFLARE_ZONE": "telacore.org",
         "WIRTELPRIMPF_IMAGE_MODEL": "gpt-image-2",
         "WIRTELPRIMPF_IMAGE_SIZE": "1536x1024",
         "WIRTELPRIMPF_FLEX_PROCESSING": "on",
