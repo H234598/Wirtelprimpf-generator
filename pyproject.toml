@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 authors = [{ name = "H234598" }]
 dependencies = [
   "openai==2.36.0",
-  "Pillow==12.2.0"
+  "Pillow==12.3.0"
 ]
 
 [project.scripts]
