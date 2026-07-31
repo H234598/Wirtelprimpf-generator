@@ -6,8 +6,9 @@ tags:
   - tdd
   - cinnamon
   - systemd
+  - github-actions
 type: implementation-plan
-status: implemented-awaiting-remote-ci
+status: implemented
 date: 2026-07-31
 aliases:
   - Story-Vorgaben Implementierungsplan
@@ -35,16 +36,14 @@ title: Story-Vorgaben Implementation Plan
 - Editierbar sind ausschließlich effektiv laufender Band, nächster Band und übernächster Band.
 - Alle Bände kleiner als der effektiv laufende Band sind read-only.
 - Ein veraltetes Einstellungsfenster darf keinen inzwischen vergangenen Band speichern.
-- Bestehende lokale Promptregeln außerhalb der verwalteten Sektion bleiben erhalten.
 - Die vollständige mehrzeilige Vorgabe muss Storytext und Bildprompt erreichen.
+- Bestehende lokale Promptregeln außerhalb der verwalteten Sektion bleiben erhalten.
 - Keine neue externe Laufzeitabhängigkeit.
 - Keine Änderung an `Sourcecode/wirtelprimpf_generator.py`.
 - Generator und Cinnamon-Applet dürfen unabhängig installiert sein; systemd darf nicht von einem internen Applet-Pfad abhängen.
 - Alle Berichte, Spezifikationen und Pläne bleiben vollständiges Obsidian-Markdown mit Frontmatter.
 
----
-
-## Dateistruktur
+## Betroffene Dateien
 
 - Create: `files/wirtelprimfgenerator@H234598/story_directives_core.py` — Datenmodell, sichere Persistenz, State-Auflösung, Promptprojektion und CLI.
 - Create: `files/wirtelprimfgenerator@H234598/StoryDirectives.py` — dynamisches GTK-Widget.
@@ -52,11 +51,11 @@ title: Story-Vorgaben Implementation Plan
 - Modify: `files/wirtelprimfgenerator@H234598/settings-schema.json` — neue Seite und Custom-Widget.
 - Modify: `Sourcecode/systemd-user/wirtelprimpf.service` — blockierendes `ExecStartPre` über den gemeinsamen CLI-Pfad.
 - Modify: `scripts/install-local.sh` — Applet und gemeinsamen CLI-Helfer installieren.
-- Modify: `scripts/uninstall-local.sh` — gemeinsame CLI bewusst für eine mögliche Generatorinstallation erhalten.
+- Modify: `scripts/uninstall-local.sh` — gemeinsame CLI für eine mögliche Generatorinstallation erhalten.
 - Modify: `Makefile` — Kompilierung und Testlauf ergänzen.
 - Modify: `Sourcecode/env.example` — optionalen Registerpfad dokumentieren.
 - Create: `Sourcecode/STORY_DIRECTIVES.md` — Datenmodell, UI, Installation, systemd- und manuellen Ablauf dokumentieren.
-- Create: `.github/workflows/wirtelprimpf-check.yml` — Repository-Check auf Push, Pull Request und manuelle Ausführung.
+- Modify: `.github/workflows/check.yml` — vorhandenes Gate auf Sparse Checkout, Python 3.12, reproduzierbare Abhängigkeitsinstallation und `make check` umstellen.
 - Create: `docs/superpowers/specs/2026-07-31-story-directives-design.md` — technische Spezifikation.
 - Create: `docs/superpowers/plans/2026-07-31-story-directives-implementation.md` — dieser gepflegte Plan.
 
@@ -123,20 +122,19 @@ title: Story-Vorgaben Implementation Plan
 - [x] **Step 6: Manuelle Generatorinstallation in der technischen Dokumentation vollständig beschreiben.**
 - [x] **Step 7: GREEN der Installationsintegration verifizieren.**
 
-## Task 5: Repository-Gates, Dokumentation und Pull Request
+## Task 5: Repository-Gate, Dokumentation und Pull Request
 
 - [x] **Step 1: `Makefile` um Kompilierung von Kern/UI und Ausführung der neuen Tests ergänzen.**
-- [x] **Step 2: GitHub-Actions-Workflow mit Sparse Checkout, Python 3.12, Laufzeitabhängigkeiten und `make check` erstellen.**
-- [x] **Step 3: `env.example`, technische Dokumentation, Designspezifikation und diesen Plan pflegen.**
-- [x] **Step 4: Branch-Diff auf Scope, Secrets und unbeabsichtigte Binärdateien prüfen.**
-- [x] **Step 5: Draft-PR #2 gegen `main` öffnen.**
-- [x] **Step 6: Review-Diff auf Integrationsfehler untersuchen und beide gefundenen Fehler testgetrieben beheben.**
+- [x] **Step 2: Bestehenden `check`-Workflow reproduzierbar machen.** Vollständiger Checkout des bildlastigen Repositories wurde durch Sparse Checkout ersetzt; Python 3.12, `Sourcecode/requirements.txt`, Read-only-Berechtigungen, Timeout und Concurrency wurden ergänzt.
+- [x] **Step 3: Einen zunächst zusätzlich angelegten doppelten Workflow nach erfolgreicher Evidenz wieder entfernen.** Es bleibt genau ein maßgebliches Repository-Gate.
+- [x] **Step 4: `env.example`, technische Dokumentation, Designspezifikation und diesen Plan pflegen.**
+- [x] **Step 5: Branch-Diff auf Scope, Secrets und unbeabsichtigte Binärdateien prüfen.**
+- [x] **Step 6: Draft-PR #2 gegen `main` öffnen und den PR-Text mit Architektur, Korrekturen und Evidenz pflegen.**
+- [x] **Step 7: Review-Diff auf Integrationsfehler untersuchen und beide gefundenen Fehler testgetrieben beheben.**
 
 ## Task 6: Abschlussverifikation
 
 - [x] **Step 1: Featuretests frisch ausführen.**
-
-Run:
 
 ```bash
 python3 tests/test_story_directives.py -v
@@ -145,8 +143,6 @@ python3 tests/test_story_directives.py -v
 Ergebnis: 16 Tests, 16 bestanden, 0 Fehler.
 
 - [x] **Step 2: Python-Syntax frisch prüfen.**
-
-Run:
 
 ```bash
 python3 -m py_compile \
@@ -158,8 +154,6 @@ Ergebnis: Exit 0.
 
 - [x] **Step 3: Cinnamon-Settings-JSON prüfen.**
 
-Run:
-
 ```bash
 python3 -m json.tool \
   files/wirtelprimfgenerator@H234598/settings-schema.json >/dev/null
@@ -168,8 +162,6 @@ python3 -m json.tool \
 Ergebnis: Exit 0.
 
 - [x] **Step 4: CLI-Smoke-Test ausführen.**
-
-Run:
 
 ```bash
 python3 files/wirtelprimfgenerator@H234598/story_directives_core.py --help
@@ -181,13 +173,21 @@ Ergebnis: Exit 0; `apply` und `status` sichtbar.
 
 Ergebnis: keine API-Schlüssel, Tokens oder Zugangsdaten gefunden.
 
-- [ ] **Step 6: Vollständiges `make check` im GitHub-Actions-Checkout bestätigen.**
+- [x] **Step 6: Vollständiges `make check` auf dem synthetischen PR-Merge-Checkout ausführen.**
 
-Der Workflow ist implementiert; der endgültige Remote-Lauf muss am aktuellen PR-Head noch als Erfolg erscheinen.
+GitHub Actions installierte die realen Laufzeitabhängigkeiten und führte unter Python 3.12 alle bestehenden Prüfungen sowie 16/16 Story-Vorgaben-Tests erfolgreich aus.
 
-- [ ] **Step 7: Externe Quality-Gates am aktuellen PR-Head bestätigen.**
+- [x] **Step 7: Konsolidierten bestehenden `check`-Workflow am aktuellen Featurestand bestätigen.**
 
-CodeRabbit und Qlty werden nach jedem neuen Commit erneut ausgewertet. Der PR bleibt bis zur endgültigen grünen Evidenz Draft.
+Der Workflow lief nach der Sparse-Checkout-Konsolidierung erfolgreich durch; der zuvor hängende vollständige Checkout wurde beseitigt.
+
+- [x] **Step 8: CodeRabbit-Review ohne offene Threads bestätigen.**
+
+CodeRabbit meldete Erfolg; die GitHub-Reviewthread-Liste war leer.
+
+- [ ] **Step 9: Qlty am endgültigen Dokumentations-Head bestätigen.**
+
+Qlty wird nach jedem neuen Commit erneut ausgeführt. Der PR bleibt bis zur finalen externen Gate-Evidenz Draft; die Implementierung selbst ist abgeschlossen und vollständig durch Repository-Tests abgedeckt.
 
 ## Umsetzungsevidenz
 
@@ -196,6 +196,7 @@ CodeRabbit und Qlty werden nach jedem neuen Commit erneut ausgewertet. Der PR bl
 - Installationsregression: zuerst rot, danach gemeinsamer CLI-Pfad und systemd-Entkopplung grün.
 - Parserregression: zuerst rot, weil die Vorgabe nur den Bildprompt erreichte; danach echter Generatorparser für Storytext und Bildprompt grün.
 - Read-only-Rennen: zuerst rot, danach kernseitiger Dreierfenster-Guard grün.
-- Aktueller lokaler Stand: 16/16 Featuretests grün.
+- Aktueller Teststand: 16/16 Featuretests grün; vollständiges Repository-`make check` grün.
 - Python-Syntax, JSON-Syntax, CLI-Smoke-Test und Secret-Scan grün.
-- Draft-PR #2 ist geöffnet und bleibt bis zur abschließenden Remote-CI-Evidenz im Draftstatus.
+- Der bestehende GitHub-Actions-Workflow ist sparse, reproduzierbar und grün.
+- Draft-PR #2 ist geöffnet; `main` blieb unverändert.
