@@ -226,6 +226,7 @@ WirtelApplet.prototype = {
         let operation = {
             process: proc,
             cancellable: new Gio.Cancellable(),
+            cancelled: false,
             finished: false
         };
         this._helperProcesses.add(operation);
@@ -238,12 +239,18 @@ WirtelApplet.prototype = {
         this._helperProcesses.delete(operation);
     },
 
-    _cancelHelperOperation: function(operation) {
-        if (!operation || operation.finished) return;
+    _cancelHelperIo: function(operation) {
+        if (!operation || operation.finished || operation.cancelled) return;
+        operation.cancelled = true;
         if (operation.cancellable) {
             try { operation.cancellable.cancel(); }
             catch (e1) {}
         }
+    },
+
+    _cancelHelperOperation: function(operation) {
+        if (!operation || operation.finished) return;
+        this._cancelHelperIo(operation);
         if (operation.process) {
             try { operation.process.force_exit(); }
             catch (e2) {}
@@ -651,13 +658,9 @@ WirtelApplet.prototype = {
         this._ttsGeneration += 1;
         if (this._ttsProcess !== null) {
             let operation = this._helperOperationForProcess(this._ttsProcess);
-            if (operation && operation.cancellable) {
-                try { operation.cancellable.cancel(); }
-                catch (e0) {}
-            }
+            this._cancelHelperIo(operation);
             try { this._ttsProcess.send_signal(15); }
             catch (e1) { try { this._ttsProcess.force_exit(); } catch (e2) {} }
-            this._finishHelperOperation(operation);
         }
         this._ttsProcess = null;
         this._setReading(false);

@@ -91,6 +91,7 @@ class FakeProcess {
     constructor(args) {
         this.args = args;
         this.forceExitCount = 0;
+        this.signalCount = 0;
         this.callback = null;
         pendingProcesses.push(this);
     }
@@ -102,7 +103,7 @@ class FakeProcess {
     communicate_utf8_finish(result) { return [true, result.stdout, result.stderr]; }
     get_exit_status() { return this.status || 0; }
     force_exit() { this.forceExitCount += 1; }
-    send_signal() { this.forceExitCount += 1; }
+    send_signal() { this.signalCount += 1; }
     complete(status, stdout, stderr = "") {
         this.status = status;
         this.callback(this, { stdout, stderr });
@@ -322,6 +323,15 @@ function testLateCallbacksAndTimerlessStop() {
     assert.equal(addedTimers, 0, "TTS stop does not create a delayed wait timer");
     assert.equal(stopApplet._ttsWaitId, 0, "TTS wait timer remains cleared");
     assert.equal(refreshes, 1, "TTS stop refreshes after the stop helper completes");
+    assert.equal(tts.signalCount, 1, "TTS stop requests graceful process termination once");
+    assert.equal(stopApplet._helperProcesses.size, 1, "stopping TTS remains teardown-owned until its callback finishes");
+    const operation = Array.from(stopApplet._helperProcesses)[0];
+    assert.equal(operation.cancellable.cancelCount, 1, "TTS stop cancels pending pipe I/O once");
+
+    stopApplet.on_applet_removed_from_panel();
+    assert.equal(tts.forceExitCount, 1, "teardown force-stops TTS that has not completed after SIGTERM");
+    assert.equal(operation.cancellable.cancelCount, 1, "teardown does not cancel the same I/O twice");
+    assert.equal(stopApplet._helperProcesses.size, 0);
 }
 
 function testRemovedAppletCannotStartDetachedActions() {
