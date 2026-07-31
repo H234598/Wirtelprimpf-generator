@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -33,6 +33,7 @@ SUPPORTED_SUFFIXES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image
 TIMESTAMP_IMAGE_RE = re.compile(r"^wirtelprimpf_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(?:-\d{6})?", re.IGNORECASE)
 SAFE_ASSET_RE = re.compile(r"[^A-Za-z0-9._-]+")
 PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0, 30.0)
+DEFAULT_PUBLIC_DOWNLOAD_TIMEOUT_SECONDS = 120.0
 
 
 class MediaError(RuntimeError):
@@ -608,11 +609,21 @@ def publish_release_plan(plan: PreparedReleasePlan, *, backend: ReleaseBackend) 
 class GitHubReleaseBackend:
     """Release backend using authenticated ``gh`` writes and public HTTP reads."""
 
-    def __init__(self, owner: str, repository: str, *, timeout_seconds: int = 1_800) -> None:
+    def __init__(
+        self,
+        owner: str,
+        repository: str,
+        *,
+        timeout_seconds: int = 1_800,
+        public_download_timeout_seconds: float = DEFAULT_PUBLIC_DOWNLOAD_TIMEOUT_SECONDS,
+    ) -> None:
         self.owner = _validate_repository_component(owner, label="owner")
         self.repository = _validate_repository_component(repository, label="repository")
         self.slug = f"{self.owner}/{self.repository}"
         self.timeout_seconds = timeout_seconds
+        if public_download_timeout_seconds <= 0:
+            raise ValueError("public_download_timeout_seconds must be positive")
+        self.public_download_timeout_seconds = public_download_timeout_seconds
 
     def _run(self, command: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
         try:
@@ -670,13 +681,22 @@ class GitHubReleaseBackend:
         request = Request(url, headers={"User-Agent": "Wirtelprimpf-generator/1.0"})
         for attempt in range(len(PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS) + 1):
             try:
-                with urlopen(request, timeout=self.timeout_seconds) as response, destination.open("xb") as output:
+                with (
+                    urlopen(request, timeout=self.public_download_timeout_seconds) as response,
+                    destination.open("xb") as output,
+                ):
                     shutil.copyfileobj(response, output, length=1024 * 1024)
                 return
             except HTTPError as exc:
                 destination.unlink(missing_ok=True)
                 exc.close()
                 if exc.code == 404 and attempt < len(PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS):
+                    time.sleep(PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS[attempt])
+                    continue
+                raise MediaError(f"cannot download public asset {tag}/{asset_name}: {exc}") from exc
+            except (TimeoutError, URLError) as exc:
+                destination.unlink(missing_ok=True)
+                if attempt < len(PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS):
                     time.sleep(PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS[attempt])
                     continue
                 raise MediaError(f"cannot download public asset {tag}/{asset_name}: {exc}") from exc

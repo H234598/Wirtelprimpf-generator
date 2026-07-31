@@ -203,6 +203,36 @@ class MediaReleaseTests(unittest.TestCase):
         self.assertEqual(attempts, 2)
         self.assertTrue(transient_error.fp.closed)
 
+    def test_github_backend_reconnects_after_a_stalled_public_read(self) -> None:
+        destination = self.root / "downloaded.webp"
+        observed_timeouts: list[float] = []
+
+        def timeout_then_visible(request, *, timeout):
+            del request
+            observed_timeouts.append(timeout)
+            if len(observed_timeouts) == 1:
+                raise TimeoutError("public connection stopped delivering bytes")
+            return io.BytesIO(b"public release asset")
+
+        backend = GitHubReleaseBackend(
+            "H234598",
+            "Wirtelprimpf-0001",
+            public_download_timeout_seconds=23.0,
+        )
+        failure = None
+        with (
+            patch("wirtelprimpf_platform.media.urlopen", side_effect=timeout_then_visible),
+            patch("wirtelprimpf_platform.media.PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS", (0.0,)),
+        ):
+            try:
+                backend.download_asset("archive-0001-media-0001", "asset.webp", destination)
+            except MediaError as exc:
+                failure = exc
+
+        self.assertIsNone(failure)
+        self.assertEqual(destination.read_bytes(), b"public release asset")
+        self.assertEqual(observed_timeouts, [23.0, 23.0])
+
     def test_modified_source_after_inventory_is_rejected_before_staging(self) -> None:
         inventory = build_media_inventory(self.source, archive_index=1)
         plan = build_release_plan(
