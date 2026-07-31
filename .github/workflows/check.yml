@@ -3,12 +3,22 @@ name: check
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wirtelprimpf-check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   applet:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout relevant repository paths
+        uses: actions/checkout@v6
         with:
           sparse-checkout: |
             .github
@@ -17,7 +27,17 @@ jobs:
             files
             scripts
             tests
-      - uses: actions/setup-python@v5
+            docs
+          sparse-checkout-cone-mode: true
+          lfs: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.x'
-      - run: make check
+          python-version: "3.12"
+
+      - name: Install runtime test dependencies
+        run: python -m pip install --disable-pip-version-check -r Sourcecode/requirements.txt
+
+      - name: Run repository checks
+        run: make check
