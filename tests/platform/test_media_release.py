@@ -166,6 +166,17 @@ class MediaReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(MediaError, "changed after inventory"):
             materialize_release_plan(plan, source_root=self.source, staging_root=self.root / "staging")
 
+    def test_working_image_symlink_is_ignored_without_weakening_source_symlink_rejection(self) -> None:
+        working = self.source / "working"
+        working.mkdir()
+        latest = working / "latest.png"
+        latest.symlink_to(self.source / "historisch-ohne-paarung.png")
+
+        inventory = build_media_inventory(self.source, archive_index=1)
+
+        self.assertEqual(len(inventory.records), 3)
+        self.assertEqual(inventory.ignored_working_paths, ("working/latest.png",))
+
     def test_source_symlink_is_rejected(self) -> None:
         if not hasattr(Path, "symlink_to"):
             self.skipTest("symlinks unavailable")

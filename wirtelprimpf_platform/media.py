@@ -200,14 +200,15 @@ def build_media_inventory(source_root: Path, *, archive_index: int) -> MediaInve
     for candidate in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix().casefold()):
         relative = candidate.relative_to(root)
         relative_text = relative.as_posix()
+        if relative.parts and relative.parts[0].casefold() == "working":
+            if candidate.suffix.lower() in SUPPORTED_SUFFIXES:
+                ignored.append(relative_text)
+            continue
         if candidate.is_symlink():
             if candidate.suffix.lower() in SUPPORTED_SUFFIXES:
                 raise MediaError(f"media source must not be a symlink: {relative_text}")
             continue
         if not candidate.is_file() or candidate.suffix.lower() not in SUPPORTED_SUFFIXES:
-            continue
-        if relative.parts and relative.parts[0].casefold() == "working":
-            ignored.append(relative_text)
             continue
         folded = relative_text.casefold()
         previous = casefold_paths.get(folded)
