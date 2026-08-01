@@ -5,11 +5,12 @@ import test from "node:test";
 
 import {
   assertReleaseAssetUrl,
+  groupStoriesByBook,
   parseStoryDocument,
   renderSafeMarkdown,
   sortStoryPartsNewestFirst,
 } from "../src/lib/content.ts";
-import { loadStories } from "../src/lib/data.ts";
+import { archiveBookRange, loadCatalog, loadStories } from "../src/lib/data.ts";
 
 
 function relativeLuminance(hex: string): number {
@@ -43,6 +44,8 @@ Zweiter Teil.
 `, "Wirtelprimpf_Story_II.md", 2);
 
   assert.equal(story.title, "Die funkelnde Möhre");
+  assert.equal(story.book, 1);
+  assert.equal(story.storyInBook, 2);
   assert.deepEqual(story.parts.map((part) => part.timestamp), [
     "2026-07-01 10:00:00",
     "2026-07-01 12:00:00",
@@ -52,6 +55,65 @@ Zweiter Teil.
     "2026-07-01 10:00:00",
   ]);
   assert.match(story.parts[0]?.id ?? "", /^band-0002-teil-[a-f0-9]{12}$/);
+});
+
+
+test("ten complete stories form a book while global story routes stay stable", () => {
+  const storyTen = parseStoryDocument("# Zehn\n", "Wirtelprimpf_Story_X.md", 10);
+  const storyEleven = parseStoryDocument("# Elf\n", "Wirtelprimpf_Story_XI.md", 11);
+  const stories = Array.from({ length: 20 }, (_, index) => {
+    const volume = index + 1;
+    return parseStoryDocument(`# Story ${volume}\n`, `story-${volume}.md`, volume);
+  });
+
+  const books = groupStoriesByBook(stories.reverse());
+
+  assert.deepEqual(books.map((book) => ({
+    number: book.number,
+    storyStart: book.storyStart,
+    storyEnd: book.storyEnd,
+    stories: book.stories.map((story) => story.volume),
+  })), [
+    { number: 1, storyStart: 1, storyEnd: 10, stories: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
+    { number: 2, storyStart: 11, storyEnd: 20, stories: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20] },
+  ]);
+  assert.equal(storyTen.book, 1);
+  assert.equal(storyTen.storyInBook, 10);
+  assert.equal(storyEleven.book, 2);
+  assert.equal(storyEleven.storyInBook, 1);
+});
+
+
+test("catalog volume bounds must match the declared archive index", () => {
+  const root = mkdtempSync(join(process.cwd(), ".test-catalog-bounds-"));
+  try {
+    writeFileSync(join(root, "publication-catalog.json"), JSON.stringify({
+      schema_version: "1.0.0",
+      archives: [{
+        archive_index: 1,
+        repository: "Wirtelprimpf-0001",
+        github_url: "https://github.com/H234598/Wirtelprimpf-0001",
+        pages_url: "https://wirtelprimpf-0001.telacore.org",
+        volume_start: 51,
+        volume_end: 100,
+        verified: true,
+      }],
+    }));
+
+    assert.throws(() => loadCatalog(root), /catalog volume start mismatch/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("each fifty-story archive exposes exactly five global books", () => {
+  assert.deepEqual(archiveBookRange(1), { bookStart: 1, bookEnd: 5 });
+  assert.deepEqual(archiveBookRange(2), { bookStart: 6, bookEnd: 10 });
+  assert.deepEqual(archiveBookRange(3), { bookStart: 11, bookEnd: 15 });
+  for (const value of [0, -1, 1.5, Number.NaN]) {
+    assert.throws(() => archiveBookRange(value), /archive index/);
+  }
 });
 
 

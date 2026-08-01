@@ -4,6 +4,7 @@
     "pages": [
       "main-page",
       "generator-page",
+      "story-directives-page",
       "about-page"
     ],
     "main-page": {
@@ -41,6 +42,20 @@
       "title": "Generator- und systemd-Einstellungen",
       "keys": [
         "generator-config-editor"
+      ]
+    },
+    "story-directives-page": {
+      "type": "page",
+      "title": "Story-Vorgaben",
+      "sections": [
+        "story-directives-section"
+      ]
+    },
+    "story-directives-section": {
+      "type": "section",
+      "title": "Laufende, kommende und vergangene Storys",
+      "keys": [
+        "story-directives-editor"
       ]
     },
     "about-page": {
@@ -172,6 +187,13 @@
     "file": "SettingsLogo.py",
     "widget": "AboutImage",
     "description": "Über-Bildchen",
+    "default": ""
+  },
+  "story-directives-editor": {
+    "type": "custom",
+    "file": "StoryDirectives.py",
+    "widget": "StoryDirectivesEditor",
+    "description": "Vorgaben für die laufende und die nächsten zwei Storys; vergangene Storys sind nur lesbar.",
     "default": ""
   },
   "panel-icon-choice": {

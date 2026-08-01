@@ -514,11 +514,11 @@ WirtelApplet.prototype = {
         }
         this._setItemsVisible([this._storyEmptyItem], values.length === 0);
         this._storyOverflowItem.label.text = omittedCount > 0
-            ? (omittedCount + _(" weitere vollständige Story-Bände nicht angezeigt"))
+            ? (omittedCount + _(" weitere vollständige Storys nicht angezeigt"))
             : "";
         this._setItemsVisible([this._storyOverflowItem], omittedCount > 0);
         this._rotationWarningItem.label.text = normalizedTotal >= FULL_STORY_LIMIT
-            ? (_("Archivgrenze erreicht: 50 vollständige Story-Bände · Repositorywechsel erforderlich"))
+            ? (_("Archivgrenze erreicht: 5 Bücher · 50 vollständige Storys · Repositorywechsel erforderlich"))
             : "";
         this._setItemsVisible([this._rotationWarningItem], normalizedTotal >= FULL_STORY_LIMIT);
     },

@@ -11,7 +11,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from .naming import ARCHIVE_CAPACITY, archive_domain, archive_name
+from .naming import (
+    ARCHIVE_CAPACITY,
+    BOOKS_PER_ARCHIVE,
+    STORIES_PER_BOOK,
+    archive_domain,
+    archive_name,
+    book_target_for_story,
+)
 
 STATE_SCHEMA_VERSION = "1.0.0"
 
@@ -97,7 +104,7 @@ class PlatformState:
 def complete_volume(state: PlatformState, volume: int, *, transaction_id: str) -> PlatformState:
     """Record exactly the expected full-volume completion.
 
-    Completing a multiple of 50 stages the next repository transaction and
+    Completing each fifth ten-story book (50 stories) stages the next repository transaction and
     blocks generation until ``finish_rotation`` performs the verified cutover.
     """
     if state.rotation is not None:
@@ -150,6 +157,20 @@ def state_to_dict(state: PlatformState) -> dict[str, Any]:
     rotation = payload.get("rotation")
     if isinstance(rotation, dict) and isinstance(rotation.get("phase"), RotationPhase):
         rotation["phase"] = rotation["phase"].value
+    return payload
+
+
+def status_to_dict(state: PlatformState) -> dict[str, Any]:
+    """Return private operational status plus derived, non-persisted book progress."""
+    payload = state_to_dict(state)
+    current = book_target_for_story(state.current_volume)
+    payload["book"] = {
+        "books_per_archive": BOOKS_PER_ARCHIVE,
+        "completed_books": state.completed_volumes // STORIES_PER_BOOK,
+        "current_book": current.global_book,
+        "story_in_book": current.story_in_book,
+        "stories_per_book": STORIES_PER_BOOK,
+    }
     return payload
 
 

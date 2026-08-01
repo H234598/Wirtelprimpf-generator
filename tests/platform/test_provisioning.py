@@ -132,6 +132,8 @@ class RotationOrchestratorTests(unittest.TestCase):
         self.assertTrue(entry.verified)
         self.assertEqual(entry.volume_start, 51)
         self.assertEqual(entry.volume_end, 100)
+        self.assertEqual(entry.book_start, 6)
+        self.assertEqual(entry.book_end, 10)
         self.assertEqual(catalog.active_archive_index, 2)
 
     def test_interruption_resumes_after_last_persisted_phase_without_recreating_remote(self) -> None:

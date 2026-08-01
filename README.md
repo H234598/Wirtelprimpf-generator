@@ -7,11 +7,12 @@ Dieses Repository enthält ausschließlich ausführbaren Code, Konfigurationstem
 Hub-Builddaten und die zentrale GitHub-Pages-Seite. Die eigentlichen Publikationen leben getrennt in
 fortlaufenden Archiven:
 
-- `Wirtelprimpf-0001` für die vollständigen Story-Bände 1 bis 50;
-- `Wirtelprimpf-0002` für die Bände 51 bis 100;
+- `Wirtelprimpf-0001` für die vollständigen Storys 1 bis 50 beziehungsweise Bücher 1 bis 5;
+- `Wirtelprimpf-0002` für Storys 51 bis 100 beziehungsweise Bücher 6 bis 10;
 - danach `Wirtelprimpf-0003`, `Wirtelprimpf-0004`, … nach demselben Vertrag.
 
-Ein späteres Archiv wird nicht vorab angelegt. Der Abschluss jedes 50. vollständigen Story-Bands gibt eine
+Je zehn vollständig abgeschlossene Storys ergeben ein Buch. Ein späteres Archiv wird nicht vorab angelegt.
+Der Abschluss jeder 50. Story beziehungsweise jedes fünften Buchs gibt eine
 Warnung aus, speichert eine wiederaufnehmbare Rotation und provisioniert automatisch genau das nächste
 Repository samt Releases, GitHub Pages, DNS-only-CNAME, HTTPS und zentralem Katalog. Bis dieser Ablauf
 verifiziert ist, bleibt die nächste Generierung blockiert.
@@ -33,8 +34,9 @@ deterministische Originalpakete und Shardmanifeste. Bereits vorhandene Assets we
 - Archive: `https://wirtelprimpf-0001.telacore.org`, `…-0002…`, fortlaufend
 
 Die Astro-Fabrik unter `web/` baut sowohl die zentrale Landingpage als auch jede Archivseite. Die Landingpage
-zeigt die vollständige aktuelle Story mit dem neuesten Teil zuerst. Vollständige Bandseiten bleiben
-chronologisch. Galerie, Bilddetails, Bandübersicht, Feed, Sitemap, Statusseiten und No-JavaScript-Kern werden
+zeigt die vollständige aktuelle Story mit dem neuesten Teil zuerst. Vollständige Storyseiten bleiben
+chronologisch; die Bibliothek gruppiert jeweils zehn Storys zu einem Buch. Galerie, Bilddetails, Buchübersicht,
+Feed, Sitemap, Statusseiten und No-JavaScript-Kern werden
 aus strikt validierten Manifesten erzeugt.
 
 ## Lokaler Betrieb

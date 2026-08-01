@@ -254,7 +254,8 @@ function testPersistentMenuPools() {
     assert.equal(applet._partRows.length, 15, "recent part pool follows the existing 15-row product limit");
     assert.equal(applet.menu.removeAllCount, 0, "data rendering never clears the root menu");
     assert.equal(applet._storyOverflowItem.actor.visible, true, "overflow notice is visible above the 50-volume limit");
-    assert.match(applet._storyOverflowItem.label.text, /25 weitere vollständige Story-Bände nicht angezeigt/);
+    assert.match(applet._storyOverflowItem.label.text, /25 weitere vollständige Storys nicht angezeigt/);
+    assert.match(applet._rotationWarningItem.label.text, /5 Bücher.*50 vollständige Storys/);
     assert.equal(applet._rotationWarningItem.actor.visible, true, "the repository-boundary warning is visible at 50 volumes");
 
     const warmedConstructors = constructorCount;

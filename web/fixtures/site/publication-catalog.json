@@ -4,6 +4,8 @@
     {
       "active": true,
       "archive_index": 1,
+      "book_end": 5,
+      "book_start": 1,
       "github_url": "https://github.com/H234598/Wirtelprimpf-0001",
       "pages_url": "https://wirtelprimpf-0001.telacore.org",
       "repository": "Wirtelprimpf-0001",

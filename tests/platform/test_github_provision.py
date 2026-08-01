@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 import unittest
@@ -76,6 +77,15 @@ class GitHubProvisionerTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(public_text.returncode, 1)
+            manifest = json.loads((checkout / "archive-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["story_start"], 51)
+            self.assertEqual(manifest["story_end"], 100)
+            self.assertEqual(manifest["book_start"], 6)
+            self.assertEqual(manifest["book_end"], 10)
+            self.assertEqual(manifest["stories_per_book"], 10)
+            readme = (checkout / "README.md").read_text(encoding="utf-8")
+            self.assertIn("Storys 51 bis 100", readme)
+            self.assertIn("Bücher 6 bis 10", readme)
 
 
 if __name__ == "__main__":

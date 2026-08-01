@@ -4,12 +4,19 @@ import json
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
+from wirtelprimpf_platform.catalog import CatalogEntry, CatalogStore, PublicationCatalog
+from wirtelprimpf_platform.cli import main as cli_main
 from wirtelprimpf_platform.naming import (
     ARCHIVE_CAPACITY,
+    BOOKS_PER_ARCHIVE,
+    STORIES_PER_BOOK,
     archive_name,
     archive_target_for_volume,
+    book_target_for_story,
 )
 from wirtelprimpf_platform.state import (
     PlatformState,
@@ -17,7 +24,10 @@ from wirtelprimpf_platform.state import (
     StateStore,
     complete_volume,
     finish_rotation,
+    status_to_dict,
 )
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class NamingTests(unittest.TestCase):
@@ -44,6 +54,55 @@ class NamingTests(unittest.TestCase):
                 archive_target_for_volume(value)  # type: ignore[arg-type]
         with self.assertRaises(ValueError):
             archive_name(10_000)
+
+    def test_mapping_cli_reports_book_position_without_renaming_legacy_fields(self) -> None:
+        output = StringIO()
+
+        with redirect_stdout(output):
+            result = cli_main(["mapping", "51"])
+
+        self.assertEqual(result, 0)
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["global_volume"], 51)
+        self.assertEqual(payload["repository"], "Wirtelprimpf-0002")
+        self.assertEqual(payload["book"], {
+            "book_in_archive": 1,
+            "global_book": 6,
+            "story_in_book": 1,
+            "story_end": 60,
+            "story_start": 51,
+        })
+
+    def test_ten_stories_form_one_global_book_without_changing_archive_boundaries(self) -> None:
+        self.assertEqual(STORIES_PER_BOOK, 10)
+        self.assertEqual(BOOKS_PER_ARCHIVE, 5)
+        cases = {
+            1: (1, 1, 1, 1, 10, 1),
+            10: (1, 10, 1, 1, 10, 1),
+            11: (2, 1, 2, 11, 20, 1),
+            50: (5, 10, 5, 41, 50, 1),
+            51: (6, 1, 1, 51, 60, 2),
+            100: (10, 10, 5, 91, 100, 2),
+            101: (11, 1, 1, 101, 110, 3),
+        }
+        for story, expected in cases.items():
+            with self.subTest(story=story):
+                target = book_target_for_story(story)
+                self.assertEqual(
+                    (
+                        target.global_book,
+                        target.story_in_book,
+                        target.book_in_archive,
+                        target.story_start,
+                        target.story_end,
+                        target.archive_index,
+                    ),
+                    expected,
+                )
+
+        for value in (0, -1, True, 1.2, "1"):
+            with self.subTest(value=value), self.assertRaises((TypeError, ValueError)):
+                book_target_for_story(value)  # type: ignore[arg-type]
 
 
 class PlatformStateTests(unittest.TestCase):
@@ -94,6 +153,67 @@ class PlatformStateTests(unittest.TestCase):
     def test_out_of_order_completion_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "expected volume 1"):
             complete_volume(PlatformState(), 2, transaction_id="invalid")
+
+    def test_book_progress_is_derived_without_changing_persisted_state_schema(self) -> None:
+        state = PlatformState(completed_volumes=10, current_volume=11, active_archive_index=1)
+
+        status = status_to_dict(state)
+
+        self.assertEqual(status["completed_volumes"], 10)
+        self.assertEqual(status["current_volume"], 11)
+        self.assertEqual(status["book"], {
+            "books_per_archive": 5,
+            "completed_books": 1,
+            "current_book": 2,
+            "story_in_book": 1,
+            "stories_per_book": 10,
+        })
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "platform-state.json"
+            StateStore(path).save(state)
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            self.assertNotIn("book", persisted)
+
+
+class CatalogBookContractTests(unittest.TestCase):
+    def test_platform_ci_checks_out_the_catalog_fixture(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "check.yml").read_text(encoding="utf-8")
+        platform_job = workflow.split("  platform:\n", 1)[1].split("  web:\n", 1)[0]
+
+        self.assertIn("web/fixtures/site", platform_job)
+
+    def test_checked_in_book_fixture_loads_and_store_round_trip_preserves_fields(self) -> None:
+        fixture = ROOT / "web" / "fixtures" / "site" / "publication-catalog.json"
+
+        self.assertTrue(fixture.is_file(), "platform checkout omitted the catalog fixture")
+
+        catalog = CatalogStore(fixture).load()
+
+        entry = catalog.entry(1)
+        self.assertIsNotNone(entry)
+        assert entry is not None
+        self.assertEqual((entry.book_start, entry.book_end), (1, 5))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "publication-catalog.json"
+            stored = PublicationCatalog(
+                active_archive_index=1,
+                archives=(
+                    CatalogEntry.for_archive(
+                        1,
+                        owner="H234598",
+                        active=True,
+                        sealed=False,
+                        verified=True,
+                        revision="a" * 40,
+                    ),
+                ),
+            )
+            CatalogStore(target).save(stored)
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            self.assertEqual(payload["archives"][0]["book_start"], 1)
+            self.assertEqual(payload["archives"][0]["book_end"], 5)
+            self.assertEqual(CatalogStore(target).load(), stored)
 
 
 class StateStoreTests(unittest.TestCase):

@@ -1,10 +1,11 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
-import { loadSiteData } from "../../lib/data.ts";
+import { archiveBookRange, loadSiteData } from "../../lib/data.ts";
 const data=loadSiteData();
 const active=data.catalog.find((entry)=>entry.active);
+const fallbackBooks=archiveBookRange(data.archiveIndex);
 ---
 <BaseLayout title="Publikationsstatus" section="projekt">
   <header class="page-heading"><span class="eyebrow">Öffentlicher Status</span><h1>Was dieser Build sicher weiß.</h1><p class="lede">Keine Live-API, keine Trackingabfrage: nur redigierte Daten aus dem validierten Buildmanifest.</p></header>
-  <section class="section" style="padding-top:1rem"><div class="archive-grid"><article class="archive-card"><span class="eyebrow">Profil</span><h2>{data.profile === "hub" ? "Zentrale" : "Publikationsarchiv"}</h2><p><code>{data.repository}</code></p></article><article class="archive-card"><span class="eyebrow">Aktives Archiv</span><h2>{active?.repository ?? `Wirtelprimpf-${String(data.archiveIndex).padStart(4,"0")}`}</h2><p>{active ? `Bände ${active.volume_start}–${active.volume_end}` : "lokaler Archivstand"}</p></article><article class="archive-card"><span class="eyebrow">Inhalt</span><h2>{data.media.length} Bilder · {data.stories.length} Bände</h2><p>{data.generatedAt ? `Manifest: ${data.generatedAt}` : "Noch kein datierter Medien-Cutover."}</p></article></div></section>
+  <section class="section" style="padding-top:1rem"><div class="archive-grid"><article class="archive-card"><span class="eyebrow">Profil</span><h2>{data.profile === "hub" ? "Zentrale" : "Publikationsarchiv"}</h2><p><code>{data.repository}</code></p></article><article class="archive-card"><span class="eyebrow">Aktives Archiv</span><h2>{active?.repository ?? `Wirtelprimpf-${String(data.archiveIndex).padStart(4,"0")}`}</h2><p>{active ? `Bücher ${active.book_start}–${active.book_end} · Storys ${active.volume_start}–${active.volume_end}` : `Bücher ${fallbackBooks.bookStart}–${fallbackBooks.bookEnd} · lokaler Archivstand`}</p></article><article class="archive-card"><span class="eyebrow">Inhalt</span><h2>{data.media.length} Bilder · {data.stories.length} Storys</h2><p>{data.generatedAt ? `Manifest: ${data.generatedAt}` : "Noch kein datierter Medien-Cutover."}</p></article></div></section>
 </BaseLayout>

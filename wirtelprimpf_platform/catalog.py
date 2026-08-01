@@ -8,7 +8,7 @@ import uuid
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
-from .naming import ARCHIVE_CAPACITY, archive_domain, archive_name
+from .naming import ARCHIVE_CAPACITY, STORIES_PER_BOOK, archive_domain, archive_name
 
 CATALOG_SCHEMA_VERSION = "1.0.0"
 
@@ -27,6 +27,14 @@ class CatalogEntry:
     revision: str | None = None
     media_manifest_url: str | None = None
     media_manifest_sha256: str | None = None
+
+    @property
+    def book_start(self) -> int:
+        return ((self.volume_start - 1) // STORIES_PER_BOOK) + 1
+
+    @property
+    def book_end(self) -> int:
+        return ((self.volume_end - 1) // STORIES_PER_BOOK) + 1
 
     @classmethod
     def for_archive(
@@ -61,7 +69,7 @@ class CatalogEntry:
             raise ValueError("catalog Pages URL violates archive domain contract")
         expected_start = ((self.archive_index - 1) * ARCHIVE_CAPACITY) + 1
         if (self.volume_start, self.volume_end) != (expected_start, expected_start + ARCHIVE_CAPACITY - 1):
-            raise ValueError("catalog volume range violates 50-volume contract")
+            raise ValueError("catalog story range violates five-book / 50-story contract")
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +112,7 @@ def _catalog_from_dict(payload: object) -> PublicationCatalog:
     if not isinstance(payload, dict):
         raise RuntimeError("publication catalog must be a JSON object")
     try:
-        entries = tuple(CatalogEntry(**item) for item in payload.get("archives", []))
+        entries = tuple(_catalog_entry_from_dict(item) for item in payload.get("archives", []))
         return PublicationCatalog(
             schema_version=payload.get("schema_version", CATALOG_SCHEMA_VERSION),
             active_archive_index=payload.get("active_archive_index", 1),
@@ -112,6 +120,33 @@ def _catalog_from_dict(payload: object) -> PublicationCatalog:
         )
     except (TypeError, ValueError) as exc:
         raise RuntimeError(f"invalid publication catalog: {exc}") from exc
+
+
+def _catalog_entry_from_dict(payload: object) -> CatalogEntry:
+    if not isinstance(payload, dict):
+        raise TypeError("catalog archive entry must be an object")
+    values = dict(payload)
+    missing = object()
+    provided_book_start = values.pop("book_start", missing)
+    provided_book_end = values.pop("book_end", missing)
+    entry = CatalogEntry(**values)
+    for label, provided, expected in (
+        ("book_start", provided_book_start, entry.book_start),
+        ("book_end", provided_book_end, entry.book_end),
+    ):
+        if provided is missing:
+            continue
+        if not isinstance(provided, int) or isinstance(provided, bool) or provided != expected:
+            raise ValueError(f"catalog {label} violates derived ten-story book contract")
+    return entry
+
+
+def _catalog_entry_to_dict(entry: CatalogEntry) -> dict[str, object]:
+    return {
+        **asdict(entry),
+        "book_start": entry.book_start,
+        "book_end": entry.book_end,
+    }
 
 
 class CatalogStore:
@@ -135,7 +170,7 @@ class CatalogStore:
         payload = {
             "schema_version": catalog.schema_version,
             "active_archive_index": catalog.active_archive_index,
-            "archives": [asdict(entry) for entry in catalog.archives],
+            "archives": [_catalog_entry_to_dict(entry) for entry in catalog.archives],
         }
         encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         part = self.path.with_name(f".{self.path.name}.{os.getpid()}.{uuid.uuid4().hex}.part")

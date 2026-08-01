@@ -2,7 +2,7 @@
 
 ## Ziel
 
-Ein Cinnamon-Applet als Seitenwagen für `Wirtelprimpf-generator` und das jeweils aktive `Wirtelprimpf-####`-Publikationsarchiv. Es zeigt lokale Latest-Bilder, Storydateien und Storyteile, warnt an der 50-Bände-Grenze, verwaltet TTS-State absturzsicher und bleibt UI-seitig klein.
+Ein Cinnamon-Applet als Seitenwagen für `Wirtelprimpf-generator` und das jeweils aktive `Wirtelprimpf-####`-Publikationsarchiv. Es zeigt lokale Latest-Bilder, Storydateien und Storyteile, ordnet je zehn Storys einem Buch zu, warnt an der 50-Story-/5-Bücher-Grenze, verwaltet TTS-State absturzsicher und bleibt UI-seitig klein.
 
 ## Abgleich mit Speed of Cinnamon
 

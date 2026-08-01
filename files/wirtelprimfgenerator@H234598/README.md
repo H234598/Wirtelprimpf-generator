@@ -1,10 +1,10 @@
 # Wirtelprimfgenerator Story Menu
 
-Cinnamon-Applet für `H234598/Wirtelprimpf-generator`: aktuelles lokales Story-Bild, Generated-/Classic-Bild, Full-Story-Dateien, Storyteile, 50-Bände-Archivwarnung und TTS mit crash-sicherem Lese-State.
+Cinnamon-Applet für `H234598/Wirtelprimpf-generator`: aktuelles lokales Story-Bild, Generated-/Classic-Bild, Full-Story-Dateien, Storyteile, Buchfortschritt, 50-Story-/5-Bücher-Archivwarnung und TTS mit crash-sicherem Lese-State.
 
 ## Speed-of-Cinnamon-Abgleich
 
-Version `0.7.2` übernimmt die relevanten Produktmuster aus Speed of Cinnamon und den getrennten Generator-/Archivvertrag:
+Version `0.8.0` übernimmt die relevanten Produktmuster aus Speed of Cinnamon, den getrennten Generator-/Archivvertrag und die freigegebene Buchhierarchie:
 
 - responsive Logo in den Cinnamon-Optionen über `SettingsLogo.py` und `assets/settings-*.png`;
 - Settings mit Seiten/Layout, About-Seite, TTS-Engine-Auswahl und Aktionsbuttons;
@@ -17,6 +17,8 @@ Version `0.7.2` übernimmt die relevanten Produktmuster aus Speed of Cinnamon un
 - `openai.env` und systemd-Drop-ins werden atomar ersetzt. Kommentare, unbekannte künftige Variablen und die private Laufzeitumgebung der Basis-Units bleiben erhalten.
 - Storyteil-Nummern folgen den Überschriften der kanonischen Full Story und bleiben dadurch auch bei einer historisch fehlenden Sidecar-Datei korrekt.
 - Alte gespeicherte Projektlinks zu `Katzenbilder` oder `Wirtelprimpf-0001` werden einmalig auf `Wirtelprimpf-generator` migriert; absichtlich gesetzte fremde URLs bleiben unverändert.
+- Eine eigene Einstellungsseite verwaltet Vorgaben für die laufende und die nächsten zwei Storys; vergangene Vorgaben bleiben schreibgeschützt sichtbar, und die aktive Vorgabe wird vor dem Generatorlauf sicher in den Prompt projiziert.
+- Je zehn vollständige Storys bilden ein Buch; fünf Bücher beziehungsweise 50 vollständige Storys schließen ein Publikationsarchiv ab.
 
 ## Installation lokal
 

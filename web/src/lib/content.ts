@@ -14,10 +14,21 @@ export interface StoryPart {
 
 export interface StoryDocument {
   volume: number;
+  book: number;
+  storyInBook: number;
   filename: string;
   title: string;
   parts: StoryPart[];
 }
+
+export interface StoryBook {
+  number: number;
+  storyStart: number;
+  storyEnd: number;
+  stories: StoryDocument[];
+}
+
+export const STORIES_PER_BOOK = 10;
 
 
 export function renderSafeMarkdown(markdown: string): string {
@@ -56,7 +67,7 @@ export function parseStoryDocument(markdown: string, filename: string, volume: n
   }
   const normalized = markdown.replace(/\r\n?/g, "\n");
   const titleMatch = normalized.match(/^#\s+(.+?)\s*$/m);
-  const title = titleMatch?.[1]?.trim() || `Wirtelprimpf · Band ${volume}`;
+  const title = titleMatch?.[1]?.trim() || `Wirtelprimpf · Story ${volume}`;
   const heading = /^##\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*$/gm;
   const matches = [...normalized.matchAll(heading)];
   const parts = matches.map((match, index): StoryPart => {
@@ -79,7 +90,30 @@ export function parseStoryDocument(markdown: string, filename: string, volume: n
       sequence: index + 1,
     };
   });
-  return { volume, filename, title, parts };
+  return {
+    volume,
+    book: Math.floor((volume - 1) / STORIES_PER_BOOK) + 1,
+    storyInBook: ((volume - 1) % STORIES_PER_BOOK) + 1,
+    filename,
+    title,
+    parts,
+  };
+}
+
+
+export function groupStoriesByBook(stories: readonly StoryDocument[]): StoryBook[] {
+  const groups = new Map<number, StoryDocument[]>();
+  for (const story of [...stories].sort((left, right) => left.volume - right.volume)) {
+    const group = groups.get(story.book) ?? [];
+    group.push(story);
+    groups.set(story.book, group);
+  }
+  return [...groups.entries()].map(([number, groupedStories]) => ({
+    number,
+    storyStart: ((number - 1) * STORIES_PER_BOOK) + 1,
+    storyEnd: number * STORIES_PER_BOOK,
+    stories: groupedStories,
+  }));
 }
 
 
