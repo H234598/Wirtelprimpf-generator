@@ -24,6 +24,7 @@ from .settings import (
 )
 
 MAX_REQUEST_BYTES = 64 * 1024
+REQUEST_BODY_TIMEOUT_SECONDS = 2.0
 PUBLIC_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 SECURITY_HEADERS: dict[str, str] = {
     "Cache-Control": "no-store",
@@ -225,6 +226,7 @@ class AdminApplication:
 
 class _Handler(BaseHTTPRequestHandler):
     server_version = "WirtelprimpfAdmin/1.1"
+    request_body_timeout_seconds = REQUEST_BODY_TIMEOUT_SECONDS
 
     def _write_admin_response(self, response: AdminResponse) -> None:
         encoded = response.body.encode("utf-8")
@@ -253,14 +255,45 @@ class _Handler(BaseHTTPRequestHandler):
                     _json_response(400, {"ok": False, "error": "invalid content length"})
                 )
                 return
-            length = int(normalized_length)
+            try:
+                length = int(normalized_length)
+            except ValueError:
+                self._write_admin_response(
+                    _json_response(400, {"ok": False, "error": "invalid content length"})
+                )
+                return
         if length > MAX_REQUEST_BYTES:
             self._write_admin_response(
                 _json_response(413, {"ok": False, "error": "request too large"})
             )
             return
+        if self.command in {"GET", "HEAD"} and length:
+            self.close_connection = True
+            self._write_admin_response(
+                _json_response(400, {"ok": False, "error": "request body not allowed"})
+            )
+            return
         application: AdminApplication = self.server.application  # type: ignore[attr-defined]
-        body = self.rfile.read(length)
+        body = b""
+        if length:
+            previous_timeout = self.connection.gettimeout()
+            try:
+                self.connection.settimeout(self.request_body_timeout_seconds)
+                body = self.rfile.read(length)
+            except TimeoutError:
+                self.close_connection = True
+                self._write_admin_response(
+                    _json_response(408, {"ok": False, "error": "request body timeout"})
+                )
+                return
+            finally:
+                self.connection.settimeout(previous_timeout)
+            if len(body) != length:
+                self.close_connection = True
+                self._write_admin_response(
+                    _json_response(400, {"ok": False, "error": "incomplete request body"})
+                )
+                return
         response = application.handle(
             self.command,
             self.path.split("?", 1)[0],

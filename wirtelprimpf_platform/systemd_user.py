@@ -186,23 +186,32 @@ class SystemdUserManager:
         for name in properties:
             arguments.extend(["--property", name])
         result = self._run(arguments)
-        values: dict[str, str] = {}
+        values: dict[str, list[str]] = {}
         for line in result.stdout.splitlines():
             if "=" in line:
                 key, value = line.split("=", 1)
-                values[key] = value.strip()
+                values.setdefault(key, []).append(value.strip())
         try:
-            interval_value = re.search(
-                r"(?:^|[ {;])OnUnitActiveUSec=([^;}]+)",
-                values["TimersMonotonic"],
+            interval_value = next(
+                (
+                    match
+                    for value in values["TimersMonotonic"]
+                    if (
+                        match := re.search(
+                            r"(?:^|[ {;])OnUnitActiveUSec=([^;}]+)",
+                            value,
+                        )
+                    )
+                ),
+                None,
             )
             if interval_value is None:
                 raise KeyError("OnUnitActiveUSec")
             interval_seconds = _duration_seconds(interval_value.group(1))
-            delay_seconds = _duration_seconds(values["RandomizedDelayUSec"])
-            persistent = _boolean(values["Persistent"])
-            active_state = values["ActiveState"]
-        except KeyError as exc:
+            delay_seconds = _duration_seconds(values["RandomizedDelayUSec"][-1])
+            persistent = _boolean(values["Persistent"][-1])
+            active_state = values["ActiveState"][-1]
+        except (IndexError, KeyError) as exc:
             raise SystemdCommandError("systemctl returned incomplete timer state") from exc
         if interval_seconds <= 0 or interval_seconds % 60:
             raise SystemdCommandError("effective timer interval is not a whole positive minute")
@@ -213,9 +222,9 @@ class SystemdUserManager:
             interval_minutes=interval_seconds // 60,
             randomized_delay_seconds=delay_seconds,
             persistent=persistent,
-            last_trigger=values.get("LastTriggerUSec") or None,
-            next_run=values.get("NextElapseUSecRealtime") or None,
-            result=values.get("Result") or "unknown",
+            last_trigger=(values.get("LastTriggerUSec") or [""])[-1] or None,
+            next_run=(values.get("NextElapseUSecRealtime") or [""])[-1] or None,
+            result=(values.get("Result") or [""])[-1] or "unknown",
         )
 
     @staticmethod

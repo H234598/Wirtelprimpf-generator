@@ -121,6 +121,8 @@ def _prepare_parent(parent: Path, *, private: bool) -> None:
                 pass
             if created and private:
                 os.chmod(candidate, mode)
+        if private:
+            os.chmod(parent, mode)
     except OSError as exc:
         raise SettingsIOError("cannot prepare configuration parent directory") from exc
     _reject_existing_parent_chain(parent)

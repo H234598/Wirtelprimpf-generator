@@ -3,7 +3,9 @@ from __future__ import annotations
 import io
 import json
 import os
+import socket
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +14,7 @@ from wirtelprimpf_platform.admin import (
     SECURITY_HEADERS,
     AdminApplication,
     AdminError,
+    AdminResponse,
     _Handler,
     validate_bind_host,
 )
@@ -309,6 +312,77 @@ class AdminTests(unittest.TestCase):
                 handler._dispatch()
 
                 self.assertEqual(statuses, [expected_status])
+
+    def test_get_and_head_reject_nonempty_request_bodies_without_reading(self) -> None:
+        class UnreadableBody:
+            def read(self, _size: int) -> bytes:
+                raise AssertionError("request body must not be read")
+
+        for command in ("GET", "HEAD"):
+            with self.subTest(command=command):
+                handler = object.__new__(_Handler)
+                handler.command = command
+                handler.path = "/api/settings"
+                handler.headers = {"Content-Length": "1"}
+                handler.rfile = UnreadableBody()
+                handler.wfile = io.BytesIO()
+                handler.client_address = ("127.0.0.1", 1)
+                handler.server = SimpleNamespace(
+                    application=SimpleNamespace(
+                        handle=lambda *_args, **_kwargs: self.fail("application must not run")
+                    )
+                )
+                statuses: list[int] = []
+                handler.send_response = statuses.append
+                handler.send_header = lambda *_args: None
+                handler.end_headers = lambda: None
+
+                handler._dispatch()
+
+                self.assertEqual(statuses, [400])
+
+    def test_partial_post_body_times_out_without_waiting_for_peer_close(self) -> None:
+        server_socket, client_socket = socket.socketpair()
+        handler = object.__new__(_Handler)
+        handler.command = "POST"
+        handler.path = "/api/settings"
+        handler.headers = {"Content-Length": "100"}
+        handler.connection = server_socket
+        handler.request_body_timeout_seconds = 0.05
+        handler.rfile = server_socket.makefile("rb")
+        handler.wfile = io.BytesIO()
+        handler.client_address = ("127.0.0.1", 1)
+        application_calls: list[bytes] = []
+
+        def handle(_method, _path, _headers, body, *, client_host):
+            del client_host
+            application_calls.append(body)
+            return AdminResponse(200, "{}")
+
+        handler.server = SimpleNamespace(application=SimpleNamespace(handle=handle))
+        statuses: list[int] = []
+        handler.send_response = statuses.append
+        handler.send_header = lambda *_args: None
+        handler.end_headers = lambda: None
+        worker = threading.Thread(target=handler._dispatch, daemon=True)
+        client_socket.sendall(b"{}")
+        worker.start()
+        worker.join(timeout=0.5)
+        completed_before_peer_close = not worker.is_alive()
+        restored_timeout = server_socket.gettimeout()
+        try:
+            if worker.is_alive():
+                client_socket.shutdown(socket.SHUT_WR)
+                worker.join(timeout=1)
+        finally:
+            handler.rfile.close()
+            server_socket.close()
+            client_socket.close()
+
+        self.assertTrue(completed_before_peer_close)
+        self.assertIsNone(restored_timeout)
+        self.assertEqual(statuses, [408])
+        self.assertEqual(application_calls, [])
 
     def test_path_traversal_is_not_served(self) -> None:
         response = self.request("GET", "/../../.config/wirtelprimpf/openai.env")

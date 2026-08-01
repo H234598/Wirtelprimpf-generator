@@ -15,24 +15,36 @@ from wirtelprimpf_platform.systemd_user import (
 
 
 class FakeRunner:
-    def __init__(self, *, interval: str = "2h", delay: str = "2min") -> None:
+    def __init__(
+        self,
+        *,
+        interval: str = "2h",
+        delay: str = "2min",
+        monotonic_entries: tuple[str, ...] | None = None,
+    ) -> None:
         self.commands: list[list[str]] = []
         self.interval = interval
         self.delay = delay
+        self.monotonic_entries = monotonic_entries or (
+            f"{{ OnUnitActiveUSec={self.interval} ; next_elapse=12h 4min 6.248989s }}",
+        )
 
     def __call__(self, command: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
         self.commands.append(command)
         if command[2:4] == ["is-enabled", "wirtelprimpf.timer"]:
             return subprocess.CompletedProcess(command, 0, "enabled\n", "")
         if command[2] == "show":
+            monotonic_lines = "".join(
+                f"TimersMonotonic={entry}\n"
+                for entry in self.monotonic_entries
+            )
             return subprocess.CompletedProcess(
                 command,
                 0,
                 (
                     "ActiveState=active\nResult=success\nPersistent=yes\n"
                     f"RandomizedDelayUSec={self.delay}\n"
-                    f"TimersMonotonic={{ OnUnitActiveUSec={self.interval} ; "
-                    "next_elapse=12h 4min 6.248989s }}\n"
+                    f"{monotonic_lines}"
                     "LastTriggerUSec=Sat 2026-08-01 05:26:37 CEST\n"
                     "NextElapseUSecRealtime=Sat 2026-08-01 07:28:15 CEST\n"
                 ),
@@ -164,6 +176,20 @@ class SystemdUserTests(unittest.TestCase):
             ).observe_timer()
         self.assertEqual(observation.interval_minutes, 90)
         self.assertEqual(observation.randomized_delay_seconds, 200)
+
+    def test_repeated_timers_monotonic_selects_on_unit_active_in_either_order(self) -> None:
+        on_unit_active = "{ OnUnitActiveUSec=2h ; next_elapse=4h }"
+        on_boot = "{ OnBootUSec=2h ; next_elapse=4h }"
+        for entries in (
+            (on_unit_active, on_boot),
+            (on_boot, on_unit_active),
+        ):
+            with self.subTest(entries=entries), tempfile.TemporaryDirectory() as temporary:
+                observation = SystemdUserManager(
+                    Path(temporary) / "override.conf",
+                    runner=FakeRunner(monotonic_entries=entries),
+                ).observe_timer()
+                self.assertEqual(observation.interval_minutes, 120)
 
 
 if __name__ == "__main__":

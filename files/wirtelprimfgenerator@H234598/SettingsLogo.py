@@ -1263,10 +1263,20 @@ class GeneratorConfigEditor(SettingsWidget):
             )
 
         draft_count = len(state.dirty) + len(state.secret_dirty)
-        self.save_button.set_sensitive(draft_count > 0 and not self._save_busy)
+        self.save_button.set_sensitive(
+            draft_count > 0 and not self._interaction_busy()
+        )
         self.discard_all_button.set_sensitive(
             draft_count > 0 and not self._save_busy
         )
+
+    def _interaction_busy(self):
+        return self._save_busy or self._operation_busy
+
+    def _update_operation_sensitivity(self):
+        sensitive = not self._interaction_busy()
+        self.run_button.set_sensitive(sensitive)
+        self.timer_button.set_sensitive(sensitive)
 
     def _on_discard_field(self, _button, key):
         if self._save_busy or self.sync_state is None:
@@ -1340,7 +1350,7 @@ class GeneratorConfigEditor(SettingsWidget):
 
     def _on_save(self, _button):
         if (
-            self._save_busy
+            self._interaction_busy()
             or self.sync_coordinator is None
             or self.sync_coordinator.state is None
         ):
@@ -1370,6 +1380,7 @@ class GeneratorConfigEditor(SettingsWidget):
         for key in self.secret_entries:
             self.secret_entries[key].set_sensitive(not self._save_busy)
             self.secret_delete_checks[key].set_sensitive(not self._save_busy)
+        self._update_operation_sensitivity()
         self._render_field_states()
 
     def _on_save_result(self, kind, message, _payload):
@@ -1425,11 +1436,11 @@ class GeneratorConfigEditor(SettingsWidget):
         )
 
     def _run_operation(self, commands, success, failure_prefix):
-        if self._operation_busy or self._disposed:
+        if self._interaction_busy() or self._disposed:
             return
         self._operation_busy = True
-        self.run_button.set_sensitive(False)
-        self.timer_button.set_sensitive(False)
+        self._update_operation_sensitivity()
+        self._render_field_states()
         thread = threading.Thread(
             target=self._operation_worker,
             args=(commands, success, failure_prefix),
@@ -1470,8 +1481,8 @@ class GeneratorConfigEditor(SettingsWidget):
     def _finish_operation_idle(self, text):
         self._operation_busy = False
         if not self._disposed:
-            self.run_button.set_sensitive(True)
-            self.timer_button.set_sensitive(True)
+            self._update_operation_sensitivity()
+            self._render_field_states()
             self._set_status(text)
         return False
 
