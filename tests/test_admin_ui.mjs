@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import * as AdminUI from "../wirtelprimpf_platform/static/admin.mjs";
+
 import {
   FormSyncState,
   InteractionGate,
@@ -16,6 +18,41 @@ import {
   statusLabels,
   withInteractionSave,
 } from "../wirtelprimpf_platform/static/admin.mjs";
+
+function completeAdminSnapshot() {
+  return {
+    ok: true,
+    schema_version: "2.0.0",
+    revision: "c".repeat(64),
+    settings: {
+      operandi: "story",
+      image_model: "gpt-image-2",
+      story_model: "gpt-5.5",
+      image_size: "1536x1024",
+      output_resolution: "2k",
+      generation_interval_minutes: 120,
+      story_finish_parts_min: 3,
+      story_finish_parts_max: 5,
+      publish_immediately: true,
+      site_title: "Wirtelprimpf",
+      site_intro: "Aktuelle Geschichte",
+    },
+    choices: {
+      operandi: ["classic", "story", "both"],
+      image_model: ["gpt-image-2"],
+      story_model: ["gpt-5.5"],
+      image_size: ["1536x1024"],
+      output_resolution: ["source", "2k", "4k"],
+    },
+    secrets: {
+      openai_api_key_present: false,
+      cloudflare_api_token_present: false,
+      github_auth_present: true,
+    },
+    invariants: {},
+    warnings: [],
+  };
+}
 
 test("polling updates clean fields but preserves and marks a dirty conflict", () => {
   const state = new FormSyncState({
@@ -117,20 +154,56 @@ test("missing status timer and story sections render as wholly unknown", () => {
 });
 
 test("conflict payloads require a usable snapshot and a conflicts array", () => {
+  const { ok: _ok, ...conflictSnapshot } = completeAdminSnapshot();
   const valid = {
-    snapshot: {
-      revision: "r2",
-      settings: { site_title: "Extern" },
-      choices: {},
-      secrets: {},
-      invariants: {},
-    },
+    snapshot: conflictSnapshot,
     conflicts: ["site_title"],
   };
   assert.equal(isConflictPayload(valid), true);
   assert.equal(isConflictPayload({ snapshot: null, conflicts: [] }), false);
   assert.equal(isConflictPayload({ snapshot: valid.snapshot, conflicts: null }), false);
   assert.equal(isConflictPayload({ snapshot: {}, conflicts: [] }), false);
+  const incomplete = structuredClone(valid);
+  delete incomplete.snapshot.warnings;
+  assert.equal(isConflictPayload(incomplete), false);
+});
+
+test("initial interaction unlocks only after one complete success snapshot", () => {
+  const accept = AdminUI.acceptInitialSettingsSnapshot;
+  const incompleteSnapshots = [];
+  for (const name of Object.keys(completeAdminSnapshot().settings)) {
+    const missingFormSetting = completeAdminSnapshot();
+    delete missingFormSetting.settings[name];
+    incompleteSnapshots.push(missingFormSetting);
+    const wrongFormType = completeAdminSnapshot();
+    const value = wrongFormType.settings[name];
+    wrongFormType.settings[name] = typeof value === "string" ? 1 : value === true ? 1 : true;
+    incompleteSnapshots.push(wrongFormType);
+  }
+  for (const name of Object.keys(completeAdminSnapshot().choices)) {
+    const missingChoiceCatalog = completeAdminSnapshot();
+    delete missingChoiceCatalog.choices[name];
+    incompleteSnapshots.push(missingChoiceCatalog);
+    const emptyChoiceCatalog = completeAdminSnapshot();
+    emptyChoiceCatalog.choices[name] = [];
+    incompleteSnapshots.push(emptyChoiceCatalog);
+  }
+
+  for (const incomplete of incompleteSnapshots) {
+    const gate = new InteractionGate();
+    assert.throws(
+      () => accept(incomplete, gate),
+      /complete settings snapshot/,
+    );
+    assert.equal(gate.ready, false);
+  }
+
+  const gate = new InteractionGate();
+  const complete = completeAdminSnapshot();
+  complete.settings.site_title = "Vollständig";
+  const state = accept(complete, gate);
+  assert.equal(gate.ready, true);
+  assert.equal(state.visible.site_title, "Vollständig");
 });
 
 test("legacy model remains visible without becoming a catalog choice", () => {

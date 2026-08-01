@@ -6,6 +6,7 @@ import os
 import socket
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -381,6 +382,71 @@ class AdminTests(unittest.TestCase):
 
         self.assertTrue(completed_before_peer_close)
         self.assertIsNone(restored_timeout)
+        self.assertEqual(statuses, [408])
+        self.assertEqual(application_calls, [])
+
+    def test_slow_drip_post_body_hits_one_absolute_total_deadline(self) -> None:
+        server_socket, client_socket = socket.socketpair()
+        server_socket.settimeout(0.7)
+        handler = object.__new__(_Handler)
+        handler.command = "POST"
+        handler.path = "/api/settings"
+        handler.headers = {"Content-Length": "100"}
+        handler.connection = server_socket
+        handler.request_body_timeout_seconds = 0.08
+        handler.rfile = server_socket.makefile("rb")
+        handler.wfile = io.BytesIO()
+        handler.client_address = ("127.0.0.1", 1)
+        application_calls: list[bytes] = []
+
+        def handle(_method, _path, _headers, body, *, client_host):
+            del client_host
+            application_calls.append(body)
+            return AdminResponse(200, "{}")
+
+        handler.server = SimpleNamespace(application=SimpleNamespace(handle=handle))
+        statuses: list[int] = []
+        handler.send_response = statuses.append
+        handler.send_header = lambda *_args: None
+        handler.end_headers = lambda: None
+        response_write_timeouts: list[float | None] = []
+
+        def write_response(response: AdminResponse) -> None:
+            response_write_timeouts.append(server_socket.gettimeout())
+            _Handler._write_admin_response(handler, response)
+
+        handler._write_admin_response = write_response
+        stop_drip = threading.Event()
+
+        def drip() -> None:
+            while not stop_drip.is_set():
+                try:
+                    client_socket.sendall(b"x")
+                except OSError:
+                    return
+                time.sleep(0.02)
+
+        worker = threading.Thread(target=handler._dispatch, daemon=True)
+        dripper = threading.Thread(target=drip, daemon=True)
+        worker.start()
+        dripper.start()
+        worker.join(timeout=0.25)
+        completed_with_dripping_peer = not worker.is_alive()
+        restored_timeout = server_socket.gettimeout()
+        stop_drip.set()
+        try:
+            if worker.is_alive():
+                client_socket.shutdown(socket.SHUT_WR)
+                worker.join(timeout=1)
+            dripper.join(timeout=1)
+        finally:
+            handler.rfile.close()
+            server_socket.close()
+            client_socket.close()
+
+        self.assertTrue(completed_with_dripping_peer)
+        self.assertEqual(restored_timeout, 0.7)
+        self.assertEqual(response_write_timeouts, [0.7])
         self.assertEqual(statuses, [408])
         self.assertEqual(application_calls, [])
 

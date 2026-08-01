@@ -18,8 +18,61 @@ from typing import Any
 
 MAX_RESPONSE_BYTES = 1024 * 1024
 SNAPSHOT_TIMEOUT_SECONDS = 10
-APPLY_TIMEOUT_SECONDS = 90
 _LOGGER = logging.getLogger(__name__)
+
+# Cinnamon cannot import the platform package reliably.  This presentation
+# contract intentionally mirrors settings_schema.SETTING_SPECS entries with
+# applet_visible=True; a parity regression test prevents silent drift.
+APPLET_SETTING_KINDS = {
+    "operandi": "string",
+    "image_model": "string",
+    "story_model": "string",
+    "image_size": "string",
+    "output_resolution": "string",
+    "generation_interval_minutes": "integer",
+    "publish_immediately": "boolean",
+    "story_finish_parts_min": "integer",
+    "story_finish_parts_max": "integer",
+    "local_outdir": "string",
+    "working_dir": "string",
+    "repo_path": "string",
+    "repo_slug": "string",
+    "repo_subdir": "string",
+    "repo_branch": "string",
+    "github_owner": "string",
+    "media_mode": "string",
+    "media_staging": "string",
+    "platform_state": "string",
+    "hub_dispatch_state": "string",
+    "generator_root": "string",
+    "archive_root": "string",
+    "platform_catalog": "string",
+    "settings_path": "string",
+    "cloudflare_zone": "string",
+    "cloudflare_zone_id": "string",
+    "git_author_name": "string",
+    "git_author_email": "string",
+    "flex_processing": "string",
+    "prompt_config": "string",
+    "story_prompt_config": "string",
+    "story_document": "string",
+    "story_state": "string",
+    "story_finish": "boolean",
+    "timer_enabled": "boolean",
+    "timer_randomized_delay_seconds": "integer",
+    "timer_persistent": "boolean",
+}
+_APPLET_CHOICE_KEYS = frozenset(
+    {
+        "operandi",
+        "image_model",
+        "story_model",
+        "image_size",
+        "output_resolution",
+        "media_mode",
+        "flex_processing",
+    }
+)
 
 
 class SettingsCliError(RuntimeError):
@@ -76,7 +129,10 @@ class SettingsCliClient:
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
-        timeout = SNAPSHOT_TIMEOUT_SECONDS if action == "snapshot" else APPLY_TIMEOUT_SECONDS
+        # Apply owns a multi-step write/validate/rollback transaction.  The
+        # asynchronous UI client must never kill that owner between write and
+        # rollback; every external child spawned by the CLI is bounded there.
+        timeout = SNAPSHOT_TIMEOUT_SECONDS if action == "snapshot" else None
         command = [self.executable, action]
         try:
             result = self.runner(
@@ -110,6 +166,8 @@ class SettingsCliClient:
                 6: "Einstellungstransaktion ist fehlgeschlagen",
             }.get(result.returncode, "Einstellungsantwort wurde abgelehnt")
             raise SettingsCliError(message, payload=payload)
+        if not _is_complete_public_snapshot(payload):
+            raise SettingsCliError("Einstellungssnapshot ist nicht vollständig")
         return payload
 
     def snapshot(self) -> dict[str, object]:
@@ -129,6 +187,58 @@ def _snapshot_parts(payload: object) -> tuple[str, dict[str, object]]:
     if not isinstance(settings, Mapping):
         raise SettingsCliError("Einstellungssnapshot enthält keine Einstellungen")
     return revision, copy.deepcopy(dict(settings))
+
+
+def _is_complete_public_snapshot(
+    payload: object,
+    *,
+    required_setting_names: Sequence[str] = (),
+) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    try:
+        _snapshot_parts(payload)
+    except SettingsCliError:
+        return False
+    schema_version = payload.get("schema_version")
+    settings = payload.get("settings")
+    choices = payload.get("choices")
+    secrets = payload.get("secrets")
+    invariants = payload.get("invariants")
+    warnings = payload.get("warnings")
+    if not isinstance(settings, Mapping):
+        return False
+    required_names = set(APPLET_SETTING_KINDS)
+    required_names.update(required_setting_names)
+    if not required_names.issubset(settings):
+        return False
+    for name, kind in APPLET_SETTING_KINDS.items():
+        value = settings[name]
+        if kind == "boolean" and not isinstance(value, bool):
+            return False
+        if kind == "integer" and (isinstance(value, bool) or not isinstance(value, int)):
+            return False
+        if kind == "string" and not isinstance(value, str):
+            return False
+    return (
+        isinstance(schema_version, str)
+        and bool(schema_version)
+        and isinstance(choices, Mapping)
+        and _APPLET_CHOICE_KEYS.issubset(choices)
+        and all(
+            isinstance(values, Sequence)
+            and not isinstance(values, (str, bytes))
+            and len(values) > 0
+            and all(isinstance(value, str) for value in values)
+            for values in choices.values()
+        )
+        and isinstance(secrets, Mapping)
+        and isinstance(secrets.get("openai_api_key_present"), bool)
+        and isinstance(secrets.get("cloudflare_api_token_present"), bool)
+        and isinstance(invariants, Mapping)
+        and isinstance(warnings, list)
+        and all(isinstance(warning, str) for warning in warnings)
+    )
 
 
 def catalog_options(
@@ -413,6 +523,12 @@ class SettingsSyncCoordinator:
         return False
 
     def _accept_refresh_payload(self, payload: Mapping[str, object]) -> None:
+        required_names = () if self.state is None else tuple(self.state.server)
+        if not _is_complete_public_snapshot(
+            payload,
+            required_setting_names=required_names,
+        ):
+            raise SettingsCliError("Einstellungssnapshot ist nicht vollständig")
         if self.state is None:
             self.state = DirtySnapshotState(payload)
             visible = copy.deepcopy(self.state.visible)
@@ -450,11 +566,24 @@ class SettingsSyncCoordinator:
         try:
             payload = future.result()
             if captured_epoch == self._operation_epoch and self.state is not None:
+                if not _is_complete_public_snapshot(
+                    payload,
+                    required_setting_names=tuple(self.state.server),
+                ):
+                    raise SettingsCliError("Einstellungssnapshot ist nicht vollständig")
                 self.state.accept_saved_snapshot(payload)
                 self.on_snapshot(payload, copy.deepcopy(self.state.visible), self.state)
                 self.on_save_result("success", "Gespeichert.", payload)
         except SettingsCliError as exc:
-            self._handle_save_cli_error(exc)
+            try:
+                self._handle_save_cli_error(exc)
+            except BaseException as handler_error:
+                message = self._safe_error(
+                    handler_error,
+                    "Einstellungen konnten nicht gespeichert werden",
+                )
+                self.on_error(message)
+                self.on_save_result("error", message, {})
         except BaseException as exc:
             message = self._safe_error(exc, "Einstellungen konnten nicht gespeichert werden")
             self.on_error(message)
@@ -472,19 +601,23 @@ class SettingsSyncCoordinator:
         conflicts = payload.get("conflicts")
         if (
             payload.get("error") == "conflict"
-            and isinstance(conflict_snapshot, Mapping)
+            and _is_complete_public_snapshot(
+                conflict_snapshot,
+                required_setting_names=tuple(self.state.server) if self.state is not None else (),
+            )
             and isinstance(conflicts, list)
+            and all(isinstance(name, str) for name in conflicts)
             and self.state is not None
         ):
             visible = self.state.merge_snapshot(conflict_snapshot)
-            self.state.conflicts.update(name for name in conflicts if isinstance(name, str))
+            self.state.conflicts.update(conflicts)
             self.on_snapshot(conflict_snapshot, visible, self.state)
             self.on_save_result(
                 "conflict",
                 "Konflikt: extern geänderte Felder wurden nicht überschrieben.",
                 {
                     "error": "conflict",
-                    "conflicts": [name for name in conflicts if isinstance(name, str)],
+                    "conflicts": list(conflicts),
                     "snapshot": copy.deepcopy(dict(conflict_snapshot)),
                 },
             )

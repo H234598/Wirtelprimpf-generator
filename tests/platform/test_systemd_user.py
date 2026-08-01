@@ -167,6 +167,19 @@ class SystemdUserTests(unittest.TestCase):
         self.assertEqual(_duration_seconds("3min 20s"), 200)
         self.assertEqual(_duration_seconds("1.5s 499ms 1000us"), 2)
 
+    def test_exact_unitless_zero_is_accepted_but_other_unitless_values_are_rejected(self) -> None:
+        runner = FakeRunner(delay="0")
+        with tempfile.TemporaryDirectory() as temporary:
+            observation = SystemdUserManager(
+                Path(temporary) / "override.conf",
+                runner=runner,
+            ).observe_timer()
+
+        self.assertEqual(_duration_seconds("0"), 0)
+        self.assertEqual(observation.randomized_delay_seconds, 0)
+        with self.assertRaises(SystemdCommandError):
+            _duration_seconds("1")
+
     def test_full_timers_monotonic_duration_is_extracted(self) -> None:
         runner = FakeRunner(interval="1h 30min", delay="3min 20s")
         with tempfile.TemporaryDirectory() as temporary:

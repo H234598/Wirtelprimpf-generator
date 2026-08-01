@@ -11,6 +11,12 @@ import unittest
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
+from wirtelprimpf_platform.settings_schema import (
+    SETTING_SPECS,
+    choices_payload,
+    invariants_payload,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 SYNC_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "settings_sync.py"
 SPEC = importlib.util.spec_from_file_location(
@@ -27,18 +33,24 @@ SettingsSyncCoordinator = SYNC.SettingsSyncCoordinator
 
 
 def snapshot(revision: str, **settings: object) -> dict[str, object]:
+    public_settings = {
+        key: spec.default
+        for key, spec in SETTING_SPECS.items()
+        if spec.applet_visible
+    }
+    public_settings.update(settings)
     return {
         "ok": True,
+        "schema_version": "2.0.0",
         "revision": revision,
-        "settings": settings,
-        "choices": {
-            "image_model": ["gpt-image-2", "gpt-image-1.5"],
-            "story_model": ["gpt-5.5", "gpt-5-mini"],
-        },
+        "settings": public_settings,
+        "choices": choices_payload(),
         "secrets": {
             "openai_api_key_present": False,
             "cloudflare_api_token_present": False,
         },
+        "invariants": invariants_payload(),
+        "warnings": [],
     }
 
 
@@ -251,7 +263,7 @@ class AppletSettingsSyncTests(unittest.TestCase):
             [("gpt-image-2", "gpt-image-2", False)],
         )
 
-    def test_cli_apply_sends_secret_json_on_stdin_not_argv(self) -> None:
+    def test_cli_apply_leaves_transaction_lifecycle_to_the_server_process(self) -> None:
         calls = []
 
         def runner(command, **kwargs):
@@ -279,7 +291,7 @@ class AppletSettingsSyncTests(unittest.TestCase):
         command, kwargs = calls[0]
         self.assertNotIn("private-secret-value", " ".join(command))
         self.assertIn("private-secret-value", kwargs["input"])
-        self.assertEqual(kwargs["timeout"], 90)
+        self.assertIsNone(kwargs["timeout"])
         self.assertFalse(kwargs["shell"])
 
     def test_snapshot_uses_the_short_read_timeout(self) -> None:
@@ -296,6 +308,46 @@ class AppletSettingsSyncTests(unittest.TestCase):
         )
         client.snapshot()
         self.assertEqual(calls[0][1]["timeout"], 10)
+
+    def test_successful_cli_snapshot_rejects_incomplete_state_or_empty_catalog(self) -> None:
+        missing_setting = snapshot("b" * 64)
+        missing_setting["settings"].pop("operandi")
+        empty_catalog = snapshot("b" * 64)
+        empty_catalog["choices"]["operandi"] = []
+
+        for malformed in (missing_setting, empty_catalog):
+            client = SettingsCliClient(
+                "/trusted/wirtelprimpf-settings",
+                runner=lambda command, _payload=malformed, **kwargs: subprocess.CompletedProcess(
+                    command,
+                    0,
+                    json.dumps(_payload),
+                    "",
+                ),
+                executable_check=lambda _path: True,
+            )
+
+            with self.subTest(malformed=malformed), self.assertRaisesRegex(
+                SYNC.SettingsCliError,
+                "vollständig",
+            ):
+                client.snapshot()
+
+    def test_applet_snapshot_contract_matches_the_canonical_visible_schema(self) -> None:
+        expected = {
+            key: spec.kind
+            for key, spec in SETTING_SPECS.items()
+            if spec.applet_visible
+        }
+        self.assertEqual(SYNC.APPLET_SETTING_KINDS, expected)
+        self.assertEqual(
+            SYNC._APPLET_CHOICE_KEYS,
+            frozenset(
+                key
+                for key, spec in SETTING_SPECS.items()
+                if spec.applet_visible and spec.choices
+            ),
+        )
 
     def test_nonzero_invalid_and_oversized_cli_responses_fail_closed(self) -> None:
         cases = (
@@ -628,6 +680,79 @@ class AppletSettingsSyncTests(unittest.TestCase):
         self.assertEqual(coordinator.state.visible["story_model"], "gpt-5.4-mini")
         self.assertEqual(coordinator.state.conflicts, {"story_model"})
         self.assertEqual(results, ["conflict"])
+
+    def test_malformed_conflict_snapshots_fail_closed_without_losing_the_draft(self) -> None:
+        semantically_partial = snapshot("r2", story_model="gpt-5.5")
+        semantically_partial["settings"].pop("operandi")
+        malformed_snapshots = (
+            {},
+            {
+                "revision": "r2",
+                "settings": {"story_model": "gpt-5.5"},
+            },
+            semantically_partial,
+        )
+        for malformed_snapshot in malformed_snapshots:
+            with self.subTest(snapshot=malformed_snapshot):
+                errors = []
+                results = []
+                client = QueueClient(
+                    snapshots=[
+                        snapshot(
+                            "r1",
+                            operandi="story",
+                            story_model="gpt-5-mini",
+                        )
+                    ],
+                    applies=[
+                        SYNC.SettingsCliError(
+                            "conflict",
+                            payload={
+                                "ok": False,
+                                "error": "conflict",
+                                "conflicts": ["story_model"],
+                                "snapshot": malformed_snapshot,
+                            },
+                        )
+                    ],
+                )
+                coordinator, _scheduler, _monitors, executor, completions = coordinator_for(
+                    client,
+                    on_error=errors.append,
+                    on_save_result=lambda kind, message, payload, _results=results: _results.append(
+                        (kind, message, payload)
+                    ),
+                )
+                coordinator.queue_refresh()
+                executor.run_next()
+                completions.run_next()
+                coordinator.state.change("story_model", "gpt-5.4-mini")
+                request = coordinator.state.build_request(
+                    {"story_model": "gpt-5.4-mini"},
+                    {},
+                )
+                coordinator.submit_save(request)
+                executor.run_next()
+                callback_errors = []
+                try:
+                    completions.run_next()
+                except BaseException as exc:  # regression: callback must never escape
+                    callback_errors.append(exc)
+
+                self.assertEqual(callback_errors, [])
+                self.assertEqual(
+                    coordinator.state.visible["story_model"],
+                    "gpt-5.4-mini",
+                )
+                self.assertEqual(coordinator.state.dirty, {"story_model"})
+                self.assertEqual(
+                    errors,
+                    ["Einstellungen konnten nicht gespeichert werden"],
+                )
+                self.assertEqual(
+                    results,
+                    [("error", "Einstellungen konnten nicht gespeichert werden", {})],
+                )
 
     def test_malicious_cli_error_text_never_reaches_ui_callbacks(self) -> None:
         leaked = "OPENAI_API_KEY=private-secret-like-text"

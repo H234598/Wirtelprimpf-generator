@@ -7,6 +7,7 @@ import html
 import ipaddress
 import json
 import secrets
+import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
@@ -277,17 +278,33 @@ class _Handler(BaseHTTPRequestHandler):
         body = b""
         if length:
             previous_timeout = self.connection.gettimeout()
+            body_timed_out = False
             try:
-                self.connection.settimeout(self.request_body_timeout_seconds)
-                body = self.rfile.read(length)
+                deadline = time.monotonic() + self.request_body_timeout_seconds
+                chunks: list[bytes] = []
+                remaining = length
+                read_chunk = getattr(self.rfile, "read1", self.rfile.read)
+                while remaining:
+                    remaining_seconds = deadline - time.monotonic()
+                    if remaining_seconds <= 0:
+                        raise TimeoutError
+                    self.connection.settimeout(remaining_seconds)
+                    chunk = read_chunk(remaining)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                body = b"".join(chunks)
             except TimeoutError:
+                body_timed_out = True
+            finally:
+                self.connection.settimeout(previous_timeout)
+            if body_timed_out:
                 self.close_connection = True
                 self._write_admin_response(
                     _json_response(408, {"ok": False, "error": "request body timeout"})
                 )
                 return
-            finally:
-                self.connection.settimeout(previous_timeout)
             if len(body) != length:
                 self.close_connection = True
                 self._write_admin_response(

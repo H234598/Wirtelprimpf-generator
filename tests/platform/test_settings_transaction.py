@@ -124,6 +124,27 @@ class SettingsTransactionTests(unittest.TestCase):
         self.assertEqual(caught.exception.fields, ("site_title",))
         self.assertEqual(self.paths.env_file.read_bytes(), external)
 
+    def test_base_value_comparison_does_not_coerce_boolean_to_integer(self) -> None:
+        base = self.manager.snapshot()
+        self.paths.env_file.write_text(
+            self.paths.env_file.read_text(encoding="utf-8")
+            + "WIRTELPRIMPF_STORY_FINISH_PARTS_MIN=1\n",
+            encoding="utf-8",
+        )
+        external = self.paths.env_file.read_bytes()
+
+        with self.assertRaises(SettingsConflict) as caught:
+            self.manager.apply(
+                self.request(
+                    base.revision,
+                    {"story_finish_parts_min": 2},
+                    {"story_finish_parts_min": True},
+                )
+            )
+
+        self.assertEqual(caught.exception.fields, ("story_finish_parts_min",))
+        self.assertEqual(self.paths.env_file.read_bytes(), external)
+
     def test_every_stale_secret_action_is_rejected_without_exposing_the_secret(self) -> None:
         base = self.manager.snapshot()
         self.paths.env_file.write_text(
@@ -178,6 +199,48 @@ class SettingsTransactionTests(unittest.TestCase):
         self.assertEqual(self.paths.env_file.read_bytes(), before_env)
         self.assertFalse(self.paths.cloudflare_token_file.exists())
         self.assertEqual(self.systemd.configuration, before_timer)
+        self.assertEqual(self.systemd.apply_calls, 0)
+        self.assertEqual(self.systemd.restore_calls, 0)
+
+    def test_validator_receives_exact_post_write_raw_environment_and_rolls_back(self) -> None:
+        self.paths.env_file.write_text(
+            self.paths.env_file.read_text(encoding="utf-8")
+            + "WIRTELPRIMPF_STORY_FINISH_PARTS_MIN=99\n"
+            + "WIRTELPRIMPF_STORY_FINISH_PARTS_MAX=5\n",
+            encoding="utf-8",
+        )
+        before = self.paths.env_file.read_bytes()
+        observed_raw_values: list[str | None] = []
+
+        def validate_raw(values: dict[str, str]) -> None:
+            raw_value = values.get("WIRTELPRIMPF_STORY_FINISH_PARTS_MIN")
+            observed_raw_values.append(raw_value)
+            if raw_value == "99":
+                raise RuntimeError("raw persisted setting is invalid")
+
+        manager = SettingsManager(
+            self.paths,
+            systemd=self.systemd,
+            validator=validate_raw,
+        )
+        base = manager.snapshot()
+        self.assertIn(
+            "invalid_persisted_setting:story_finish_parts_min",
+            base.warnings,
+        )
+
+        with self.assertRaises(SettingsApplyFailure) as caught:
+            manager.apply(
+                self.request(
+                    base.revision,
+                    {"site_title": "Unrelated change"},
+                    {"site_title": "Original"},
+                )
+            )
+
+        self.assertTrue(caught.exception.rollback_succeeded)
+        self.assertEqual(observed_raw_values, ["99"])
+        self.assertEqual(self.paths.env_file.read_bytes(), before)
         self.assertEqual(self.systemd.apply_calls, 0)
         self.assertEqual(self.systemd.restore_calls, 0)
 

@@ -225,15 +225,77 @@ function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const FORM_SETTING_KINDS = Object.freeze({
+  operandi: "string",
+  image_model: "string",
+  story_model: "string",
+  image_size: "string",
+  output_resolution: "string",
+  generation_interval_minutes: "integer",
+  story_finish_parts_min: "integer",
+  story_finish_parts_max: "integer",
+  publish_immediately: "boolean",
+  site_title: "string",
+  site_intro: "string",
+});
+const FORM_CHOICE_KEYS = Object.freeze([
+  "operandi",
+  "image_model",
+  "story_model",
+  "image_size",
+  "output_resolution",
+]);
+
+function settingValueMatchesKind(value, kind) {
+  if (kind === "boolean") return typeof value === "boolean";
+  if (kind === "integer") return Number.isInteger(value);
+  return typeof value === "string";
+}
+
+function isPublicSettingsSnapshot(snapshot, requireSuccess) {
+  return isRecord(snapshot)
+    && (!requireSuccess || snapshot.ok === true)
+    && typeof snapshot.schema_version === "string"
+    && snapshot.schema_version.length > 0
+    && typeof snapshot.revision === "string"
+    && /^[0-9a-f]{64}$/.test(snapshot.revision)
+    && isRecord(snapshot.settings)
+    && Object.entries(FORM_SETTING_KINDS).every(
+      ([name, kind]) => Object.hasOwn(snapshot.settings, name)
+        && settingValueMatchesKind(snapshot.settings[name], kind),
+    )
+    && isRecord(snapshot.choices)
+    && FORM_CHOICE_KEYS.every((name) => Object.hasOwn(snapshot.choices, name))
+    && Object.values(snapshot.choices).every(
+      (values) => Array.isArray(values)
+        && values.length > 0
+        && values.every((value) => typeof value === "string"),
+    )
+    && isRecord(snapshot.secrets)
+    && typeof snapshot.secrets.openai_api_key_present === "boolean"
+    && typeof snapshot.secrets.cloudflare_api_token_present === "boolean"
+    && Object.values(snapshot.secrets).every((value) => typeof value === "boolean")
+    && isRecord(snapshot.invariants)
+    && Array.isArray(snapshot.warnings)
+    && snapshot.warnings.every((warning) => typeof warning === "string");
+}
+
+export function isSettingsSnapshot(snapshot) {
+  return isPublicSettingsSnapshot(snapshot, true);
+}
+
+export function acceptInitialSettingsSnapshot(snapshot, interactionGate) {
+  if (!isSettingsSnapshot(snapshot)) {
+    throw new TypeError("complete settings snapshot required");
+  }
+  const state = new FormSyncState(snapshot);
+  interactionGate.markReady();
+  return state;
+}
+
 export function isConflictPayload(data) {
   return isRecord(data)
-    && isRecord(data.snapshot)
-    && typeof data.snapshot.revision === "string"
-    && data.snapshot.revision.length > 0
-    && isRecord(data.snapshot.settings)
-    && isRecord(data.snapshot.choices)
-    && isRecord(data.snapshot.secrets)
-    && isRecord(data.snapshot.invariants)
+    && isPublicSettingsSnapshot(data.snapshot, false)
     && Array.isArray(data.conflicts)
     && data.conflicts.every((name) => typeof name === "string");
 }
@@ -378,16 +440,20 @@ async function bootstrap() {
   }
 
   function applySettingsSnapshot(snapshot) {
+    if (!isSettingsSnapshot(snapshot)) {
+      throw new TypeError("complete settings snapshot required");
+    }
     let visible;
+    let initialized = false;
     if (syncState === null) {
-      syncState = new FormSyncState(snapshot);
+      syncState = acceptInitialSettingsSnapshot(snapshot, interactionGate);
       visible = structuredClone(syncState.visible);
-      interactionGate.markReady();
-      setInterfaceEnabled(true);
+      initialized = true;
     } else {
       visible = syncState.mergeSnapshot(snapshot);
     }
     renderSettingsSnapshot(snapshot, visible);
+    if (initialized) setInterfaceEnabled(true);
   }
 
   function renderStatus(status) {
@@ -533,6 +599,9 @@ async function bootstrap() {
         if (!response.ok) {
           saveStatus.textContent = data.error || "Änderung abgelehnt.";
           return;
+        }
+        if (!isSettingsSnapshot(data)) {
+          throw new TypeError("complete settings snapshot required");
         }
         syncState.acceptSavedSnapshot(data);
         document.querySelector("#openai_api_key").value = "";

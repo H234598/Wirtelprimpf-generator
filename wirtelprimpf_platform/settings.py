@@ -513,16 +513,9 @@ class SettingsManager:
         else:
             self._cloudflare_store.delete()
 
-    def _generator_environment(self, proposed: Mapping[str, object]) -> dict[str, str]:
+    def _generator_environment(self) -> dict[str, str]:
         environment = _safe_process_environment()
         environment.update(self._environment_document().values)
-        for key, value in proposed.items():
-            env_name = SETTING_SPECS[key].env_name
-            if env_name is None:
-                continue
-            environment[env_name] = (
-                "1" if value is True else "0" if value is False else str(value)
-            )
         return environment
 
     @staticmethod
@@ -592,7 +585,8 @@ class SettingsManager:
                 sorted(
                     key
                     for key, base_value in request.base_values.items()
-                    if before.settings.get(key) != base_value
+                    if type(before.settings.get(key)) is not type(base_value)
+                    or before.settings.get(key) != base_value
                 )
             )
             if request.secret_actions and request.base_revision != before.revision:
@@ -619,7 +613,7 @@ class SettingsManager:
             try:
                 self._write_environment(validated, request.secret_actions)
                 self._write_cloudflare_secret(request.secret_actions)
-                self.validator(self._generator_environment(proposed))
+                self.validator(self._generator_environment())
                 if _TIMER_KEYS.intersection(validated):
                     requested_timer = self._timer_configuration(proposed)
                     timer_touched = True

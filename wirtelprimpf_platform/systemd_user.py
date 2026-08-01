@@ -90,6 +90,8 @@ def _default_runner(command: list[str], timeout: float) -> subprocess.CompletedP
 
 def _duration_seconds(value: str) -> int:
     normalized = value.strip()
+    if normalized == "0":
+        return 0
     total_seconds = 0.0
     position = 0
     component_found = False
