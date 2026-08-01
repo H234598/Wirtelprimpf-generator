@@ -70,6 +70,12 @@ class SystemdUnitTests(unittest.TestCase):
                 self.assertIn('SYSTEM_ROOT_UID="$(detect_system_root_uid)"', source)
                 self.assertNotIn('!= "$CURRENT_UID" && "$resolved_owner" != 0', source)
 
+    def test_full_check_tmpdir_cannot_be_redirected_by_environment(self) -> None:
+        source = (ROOT / "Sourcecode/check_wirtelprimpf.sh").read_text(encoding="utf-8")
+        invocation = 'mktemp -d -p "$CHECK_TMP_BASE_DIR" wirtelprimpf-check-XXXXXX'
+        self.assertIn(invocation, source)
+        self.assertNotIn('mktemp -d -p "$CHECK_TMP_BASE_DIR" -t', source)
+
 
 if __name__ == "__main__":
     unittest.main()

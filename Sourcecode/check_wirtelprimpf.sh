@@ -316,7 +316,7 @@ if ! mkdir -p "$CHECK_TMP_BASE_DIR"; then
   echo "Failed to create check temp base directory: ${CHECK_TMP_BASE_DIR}" >&2
   exit 1
 fi
-if ! CHECK_TMPDIR="$(mktemp -d -p "$CHECK_TMP_BASE_DIR" -t wirtelprimpf-check-XXXXXX)"; then
+if ! CHECK_TMPDIR="$(mktemp -d -p "$CHECK_TMP_BASE_DIR" wirtelprimpf-check-XXXXXX)"; then
   echo "Failed to create temporary directory" >&2
   exit 1
 fi
