@@ -2586,3 +2586,79 @@ Do not start public deployment merely because Task 10 is green. First compare th
   kein Merge, keine Cloudflare-/DNS-Mutation, kein Cinnamon-Upstream-Fix und
   keine sonstige Systemmutation. Die Public-Copy-Tasks bleiben bis zum
   vereinbarten Review-Checkpoint unangetastet.
+
+### 2026-08-01 — Additive Schlussreview-Präzisierung des Transaktionsvertrags
+
+- Dieser Eintrag superseded ausschließlich überholte technische Aussagen in
+  älteren Ledgerabschnitten; sie bleiben als Historie unverändert lesbar. Der
+  finale lokale Härtungscommit ist
+  `50c4ec94df1769fee788a3331714a74a28fb358d`
+  (`fix(settings): harden transactional client boundaries`). Er enthält zehn
+  Produktions-/Testdateien mit 599 Einfügungen und 44 Entfernungen.
+- Die frühere Formulierung „10-/90-s-Prozesszeitlimits“ gilt nicht mehr für
+  Writes. Der Applet-`snapshot` bleibt auf zehn Sekunden begrenzt. Applet-
+  `apply` besitzt **keinen** `subprocess.run`-Killtimeout: Ein
+  Präsentationsclient darf den einzigen Transaktionseigner niemals zwischen
+  Write, Generatorvalidierung und Rollback töten. Die vom CLI gestarteten
+  externen Teiloperationen bleiben an ihren jeweiligen Servergrenzen begrenzt.
+  Der separate HTTP-Livesmoke verwendet für POST einen endlichen 180-s-
+  Sockettimeout; ein unklarer Clientausgang wird per Revision reconciled und
+  nicht blind wiederholt oder als Ownership angenommen.
+- Ein neuer kanonischer Paritätstest bindet den Applet-Präsentationsvertrag an
+  alle 37 `SETTING_SPECS` mit `applet_visible=True` einschließlich exakter
+  String-/Integer-/Boolean-Typen. Erfolgreiche CLI-Antworten, Refreshes, Saves
+  und Konfliktsnapshots müssen außerdem sämtliche Pflichtkataloge nichtleer,
+  Secret-Präsenz, Invarianten und Warnungen enthalten. Malformed/partielle
+  409-Antworten verändern weder Serverbasis noch lokale Entwürfe; Fehler aus
+  diesem Callbackpfad werden redigiert und können nicht in die GTK-Schleife
+  entweichen.
+- Derselbe fail-closed Grundsatz gilt im Browser: elf dargestellte Felder und
+  fünf Dropdownkataloge werden vor Initialisierung, Poll-Merge, Save-Accept und
+  409-Merge vollständig und typstreng geprüft. Die Admininteraktion bleibt bis
+  zum ersten vollständigen Erfolgssnapshot gesperrt. Bild- und Storymodell sind
+  damit nicht nur gemeinsame Dropdowns, sondern werden bei einem leeren oder
+  fehlenden Katalog auch nicht als scheinbar sichere Freitext-/Teiloberfläche
+  freigegeben.
+- Die Servertransaktion vergleicht stale Basen typstreng, sodass Python-
+  Gleichheiten wie `True == 1` keinen Konflikt umgehen. Der Generatorvalidator
+  erhält exakt die nach dem Write erneut geparsten persistenten Rohwerte statt
+  eines normalisierten Proposal-Overlays. Ein Regressionstest persistiert
+  absichtlich einen ungültigen Rohwert, ändert ein anderes Feld und belegt:
+  Validatorfehler, byteidentisches Rollback, null systemd-Mutation.
+- Die lokale HTTP-Grenze liest Bodyteile gegen eine einzige absolute monotone
+  Frist. Der Slow-Drip-RED-Test belegte zusätzlich, dass die 408-Antwort zuvor
+  noch mit der fast abgelaufenen Restfrist geschrieben wurde. Nun stellt
+  `finally` zuerst den ursprünglichen Sockettimeout her; erst danach folgt der
+  Responsewrite. systemd-Dauern akzeptieren die reale exakte nackte Null, aber
+  weiterhin keine andere einheitenlose Zahl.
+- RED-Evidenz: initialer Fokus über 66 Python-Verträge mit sechs erwarteten
+  Assertionfehlern und einem erwarteten Fehler, dazu zwei erwartete Node-
+  Fehlschläge; anschließend separate rote Verträge für semantisch partielle
+  Snapshots, leere Pflichtkataloge und den Sockettimeout beim 408-Write.
+  GREEN-Evidenz nach der letzten Änderung: Plattform `143/143`; vollständiges
+  `make check` mit Admin-UI `23/23`, Applet-Sync `23/23`, Settings-Schema
+  `12/12`, Story-Directives `31/31` und allen übrigen Suiten; Web `9/9`; Astro
+  22 Dateien ohne Fehler, Warnungen oder Hinweise; `compileall`, Ruff über alle
+  geänderten Pythonpfade und `git diff --check` ohne Befund. Der unabhängige
+  Rootfokus bestand 68/68 Python und 23/23 Node.
+- Der nachgelagerte Rolloutplan
+  `2026-08-01-public-site-copy-and-rollout.md` enthält jetzt den vollständigen
+  operativen Transaktionsrahmen: Generatorquieszenz vor jeder Recoverymutation,
+  gemeinsamer Settings-Lock über Deploy- und Rollback-Codewechsel,
+  automatische Restoreaktionen ausschließlich für Installartefakte, rein
+  klassifizierende/preservierende Config-Recovery, Modussicherung der drei vom
+  Installer gehärteten Elternverzeichnisse, getrennte Timer-Enablement- und
+  Activity-Phasen sowie eine dreizuständige Git-Commitpoint-Prüfung
+  (`old`, `target`, `unknown`). Der isolierte Failure-Harness belegt sämtliche
+  Reihenfolgen, Lock-/Timeoutpfade, den Merge-zu-Flag-Signalrand, Third-SHA,
+  Configkonkurrenz und `0755 -> 0700 -> 0755`; Step 9 und Step 10 bestehen
+  Syntaxprüfung, Step 10 zusätzlich den realen disposable Lauf.
+- Die beiden vollständigen Webprofile blieben unverändert reproduzierbar:
+  Hub-SHA-256
+  `0acc6695654d3e82e450a3467d96995da89e59d954d00340d5a5028916ab1bb6`,
+  Archiv-SHA-256
+  `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`,
+  jeweils 823 Dateien, 818 HTML und 10.840 geprüfte interne Links.
+- Diese Runde endete absichtlich vor Remote- und Runtimeaktionen. Es erfolgten
+  kein Push, PR-Write, Merge, Install, Reload, Deploy, Service-/Timerwrite,
+  Cinnamon-Appletreload, Cloudflare-/DNS-Zugriff oder Upstream-Fix.
