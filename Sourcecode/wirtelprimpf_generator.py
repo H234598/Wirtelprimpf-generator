@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import errno
+import fcntl
 import json
 import os
 import random
@@ -16,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -882,6 +885,39 @@ def read_story_state(path: Path) -> StoryState:
     )
 
 
+@contextmanager
+def _exclusive_story_state_lock(path: Path):
+    """Coordinate generator state transitions with the Cinnamon editor."""
+
+    path = Path(path).expanduser()
+    parent = path.parent
+    if parent.exists() and parent.is_symlink():
+        raise RuntimeError(f"Story state parent must not be a symlink: {parent}")
+    parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not parent.is_dir() or parent.is_symlink():
+        raise RuntimeError(f"Story state parent must be a regular directory: {parent}")
+    lock_path = path.with_name(f".{path.name}.lock")
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise RuntimeError(f"Story state lock must not be a symlink: {lock_path}") from exc
+        raise
+    locked = False
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise RuntimeError(f"Story state lock must be a regular file: {lock_path}")
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        locked = True
+        yield
+    finally:
+        if locked:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
 def write_story_state(path: Path, state: StoryState) -> None:
     payload = {
         "current_volume": state.current_volume,
@@ -890,7 +926,8 @@ def write_story_state(path: Path, state: StoryState) -> None:
         "pending_new_volume": state.pending_new_volume,
         "close_request_seen": state.close_request_seen,
     }
-    write_text_atomically(path, json.dumps(payload, indent=2, ensure_ascii=False))
+    with _exclusive_story_state_lock(path):
+        write_text_atomically(path, json.dumps(payload, indent=2, ensure_ascii=False))
 
 
 def prepare_story_state_for_plan(config: Config, *, dry_run: bool) -> tuple[StoryState, Path, str]:

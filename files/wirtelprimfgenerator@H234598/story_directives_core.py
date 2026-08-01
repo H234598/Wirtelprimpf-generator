@@ -121,15 +121,13 @@ def _ensure_safe_parent(path: Path) -> None:
 
 
 @contextmanager
-def _exclusive_ledger_lock(path: Path):
-    """Serialize complete ledger transactions via a stable sibling lock file."""
-
+def _exclusive_file_lock(path: Path, *, label: str):
     path = Path(path).expanduser()
     _ensure_safe_parent(path)
     lock_path = path.with_name(f".{path.name}.lock")
     descriptor = _open_regular_fd(
         lock_path,
-        label="story directive ledger lock",
+        label=label,
         flags=os.O_RDWR | os.O_CREAT,
     )
     assert descriptor is not None
@@ -143,6 +141,22 @@ def _exclusive_ledger_lock(path: Path):
         if locked:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
         os.close(descriptor)
+
+
+@contextmanager
+def _exclusive_ledger_lock(path: Path):
+    """Serialize complete ledger transactions via a stable sibling lock file."""
+
+    with _exclusive_file_lock(path, label="story directive ledger lock"):
+        yield
+
+
+@contextmanager
+def _exclusive_story_state_lock(path: Path):
+    """Coordinate editable-window checks with generator state transitions."""
+
+    with _exclusive_file_lock(path, label="story state lock"):
+        yield
 
 
 def atomic_write_text(path: Path, content: str, *, mode: int = 0o600) -> None:
@@ -289,9 +303,11 @@ def _validate_story_entry(key: str, value: object) -> None:
         key_volume = int(key)
     except ValueError as exc:
         raise ValueError(f"Story directive key must be a positive integer string: {key!r}") from exc
+    if key_volume < 1 or key != str(key_volume):
+        raise ValueError(f"Story directive key must be a canonical positive integer string: {key!r}")
     volume = value.get("volume")
     directive = value.get("directive")
-    if key_volume < 1 or not isinstance(volume, int) or isinstance(volume, bool):
+    if not isinstance(volume, int) or isinstance(volume, bool):
         raise ValueError(f"Story directive volume must be a positive integer: {key!r}")
     if volume != key_volume:
         raise ValueError(f"Story directive key and volume do not match: {key!r}")
@@ -449,6 +465,7 @@ def save_directives(
 def save_editable_window(
     path: Path,
     *,
+    state_path: Path,
     current_volume: int,
     directives: dict[int, str],
     now: str | None = None,
@@ -456,14 +473,18 @@ def save_editable_window(
 ) -> dict[str, object]:
     if not isinstance(current_volume, int) or isinstance(current_volume, bool) or current_volume < 1:
         raise ValueError("current_volume must be an integer >= 1")
-    expected = {current_volume, current_volume + 1, current_volume + 2}
-    actual = set(directives)
-    if actual != expected:
-        raise ValueError(
-            "editable story window changed; reload before saving "
-            f"(expected {sorted(expected)}, got {sorted(actual)})"
-        )
-    return save_directives(path, directives, now=now, source=source)
+    state_path = Path(state_path).expanduser()
+    with _exclusive_story_state_lock(state_path):
+        effective_volume = effective_current_volume(load_story_state(state_path))
+        expected = {effective_volume, effective_volume + 1, effective_volume + 2}
+        actual = set(directives)
+        if effective_volume != current_volume or actual != expected:
+            raise ValueError(
+                "editable story window changed; reload before saving "
+                f"(loaded current {current_volume}, effective current {effective_volume}, "
+                f"expected {sorted(expected)}, got {sorted(actual)})"
+            )
+        return save_directives(path, directives, now=now, source=source)
 
 
 def story_roles(

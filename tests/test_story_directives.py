@@ -22,6 +22,7 @@ CORE_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "story_directives_
 GENERATOR_PATH = ROOT / "Sourcecode" / "wirtelprimpf_generator.py"
 SERVICE_PATH = ROOT / "Sourcecode" / "systemd-user" / "wirtelprimpf.service"
 SOURCE_README_PATH = ROOT / "Sourcecode" / "README.md"
+STORY_GUIDE_PATH = ROOT / "Sourcecode" / "STORY_DIRECTIVES.md"
 MAKEFILE_PATH = ROOT / "Makefile"
 SETTINGS_SCHEMA_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "settings-schema.json"
 STORY_UI_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "StoryDirectives.py"
@@ -95,6 +96,26 @@ class StoryDirectivesCoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "positive integer"):
             self.core.validate_ledger(ledger)
 
+    def test_story_key_must_be_canonical_decimal(self):
+        ledger = {
+            "schema_version": 1,
+            "created_at": "2026-07-31T17:00:12Z",
+            "updated_at": "2026-07-31T17:00:12Z",
+            "migrations": {"story_iii_seeded": True},
+            "stories": {
+                "01": {
+                    "volume": 1,
+                    "directive": "Darf nicht still ignoriert werden",
+                    "created_at": "2026-07-31T17:00:12Z",
+                    "updated_at": "2026-07-31T17:00:12Z",
+                    "source": "test",
+                }
+            },
+        }
+
+        with self.assertRaisesRegex(ValueError, "canonical positive integer"):
+            self.core.validate_ledger(ledger)
+
     def test_cleared_story_iii_is_not_seeded_again(self):
         ledger_path = self.root / "story_directives.json"
         self.core.load_ledger(ledger_path, seed_story_iii=True, now="2026-07-31T17:00:12Z")
@@ -129,14 +150,96 @@ class StoryDirectivesCoreTests(unittest.TestCase):
 
     def test_editable_window_rejects_stale_or_past_volume(self):
         ledger_path = self.root / "story_directives.json"
+        state_path = self.root / "story_state.json"
+        state_path.write_text(json.dumps({"current_volume": 3}), encoding="utf-8")
         self.core.load_ledger(ledger_path, seed_story_iii=True)
 
         with self.assertRaisesRegex(ValueError, "editable story window changed"):
             self.core.save_editable_window(
                 ledger_path,
+                state_path=state_path,
                 current_volume=3,
                 directives={2: "Vergangenheit ändern", 3: "Aktuell", 4: "Nächste"},
             )
+
+    def test_editable_window_rejects_story_state_that_advanced_after_reload(self):
+        ledger_path = self.root / "story_directives.json"
+        state_path = self.root / "story_state.json"
+        state_path.write_text(json.dumps({"current_volume": 4}), encoding="utf-8")
+        self.core.load_ledger(ledger_path, seed_story_iii=True)
+
+        with self.assertRaisesRegex(ValueError, "editable story window changed"):
+            self.core.save_editable_window(
+                ledger_path,
+                state_path=state_path,
+                current_volume=3,
+                directives={3: "Inzwischen vergangen", 4: "Aktuell", 5: "Nächste"},
+            )
+
+        ledger = self.core.load_ledger(ledger_path, seed_story_iii=True)
+        self.assertNotIn("Inzwischen vergangen", json.dumps(ledger, ensure_ascii=False))
+
+    def test_generator_state_write_waits_for_editable_window_transaction(self):
+        generator = load_generator()
+        ledger_path = self.root / "story_directives.json"
+        state_path = self.root / "story_state.json"
+        state_path.write_text(json.dumps({"current_volume": 3}), encoding="utf-8")
+        save_entered = threading.Event()
+        release_save = threading.Event()
+        writer_done = threading.Event()
+        failures = []
+
+        def delayed_save(*_args, **_kwargs):
+            save_entered.set()
+            if not release_save.wait(5):
+                raise RuntimeError("test timed out while holding the state transaction")
+            return {}
+
+        def save_window():
+            try:
+                self.core.save_editable_window(
+                    ledger_path,
+                    state_path=state_path,
+                    current_volume=3,
+                    directives={3: "Aktuell", 4: "Nächste", 5: "Übernächste"},
+                )
+            except Exception as exc:
+                failures.append(exc)
+
+        def advance_state():
+            try:
+                generator.write_story_state(
+                    state_path,
+                    generator.StoryState(current_volume=4),
+                )
+            except Exception as exc:
+                failures.append(exc)
+            finally:
+                writer_done.set()
+
+        with mock.patch.object(self.core, "save_directives", side_effect=delayed_save):
+            saver = threading.Thread(target=save_window, name="directive-save")
+            saver.start()
+            reached_transaction = save_entered.wait(0.5)
+            writer = threading.Thread(target=advance_state, name="state-write")
+            if reached_transaction:
+                writer.start()
+                writer_finished_while_save_was_open = writer_done.wait(0.25)
+            else:
+                writer_finished_while_save_was_open = True
+            release_save.set()
+            saver.join(5)
+            if writer.ident is not None:
+                writer.join(5)
+
+        self.assertTrue(reached_transaction, failures)
+        self.assertFalse(
+            writer_finished_while_save_was_open,
+            "story state writer bypassed the editable-window transaction lock",
+        )
+        self.assertFalse(failures)
+        self.assertFalse(saver.is_alive())
+        self.assertFalse(writer.is_alive())
 
     def test_pending_new_volume_advances_effective_volume(self):
         self.assertEqual(
@@ -406,6 +509,14 @@ class StoryDirectivesIntegrationTests(unittest.TestCase):
         self.assertIn(helper_target, readme)
         self.assertLess(readme.index(helper_source), readme.index(service_source))
 
+    def test_source_guides_use_only_the_current_generator_runtime_paths(self):
+        for path in (SOURCE_README_PATH, STORY_GUIDE_PATH):
+            with self.subTest(path=path):
+                text = path.read_text(encoding="utf-8")
+                self.assertNotIn("~/.local/share/wirtelprimpf-venv", text)
+                self.assertNotIn("~/.local/bin/wirtelprimpf_generator.py", text)
+                self.assertIn("~/.local/share/wirtelprimpf-generator/.venv", text)
+
     def test_make_check_compiles_and_runs_story_directives(self):
         result = subprocess.run(
             ["make", "-n", "check"],
@@ -453,7 +564,10 @@ class StoryDirectivesIntegrationTests(unittest.TestCase):
         editor._buffer_text = mock.Mock(side_effect=lambda _buffer: "Vorgabe")
         editor._read_context = mock.Mock(
             return_value=(
-                {"ledger": Path("/test/ledger.json")},
+                {
+                    "ledger": Path("/test/ledger.json"),
+                    "state": Path("/test/story-state.json"),
+                },
                 3,
                 {},
                 {},

@@ -311,10 +311,10 @@ as the systemd service does:
 set -a
 . ~/.config/wirtelprimpf/openai.env
 set +a
-~/.local/share/wirtelprimpf-venv/bin/python \
+~/.local/share/wirtelprimpf-generator/.venv/bin/python \
   ~/.local/bin/wirtelprimpf-story-directives \
   apply --env-file ~/.config/wirtelprimpf/openai.env
-~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py
+~/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator
 ```
 
 ### Wiederhol-Checks bei Versionssprung
@@ -413,20 +413,20 @@ Der Dienst läuft im Dauermodus:
 Validation helpers:
 
 ```bash
-~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --check-config
-~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --status --json
-~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --dry-run
-~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --json
-~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --version
+~/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator --check-config
+~/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator --status --json
+~/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator --dry-run
+~/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator --json
+~/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator --version
 ```
 
 Optional mit Repo-Kontext für patch-state-reiche Checks:
 
 ```bash
 WIRTELPRIMPF_REPO_PATH=/path/to/local/git/repo WIRTELPRIMPF_REPO_SLUG= WIRTELPRIMPF_REPO_BRANCH=main \
-  ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --check-config --json
+  ~/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator --check-config --json
 WIRTELPRIMPF_REPO_PATH=/path/to/local/git/repo WIRTELPRIMPF_REPO_SLUG= WIRTELPRIMPF_REPO_BRANCH=main \
-  ~/.local/share/wirtelprimpf-venv/bin/python ~/.local/bin/wirtelprimpf_generator.py --dry-run --json
+  ~/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator --dry-run --json
 ```
 
 ### Machine-readable status

@@ -8,6 +8,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
+from wirtelprimpf_platform.catalog import CatalogEntry, CatalogStore, PublicationCatalog
 from wirtelprimpf_platform.cli import main as cli_main
 from wirtelprimpf_platform.naming import (
     ARCHIVE_CAPACITY,
@@ -25,6 +26,8 @@ from wirtelprimpf_platform.state import (
     finish_rotation,
     status_to_dict,
 )
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class NamingTests(unittest.TestCase):
@@ -173,6 +176,39 @@ class PlatformStateTests(unittest.TestCase):
             "rotation": None,
         }))
         self.assertNotIn("book", persisted)
+
+
+class CatalogBookContractTests(unittest.TestCase):
+    def test_checked_in_book_fixture_loads_and_store_round_trip_preserves_fields(self) -> None:
+        fixture = ROOT / "web" / "fixtures" / "site" / "publication-catalog.json"
+
+        catalog = CatalogStore(fixture).load()
+
+        entry = catalog.entry(1)
+        self.assertIsNotNone(entry)
+        assert entry is not None
+        self.assertEqual((entry.book_start, entry.book_end), (1, 5))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "publication-catalog.json"
+            stored = PublicationCatalog(
+                active_archive_index=1,
+                archives=(
+                    CatalogEntry.for_archive(
+                        1,
+                        owner="H234598",
+                        active=True,
+                        sealed=False,
+                        verified=True,
+                        revision="a" * 40,
+                    ),
+                ),
+            )
+            CatalogStore(target).save(stored)
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            self.assertEqual(payload["archives"][0]["book_start"], 1)
+            self.assertEqual(payload["archives"][0]["book_end"], 5)
+            self.assertEqual(CatalogStore(target).load(), stored)
 
 
 class StateStoreTests(unittest.TestCase):

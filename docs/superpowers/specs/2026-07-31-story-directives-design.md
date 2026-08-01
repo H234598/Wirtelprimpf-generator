@@ -126,6 +126,7 @@ Ohne Vorgabe wird die verwaltete Sektion entfernt. Andere Promptabschnitte und l
 - Dateien werden über temporäre Dateien im Zielverzeichnis und `os.replace` geschrieben.
 - Das Register und die Promptdatei erhalten nach verwalteten Schreibvorgängen Modus `0600`.
 - Ein veraltetes editierbares Dreierfenster wird nicht gespeichert.
+- Der Generator und der Einstellungseditor verwenden dieselbe stabile Story-State-Lockdatei. Der Editor liest den effektiven Band unter diesem Lock erneut und hält ihn bis zum abgeschlossenen Ledger-Schreibvorgang, sodass ein paralleler Storyabschluss kein vergangenes Fenster beschreibbar macht.
 - Der CLI-Befehl beendet sich bei Fehlern ungleich null, sodass systemd den Storylauf blockiert statt mit falschen Vorgaben fortzufahren.
 
 ## Tests

@@ -69,10 +69,10 @@ Dadurch wird Story III bereits vor ihrem ersten erzeugten Teil mit ihrer Story-I
 
 ## Anwendung vor jedem Generatorlauf
 
-Die systemd-User-Unit führt vor `wirtelprimpf_generator.py` folgenden Schritt aus:
+Die systemd-User-Unit führt vor dem installierten `wirtelprimpf-generator`-Entry-Point folgenden Schritt aus:
 
 ```bash
-~/.local/share/wirtelprimpf-venv/bin/python \
+~/.local/share/wirtelprimpf-generator/.venv/bin/python \
   ~/.local/bin/wirtelprimpf-story-directives \
   apply --env-file ~/.config/wirtelprimpf/openai.env
 ```
@@ -118,6 +118,7 @@ Leere editierbare Felder entfernen die Vorgabe des betreffenden zukünftigen ode
 - Nach verwalteten Schreibvorgängen gilt Dateimodus `0600`.
 - Environment, State, Register und Promptdatei werden mit `O_NOFOLLOW` geöffnet, auf demselben Dateideskriptor per `fstat` als reguläre Dateien validiert und erst danach gelesen.
 - Vollständige Ledger-Transaktionen werden über eine stabile, private Lockdatei exklusiv serialisiert; parallele Änderungen können sich dadurch nicht gegenseitig überschreiben.
+- Das Speichern des editierbaren Dreierfensters hält zusätzlich denselben Story-State-Lock wie der Generator, liest den effektiven Band unter diesem Lock erneut und verhindert so einen gleichzeitigen Übergang in einen inzwischen vergangenen Band.
 - Das JSON-Schema akzeptiert nur positive, konsistente Bandnummern und Vorgaben bis 20.000 Zeichen.
 - Nur das aktuell gültige Dreierfenster kann über die Oberfläche gespeichert werden.
 - Der Kern verwendet ausschließlich die Python-Standardbibliothek.

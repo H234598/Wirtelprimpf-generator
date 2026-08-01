@@ -249,6 +249,7 @@ class StoryDirectivesEditor(SettingsWidget):
             }
             core.save_editable_window(
                 paths["ledger"],
+                state_path=paths["state"],
                 current_volume=current_volume,
                 directives=directives,
                 source="cinnamon-settings",
