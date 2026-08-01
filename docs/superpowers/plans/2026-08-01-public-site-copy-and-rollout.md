@@ -313,6 +313,48 @@ git -C /home/teladi/.local/share/wirtelprimpf-generator rev-parse HEAD
 
 Expected: local main is clean and equals `origin/main`. Record the printed 40-character SHA as the only factory reference permitted in Task 5.
 
+#### Verbindliches Execution-Context-Erratum für Task 3 Step 5 und Task 4
+
+Die Tool-Shell dieser Ausführung läuft als UID 0. Der Runtime-Checkout darf
+deshalb in Task 3 Step 5 **nicht** mit einem unqualifizierten Root-`git`
+aktualisiert werden. `fetch`, `switch`, `pull`, `rev-parse`, Status- und
+Eigentümerprüfungen für
+`/home/teladi/.local/share/wirtelprimpf-generator` laufen ausschließlich als
+UID/GID `teladi`.
+
+Ebenso laufen ausnahmslos **alle** Task-4-Operationen, insbesondere Befehle mit
+`$HOME`, venv/Pip, Backup und Wiederherstellung, `install-local.sh`,
+`systemctl --user`, der Curl-Livesmoke und `gdbus`, als UID/GID `teladi` mit
+diesem expliziten Kontext:
+
+```bash
+runuser -u teladi -- env \
+  HOME=/home/teladi \
+  USER=teladi \
+  LOGNAME=teladi \
+  XDG_RUNTIME_DIR=/run/user/1000 \
+  DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \
+  PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  <Befehl>
+```
+
+Mehrzeilige Shellblöcke werden mit genau dieser Umgebung an eine Shell unter
+`runuser -u teladi` übergeben; sie dürfen nicht teilweise vorab von der
+Root-Shell expandiert werden. Bei einer Authentifizierungs-, Eigentümer- oder
+`safe.directory`-Hürde wird pausiert und berichtet; sie darf nicht durch eine
+Root-Ausführung oder eine globale Vertrauensausnahme umgangen werden. Nach dem
+Task-3-Update sind Eigentümer, sauberer Status sowie Gleichheit von `HEAD` und
+`origin/main` explizit zu prüfen.
+
+Die zuvor aus der Root-Session beobachteten Ausgaben `LoadState=not-found` und
+DBus `ServiceUnknown` betrafen die falsche Benutzerinstanz und sind als
+Laufzeitbefund ungültig. Eine read-only Prüfung im korrekten `teladi`-Kontext
+bestätigte stattdessen: Timer geladen/aktiv/enabled, Generator
+inactive/success, Admin active/running und das Wirtel-Applet laufend. Dieses
+Erratum autorisiert in Task 3 keinen Task-4-Schritt; Installation, Backup,
+Service-/Timeränderung, Livesmoke und Applet-Reload bleiben bis Task 4
+ausgesetzt.
+
 ### Task 4: Private backup, merged local install, targeted reload, and live synchronization smoke
 
 **Files:**
