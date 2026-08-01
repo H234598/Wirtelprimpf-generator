@@ -2492,6 +2492,16 @@ Do not start public deployment merely because Task 10 is green. First compare th
   Limits umstellen und dies mit einem tatsächlich endlosen/übergroßen Fake-
   Prozess beweisen; bis dahin darf die 1-MiB-Prüfung nur als nachgelagerte
   Antwortgrößenvalidierung beschrieben werden.
+- Der unabhängige Root-Review fand anschließend, dass ein einzelner Gio-
+  Monitorfehler den Editor-Initpfad noch abbrechen konnte. `d13b4bf`
+  (`fix(applet): isolate optional monitor failures`) isoliert Fehler nun je
+  Zielpfad: Initialsnapshot, übrige Monitore und 30-s-Fallback bleiben aktiv;
+  Fokus- und Fallback-Zyklen versuchen fehlgeschlagene Ziele erneut zu
+  installieren. Damit wird ein später vorhandener Drop-in-Elternpfad ohne
+  Editor-Neustart wieder beobachtbar. Der RED-Test scheiterte zuvor direkt am
+  simulierten `OSError`; danach waren 18/18 Sync-Verträge, die fokussierte
+  55/55-Matrix, `py_compile`, `git diff --check` und das vollständige
+  `make check` grün.
 
 ### 2026-08-01 — zurückgenommener Packaging-Smoke nach Task 5
 
