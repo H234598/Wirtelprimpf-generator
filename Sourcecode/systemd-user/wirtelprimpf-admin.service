@@ -5,12 +5,17 @@ After=default.target
 [Service]
 Type=simple
 WorkingDirectory=%h/.local/share/wirtelprimpf-generator
+RuntimeDirectory=wirtelprimpf-admin
+RuntimeDirectoryMode=0700
 EnvironmentFile=-%h/.config/wirtelprimpf/openai.env
+Environment=TMPDIR=%t/wirtelprimpf-admin
+Environment=TMP=%t/wirtelprimpf-admin
+Environment=TEMP=%t/wirtelprimpf-admin
 ExecStart=%h/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-admin --settings %h/.config/wirtelprimpf/openai.env --host 127.0.0.1 --port 8765
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=true
-PrivateTmp=true
+PrivateTmp=false
 PrivateDevices=true
 ProtectSystem=full
 ProtectHome=read-only
