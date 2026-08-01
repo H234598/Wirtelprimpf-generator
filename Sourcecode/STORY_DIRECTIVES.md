@@ -116,7 +116,8 @@ Leere editierbare Felder entfernen die Vorgabe des betreffenden zukünftigen ode
 
 - Register und verwaltete Promptdatei werden atomar geschrieben.
 - Nach verwalteten Schreibvorgängen gilt Dateimodus `0600`.
-- Symlink-Ziele für Environment, State, Register und Promptdatei werden abgelehnt.
+- Environment, State, Register und Promptdatei werden mit `O_NOFOLLOW` geöffnet, auf demselben Dateideskriptor per `fstat` als reguläre Dateien validiert und erst danach gelesen.
+- Vollständige Ledger-Transaktionen werden über eine stabile, private Lockdatei exklusiv serialisiert; parallele Änderungen können sich dadurch nicht gegenseitig überschreiben.
 - Das JSON-Schema akzeptiert nur positive, konsistente Bandnummern und Vorgaben bis 20.000 Zeichen.
 - Nur das aktuell gültige Dreierfenster kann über die Oberfläche gespeichert werden.
 - Der Kern verwendet ausschließlich die Python-Standardbibliothek.

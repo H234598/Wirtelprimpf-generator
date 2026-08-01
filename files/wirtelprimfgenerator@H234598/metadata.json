@@ -1,12 +1,12 @@
 {
   "uuid": "wirtelprimfgenerator@H234598",
   "name": "Wirtelprimfgenerator Story Menu",
-  "description": "Cinnamon applet for H234598/Wirtelprimpf-generator: local latest images, story files, story parts, archive warning and TTS reading state.",
-  "version": "0.7.2",
-  "comments": "Version: 0.7.2",
+  "description": "Cinnamon applet for H234598/Wirtelprimpf-generator: local latest images, story files, story parts, per-story directives, book/archive progress and TTS reading state.",
+  "version": "0.8.0",
+  "comments": "Version: 0.8.0",
   "icon": "image-x-generic",
   "author": "H234598",
   "max-instances": 1,
   "multiversion": false,
-  "last-edited": 1785549321
+  "last-edited": 1785551975
 }

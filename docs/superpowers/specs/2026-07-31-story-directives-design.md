@@ -58,6 +58,8 @@ Vorteile: eindeutiges Schema, atomar speicherbar, leicht testbar, historisch sta
 ```json
 {
   "schema_version": 1,
+  "created_at": "2026-07-31T17:00:12Z",
+  "updated_at": "2026-07-31T17:00:12Z",
   "migrations": {
     "story_iii_seeded": true
   },

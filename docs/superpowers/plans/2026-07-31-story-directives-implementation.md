@@ -257,3 +257,18 @@ Der PR bleibt bis zur bestätigten externen Gate-Evidenz im Draftstatus. Ein zuv
 - Der bestehende GitHub-Actions-Workflow ist sparse, reproduzierbar und grün.
 - Draft-PR #2 ist geöffnet, konfliktfrei und mergebar.
 - `main` blieb unverändert.
+
+## Portierung in das getrennte Generatorrepository am 1. August 2026
+
+Dieser Abschnitt ergänzt den historischen Katzenbilder-PR-Stand. Die inzwischen verbindliche Repositorytrennung verbietet gepflegten Generator-, Applet-, Helper-, Settings- oder systemd-Code im Publikationsarchiv. Deshalb wurden die fachlichen Autorenänderungen aus `H234598/Wirtelprimpf-0001#2` unter Erhalt ihrer Urheberschaft in einen isolierten Branch von `H234598/Wirtelprimpf-generator` portiert. Der rein CI-bezogene Commit `5ca769d` wurde ausgelassen, weil der aktuelle Generatorworkflow dessen Wirkung bereits vollständig und weitergehend enthält.
+
+Die sechs offenen CodeRabbit-Befunde wurden gegen den aktuellen Generatorstand erneut geprüft und testgetrieben behoben:
+
+- Checkout-Credentials werden in allen drei CI-Jobs nicht persistiert.
+- Das Ledgerbeispiel enthält die erzeugten Top-Level-Zeitstempel.
+- `bool` ist ausdrücklich keine gültige Bandnummer.
+- Sensible Dateien werden mit `O_NOFOLLOW` geöffnet, über denselben Deskriptor per `fstat` validiert und über `fdopen` gelesen.
+- Vollständige Ledger-Transaktionen sind mit `fcntl.flock` serialisiert; ein deterministischer Paralleltest verhindert verlorene Updates.
+- Die GTK-Oberfläche meldet eine fehlgeschlagene Prompt-Projektion getrennt von der bereits erfolgreichen Ledger-Speicherung und lädt den gespeicherten Stand neu.
+
+Die vier neuen Regressionen wurden zunächst rot nachgewiesen und sind anschließend grün. Der Story-Vorgaben-Teststand beträgt nun **21 von 21 Tests**. Die Appletversion für diese neue Einstellungs- und Laufzeitfunktion ist `0.8.0`. Externe Generator-PR-, CI- und Review-Gates werden erst nach dem vollständigen Repositorytest und dem abschließenden unabhängigen Review als abgeschlossen markiert.

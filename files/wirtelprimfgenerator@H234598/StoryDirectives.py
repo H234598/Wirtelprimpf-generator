@@ -253,13 +253,6 @@ class StoryDirectivesEditor(SettingsWidget):
                 directives=directives,
                 source="cinnamon-settings",
             )
-            applied = core.apply_active_directive(env_path=self.env_path)
-            self._reload()
-            action = "aktualisiert" if applied["directive_applied"] else "entfernt"
-            self._set_status(
-                "Gespeichert. Vorgabe für Story %s wurde im aktiven Prompt %s."
-                % (_roman(applied["current_volume"]), action)
-            )
         except ValueError as exc:
             if "editable story window changed" in str(exc):
                 self._reload()
@@ -271,6 +264,22 @@ class StoryDirectivesEditor(SettingsWidget):
                 self._set_status("Speichern fehlgeschlagen: %s" % exc)
         except Exception as exc:
             self._set_status("Speichern fehlgeschlagen: %s" % exc)
+        else:
+            try:
+                applied = core.apply_active_directive(env_path=self.env_path)
+            except Exception as exc:
+                self._reload()
+                self._set_status(
+                    "Die Vorgaben wurden gespeichert, aber die Übernahme in den aktiven "
+                    "Prompt ist fehlgeschlagen: %s" % exc
+                )
+                return
+            self._reload()
+            action = "aktualisiert" if applied["directive_applied"] else "entfernt"
+            self._set_status(
+                "Gespeichert. Vorgabe für Story %s wurde im aktiven Prompt %s."
+                % (_roman(applied["current_volume"]), action)
+            )
 
     def _on_refresh(self, _button):
         self._reload()

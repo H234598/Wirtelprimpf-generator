@@ -5,11 +5,16 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import stat
+import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,6 +74,26 @@ class StoryDirectivesCoreTests(unittest.TestCase):
         loaded_again = self.core.load_ledger(ledger_path, seed_story_iii=True)
 
         self.assertEqual(loaded_again["stories"]["3"]["directive"], custom)
+
+    def test_story_volume_rejects_boolean_even_when_key_is_one(self):
+        ledger = {
+            "schema_version": 1,
+            "created_at": "2026-07-31T17:00:12Z",
+            "updated_at": "2026-07-31T17:00:12Z",
+            "migrations": {"story_iii_seeded": True},
+            "stories": {
+                "1": {
+                    "volume": True,
+                    "directive": "Ungültiger Bool-Band",
+                    "created_at": "2026-07-31T17:00:12Z",
+                    "updated_at": "2026-07-31T17:00:12Z",
+                    "source": "test",
+                }
+            },
+        }
+
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            self.core.validate_ledger(ledger)
 
     def test_cleared_story_iii_is_not_seeded_again(self):
         ledger_path = self.root / "story_directives.json"
@@ -262,6 +287,86 @@ class StoryDirectivesCoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlink"):
             self.core.apply_active_directive(env_path=env_path)
 
+    def test_regular_file_reader_keeps_open_descriptor_when_path_is_replaced(self):
+        env_path = self.root / "openai.env"
+        moved_path = self.root / "openai.original"
+        attacker_path = self.root / "attacker.env"
+        env_path.write_text("SAFE=original\n", encoding="utf-8")
+        attacker_path.write_text("SAFE=attacker\n", encoding="utf-8")
+        original_fdopen = os.fdopen
+        swapped = threading.Event()
+
+        def replace_path_after_open(descriptor, *args, **kwargs):
+            env_path.rename(moved_path)
+            env_path.symlink_to(attacker_path)
+            swapped.set()
+            return original_fdopen(descriptor, *args, **kwargs)
+
+        with mock.patch.object(self.core.os, "fdopen", side_effect=replace_path_after_open):
+            values = self.core.read_env_file(env_path)
+
+        self.assertTrue(swapped.is_set(), "reader did not consume the already-open descriptor")
+        self.assertEqual(values["SAFE"], "original")
+
+    def test_concurrent_directive_saves_do_not_lose_an_update(self):
+        ledger_path = self.root / "story_directives.json"
+        self.core.load_ledger(ledger_path, seed_story_iii=True)
+        original_atomic_write_json = self.core.atomic_write_json
+        first_at_write = threading.Event()
+        release_first = threading.Event()
+        second_started = threading.Event()
+        second_done = threading.Event()
+        failures = []
+
+        def delayed_first_write(path, payload):
+            if threading.current_thread().name == "first-save":
+                first_at_write.set()
+                if not release_first.wait(5):
+                    raise RuntimeError("test timed out while holding the first write")
+            return original_atomic_write_json(path, payload)
+
+        def save(volume, directive, done=None):
+            try:
+                if done is second_done:
+                    second_started.set()
+                self.core.save_directives(ledger_path, {volume: directive})
+            except Exception as exc:  # collected and asserted in the test thread
+                failures.append(exc)
+            finally:
+                if done is not None:
+                    done.set()
+
+        with mock.patch.object(
+            self.core, "atomic_write_json", side_effect=delayed_first_write
+        ):
+            first = threading.Thread(
+                target=save, args=(4, "Vorgabe vier"), name="first-save"
+            )
+            second = threading.Thread(
+                target=save,
+                args=(5, "Vorgabe fünf", second_done),
+                name="second-save",
+            )
+            first.start()
+            self.assertTrue(first_at_write.wait(5), "first save did not reach its write")
+            second.start()
+            self.assertTrue(second_started.wait(5), "second save thread did not start")
+            second_finished_while_first_was_open = second_done.wait(0.25)
+            release_first.set()
+            first.join(5)
+            second.join(5)
+
+        self.assertFalse(
+            second_finished_while_first_was_open,
+            "second save bypassed the exclusive ledger transaction",
+        )
+        self.assertFalse(failures)
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        ledger = self.core.load_ledger(ledger_path, seed_story_iii=True)
+        self.assertEqual(ledger["stories"]["4"]["directive"], "Vorgabe vier")
+        self.assertEqual(ledger["stories"]["5"]["directive"], "Vorgabe fünf")
+
 
 class StoryDirectivesIntegrationTests(unittest.TestCase):
     def test_settings_schema_exposes_story_directives_page(self):
@@ -302,11 +407,75 @@ class StoryDirectivesIntegrationTests(unittest.TestCase):
         self.assertLess(readme.index(helper_source), readme.index(service_source))
 
     def test_make_check_compiles_and_runs_story_directives(self):
-        makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
+        result = subprocess.run(
+            ["make", "-n", "check"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
+        makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
         self.assertIn("story_directives_core.py", makefile)
         self.assertIn("StoryDirectives.py", makefile)
-        self.assertIn("tests/test_story_directives.py", makefile)
+        self.assertIn("-m unittest tests.test_story_directives", result.stdout)
+
+    def test_projection_failure_is_reported_after_successful_ledger_save(self):
+        ui_module_name = "story_directives_ui_under_test"
+        json_widgets = ModuleType("JsonSettingsWidgets")
+        json_widgets.SettingsWidget = object
+        gi_module = ModuleType("gi")
+        repository_module = ModuleType("gi.repository")
+        repository_module.Gtk = SimpleNamespace()
+        previous_modules = {
+            name: sys.modules.get(name)
+            for name in ("JsonSettingsWidgets", "gi", "gi.repository")
+        }
+        sys.modules["JsonSettingsWidgets"] = json_widgets
+        sys.modules["gi"] = gi_module
+        sys.modules["gi.repository"] = repository_module
+        try:
+            spec = importlib.util.spec_from_file_location(ui_module_name, STORY_UI_PATH)
+            if spec is None or spec.loader is None:
+                self.fail(f"Cannot load {STORY_UI_PATH}")
+            ui = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(ui)
+        finally:
+            for name, previous in previous_modules.items():
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        editor = object.__new__(ui.StoryDirectivesEditor)
+        editor.env_path = Path("/test/openai.env")
+        editor.editable_buffers = {3: object(), 4: object(), 5: object()}
+        editor._buffer_text = mock.Mock(side_effect=lambda _buffer: "Vorgabe")
+        editor._read_context = mock.Mock(
+            return_value=(
+                {"ledger": Path("/test/ledger.json")},
+                3,
+                {},
+                {},
+            )
+        )
+        editor._reload = mock.Mock()
+        editor._set_status = mock.Mock()
+
+        with mock.patch.object(ui.core, "save_editable_window") as save, mock.patch.object(
+            ui.core,
+            "apply_active_directive",
+            side_effect=RuntimeError("Prompt ist nicht erreichbar"),
+        ):
+            editor._on_save(None)
+
+        save.assert_called_once()
+        editor._reload.assert_called_once()
+        status_text = editor._set_status.call_args.args[0]
+        self.assertIn("gespeichert", status_text.lower())
+        self.assertIn("prompt", status_text.lower())
+        self.assertIn("nicht erreichbar", status_text.lower())
+        self.assertNotIn("speichern fehlgeschlagen", status_text.lower())
 
 
 if __name__ == "__main__":

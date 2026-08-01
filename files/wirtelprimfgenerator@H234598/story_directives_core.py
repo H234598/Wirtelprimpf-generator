@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import errno
+import fcntl
 import json
 import os
 import re
 import shlex
+import stat
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final
@@ -49,6 +53,64 @@ def _require_regular_non_symlink(path: Path, *, label: str, must_exist: bool = T
         raise ValueError(f"{label} must be a regular file: {path}")
 
 
+def _open_regular_fd(
+    path: Path,
+    *,
+    label: str,
+    flags: int = os.O_RDONLY,
+    mode: int = 0o600,
+    missing_ok: bool = False,
+) -> int | None:
+    """Open a regular file without following a final-component symlink."""
+
+    path = Path(path).expanduser()
+    secure_flags = flags | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, secure_flags, mode)
+    except FileNotFoundError:
+        if missing_ok:
+            return None
+        raise ValueError(f"{label} must be a regular file: {path}") from None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise ValueError(f"{label} must not be a symlink: {path}") from exc
+        raise
+
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"{label} must be a regular file: {path}")
+    except Exception:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _read_regular_text(
+    path: Path,
+    *,
+    label: str,
+    missing_ok: bool = False,
+    ensure_mode: int | None = None,
+) -> str | None:
+    """Read UTF-8 through the descriptor that was validated with ``fstat``."""
+
+    descriptor = _open_regular_fd(path, label=label, missing_ok=missing_ok)
+    if descriptor is None:
+        return None
+    try:
+        if ensure_mode is not None:
+            os.fchmod(descriptor, ensure_mode)
+        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+            descriptor = -1
+            return handle.read()
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{label} is not valid UTF-8: {Path(path).expanduser()}") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def _ensure_safe_parent(path: Path) -> None:
     parent = path.parent
     if parent.exists() and parent.is_symlink():
@@ -56,6 +118,31 @@ def _ensure_safe_parent(path: Path) -> None:
     parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not parent.is_dir() or parent.is_symlink():
         raise ValueError(f"Parent directory must be a regular directory: {parent}")
+
+
+@contextmanager
+def _exclusive_ledger_lock(path: Path):
+    """Serialize complete ledger transactions via a stable sibling lock file."""
+
+    path = Path(path).expanduser()
+    _ensure_safe_parent(path)
+    lock_path = path.with_name(f".{path.name}.lock")
+    descriptor = _open_regular_fd(
+        lock_path,
+        label="story directive ledger lock",
+        flags=os.O_RDWR | os.O_CREAT,
+    )
+    assert descriptor is not None
+    locked = False
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        locked = True
+        yield
+    finally:
+        if locked:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 def atomic_write_text(path: Path, content: str, *, mode: int = 0o600) -> None:
@@ -72,9 +159,8 @@ def atomic_write_text(path: Path, content: str, *, mode: int = 0o600) -> None:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(temporary, mode)
+            os.fchmod(handle.fileno(), mode)
         os.replace(temporary, path)
-        os.chmod(path, mode)
     except Exception:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -87,11 +173,9 @@ def atomic_write_json(path: Path, payload: dict[str, object]) -> None:
 
 def read_env_file(path: Path) -> dict[str, str]:
     path = Path(path).expanduser()
-    _require_regular_non_symlink(path, label="environment file")
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except UnicodeDecodeError as exc:
-        raise ValueError(f"Environment file is not valid UTF-8: {path}") from exc
+    raw_text = _read_regular_text(path, label="Environment file")
+    assert raw_text is not None
+    lines = raw_text.splitlines()
 
     values: dict[str, str] = {}
     for number, raw_line in enumerate(lines, start=1):
@@ -160,11 +244,11 @@ def resolve_runtime_paths(env_path: Path) -> dict[str, Path]:
 
 def load_story_state(path: Path) -> dict[str, object]:
     path = Path(path).expanduser()
-    if not path.exists():
+    raw_text = _read_regular_text(path, label="Story state", missing_ok=True)
+    if raw_text is None:
         return {"current_volume": 1, "pending_new_volume": False}
-    _require_regular_non_symlink(path, label="story state")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(raw_text)
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid story state JSON in {path}: {exc.msg}") from exc
     if not isinstance(payload, dict):
@@ -207,7 +291,9 @@ def _validate_story_entry(key: str, value: object) -> None:
         raise ValueError(f"Story directive key must be a positive integer string: {key!r}") from exc
     volume = value.get("volume")
     directive = value.get("directive")
-    if key_volume < 1 or volume != key_volume:
+    if key_volume < 1 or not isinstance(volume, int) or isinstance(volume, bool):
+        raise ValueError(f"Story directive volume must be a positive integer: {key!r}")
+    if volume != key_volume:
         raise ValueError(f"Story directive key and volume do not match: {key!r}")
     if not isinstance(directive, str):
         raise ValueError(f"Story directive {key!r} must contain a string directive")
@@ -264,7 +350,7 @@ def _story_entry(
     }
 
 
-def load_ledger(
+def _load_ledger_unlocked(
     path: Path,
     *,
     seed_story_iii: bool = True,
@@ -273,10 +359,15 @@ def load_ledger(
     path = Path(path).expanduser()
     timestamp = now or utc_now()
     changed = False
-    if path.exists():
-        _require_regular_non_symlink(path, label="story directive ledger")
+    raw_text = _read_regular_text(
+        path,
+        label="Story directive ledger",
+        missing_ok=True,
+        ensure_mode=0o600,
+    )
+    if raw_text is not None:
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload = json.loads(raw_text)
         except json.JSONDecodeError as exc:
             raise ValueError(f"Invalid story directive JSON in {path}: {exc.msg}") from exc
         validate_ledger(payload)
@@ -303,9 +394,18 @@ def load_ledger(
     if changed:
         payload["updated_at"] = timestamp
         atomic_write_json(path, payload)
-    elif path.exists():
-        os.chmod(path, 0o600)
     return payload
+
+
+def load_ledger(
+    path: Path,
+    *,
+    seed_story_iii: bool = True,
+    now: str | None = None,
+) -> dict[str, object]:
+    path = Path(path).expanduser()
+    with _exclusive_ledger_lock(path):
+        return _load_ledger_unlocked(path, seed_story_iii=seed_story_iii, now=now)
 
 
 def save_directives(
@@ -315,33 +415,35 @@ def save_directives(
     now: str | None = None,
     source: str = "cinnamon-settings",
 ) -> dict[str, object]:
+    path = Path(path).expanduser()
     timestamp = now or utc_now()
-    ledger = load_ledger(path, seed_story_iii=True, now=timestamp)
-    stories = ledger["stories"]
-    assert isinstance(stories, dict)
-    for volume, directive in directives.items():
-        if not isinstance(volume, int) or isinstance(volume, bool) or volume < 1:
-            raise ValueError(f"Story volume must be a positive integer: {volume!r}")
-        if not isinstance(directive, str):
-            raise ValueError(f"Directive for volume {volume} must be a string")
-        key = str(volume)
-        cleaned = directive.strip()
-        if not cleaned:
-            stories.pop(key, None)
-            continue
-        previous = stories.get(key)
-        created_at = previous.get("created_at") if isinstance(previous, dict) else None
-        stories[key] = _story_entry(
-            volume,
-            cleaned,
-            now=timestamp,
-            source=source,
-            created_at=created_at if isinstance(created_at, str) else None,
-        )
-    ledger["updated_at"] = timestamp
-    validate_ledger(ledger)
-    atomic_write_json(Path(path).expanduser(), ledger)
-    return ledger
+    with _exclusive_ledger_lock(path):
+        ledger = _load_ledger_unlocked(path, seed_story_iii=True, now=timestamp)
+        stories = ledger["stories"]
+        assert isinstance(stories, dict)
+        for volume, directive in directives.items():
+            if not isinstance(volume, int) or isinstance(volume, bool) or volume < 1:
+                raise ValueError(f"Story volume must be a positive integer: {volume!r}")
+            if not isinstance(directive, str):
+                raise ValueError(f"Directive for volume {volume} must be a string")
+            key = str(volume)
+            cleaned = directive.strip()
+            if not cleaned:
+                stories.pop(key, None)
+                continue
+            previous = stories.get(key)
+            created_at = previous.get("created_at") if isinstance(previous, dict) else None
+            stories[key] = _story_entry(
+                volume,
+                cleaned,
+                now=timestamp,
+                source=source,
+                created_at=created_at if isinstance(created_at, str) else None,
+            )
+        ledger["updated_at"] = timestamp
+        validate_ledger(ledger)
+        atomic_write_json(path, ledger)
+        return ledger
 
 
 def save_editable_window(
@@ -429,26 +531,27 @@ def apply_active_directive(*, env_path: Path | None = None) -> dict[str, object]
     ).expanduser()
     paths = resolve_runtime_paths(resolved_env)
     current = effective_current_volume(load_story_state(paths["state"]))
-    ledger = load_ledger(paths["ledger"], seed_story_iii=True)
-    stories = ledger["stories"]
-    assert isinstance(stories, dict)
-    active = stories.get(str(current), {})
-    directive = active.get("directive", "") if isinstance(active, dict) else ""
-    if not isinstance(directive, str):
-        raise ValueError(f"Directive for story {current} is invalid")
+    ledger_path = paths["ledger"]
+    with _exclusive_ledger_lock(ledger_path):
+        ledger = _load_ledger_unlocked(ledger_path, seed_story_iii=True)
+        stories = ledger["stories"]
+        assert isinstance(stories, dict)
+        active = stories.get(str(current), {})
+        directive = active.get("directive", "") if isinstance(active, dict) else ""
+        if not isinstance(directive, str):
+            raise ValueError(f"Directive for story {current} is invalid")
 
-    prompt_path = paths["prompt"]
-    _require_regular_non_symlink(prompt_path, label="story prompt config")
-    try:
-        original = prompt_path.read_text(encoding="utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValueError(f"Story prompt config is not valid UTF-8: {prompt_path}") from exc
-    rendered = replace_managed_prompt_section(original, directive)
-    changed = rendered != original
-    if changed:
-        atomic_write_text(prompt_path, rendered)
-    else:
-        os.chmod(prompt_path, 0o600)
+        prompt_path = paths["prompt"]
+        original = _read_regular_text(
+            prompt_path,
+            label="Story prompt config",
+            ensure_mode=0o600,
+        )
+        assert original is not None
+        rendered = replace_managed_prompt_section(original, directive)
+        changed = rendered != original
+        if changed:
+            atomic_write_text(prompt_path, rendered)
     return {
         "ok": True,
         "current_volume": current,
