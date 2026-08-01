@@ -15,6 +15,7 @@ const removedSources = [];
 const tooltipInstances = [];
 let addedTimers = 0;
 let commandLineSpawns = 0;
+let settingsRuntimeFixture = null;
 
 class Actor {
     constructor() { this.visible = true; }
@@ -110,6 +111,30 @@ class FakeProcess {
     }
 }
 
+class FakeAppletSettings {
+    constructor(owner) {
+        this.owner = owner;
+        this.values = Object.assign({}, settingsRuntimeFixture ? settingsRuntimeFixture.values : {});
+        this.failSet = Boolean(settingsRuntimeFixture && settingsRuntimeFixture.failSet);
+    }
+    bindProperty(_direction, key, propertyName) {
+        if (!(key in this.values)) this.values[key] = this.owner[propertyName];
+        Object.defineProperty(this.owner, propertyName, {
+            configurable: true,
+            enumerable: true,
+            get: () => this.values[key],
+            set: (value) => this.setValue(key, value),
+        });
+        return true;
+    }
+    getValue(key) { return this.values[key]; }
+    setValue(key, value) {
+        if (this.failSet && key === "github-url") throw new Error("injected settings persistence failure");
+        this.values[key] = value;
+    }
+    finalize() {}
+}
+
 const context = {
     console,
     global: { log() {}, logError() {} },
@@ -128,7 +153,7 @@ const context = {
                 PopupSubMenuMenuItem,
                 PopupSeparatorMenuItem,
             },
-            settings: { BindingDirection: { IN: 1 }, AppletSettings: class {} },
+            settings: { BindingDirection: { IN: 1 }, AppletSettings: FakeAppletSettings },
             tooltips: { Tooltip: FakeTooltip },
             main: { notify() {} },
         },
@@ -157,7 +182,16 @@ const context = {
         misc: { util: { spawnCommandLine() { commandLineSpawns += 1; } } },
     },
 };
-context.imports.ui.applet.TextIconApplet.prototype = { _init() {} };
+context.imports.ui.applet.TextIconApplet.prototype = {
+    _init() {
+        this.actor = new Actor();
+        this._applet_context_menu = new Menu();
+        this.set_applet_icon_path = () => {};
+        this.set_applet_icon_symbolic_name = () => {};
+        this.set_applet_label = () => {};
+        this.set_applet_tooltip = () => {};
+    },
+};
 
 vm.createContext(context);
 const source = fs.readFileSync(APPLET_PATH, "utf8") + "\nglobalThis.WirtelAppletForTest = WirtelApplet;";
@@ -362,25 +396,65 @@ function testTtsSchedulingFailureReleasesOwnedOperation() {
 }
 
 function testLegacyRepositoryUrlIsMigratedWithoutOverwritingCustomUrls() {
-    const applet = makeApplet();
-    const writes = [];
-    let storedUrl = "https://github.com/H234598/Katzenbilder";
-    applet.settings = {
-        getValue() { return storedUrl; },
-        setValue(key, value) { writes.push([key, value]); storedUrl = value; },
+    const generatorUrl = "https://github.com/H234598/Wirtelprimpf-generator";
+    const legacyUrls = [
+        "https://github.com/H234598/Katzenbilder",
+        "https://github.com/H234598/Katzenbilder.git",
+        "https://github.com/H234598/Wirtelprimpf-0001",
+        "https://github.com/H234598/Wirtelprimpf-0001.git",
+    ];
+    for (const legacyUrl of legacyUrls) {
+        const applet = makeApplet();
+        const writes = [];
+        let storedUrl = legacyUrl;
+        applet.settings = {
+            getValue() { return storedUrl; },
+            setValue(key, value) { writes.push([key, value]); storedUrl = value; },
+        };
+        applet.githubUrl = legacyUrl;
+
+        applet._migrateLegacySettings();
+
+        assert.equal(storedUrl, generatorUrl, `${legacyUrl} is migrated`);
+        assert.deepEqual(writes, [["github-url", generatorUrl]]);
+    }
+
+    const customApplet = makeApplet();
+    const customWrites = [];
+    customApplet.githubUrl = "https://example.invalid/custom";
+    customApplet.settings = {
+        getValue() { return customApplet.githubUrl; },
+        setValue(key, value) { customWrites.push([key, value]); },
     };
-    applet.githubUrl = "https://github.com/H234598/Wirtelprimpf-generator";
+    customApplet._migrateLegacySettings();
+    assert.equal(customApplet.githubUrl, "https://example.invalid/custom");
+    assert.equal(customWrites.length, 0, "an intentional custom repository URL is preserved");
+}
 
-    applet._migrateLegacySettings();
+function testInitializationUsesGeneratorUrlWhenLegacyPersistenceFails() {
+    settingsRuntimeFixture = {
+        values: { "github-url": "https://github.com/H234598/Katzenbilder" },
+        failSet: true,
+    };
+    const originalRefreshScan = WirtelApplet.prototype._refreshScan;
+    WirtelApplet.prototype._refreshScan = function() {};
+    let applet;
+    try {
+        applet = new WirtelApplet({ path: "/applet" }, 0, 30, 20);
+    } finally {
+        WirtelApplet.prototype._refreshScan = originalRefreshScan;
+        settingsRuntimeFixture = null;
+    }
+    let openedArgs = null;
+    applet._spawnDetached = (args) => { openedArgs = args; };
 
-    assert.equal(applet.githubUrl, "https://github.com/H234598/Wirtelprimpf-generator");
-    assert.deepEqual(writes, [["github-url", "https://github.com/H234598/Wirtelprimpf-generator"]]);
+    applet._openProjectRepository();
 
-    storedUrl = "https://example.invalid/custom";
-    applet.githubUrl = storedUrl;
-    applet._migrateLegacySettings();
-    assert.equal(applet.githubUrl, "https://example.invalid/custom");
-    assert.equal(writes.length, 1, "an intentional custom repository URL is preserved");
+    assert.deepEqual(
+        Array.from(openedArgs),
+        ["xdg-open", "https://github.com/H234598/Wirtelprimpf-generator"],
+        "the current session never reopens a renamed archive when migration persistence fails",
+    );
 }
 
 testPersistentMenuPools();
@@ -390,4 +464,5 @@ testLateCallbacksAndTimerlessStop();
 testRemovedAppletCannotStartDetachedActions();
 testTtsSchedulingFailureReleasesOwnedOperation();
 testLegacyRepositoryUrlIsMigratedWithoutOverwritingCustomUrls();
+testInitializationUsesGeneratorUrlWhenLegacyPersistenceFails();
 console.log("Wirtel applet runtime stability tests passed");

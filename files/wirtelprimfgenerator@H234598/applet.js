@@ -83,8 +83,8 @@ WirtelApplet.prototype = {
         this._errorRows = [];
 
         this.settings = new Settings.AppletSettings(this, UUID, instanceId);
-        this._migrateLegacySettings();
         this._bindSettings();
+        this._migrateLegacySettings();
 
         this._setIdlePresentation();
         this.set_applet_tooltip(_("Wirtelprimfgenerator"));
@@ -132,9 +132,9 @@ WirtelApplet.prototype = {
             if (this.settings && this.settings.getValue) current = this.settings.getValue("github-url");
         } catch (e) {}
         if (LEGACY_GITHUB_URLS.indexOf(current) < 0) return false;
-        this.githubUrl = DEFAULT_GITHUB_URL;
         try {
             if (this.settings && this.settings.setValue) this.settings.setValue("github-url", DEFAULT_GITHUB_URL);
+            else this.githubUrl = DEFAULT_GITHUB_URL;
         } catch (e2) {
             global.logError("[" + UUID + "] legacy GitHub URL migration failed: " + e2);
             return false;
@@ -703,7 +703,9 @@ WirtelApplet.prototype = {
     },
 
     _openProjectRepository: function() {
-        this._spawnDetached(["xdg-open", this.githubUrl || DEFAULT_GITHUB_URL]);
+        let url = this.githubUrl || DEFAULT_GITHUB_URL;
+        if (LEGACY_GITHUB_URLS.indexOf(url) >= 0) url = DEFAULT_GITHUB_URL;
+        this._spawnDetached(["xdg-open", url]);
     },
 
     _openOutputFolderFromSettings: function() {
