@@ -407,6 +407,8 @@ for source_path in \
   /home/teladi/.config/systemd/user/wirtelprimpf.timer.d/override.conf \
   /home/teladi/.config/wirtelprimpf/settings-state.json \
   /home/teladi/.local/share/cinnamon/applets/wirtelprimfgenerator@H234598 \
+  /home/teladi/.config/systemd/user/wirtelprimpf.service \
+  /home/teladi/.config/systemd/user/wirtelprimpf.timer \
   /home/teladi/.config/systemd/user/wirtelprimpf-admin.service; do
   if [[ -L "$source_path" ]]; then
     printf 'Unsafe symlink in backup scope: %s\n' "$source_path" >&2
@@ -435,13 +437,22 @@ if [[ "$timer_active_before" == active ]]; then
 fi
 cd /home/teladi/.local/share/wirtelprimpf-generator
 .venv/bin/python -m pip install --disable-pip-version-check --no-deps -e .
+install -Dm0644 Sourcecode/systemd-user/wirtelprimpf.service /home/teladi/.config/systemd/user/wirtelprimpf.service
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf-admin.service /home/teladi/.config/systemd/user/wirtelprimpf-admin.service
 ./scripts/install-local.sh
 systemctl --user daemon-reload
+cmp --silent Sourcecode/systemd-user/wirtelprimpf.service /home/teladi/.config/systemd/user/wirtelprimpf.service
+cmp --silent Sourcecode/systemd-user/wirtelprimpf.timer /home/teladi/.config/systemd/user/wirtelprimpf.timer
+cmp --silent Sourcecode/systemd-user/wirtelprimpf-admin.service /home/teladi/.config/systemd/user/wirtelprimpf-admin.service
 systemctl --user restart wirtelprimpf-admin.service
 ```
 
 Expected: every command exits 0; no generator run starts during the smoke window.
+
+Additional expected recovery/unit invariant: the changed merged generator and
+admin units are installed with mode `0644`; the unchanged timer unit was
+preserved by the backup and all three installed unit sources compare
+byte-identical with merged main before the admin restart.
 
 - [ ] **Step 4: Reload only the Wirtel applet and verify it is running**
 
