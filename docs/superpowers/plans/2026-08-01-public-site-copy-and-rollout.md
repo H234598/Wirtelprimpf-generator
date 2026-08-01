@@ -379,6 +379,14 @@ test "$(jq -r '.baseRefName' <<<"$verified_pr")" = main
 test "$(jq -r '.isDraft' <<<"$verified_pr")" = false
 test "$(jq -r '.url' <<<"$verified_pr")" = "$generator_pr_url"
 gh pr checks "$generator_pr_number" --repo H234598/Wirtelprimpf-generator --watch --fail-fast
+post_check_pr="$(gh pr view "$generator_pr_number" \
+  --repo H234598/Wirtelprimpf-generator \
+  --json state,headRefOid,baseRefName,isDraft)"
+test "$(jq -r '.state' <<<"$post_check_pr")" = OPEN
+test "$(jq -r '.headRefOid' <<<"$post_check_pr")" = "$generator_head_sha"
+test "$(jq -r '.baseRefName' <<<"$post_check_pr")" = main
+test "$(jq -r '.isDraft' <<<"$post_check_pr")" = false
+printf 'Reviewed generator head SHA: %s\n' "$generator_head_sha"
 ```
 
 Expected: applet, platform, web, Pages-related checks, and configured review gates are successful. Address actual review findings with new focused test-first commits and rerun the full affected matrix; do not dismiss findings without evidence.
@@ -391,12 +399,47 @@ Run:
 set -Eeuo pipefail
 generator_pr_number="$(gh pr view --repo H234598/Wirtelprimpf-generator --json number --jq .number)"
 [[ "$generator_pr_number" =~ ^[0-9]+$ ]]
-gh pr merge "$generator_pr_number" --repo H234598/Wirtelprimpf-generator --merge --delete-branch
+generator_expected_head="$(git rev-parse HEAD)"
+[[ "$generator_expected_head" =~ ^[0-9a-f]{40}$ ]]
+generator_merge_gate="$(gh pr view "$generator_pr_number" \
+  --repo H234598/Wirtelprimpf-generator \
+  --json state,headRefOid,baseRefName,isDraft)"
+test "$(jq -r '.state' <<<"$generator_merge_gate")" = OPEN
+test "$(jq -r '.headRefOid' <<<"$generator_merge_gate")" = "$generator_expected_head"
+test "$(jq -r '.baseRefName' <<<"$generator_merge_gate")" = main
+test "$(jq -r '.isDraft' <<<"$generator_merge_gate")" = false
+generator_base_before="$(git ls-remote origin refs/heads/main | cut -f1)"
+[[ "$generator_base_before" =~ ^[0-9a-f]{40}$ ]]
+test "$generator_base_before" = "$(git rev-parse origin/main)"
+git merge-base --is-ancestor "$generator_base_before" "$generator_expected_head"
+gh pr checks "$generator_pr_number" \
+  --repo H234598/Wirtelprimpf-generator --watch --fail-fast
+generator_post_checks_gate="$(gh pr view "$generator_pr_number" \
+  --repo H234598/Wirtelprimpf-generator \
+  --json state,headRefOid,baseRefName,isDraft)"
+test "$(jq -r '.state' <<<"$generator_post_checks_gate")" = OPEN
+test "$(jq -r '.headRefOid' <<<"$generator_post_checks_gate")" = \
+  "$generator_expected_head"
+test "$(jq -r '.baseRefName' <<<"$generator_post_checks_gate")" = main
+test "$(jq -r '.isDraft' <<<"$generator_post_checks_gate")" = false
+test "$(git ls-remote origin refs/heads/main | cut -f1)" = \
+  "$generator_base_before"
+gh pr merge "$generator_pr_number" \
+  --repo H234598/Wirtelprimpf-generator \
+  --merge --delete-branch \
+  --match-head-commit "$generator_expected_head"
 generator_merge_sha="$(gh pr view "$generator_pr_number" \
-  --repo H234598/Wirtelprimpf-generator --json mergeCommit --jq '.mergeCommit.oid')"
+  --repo H234598/Wirtelprimpf-generator \
+  --json state,mergeCommit \
+  --jq 'select(.state == "MERGED") | .mergeCommit.oid')"
 remote_main_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
 [[ "$generator_merge_sha" =~ ^[0-9a-f]{40}$ ]]
 test "$remote_main_sha" = "$generator_merge_sha"
+generator_merge_object="$(gh api \
+  "repos/H234598/Wirtelprimpf-generator/git/commits/$generator_merge_sha")"
+test "$(jq '.parents | length' <<<"$generator_merge_object")" = 2
+test "$(jq -r '.parents[0].sha' <<<"$generator_merge_object")" = "$generator_base_before"
+test "$(jq -r '.parents[1].sha' <<<"$generator_merge_object")" = "$generator_expected_head"
 printf 'Merged generator SHA for Task 4/5: %s\n' "$generator_merge_sha"
 ```
 
@@ -620,10 +663,12 @@ Run:
 smoke_dir="$(mktemp -d /home/teladi/.local/state/wirtelprimpf/admin-live-smoke.XXXXXX)"
 chmod 0700 "$smoke_dir"
 curl --fail --silent --show-error \
+  --noproxy '*' --connect-timeout 2 --max-time 10 \
   --dump-header "$smoke_dir/settings.headers" \
   --output "$smoke_dir/settings.json" \
   http://127.0.0.1:8765/api/settings
 curl --fail --silent --show-error \
+  --noproxy '*' --connect-timeout 2 --max-time 10 \
   --dump-header "$smoke_dir/status.headers" \
   --output "$smoke_dir/status.json" \
   http://127.0.0.1:8765/api/status
@@ -934,7 +979,9 @@ Then run:
 ```bash
 systemctl --user show wirtelprimpf.timer -p ActiveState -p UnitFileState -p NextElapseUSecRealtime -p LastTriggerUSec -p RandomizedDelayUSec -p Persistent
 systemctl --user show wirtelprimpf-admin.service -p ActiveState -p SubState -p Result
-curl --fail --silent --show-error http://127.0.0.1:8765/api/status | python -m json.tool >/dev/null
+curl --fail --silent --show-error \
+  --noproxy '*' --connect-timeout 2 --max-time 10 \
+  http://127.0.0.1:8765/api/status | python -m json.tool >/dev/null
 ```
 
 Expected: enabled/active semantics and configured timer values match pre-state; admin is active/running; status is `ok` or only `degraded` for an explicitly unavailable persisted external observation.
@@ -977,7 +1024,14 @@ git_runtime() {
   assert_runtime_owned
   git -C "$runtime" "$@"
 }
+git_runtime_fetch_bounded() {
+  assert_runtime_owned
+  timeout --foreground --signal=TERM --kill-after=10s 180s \
+    git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 \
+    -C "$runtime" fetch origin main
+}
 
+command -v timeout >/dev/null
 test -z "$(git_runtime status --porcelain)"
 runtime_branch_before="$(git_runtime branch --show-current)"
 runtime_sha_before="$(git_runtime rev-parse HEAD)"
@@ -988,9 +1042,14 @@ test "$runtime_sha_before" != "$target_sha"
 timer_enabled_before="$(systemctl --user is-enabled wirtelprimpf.timer || true)"
 timer_active_before="$(systemctl --user is-active wirtelprimpf.timer || true)"
 admin_active_before="$(systemctl --user is-active wirtelprimpf-admin.service || true)"
+service_unit_state_before="$(systemctl --user is-enabled wirtelprimpf.service || true)"
+service_load_state_before="$(systemctl --user show wirtelprimpf.service \
+  -p LoadState --value)"
 case "$timer_enabled_before" in enabled|enabled-runtime|disabled) ;; *) exit 1 ;; esac
 case "$timer_active_before" in active|inactive) ;; *) exit 1 ;; esac
 case "$admin_active_before" in active|inactive) ;; *) exit 1 ;; esac
+test "$service_unit_state_before" = static
+test "$service_load_state_before" = loaded
 running_xlets="$(gdbus call --session --dest org.Cinnamon \
   --object-path /org/Cinnamon --method org.Cinnamon.GetRunningXletUUIDs applet)"
 if [[ "$running_xlets" == *wirtelprimfgenerator@H234598* ]]; then
@@ -1008,11 +1067,15 @@ printf '%s\n' "$target_sha" >"$deploy_backup/target-sha"
 printf '%s\n' "$timer_enabled_before" >"$deploy_backup/timer-enabled-before"
 printf '%s\n' "$timer_active_before" >"$deploy_backup/timer-active-before"
 printf '%s\n' "$admin_active_before" >"$deploy_backup/admin-active-before"
+printf '%s\n' "$service_unit_state_before" >"$deploy_backup/service-unit-state-before"
+printf '%s\n' "$service_load_state_before" >"$deploy_backup/service-load-state-before"
 chmod 0600 "$deploy_backup"/*-before "$deploy_backup/target-sha"
 
 backup_complete=0
 software_commit_complete=0
 deployment_complete=0
+runtime_service_masked=0
+runtime_timer_masked=0
 
 target_is_scoped() {
   case "$1" in
@@ -1066,11 +1129,26 @@ restore_directory_modes() {
 }
 
 settings_lock_held=0
+settings_lock_is_safe() {
+  local lock_path=/home/teladi/.config/wirtelprimpf/settings.lock candidate
+  for candidate in \
+    /home/teladi/.config/wirtelprimpf \
+    /home/teladi/.config \
+    /home/teladi \
+    /home \
+    /; do
+    test ! -L "$candidate"
+    test -d "$candidate"
+  done
+  test ! -L "$lock_path"
+  [[ ! -e "$lock_path" || -f "$lock_path" ]]
+}
 acquire_settings_lock() {
   local lock_path=/home/teladi/.config/wirtelprimpf/settings.lock
   [[ "$settings_lock_held" == 0 ]] || return 0
-  test ! -L "$lock_path"
+  settings_lock_is_safe
   exec {settings_lock_fd}<>"$lock_path"
+  test -f "/proc/$$/fd/$settings_lock_fd"
   chmod 0600 "$lock_path"
   if ! flock -n "$settings_lock_fd"; then
     exec {settings_lock_fd}>&-
@@ -1082,8 +1160,9 @@ acquire_settings_lock() {
 acquire_settings_lock_bounded() {
   local lock_path=/home/teladi/.config/wirtelprimpf/settings.lock
   [[ "$settings_lock_held" == 0 ]] || return 0
-  test ! -L "$lock_path"
+  settings_lock_is_safe
   exec {settings_lock_fd}<>"$lock_path"
+  test -f "/proc/$$/fd/$settings_lock_fd"
   chmod 0600 "$lock_path"
   if ! flock -w 180 "$settings_lock_fd"; then
     exec {settings_lock_fd}>&-
@@ -1152,9 +1231,8 @@ verify_config_preserved() {
   return 0
 }
 
-quiesce_generator() {
+wait_generator_inactive() {
   local deadline
-  systemctl --user stop wirtelprimpf.timer || return 1
   deadline=$((SECONDS + 300))
   while [[ "$(systemctl --user show wirtelprimpf.service \
     -p ActiveState --value)" != inactive ]]; do
@@ -1163,6 +1241,72 @@ quiesce_generator() {
   done
   test "$(systemctl --user show wirtelprimpf.service \
     -p ActiveState --value)" = inactive
+}
+
+mask_generator_runtime() {
+  local current
+  current="$(systemctl --user is-enabled wirtelprimpf.service || true)"
+  if [[ "$current" != masked-runtime ]]; then
+    test "$current" = static
+    systemctl --user mask --runtime wirtelprimpf.service || return 1
+  fi
+  test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = masked-runtime
+  runtime_service_masked=1
+}
+
+quiesce_generator() {
+  systemctl --user stop wirtelprimpf.timer || return 1
+  # Waiting once before the mask lets an already-running oneshot finish
+  # naturally. The runtime mask then closes every new activation path; the
+  # second wait closes the narrow inactive-to-mask race before code mutation.
+  wait_generator_inactive || return 1
+  mask_generator_runtime || return 1
+  wait_generator_inactive
+}
+
+mask_timer_runtime_stopped() {
+  systemctl --user stop wirtelprimpf.timer || return 1
+  systemctl --user mask --runtime wirtelprimpf.timer || return 1
+  test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = masked-runtime
+  test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive
+  runtime_timer_masked=1
+}
+
+unmask_timer_runtime_stopped() {
+  [[ "$runtime_timer_masked" == 1 ]] || return 1
+  systemctl --user unmask --runtime wirtelprimpf.timer || return 1
+  runtime_timer_masked=0
+  test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = "$timer_enabled_before"
+  test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive
+}
+
+unmask_generator_runtime() {
+  [[ "$runtime_service_masked" == 1 ]] || return 1
+  systemctl --user unmask --runtime wirtelprimpf.service || return 1
+  runtime_service_masked=0
+  systemctl --user daemon-reload || return 1
+  test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = \
+    "$service_unit_state_before"
+  test "$(systemctl --user show wirtelprimpf.service -p LoadState --value)" = \
+    "$service_load_state_before"
+  test "$(systemctl --user show wirtelprimpf.service -p ActiveState --value)" = inactive
+}
+
+fail_closed_runtime() {
+  local failed=0
+  systemctl --user stop wirtelprimpf-admin.service || failed=1
+  systemctl --user stop wirtelprimpf.timer || failed=1
+  systemctl --user mask --runtime wirtelprimpf.timer || failed=1
+  systemctl --user mask --runtime wirtelprimpf.service || failed=1
+  systemctl --user daemon-reload || failed=1
+  runtime_timer_masked=1
+  runtime_service_masked=1
+  wait_generator_inactive || failed=1
+  test "$(systemctl --user is-active wirtelprimpf-admin.service || true)" = inactive || failed=1
+  test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive || failed=1
+  test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = masked-runtime || failed=1
+  test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = masked-runtime || failed=1
+  return "$failed"
 }
 
 restore_timer_enablement_stopped() {
@@ -1207,7 +1351,8 @@ rollback_deployment() {
   else
     rollback_failed=1
   fi
-  # A successful main fast-forward is the irreversible software commit point.
+  # A successful compare-and-swap of main is the irreversible software commit
+  # point.
   # Detect it both from the shell flag and the ref itself, closing the INT/TERM
   # window between merge success and flag assignment. An unreadable ref is also
   # fail-closed: no install/config/worktree recovery may proceed on ambiguity.
@@ -1223,7 +1368,11 @@ rollback_deployment() {
     fi
   fi
   if [[ "$main_ref_state" != precommit ]]; then
-    printf 'MAIN REF %s; software preserved, timer stopped, deployment incomplete: %s\n' \
+    fail_closed_runtime || rollback_failed=1
+    if [[ "$settings_lock_held" == 1 ]]; then
+      release_settings_lock || rollback_failed=1
+    fi
+    printf 'MAIN REF %s; software preserved, runtime masked, deployment incomplete: %s\n' \
       "$main_ref_state" "$deploy_backup" >&2
     final_status="$original_status"
     [[ "$final_status" != 0 ]] || final_status=1
@@ -1231,7 +1380,9 @@ rollback_deployment() {
   fi
   systemctl --user stop wirtelprimpf-admin.service || rollback_failed=1
   # Wait boundedly for any in-flight applet/CLI settings transaction. All file,
-  # checkout, venv, and unit recovery remains behind this same exclusive lock.
+  # checkout, venv, unit, applet, admin, and timer recovery remains behind this
+  # same exclusive lock until either the complete old state is proven or both
+  # runtime units have been left deliberately masked.
   if [[ "$generator_quiesced" == 1 ]] && acquire_settings_lock_bounded; then
     critical_recovery_ok=1
     if [[ "$backup_complete" == 1 ]]; then
@@ -1259,8 +1410,9 @@ rollback_deployment() {
       rollback_failed=1
       critical_recovery_ok=0
     }
-    "$runtime/.venv/bin/python" -m pip install \
-      --disable-pip-version-check --no-deps -e "$runtime" || {
+    timeout --foreground --signal=TERM --kill-after=10s 300s \
+      "$runtime/.venv/bin/python" -m pip install \
+      --disable-pip-version-check --no-build-isolation --no-deps -e "$runtime" || {
         rollback_failed=1
         critical_recovery_ok=0
       }
@@ -1268,34 +1420,75 @@ rollback_deployment() {
       rollback_failed=1
       critical_recovery_ok=0
     }
-    release_settings_lock || {
+    cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf.service" \
+      /home/teladi/.config/systemd/user/wirtelprimpf.service || {
+      rollback_failed=1
+      critical_recovery_ok=0
+    }
+    cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf.timer" \
+      /home/teladi/.config/systemd/user/wirtelprimpf.timer || {
+      rollback_failed=1
+      critical_recovery_ok=0
+    }
+    cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf-admin.service" \
+      /home/teladi/.config/systemd/user/wirtelprimpf-admin.service || {
+      rollback_failed=1
+      critical_recovery_ok=0
+    }
+    diff --recursive --brief --exclude='__pycache__' --exclude='*.pyc' \
+      "$runtime/files/wirtelprimfgenerator@H234598" \
+      /home/teladi/.local/share/cinnamon/applets/wirtelprimfgenerator@H234598 || {
       rollback_failed=1
       critical_recovery_ok=0
     }
   else
     rollback_failed=1
   fi
+
+  # A competing config revision is never followed by enablement/activity
+  # restoration. Its underlying files and enablement remain untouched; both
+  # execution units and the admin writer stay fail-closed instead.
+  if [[ "$critical_recovery_ok" == 1 && "$config_attention" == 0 && "$rollback_failed" == 0 ]]; then
+    if [[ "$(systemctl --user is-enabled wirtelprimpf.timer || true)" == masked-runtime ]]; then
+      runtime_timer_masked=1
+      unmask_timer_runtime_stopped || rollback_failed=1
+    fi
+    restore_timer_enablement_stopped || rollback_failed=1
+    if [[ "$(systemctl --user is-enabled wirtelprimpf.service || true)" == masked-runtime ]]; then
+      runtime_service_masked=1
+    fi
+    unmask_generator_runtime || rollback_failed=1
+    if [[ "$rollback_failed" == 0 ]]; then
+      if [[ "$admin_active_before" == active ]]; then
+        systemctl --user start wirtelprimpf-admin.service || rollback_failed=1
+      else
+        systemctl --user stop wirtelprimpf-admin.service || rollback_failed=1
+      fi
+      test "$(systemctl --user is-active wirtelprimpf-admin.service || true)" = \
+        "$admin_active_before" || rollback_failed=1
+      if [[ "$applet_running_before" == 1 ]]; then
+        gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon \
+          --method org.Cinnamon.ReloadXlet wirtelprimfgenerator@H234598 APPLET \
+          >/dev/null || rollback_failed=1
+      fi
+      running_xlets="$(gdbus call --session --dest org.Cinnamon \
+        --object-path /org/Cinnamon --method org.Cinnamon.GetRunningXletUUIDs applet)" || \
+        rollback_failed=1
+      if [[ "$applet_running_before" == 1 ]]; then
+        [[ "$running_xlets" == *wirtelprimfgenerator@H234598* ]] || rollback_failed=1
+      else
+        [[ "$running_xlets" != *wirtelprimfgenerator@H234598* ]] || rollback_failed=1
+      fi
+      if [[ "$rollback_failed" == 0 ]]; then
+        restore_timer_activity || rollback_failed=1
+      fi
+    fi
+  fi
+  if [[ "$config_attention" != 0 || "$rollback_failed" != 0 || "$critical_recovery_ok" != 1 ]]; then
+    fail_closed_runtime || rollback_failed=1
+  fi
   if [[ "$settings_lock_held" == 1 ]]; then
     release_settings_lock || rollback_failed=1
-  fi
-  # Presentation writers and the original timer semantics are restored only
-  # after the entire critical file/code/unit recovery completed under lock.
-  if [[ "$critical_recovery_ok" == 1 ]]; then
-    if [[ "$admin_active_before" == active ]]; then
-      systemctl --user start wirtelprimpf-admin.service || rollback_failed=1
-    else
-      systemctl --user stop wirtelprimpf-admin.service || rollback_failed=1
-    fi
-    if [[ "$applet_running_before" == 1 ]]; then
-      gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon \
-        --method org.Cinnamon.ReloadXlet wirtelprimfgenerator@H234598 APPLET \
-        >/dev/null || rollback_failed=1
-    fi
-    if restore_timer_enablement_stopped; then
-      restore_timer_activity || rollback_failed=1
-    else
-      rollback_failed=1
-    fi
   fi
   if [[ "$config_attention" != 0 ]]; then
     printf 'CONFIG RECOVERY ATTENTION REQUIRED; competing state preserved: %s\n' \
@@ -1378,11 +1571,12 @@ for target in \
 done
 backup_complete=1
 
-git_runtime fetch origin main
+git_runtime_fetch_bounded
 test "$(git_runtime rev-parse origin/main)" = "$target_sha"
 git_runtime switch --detach "$target_sha"
-"$runtime/.venv/bin/python" -m pip install \
-  --disable-pip-version-check --no-deps -e "$runtime"
+timeout --foreground --signal=TERM --kill-after=10s 300s \
+  "$runtime/.venv/bin/python" -m pip install \
+  --disable-pip-version-check --no-build-isolation --no-deps -e "$runtime"
 install -Dm0644 "$runtime/Sourcecode/systemd-user/wirtelprimpf.service" \
   /home/teladi/.config/systemd/user/wirtelprimpf.service
 # The timer base unit is a confirmed invariant: preserve its existing inode and
@@ -1393,20 +1587,46 @@ install -Dm0644 "$runtime/Sourcecode/systemd-user/wirtelprimpf-admin.service" \
   /home/teladi/.config/systemd/user/wirtelprimpf-admin.service
 "$runtime/scripts/install-local.sh"
 systemctl --user daemon-reload
-release_settings_lock
-test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive
+
+# Before any live writer is admitted, prove every installed artifact and the
+# two execution barriers. The generator service remains runtime-masked; the
+# timer is still stopped and has not yet received its own commit-point mask.
+cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf.service" \
+  /home/teladi/.config/systemd/user/wirtelprimpf.service
+cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf.timer" \
+  /home/teladi/.config/systemd/user/wirtelprimpf.timer
+cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf-admin.service" \
+  /home/teladi/.config/systemd/user/wirtelprimpf-admin.service
+diff --recursive --brief --exclude='__pycache__' --exclude='*.pyc' \
+  "$runtime/files/wirtelprimfgenerator@H234598" \
+  /home/teladi/.local/share/cinnamon/applets/wirtelprimfgenerator@H234598
+test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = masked-runtime
 test "$(systemctl --user show wirtelprimpf.service \
   -p ActiveState --value)" = inactive
+test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = \
+  "$timer_enabled_before"
+test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive
+release_settings_lock
 systemctl --user start wirtelprimpf-admin.service
 if [[ "$applet_running_before" == 1 ]]; then
   gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon \
     --method org.Cinnamon.ReloadXlet wirtelprimfgenerator@H234598 APPLET >/dev/null
 fi
+running_xlets="$(gdbus call --session --dest org.Cinnamon \
+  --object-path /org/Cinnamon --method org.Cinnamon.GetRunningXletUUIDs applet)"
+if [[ "$applet_running_before" == 1 ]]; then
+  [[ "$running_xlets" == *wirtelprimfgenerator@H234598* ]]
+else
+  [[ "$running_xlets" != *wirtelprimfgenerator@H234598* ]]
+fi
 
 # Prove quiescence immediately before the live settings transaction.
 test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive
+test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = \
+  "$timer_enabled_before"
 test "$(systemctl --user show wirtelprimpf.service \
   -p ActiveState --value)" = inactive
+test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = masked-runtime
 export WIRTELPRIMPF_SMOKE_OWNERSHIP_MARKER="$deploy_backup/smoke-owned-revision.json"
 # Execute the exact Step-5 API/header/status assertions and the exact corrected
 # Step-6 live-sync script here, synchronously. POST has only a finite client
@@ -1416,46 +1636,122 @@ export WIRTELPRIMPF_SMOKE_OWNERSHIP_MARKER="$deploy_backup/smoke-owned-revision.
 
 # Prove that neither the smoke nor an applet interaction restarted generation.
 test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive
+test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = \
+  "$timer_enabled_before"
 test "$(systemctl --user show wirtelprimpf.service \
   -p ActiveState --value)" = inactive
+test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = masked-runtime
+systemctl --user stop wirtelprimpf-admin.service
 
 # After the smoke returns success, its private marker contains the final
 # last-owned revision. Reacquire the settings lock, reject a revision mismatch,
 # and only then capture raw fingerprints used solely for ownership
-# classification. Automatic rollback never copies a config backup.
-acquire_settings_lock
+# classification. Keep this lock across the ref commit, worktree attachment,
+# service/admin/applet restoration, timer restoration, and every final proof.
+# Automatic rollback never copies a config backup.
+acquire_settings_lock_bounded
 smoke_owned_revision="$(jq -er '.revision' "$deploy_backup/smoke-owned-revision.json")"
 state_revision="$(jq -er '.revision' /home/teladi/.config/wirtelprimpf/settings-state.json)"
 test "$state_revision" = "$smoke_owned_revision"
 capture_config_fingerprints >"$deploy_backup/owned-config-fingerprints.tsv"
 chmod 0600 "$deploy_backup/owned-config-fingerprints.tsv"
-release_settings_lock
 
 diff --recursive --brief --exclude='__pycache__' --exclude='*.pyc' \
   "$runtime/files/wirtelprimfgenerator@H234598" \
   /home/teladi/.local/share/cinnamon/applets/wirtelprimfgenerator@H234598
+cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf.service" \
+  /home/teladi/.config/systemd/user/wirtelprimpf.service
 cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf.timer" \
   /home/teladi/.config/systemd/user/wirtelprimpf.timer
-if [[ "$admin_active_before" == inactive ]]; then
-  systemctl --user stop wirtelprimpf-admin.service
-fi
+cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf-admin.service" \
+  /home/teladi/.config/systemd/user/wirtelprimpf-admin.service
 restore_timer_enablement_stopped
+mask_timer_runtime_stopped
+test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = masked-runtime
+test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = masked-runtime
+test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive
+test "$(systemctl --user show wirtelprimpf.service \
+  -p ActiveState --value)" = inactive
+test "$(systemctl --user is-active wirtelprimpf-admin.service || true)" = inactive
+running_xlets="$(gdbus call --session --dest org.Cinnamon \
+  --object-path /org/Cinnamon --method org.Cinnamon.GetRunningXletUUIDs applet)"
+if [[ "$applet_running_before" == 1 ]]; then
+  [[ "$running_xlets" == *wirtelprimfgenerator@H234598* ]]
+else
+  [[ "$running_xlets" != *wirtelprimfgenerator@H234598* ]]
+fi
 
-# Keep main untouched until every install/smoke assertion has passed. Timer
-# enablement has its recorded value here, but activity remains fail-closed
-# inactive across both worktree transitions.
-git_runtime switch "$runtime_branch_before"
-git_runtime merge --ff-only "$target_sha"
-software_commit_complete=1
+# Keep main untouched until every install/smoke assertion has passed. Commit it
+# with a compare-and-swap from the exact recorded SHA while the worktree is
+# already detached at the target tree. Attaching main can therefore never
+# expose the old tree. The timer and service remain runtime-masked throughout.
+git_runtime merge-base --is-ancestor "$runtime_sha_before" "$target_sha"
 test "$(git_runtime rev-parse HEAD)" = "$target_sha"
+test "$(git_runtime rev-parse refs/heads/main)" = "$runtime_sha_before"
+target_tree="$(git_runtime rev-parse "$target_sha^{tree}")"
+test "$(git_runtime rev-parse HEAD^{tree})" = "$target_tree"
+git_runtime update-ref refs/heads/main "$target_sha" "$runtime_sha_before"
+software_commit_complete=1
+test "$(git_runtime rev-parse refs/heads/main)" = "$target_sha"
+test "$(git_runtime rev-parse HEAD)" = "$target_sha"
+git_runtime switch "$runtime_branch_before"
+test "$(git_runtime branch --show-current)" = "$runtime_branch_before"
+test "$(git_runtime rev-parse HEAD)" = "$target_sha"
+test "$(git_runtime rev-parse HEAD^{tree})" = "$target_tree"
 test -z "$(git_runtime status --porcelain)"
 
-# No checkout, install, config, unit, applet, or admin mutation follows this
-# point. Restoring activity is the final operational phase; a failure invokes
-# the post-commit fail-closed path and never rewinds main.
+# Restore every execution surface beneath the still-held settings lock. Any
+# failure after the ref CAS invokes the post-commit fail-closed path, masks both
+# units, stops admin, and never rewinds main.
+unmask_timer_runtime_stopped
+unmask_generator_runtime
+cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf.service" \
+  /home/teladi/.config/systemd/user/wirtelprimpf.service
+cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf.timer" \
+  /home/teladi/.config/systemd/user/wirtelprimpf.timer
+cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf-admin.service" \
+  /home/teladi/.config/systemd/user/wirtelprimpf-admin.service
+diff --recursive --brief --exclude='__pycache__' --exclude='*.pyc' \
+  "$runtime/files/wirtelprimfgenerator@H234598" \
+  /home/teladi/.local/share/cinnamon/applets/wirtelprimfgenerator@H234598
+if [[ "$admin_active_before" == active ]]; then
+  systemctl --user start wirtelprimpf-admin.service
+else
+  systemctl --user stop wirtelprimpf-admin.service
+fi
+test "$(systemctl --user is-active wirtelprimpf-admin.service || true)" = \
+  "$admin_active_before"
+if [[ "$admin_active_before" == active ]]; then
+  test "$(systemctl --user show wirtelprimpf-admin.service \
+    -p SubState --value)" = running
+fi
+# The target applet was already reloaded and UUID-proven before the smoke, and
+# its installed tree has just been proven byte-identical again. Do not issue a
+# second ReloadXlet while holding the exclusive settings lock: a settings UI
+# initial snapshot must never be forced into a synthetic busy result here.
+running_xlets="$(gdbus call --session --dest org.Cinnamon \
+  --object-path /org/Cinnamon --method org.Cinnamon.GetRunningXletUUIDs applet)"
+if [[ "$applet_running_before" == 1 ]]; then
+  [[ "$running_xlets" == *wirtelprimfgenerator@H234598* ]]
+else
+  [[ "$running_xlets" != *wirtelprimfgenerator@H234598* ]]
+fi
 restore_timer_activity
+test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = \
+  "$service_unit_state_before"
+test "$(systemctl --user show wirtelprimpf.service -p LoadState --value)" = \
+  "$service_load_state_before"
+test "$(systemctl --user show wirtelprimpf.service \
+  -p ActiveState --value)" = inactive
+# Close the only post-lock race explicitly. HUP/INT/TERM are ignored while the
+# lock is released and the infallible shell-state commit disarms EXIT recovery.
+# If release_settings_lock itself fails, set -e still enters the armed EXIT
+# rollback before deployment_complete changes.
+trap '' HUP INT TERM
+release_settings_lock
 deployment_complete=1
-trap - EXIT INT TERM
+trap - EXIT
+trap - HUP INT TERM
 ```
 
 Expected: the previous SHA and exact restorable service semantics are privately
@@ -1464,9 +1760,15 @@ present/missing target has an allowlisted restore action; any failure restores
 the old checkout, editable install, units, applet, admin state, exact timer
 enablement/activity, and the three allowlisted pre-existing parent-directory
 modes. Config/state backups remain manual evidence and are never copied by
-automatic rollback. Success retains the intended `0700` directory hardening and
-advances `main` only by `--ff-only`. The procedure contains no reset, force
-push, forced checkout, or unscoped deletion.
+automatic rollback. Success retains the intended `0700` directory hardening,
+advances `main` only by an exact-old-SHA compare-and-swap, and attaches the
+already-target worktree without exposing old-tree code. Both runtime masks
+remain in force through the commit and are removed only during the lock-held
+final restoration; the settings lock remains held through every final state
+proof. A redundant final Applet-Reload is deliberately omitted, and the final
+lock release is enclosed by an explicit signal-ignore/EXIT-disarm contract.
+The procedure contains no reset, force push, forced checkout, or unscoped
+deletion.
 
 - [ ] **Step 10: Syntax-check and failure-inject the restore semantics in isolation**
 
@@ -1490,14 +1792,27 @@ cleanup() {
   rm -rf -- "$sandbox"
 }
 trap cleanup EXIT
-mkdir -p "$sandbox/backup" "$sandbox/live"
+mkdir -p "$sandbox/backup" "$sandbox/live" \
+  "$sandbox/source/units" "$sandbox/live/units" \
+  "$sandbox/source/applet" "$sandbox/live/applet"
 printf 'old-install\n' >"$sandbox/backup/present"
 mkdir "$sandbox/live/private-parent"
 chmod 0755 "$sandbox/live/private-parent"
 printf '755\n' >"$sandbox/backup/private-parent-mode"
 printf 'lock-sentinel\n' >"$sandbox/settings.lock"
 printf 'active\n' >"$sandbox/timer-state"
+printf 'enabled\n' >"$sandbox/timer-enablement"
 printf 'active\n' >"$sandbox/generator-state"
+printf 'static\n' >"$sandbox/service-enablement"
+printf 'active\n' >"$sandbox/admin-state"
+printf 'running\n' >"$sandbox/applet-state"
+for unit in wirtelprimpf.service wirtelprimpf.timer wirtelprimpf-admin.service; do
+  printf 'unit=%s\n' "$unit" >"$sandbox/source/units/$unit"
+  cp -a -- "$sandbox/source/units/$unit" "$sandbox/live/units/$unit"
+done
+printf 'applet-target\n' >"$sandbox/source/applet/metadata.json"
+cp -a -- "$sandbox/source/applet/metadata.json" \
+  "$sandbox/live/applet/metadata.json"
 : >"$sandbox/recovery-events"
 
 assert_recovery_lock_held() {
@@ -1509,6 +1824,7 @@ assert_recovery_lock_held() {
 
 restore_install_targets() {
   test "$(<"$sandbox/generator-state")" = inactive
+  test "$(<"$sandbox/service-enablement")" = masked-runtime
   assert_recovery_lock_held
   printf 'install-restore\n' >>"$sandbox/recovery-events"
   rm -rf -- "$sandbox/live/present" "$sandbox/live/was-missing"
@@ -1533,7 +1849,21 @@ quiesce_generator_harness() {
     fi
     (( attempts < max_attempts )) || return 1
   done
-  printf 'generator-inactive\n' >>"$sandbox/recovery-events"
+  printf 'generator-inactive-before-mask\n' >>"$sandbox/recovery-events"
+  printf 'masked-runtime\n' >"$sandbox/service-enablement"
+  printf 'service-runtime-mask\n' >>"$sandbox/recovery-events"
+  if [[ "$transition" == after-mask-reactivation ]]; then
+    printf 'active\n' >"$sandbox/generator-state"
+  fi
+  attempts=0
+  while [[ "$(<"$sandbox/generator-state")" != inactive ]]; do
+    attempts=$((attempts + 1))
+    if [[ "$transition" == after-mask-reactivation && "$attempts" == 1 ]]; then
+      printf 'inactive\n' >"$sandbox/generator-state"
+    fi
+    (( attempts < max_attempts )) || return 1
+  done
+  printf 'generator-inactive-after-mask\n' >>"$sandbox/recovery-events"
 }
 
 rollback_harness() {
@@ -1557,12 +1887,41 @@ rollback_harness() {
   printf 'venv-restore\n' >>"$sandbox/recovery-events"
   assert_recovery_lock_held
   printf 'daemon-reload\n' >>"$sandbox/recovery-events"
+  for unit in wirtelprimpf.service wirtelprimpf.timer wirtelprimpf-admin.service; do
+    cmp --silent "$sandbox/source/units/$unit" "$sandbox/live/units/$unit"
+  done
+  assert_recovery_lock_held
+  printf 'unit-proof\n' >>"$sandbox/recovery-events"
+  diff --recursive --brief "$sandbox/source/applet" "$sandbox/live/applet"
+  assert_recovery_lock_held
+  printf 'applet-proof\n' >>"$sandbox/recovery-events"
+  printf 'enabled\n' >"$sandbox/timer-enablement"
+  test "$(<"$sandbox/timer-state")" = inactive
+  assert_recovery_lock_held
+  printf 'timer-enablement-proof\n' >>"$sandbox/recovery-events"
+  printf 'static\n' >"$sandbox/service-enablement"
+  test "$(<"$sandbox/service-enablement")" = static
+  assert_recovery_lock_held
+  printf 'service-runtime-unmask\nservice-proof\n' \
+    >>"$sandbox/recovery-events"
+  printf 'active\n' >"$sandbox/admin-state"
+  test "$(<"$sandbox/admin-state")" = active
+  assert_recovery_lock_held
+  printf 'admin-restore\nadmin-proof\n' >>"$sandbox/recovery-events"
+  printf 'running\n' >"$sandbox/applet-state"
+  test "$(<"$sandbox/applet-state")" = running
+  assert_recovery_lock_held
+  printf 'applet-reload\napplet-running-proof\n' \
+    >>"$sandbox/recovery-events"
+  printf 'active\n' >"$sandbox/timer-state"
+  test "$(<"$sandbox/timer-enablement")" = enabled
+  test "$(<"$sandbox/timer-state")" = active
+  assert_recovery_lock_held
+  printf 'timer-restore\ntimer-proof\n' >>"$sandbox/recovery-events"
   flock -u "$recovery_lock"
   exec {recovery_lock}>&-
   printf 'settings-unlock\n' >>"$sandbox/recovery-events"
   flock -n "$sandbox/settings.lock" true
-  printf 'admin-restore\napplet-reload\ntimer-restore\n' \
-    >>"$sandbox/recovery-events"
 }
 
 set +e
@@ -1581,12 +1940,16 @@ cmp --silent "$sandbox/backup/present" "$sandbox/live/present"
 test ! -e "$sandbox/live/was-missing"
 test "$(stat -Lc '%a' "$sandbox/live/private-parent")" = 755
 test "$(paste -sd, "$sandbox/recovery-events")" = \
-  timer-stop,generator-inactive,admin-stop,settings-lock,install-restore,directory-mode-restore,config-classify,checkout-restore,venv-restore,daemon-reload,settings-unlock,admin-restore,applet-reload,timer-restore
+  timer-stop,generator-inactive-before-mask,service-runtime-mask,generator-inactive-after-mask,admin-stop,settings-lock,install-restore,directory-mode-restore,config-classify,checkout-restore,venv-restore,daemon-reload,unit-proof,applet-proof,timer-enablement-proof,service-runtime-unmask,service-proof,admin-restore,admin-proof,applet-reload,applet-running-proof,timer-restore,timer-proof,settings-unlock
+test "$(<"$sandbox/service-enablement")" = static
+test "$(<"$sandbox/timer-state")" = active
+test "$(<"$sandbox/admin-state")" = active
 
 # A generator that never becomes inactive exhausts its finite bound and no
 # install/checkout/venv restoration is attempted beneath it.
 : >"$sandbox/recovery-events"
 printf 'active\n' >"$sandbox/generator-state"
+printf 'static\n' >"$sandbox/service-enablement"
 set +e
 rollback_harness never 0.2
 quiesce_status=$?
@@ -1598,6 +1961,7 @@ test "$(paste -sd, "$sandbox/recovery-events")" = timer-stop
 # no install, directory-mode, config, checkout, venv, or unit restore occurs.
 : >"$sandbox/recovery-events"
 printf 'inactive\n' >"$sandbox/generator-state"
+printf 'static\n' >"$sandbox/service-enablement"
 exec {competitor_lock}<>"$sandbox/settings.lock"
 flock -n "$competitor_lock"
 set +e
@@ -1606,9 +1970,21 @@ lock_wait_status=$?
 set -e
 test "$lock_wait_status" -ne 0
 test "$(paste -sd, "$sandbox/recovery-events")" = \
-  timer-stop,generator-inactive,admin-stop
+  timer-stop,generator-inactive-before-mask,service-runtime-mask,generator-inactive-after-mask,admin-stop
+test "$(<"$sandbox/service-enablement")" = masked-runtime
 flock -u "$competitor_lock"
 exec {competitor_lock}>&-
+
+# Even a synthetic activation in the first inactive-to-mask boundary is caught
+# by the mandatory second wait; no recovery mutation can precede it.
+: >"$sandbox/recovery-events"
+printf 'inactive\n' >"$sandbox/generator-state"
+printf 'static\n' >"$sandbox/service-enablement"
+quiesce_generator_harness after-mask-reactivation
+test "$(<"$sandbox/generator-state")" = inactive
+test "$(<"$sandbox/service-enablement")" = masked-runtime
+test "$(paste -sd, "$sandbox/recovery-events")" = \
+  timer-stop,generator-inactive-before-mask,service-runtime-mask,generator-inactive-after-mask
 
 # The lock opens read/write without truncation. It remains held over the exact
 # deployment phases that can otherwise overlap an applet CLI transaction.
@@ -1627,28 +2003,124 @@ for phase in admin-start live-smoke; do
   flock -n "$sandbox/settings.lock" true
 done
 
-# An active pre-state is restored only after target main is stable. There is no
-# file/worktree event after timer-start. The injected signal window sets main to
-# target while the shell flag is still zero; ref detection still quiesces and
-# reports incomplete instead of trying to rewind main.
+# The final lock is reacquired after the deliberately unlocked live smoke. A
+# real disposable repository proves the exact compare-and-swap and that
+# attaching main never presents the old tree: HEAD is already detached at the
+# target tree when refs/heads/main changes.
+runtime_harness="$sandbox/runtime"
+git init -q -b main "$runtime_harness"
+git -C "$runtime_harness" config user.name 'Wirtelprimpf Harness'
+git -C "$runtime_harness" config user.email harness@example.invalid
+printf 'old-tree\n' >"$runtime_harness/application.txt"
+git -C "$runtime_harness" add application.txt
+git -C "$runtime_harness" commit -qm old
+runtime_sha_before="$(git -C "$runtime_harness" rev-parse HEAD)"
+printf 'target-tree\n' >"$runtime_harness/application.txt"
+git -C "$runtime_harness" commit -qam target
+target_sha="$(git -C "$runtime_harness" rev-parse HEAD)"
+target_tree="$(git -C "$runtime_harness" rev-parse "$target_sha^{tree}")"
+git -C "$runtime_harness" switch --detach -q "$target_sha"
+git -C "$runtime_harness" update-ref refs/heads/main \
+  "$runtime_sha_before" "$target_sha"
+test "$(<"$runtime_harness/application.txt")" = target-tree
+
+assert_final_lock_held() {
+  if flock -n "$sandbox/settings.lock" true; then
+    printf 'final transaction escaped the settings lock\n' >&2
+    return 1
+  fi
+}
+
 : >"$sandbox/success-events"
 printf 'inactive\n' >"$sandbox/timer-state"
-printf 'timer-enablement-restored-stopped\n' >>"$sandbox/success-events"
+printf 'enabled\n' >"$sandbox/timer-enablement"
+printf 'masked-runtime\n' >"$sandbox/service-enablement"
+printf 'inactive\n' >"$sandbox/admin-state"
+exec {final_lock}<>"$sandbox/settings.lock"
+flock -n "$final_lock"
+printf 'settings-lock\n' >>"$sandbox/success-events"
+for phase in revision-proof fingerprints artifact-proof; do
+  assert_final_lock_held
+  printf '%s\n' "$phase" >>"$sandbox/success-events"
+done
 test "$(<"$sandbox/timer-state")" = inactive
-printf 'worktree-switch-main\n' >>"$sandbox/success-events"
-printf 'main-fast-forward\n' >>"$sandbox/success-events"
+test "$(<"$sandbox/timer-enablement")" = enabled
+printf 'timer-enablement-restored-stopped\n' >>"$sandbox/success-events"
+assert_final_lock_held
+printf 'masked-runtime\n' >"$sandbox/timer-enablement"
+printf 'timer-runtime-mask\n' >>"$sandbox/success-events"
+test "$(<"$sandbox/service-enablement")" = masked-runtime
+test "$(<"$sandbox/timer-enablement")" = masked-runtime
+test "$(<"$sandbox/timer-state")" = inactive
+git -C "$runtime_harness" merge-base --is-ancestor \
+  "$runtime_sha_before" "$target_sha"
+printf 'ancestry-proof\n' >>"$sandbox/success-events"
+assert_final_lock_held
+test "$(git -C "$runtime_harness" rev-parse HEAD)" = "$target_sha"
+test "$(git -C "$runtime_harness" rev-parse refs/heads/main)" = \
+  "$runtime_sha_before"
+test "$(git -C "$runtime_harness" rev-parse HEAD^{tree})" = "$target_tree"
+git -C "$runtime_harness" update-ref refs/heads/main \
+  "$target_sha" "$runtime_sha_before"
 software_commit_complete=1
-printf 'main-target-stable\n' >>"$sandbox/success-events"
-test "$(tail -n1 "$sandbox/success-events")" = main-target-stable
+printf 'update-ref-cas\n' >>"$sandbox/success-events"
+assert_final_lock_held
+test "$(git -C "$runtime_harness" rev-parse refs/heads/main)" = "$target_sha"
+test "$(git -C "$runtime_harness" rev-parse HEAD)" = "$target_sha"
+test "$(<"$runtime_harness/application.txt")" = target-tree
+git -C "$runtime_harness" switch -q main
+test "$(git -C "$runtime_harness" branch --show-current)" = main
+test "$(git -C "$runtime_harness" rev-parse HEAD^{tree})" = "$target_tree"
+test "$(<"$runtime_harness/application.txt")" = target-tree
+test -z "$(git -C "$runtime_harness" status --porcelain)"
+printf 'attach-main-same-tree\n' >>"$sandbox/success-events"
+assert_final_lock_held
+printf 'enabled\n' >"$sandbox/timer-enablement"
+test "$(<"$sandbox/timer-state")" = inactive
+printf 'timer-runtime-unmask\n' >>"$sandbox/success-events"
+printf 'static\n' >"$sandbox/service-enablement"
+test "$(<"$sandbox/service-enablement")" = static
+printf 'service-runtime-unmask\nservice-proof\n' \
+  >>"$sandbox/success-events"
+for unit in wirtelprimpf.service wirtelprimpf.timer wirtelprimpf-admin.service; do
+  cmp --silent "$sandbox/source/units/$unit" "$sandbox/live/units/$unit"
+done
+printf 'unit-proof\n' >>"$sandbox/success-events"
+diff --recursive --brief "$sandbox/source/applet" "$sandbox/live/applet"
+test "$(<"$sandbox/applet-state")" = running
+printf 'applet-proof\n' >>"$sandbox/success-events"
+assert_final_lock_held
+printf 'active\n' >"$sandbox/admin-state"
+test "$(<"$sandbox/admin-state")" = active
+printf 'admin-proof\n' >>"$sandbox/success-events"
+assert_final_lock_held
 printf 'active\n' >"$sandbox/timer-state"
-printf 'timer-start\n' >>"$sandbox/success-events"
+test "$(<"$sandbox/timer-enablement")" = enabled
+test "$(<"$sandbox/timer-state")" = active
+printf 'timer-start\ntimer-proof\n' >>"$sandbox/success-events"
+assert_final_lock_held
+printf 'signals-ignored\n' >>"$sandbox/success-events"
+flock -u "$final_lock"
+exec {final_lock}>&-
+printf 'settings-unlock\n' >>"$sandbox/success-events"
+deployment_complete=1
+printf 'deployment-complete\nexit-trap-cleared\nsignals-restored\n' \
+  >>"$sandbox/success-events"
+flock -n "$sandbox/settings.lock" true
+test "$(<"$sandbox/settings.lock")" = lock-sentinel
 test "$(paste -sd, "$sandbox/success-events")" = \
-  timer-enablement-restored-stopped,worktree-switch-main,main-fast-forward,main-target-stable,timer-start
-test "$(tail -n1 "$sandbox/success-events")" = timer-start
+  settings-lock,revision-proof,fingerprints,artifact-proof,timer-enablement-restored-stopped,timer-runtime-mask,ancestry-proof,update-ref-cas,attach-main-same-tree,timer-runtime-unmask,service-runtime-unmask,service-proof,unit-proof,applet-proof,admin-proof,timer-start,timer-proof,signals-ignored,settings-unlock,deployment-complete,exit-trap-cleared,signals-restored
+if rg -q -- 'old-tree|fast-forward|checkout-old|applet-reload|fail-closed' \
+  "$sandbox/success-events"; then
+  exit 1
+fi
+test "$(tail -n1 "$sandbox/success-events")" = signals-restored
 
+# If INT/TERM lands after update-ref but before the shell flag, exact ref
+# classification still selects postcommit. A third SHA selects unknown. Both
+# paths stop admin/timer, runtime-mask timer and service, and never rewind or
+# reinstall anything.
 software_commit_complete=0
-target_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-runtime_sha_before=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 third_sha=cccccccccccccccccccccccccccccccccccccccc
 classify_main_ref() {
   case "$1" in
@@ -1664,19 +2136,31 @@ test "$(classify_main_ref "$third_sha")" = unknown
 for main_ref_now in "$target_sha" "$third_sha"; do
   : >"$sandbox/postcommit-events"
   printf 'active\n' >"$sandbox/timer-state"
+  printf 'enabled\n' >"$sandbox/timer-enablement"
+  printf 'static\n' >"$sandbox/service-enablement"
+  printf 'active\n' >"$sandbox/admin-state"
   main_ref_state="$(classify_main_ref "$main_ref_now")"
   if [[ "$software_commit_complete" == 1 || "$main_ref_state" != precommit ]]; then
+    printf 'inactive\n' >"$sandbox/admin-state"
     printf 'inactive\n' >"$sandbox/timer-state"
-    printf 'timer-stop\n%s-incomplete\n' "$main_ref_state" \
+    printf 'masked-runtime\n' >"$sandbox/timer-enablement"
+    printf 'masked-runtime\n' >"$sandbox/service-enablement"
+    printf 'admin-stop\ntimer-stop\ntimer-runtime-mask\nservice-runtime-mask\n%s-incomplete\n' \
+      "$main_ref_state" \
       >>"$sandbox/postcommit-events"
   fi
+  test "$(<"$sandbox/admin-state")" = inactive
   test "$(<"$sandbox/timer-state")" = inactive
+  test "$(<"$sandbox/timer-enablement")" = masked-runtime
+  test "$(<"$sandbox/service-enablement")" = masked-runtime
   test "$(paste -sd, "$sandbox/postcommit-events")" = \
-    "timer-stop,${main_ref_state}-incomplete"
-  if rg -q -- 'checkout|venv|install|worktree' "$sandbox/postcommit-events"; then
+    "admin-stop,timer-stop,timer-runtime-mask,service-runtime-mask,${main_ref_state}-incomplete"
+  if rg -q -- 'checkout|venv|install|worktree|restore' \
+    "$sandbox/postcommit-events"; then
     exit 1
   fi
 done
+test "$(git -C "$runtime_harness" rev-parse refs/heads/main)" = "$target_sha"
 
 printf 'OUTPUT_RESOLUTION=source\n' >"$sandbox/backup/openai.env"
 printf '{"revision":"old"}\n' >"$sandbox/backup/settings-state.json"
@@ -1725,17 +2209,84 @@ test "$(fingerprint_live_config)" = "$owned_before"
 test "$(jq -r '.revision' "$sandbox/live/settings-state.json")" = new-owned
 ! cmp --silent "$sandbox/backup/openai.env" "$sandbox/live/openai.env"
 
-# A later competitor produces attention-required (2) and is also untouched.
+# A later competitor produces attention-required (2), is left byte-for-byte
+# untouched, and selects the explicit fail-closed end state. The persistent
+# enablement value is not restored or rewritten; runtime masks merely override
+# execution until an operator reconciles the competitor.
 printf 'OUTPUT_RESOLUTION=4k\n' >"$sandbox/live/openai.env"
 printf '{"revision":"competitor"}\n' >"$sandbox/live/settings-state.json"
+printf 'enabled\n' >"$sandbox/timer-persistent-enablement"
+printf 'enabled\n' >"$sandbox/timer-enablement"
+printf 'static\n' >"$sandbox/service-enablement"
+printf 'active\n' >"$sandbox/timer-state"
+printf 'active\n' >"$sandbox/admin-state"
 competitor_before="$(fingerprint_live_config)"
+exec {attention_lock}<>"$sandbox/settings.lock"
+flock -n "$attention_lock"
 set +e
 classify_config_without_restore
 config_status=$?
 set -e
 test "$config_status" = 2
+: >"$sandbox/config-attention-events"
+printf 'inactive\n' >"$sandbox/admin-state"
+printf 'inactive\n' >"$sandbox/timer-state"
+printf 'masked-runtime\n' >"$sandbox/timer-enablement"
+printf 'masked-runtime\n' >"$sandbox/service-enablement"
+printf 'admin-stop\ntimer-stop\ntimer-runtime-mask\nservice-runtime-mask\nattention-required\n' \
+  >>"$sandbox/config-attention-events"
+assert_final_lock_held
 test "$(fingerprint_live_config)" = "$competitor_before"
 test "$(jq -r '.revision' "$sandbox/live/settings-state.json")" = competitor
+test "$(<"$sandbox/timer-persistent-enablement")" = enabled
+test "$(<"$sandbox/timer-enablement")" = masked-runtime
+test "$(<"$sandbox/service-enablement")" = masked-runtime
+test "$(<"$sandbox/timer-state")" = inactive
+test "$(<"$sandbox/admin-state")" = inactive
+test "$(paste -sd, "$sandbox/config-attention-events")" = \
+  admin-stop,timer-stop,timer-runtime-mask,service-runtime-mask,attention-required
+if rg -q -- 'restore|unmask|start' "$sandbox/config-attention-events"; then
+  exit 1
+fi
+flock -u "$attention_lock"
+exec {attention_lock}>&-
+
+# The remote merge gate is also failure-injected without contacting GitHub.
+# A changed head emits no merge command. Only the reviewed head produces the
+# mandatory --match-head-commit literal, and the resulting merge object must
+# have exactly base then head as its two parents.
+: >"$sandbox/merge-events"
+merge_if_reviewed_head() {
+  local expected_head="$1" observed_head="$2"
+  test "$observed_head" = "$expected_head" || return 1
+  printf 'gh pr merge 17 --merge --match-head-commit %s\n' "$expected_head" \
+    >>"$sandbox/merge-events"
+}
+set +e
+merge_if_reviewed_head "$target_sha" "$third_sha"
+head_mismatch_status=$?
+set -e
+test "$head_mismatch_status" -ne 0
+test ! -s "$sandbox/merge-events"
+merge_if_reviewed_head "$target_sha" "$target_sha"
+test "$(<"$sandbox/merge-events")" = \
+  "gh pr merge 17 --merge --match-head-commit $target_sha"
+
+verify_merge_parents() {
+  local expected_base="$1" expected_head="$2"
+  shift 2
+  test "$#" = 2
+  test "$1" = "$expected_base"
+  test "$2" = "$expected_head"
+}
+verify_merge_parents "$runtime_sha_before" "$target_sha" \
+  "$runtime_sha_before" "$target_sha"
+set +e
+verify_merge_parents "$runtime_sha_before" "$target_sha" \
+  "$target_sha" "$runtime_sha_before"
+parent_mismatch_status=$?
+set -e
+test "$parent_mismatch_status" -ne 0
 ```
 
 Expected: `bash -n` and the harness exit 0. The rollback log proves timer stop
@@ -1743,13 +2294,19 @@ and bounded service quiescence precede every file/code restore; the stuck case
 fails closed without reaching those mutations. The lock sentinel survives and
 contention remains closed through `daemon-reload`, then opens before admin/smoke.
 All three config cases retain their current bytes and semantic revision; no
-automatic branch copies config backup bytes. The existing private-parent mode
-returns from the simulated installer's `0700` to its recorded `0755`, while a
-successful live installation would retain the intended `0700` hardening. The
-active-timer trace ends at `timer-start` only after `main-target-stable`; its
-merge-to-flag signal-window trace stops the timer and contains no worktree/file
-rewind. A third/unexpected main SHA is classified `unknown` and preserves files
-identically; only the exact recorded pre-deploy SHA authorizes rollback.
+automatic branch copies config backup bytes. A competitor additionally leaves
+admin/timer stopped and both runtime execution units masked without rewriting
+persistent enablement. The existing private-parent mode returns from the
+simulated installer's `0700` to its recorded `0755`, while a successful live
+installation would retain the intended `0700` hardening. The success trace
+proves an exact-old-SHA CAS, target-tree-only main attachment, and a settings
+lock held through unit/applet/admin/timer proofs and the final timer path. Its
+update-ref-to-flag signal-window stops both writers and contains no worktree or
+file rewind. A third/unexpected main SHA is classified `unknown` and preserves
+files identically; only the exact recorded pre-deploy SHA authorizes rollback.
+The mocked PR gate emits no merge on head drift, includes
+`--match-head-commit` on an exact match, and rejects reversed or non-two-parent
+merge ancestry.
 This is local disposable evidence, not permission to execute Step 9; the live
 rollout remains separately gated.
 
@@ -2309,3 +2866,83 @@ Completion requires all of the following:
   Cinnamon-Upstream-Fix oder sonstige Laufzeitsystemmutation. Die bekannten
   Tokenmuster kamen in keiner gestagten Addition vor. Der Arbeitsumfang endet
   weiterhin unmittelbar vor Push/Merge/Task-4-Ausführung.
+
+### 2026-08-02 — Additive Finalisierung des transaktionalen Rolloutvertrags
+
+- Dieser Eintrag superseded ausschließlich die in älteren Ledgerständen noch
+  genannten Fast-forward-, Einzelmasken- und frühen Lockfreigabeabläufe; die
+  historischen Einträge bleiben unverändert erhalten. Der lokale Code- und
+  Testcommit ist
+  `d10f36fefee8f1110e2204b8e9f75677fc457549`
+  (`fix(settings): serialize applet operations safely`). Er fügt dem Applet
+  einen echten, symlinkgeschützten, auf 100 ms begrenzten exklusiven
+  Settings-`flock` hinzu und hält ihn über die vollständige mehrteilige
+  Generatoroperation. Konkurrenz endet redigiert als busy und startet keinen
+  `systemctl`-Teilbefehl. Die Adminoberfläche validiert außerdem die
+  `numeric_bounds` aller tatsächlich dargestellten Zahlenfelder vollständig,
+  einschließlich Ganzzahligkeit, `min <= max`, aktuellem Wertebereich und
+  `story_finish_parts_min <= story_finish_parts_max`.
+- Task 3 prüft den PR nach den Checks erneut auf `OPEN`, exakten Head-OID,
+  `main` und Non-Draft sowie die unveränderte Remote-Basis. Der Merge ist an
+  `--match-head-commit` gebunden; danach müssen Remote-main und Merge-SHA
+  übereinstimmen und das Mergeobjekt exakt zwei Eltern in der Reihenfolge
+  geprüfte Basis, geprüfter Head besitzen. Ein Headwechsel kann damit keinen
+  Mergeaufruf passieren.
+- Sämtliche lokalen HTTP-Smokes besitzen `--noproxy '*'`, zwei Sekunden
+  Connect- und zehn Sekunden Gesamtfrist. Runtime-Fetch ist durch GNU
+  `timeout` sowie Git-Low-Speed-Grenzen begrenzt; beide editable
+  Pip-Installationen sind auf 300 Sekunden begrenzt und verwenden
+  `--no-build-isolation --no-deps`. Diese Grenzen ändern weder Runtime noch
+  Environment, solange der weiterhin separat freizugebende Step 9 nicht
+  ausgeführt wird.
+- Der normative Step-9-Rahmen stoppt zuerst den Timer, wartet begrenzt auf den
+  Generator, maskiert anschließend `wirtelprimpf.service` zur Laufzeit und
+  wiederholt die Inaktivitätsprüfung, wodurch auch das
+  Inactive-to-Mask-Rennen geschlossen wird. Direkt vor dem Git-Commitpunkt wird
+  zusätzlich der gestoppte Timer runtime-maskiert. Postcommit-, unbekannte
+  SHA-, Recovery- und Konfigurationskonkurrenzfehler stoppen Admin/Timer und
+  hinterlassen **beide** Units `masked-runtime`; kein solcher Pfad spult Code,
+  Ref oder konkurrierende Konfigurationsbytes zurück.
+- Nach dem Livesmoke wird derselbe Settings-Lock begrenzt wieder erworben und
+  bis über Revision/Fingerprints, alle drei Unitvergleiche, Applet-Diff,
+  Timerenablement, beide Masken, Git-Commitpunkt, Worktree-Anbindung,
+  Service-/Admin-/Applet-/Timerzustände und sämtliche Schlussbeweise gehalten.
+  `refs/heads/main` wechselt ausschließlich per
+  `git update-ref <target> <exact-old>`; der Worktree steht vorher bereits
+  detached auf dem Target-Tree und wird danach ohne Old-Tree-Fenster an `main`
+  gebunden. Der redundante zweite `ReloadXlet` entfällt: Target-Applet und UUID
+  sind vor dem Smoke geprüft, der installierte Baum danach unverändert.
+- Das Abschlussfenster ist explizit: Unter weiterhin gehaltenem Lock werden
+  HUP/INT/TERM ignoriert; erst danach folgen Lockfreigabe, das infallible
+  `deployment_complete=1`, EXIT-Trap-Disarm und Signalreset. Scheitert bereits
+  die Lockfreigabe, bleibt die EXIT-Recovery aktiv. Eine unmittelbar danach
+  beginnende legitime Settings-Transaktion kann daher nicht mehr durch einen
+  verspäteten Postcommit-Fail-closed-Pfad überfahren werden.
+- Der vollständig extrahierte Step-9-Codeblock bestand `bash -n`. Der
+  Step-10-Block bestand sowohl `bash -n` als auch den realen disposable Lauf mit
+  Exit 0. Der Harness injiziert und beweist: doppelte
+  Generator-Inaktivitätsbarriere samt Service-Mask, begrenzte Lockkonkurrenz,
+  present/missing- und Verzeichnismodus-Recovery, Lockhaltedauer bis zum letzten
+  Timerproof, echte Git-CAS ohne Old-Tree, Update-ref-zu-Flag-Signalrand,
+  Target- und Third-SHA-Fail-closed, konkurrierende Config ohne Restore,
+  vollständige Unit/Applet/Admin/Timerproofs sowie Head-Match und exakt
+  geordnete Mergeeltern.
+- Finale lokale Matrix nach der letzten Planänderung: Plattform `143/143`;
+  `make check` mit Applet-Runtime grün, Admin-UI `24/24`, SemVer `8/8`,
+  Git-Object-Fallback `3/3`, Release-Publication `3/3`, Helper-Environment
+  `7/7`, Applet-Sync `25/25`, Settings-Schema `14/14` und Story-Directives
+  `31/31`; Web `9/9`; Astro-Check über 22 Dateien mit null Fehlern, Warnungen
+  und Hinweisen. `compileall`, Ruff 0.15.16 (vollständig auf den neuen
+  Pythonpfaden, E9/F/I auf der Legacy-`SettingsLogo.py`) und `git diff --check`
+  endeten ebenfalls mit Exit 0.
+- Beide Profile wurden vollständig gebaut und validiert. Hub: 823 Dateien,
+  818 HTML, 10.840 interne Links, 4.344.374 Byte, Baum-SHA-256
+  `0acc6695654d3e82e450a3467d96995da89e59d954d00340d5a5028916ab1bb6`.
+  Archiv: 823 Dateien, 818 HTML, 10.840 interne Links, 4.395.867 Byte,
+  Baum-SHA-256
+  `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
+- Diese Author-Runde führte keinen Fetch, Push, PR-Write, Merge, Install,
+  Reload, Deploy, `systemctl`, `gdbus`, Cloudflare-/DNS-Zugriff,
+  Cinnamon-Upstream-Fix oder sonstige Runtime-/Remote-Mutation aus. Der
+  Doku-/Evidenz-SHA ist der Commit, der diesen Ledgerabschnitt enthält, und
+  wird im Übergabebericht exakt ausgewiesen.

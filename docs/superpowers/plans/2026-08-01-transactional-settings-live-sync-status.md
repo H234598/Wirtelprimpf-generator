@@ -2662,3 +2662,76 @@ Do not start public deployment merely because Task 10 is green. First compare th
 - Diese Runde endete absichtlich vor Remote- und Runtimeaktionen. Es erfolgten
   kein Push, PR-Write, Merge, Install, Reload, Deploy, Service-/Timerwrite,
   Cinnamon-Appletreload, Cloudflare-/DNS-Zugriff oder Upstream-Fix.
+
+### 2026-08-02 — Additive Abschlussremediation: Applet-Lock und atomarer Rollout
+
+- Dieser Abschnitt ersetzt keine Historie, sondern superseded nur frühere
+  technische Aussagen, nach denen Applet-Operationen ohne gemeinsamen Lock
+  liefen, nur der Timer als Ausführungsbarriere diente oder `main` per
+  Worktree-Fast-forward umgeschaltet wurde. Der abgeschlossene lokale
+  Code-/Testcommit ist
+  `d10f36fefee8f1110e2204b8e9f75677fc457549`
+  (`fix(settings): serialize applet operations safely`).
+- `settings_sync.exclusive_settings_lock` öffnet nur einen absolut aufgelösten,
+  regulären, nicht symlinkbaren Lockpfad unter ebenfalls geprüften
+  Elternverzeichnissen, setzt Modus `0600`, verwendet einen echten exklusiven
+  `flock` und endet nach 100 ms redigiert als busy. Der Generator-Tab hält
+  diesen Lock über seine komplette Befehlsfolge. Ein Konkurrent bewirkt damit
+  null `systemctl`-Aufrufe; Busy-/Fehlerzustand und UI-Gates werden sicher
+  zurückgesetzt.
+- Die Browsergrenze verlangt die vollständigen semantischen
+  `numeric_bounds` genau für die drei tatsächlich konsumierten Zahlenfelder:
+  vorhandene ganzzahlige Min-/Maxwerte, `min <= max`, aktuellen Wert im
+  Intervall sowie konsistente Story-Min-/Max-Reihenfolge. Das Applet behält die
+  Revision absichtlich als opakes nichtleeres Signal und dupliziert keine
+  Invarianten, die es nicht rendert.
+- Der ergänzte Rolloutvertrag begrenzt Curl, Fetch und editable Pip, prüft nach
+  PR-Checks erneut Zustand/Head/Basis/Draft, verwendet
+  `--match-head-commit` und belegt exakt geordnete Mergeeltern. Vor jeder
+  lokalen Codemutation stoppt er den Timer, wartet den Generator bounded
+  inaktiv, setzt eine Runtime-Service-Mask und wartet erneut. Vor dem
+  Commitpunkt wird zusätzlich der gestoppte Timer runtime-maskiert. Jeder
+  Postcommit-, Unknown-SHA- oder Config-Attention-Pfad stoppt Admin/Timer und
+  hinterlässt Service und Timer fail-closed `masked-runtime`.
+- Der Post-Smoke-Settings-Lock bleibt über Revisions-/Fingerprintownership,
+  Unit- und Appletverifikation, Timerenablement, beide Masken, Git-CAS,
+  Worktree-Anbindung ohne Old-Tree, Service/Admin/Applet/Timerrestauration und
+  alle finalen Zustandsbeweise gehalten. `main` wird ausschließlich mit
+  `git update-ref refs/heads/main "$target_sha" "$runtime_sha_before"`
+  verglichen und gesetzt. Das Worktree-HEAD steht dabei schon detached auf dem
+  Target-Tree; erst nach erfolgreichem CAS wird derselbe Tree an `main`
+  gebunden.
+- Ein zweiter Appletreload im lockgehaltenen Schlussabschnitt ist bewusst
+  entfernt. Der Target-Appletreload und der UUID-Nachweis erfolgen im
+  freigegebenen Livesmoke-Fenster; anschließend beweisen Applet-Diff und UUID
+  die unveränderte Installation. Für die letzte Lockfreigabe gilt ein
+  atomarer Abschlussvertrag: HUP/INT/TERM werden unter Lock ignoriert,
+  anschließend folgen Lockfreigabe, `deployment_complete=1`, EXIT-Disarm und
+  Signalreset. Ein Lockfreigabefehler trifft weiterhin die bewaffnete
+  EXIT-Recovery, während nach erfolgreicher Freigabe keine legitime
+  Folgetransaktion mehr durch einen späten Postcommit-Handler gestoppt werden
+  kann.
+- Test-first-Evidenz: der initiale Applet-Lock-Fokus schlug mit zwei Fehlern und
+  zwei Errors erwartungsgemäß rot fehl und bestand anschließend `39/39` aus
+  Applet-Sync und Settings-Schema. Der Admin-Bounds-Fokus bestand nach den
+  gezielt roten malformed- und Cross-field-Fällen `24/24`. Der vollständig
+  extrahierte Step 9 bestand `bash -n`; Step 10 bestand `bash -n` und seinen
+  realen disposable Failure-Harness mit Exit 0. Dieser belegt zusätzlich
+  Service-/Timer-Masken, Doppelwait-Rennen, Lock bis zum letzten Timerproof,
+  echte CAS/Target-Tree-Anbindung, Update-ref-Signalrand, Third-SHA,
+  Config-Attention ohne Restore, Artefakt-/Runtimeproofs sowie
+  PR-Head-Match/Elternreihenfolge.
+- Finale vollständige Regression: Plattform `143/143`; `make check` mit
+  Applet-Runtime grün, Admin-UI `24/24`, SemVer `8/8`, Git-Object-Fallback
+  `3/3`, Release-Publication `3/3`, Helper-Environment `7/7`, Applet-Sync
+  `25/25`, Settings-Schema `14/14`, Story-Directives `31/31`; Web `9/9`;
+  Astro 22 Dateien mit 0 Fehlern, 0 Warnungen, 0 Hinweisen; `compileall`, Ruff
+  0.15.16 und `git diff --check` grün. Hub und Archiv validierten jeweils 823
+  Dateien, 818 HTML und 10.840 interne Links mit den Baum-SHA-256
+  `0acc6695654d3e82e450a3467d96995da89e59d954d00340d5a5028916ab1bb6`
+  beziehungsweise
+  `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
+- Es erfolgten in dieser Runde kein Fetch, Push, PR-Write, Merge, Install,
+  Reload, Deploy, Service-/Timerwrite, `systemctl`, `gdbus`, DNS-/Cloudflare-
+  oder Upstreamzugriff. Der Doku-/Evidenz-SHA ist der Commit, der diesen
+  Abschnitt enthält, und wird im finalen Übergabebericht ausgewiesen.
