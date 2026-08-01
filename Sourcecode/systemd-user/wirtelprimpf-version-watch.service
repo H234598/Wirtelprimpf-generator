@@ -31,8 +31,8 @@ RestrictRealtime=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
-StandardError=append:%h/.local/share/wirtelprimpf-generator/Sourcecode/watch_service.log
-StandardOutput=append:%h/.local/share/wirtelprimpf-generator/Sourcecode/watch_service.log
+StandardError=journal
+StandardOutput=journal
 
 [Install]
 WantedBy=default.target

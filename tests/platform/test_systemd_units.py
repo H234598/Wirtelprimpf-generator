@@ -76,6 +76,13 @@ class SystemdUnitTests(unittest.TestCase):
         self.assertIn(invocation, source)
         self.assertNotIn('mktemp -d -p "$CHECK_TMP_BASE_DIR" -t', source)
 
+    def test_version_watcher_logs_to_journal_not_git_checkout(self) -> None:
+        source = (UNIT_ROOT / "wirtelprimpf-version-watch.service").read_text(encoding="utf-8")
+        self.assertIn("StandardOutput=journal", source)
+        self.assertIn("StandardError=journal", source)
+        self.assertNotIn("StandardOutput=append:", source)
+        self.assertNotIn("StandardError=append:", source)
+
 
 if __name__ == "__main__":
     unittest.main()
