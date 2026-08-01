@@ -10,7 +10,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from .admin import SettingsStore, serve_admin
+from .admin import serve_admin
 from .catalog import CatalogStore
 from .cloudflare_credentials import CloudflareCredentialResolver
 from .cloudflare_dns import CloudflareDNS, CloudflareHTTPTransport, resolve_zone_id
@@ -23,6 +23,7 @@ from .media import (
     publish_release_plan,
 )
 from .naming import ARCHIVE_CAPACITY, archive_target_for_volume, book_target_for_story
+from .operational_status import OperationalStatusCollector, StatusPaths
 from .provision import RotationOrchestrator
 from .settings import (
     ChangeRequest,
@@ -76,6 +77,14 @@ def _build_settings_only_parser() -> argparse.ArgumentParser:
 def build_settings_manager() -> SettingsManager:
     paths = SettingsPaths.for_home(Path.home())
     return SettingsManager(paths, systemd=SystemdUserManager(paths.timer_dropin))
+
+
+def build_status_collector(manager: SettingsManager) -> OperationalStatusCollector:
+    return OperationalStatusCollector(
+        paths=StatusPaths.for_home(Path.home()),
+        snapshot_reader=manager.snapshot,
+        timer_reader=manager.systemd.observe_timer,
+    )
 
 
 def _read_bounded_stdin(maximum_bytes: int) -> str:
@@ -251,7 +260,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     if args.command == "admin":
-        serve_admin(SettingsStore(args.settings), host=args.host, port=args.port)
+        manager = build_settings_manager()
+        if args.settings != manager.paths.env_file:
+            raise RuntimeError("admin settings path must match the transactional manager path")
+        serve_admin(
+            manager,
+            build_status_collector(manager),
+            host=args.host,
+            port=args.port,
+        )
         return 0
     if args.command == "rotate":
         api_token = CloudflareCredentialResolver().resolve(

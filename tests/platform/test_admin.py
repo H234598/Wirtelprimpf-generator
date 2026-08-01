@@ -6,24 +6,67 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from wirtelprimpf_platform.admin import (
-    AdminApplication,
-    AdminError,
-    SettingsStore,
-    validate_bind_host,
+from wirtelprimpf_platform.admin import AdminApplication, AdminError, validate_bind_host
+from wirtelprimpf_platform.settings import (
+    SettingsApplyFailure,
+    SettingsConflict,
+    SettingsLockBusy,
+    SettingsManager,
+    SettingsPaths,
+    SettingsValidationFailure,
 )
+from wirtelprimpf_platform.systemd_user import TimerConfiguration, TimerObservation
+
+
+class FakeSystemd:
+    def __init__(self) -> None:
+        self.configuration = TimerConfiguration(True, 120, 120, True)
+
+    def observe_timer(self) -> TimerObservation:
+        return TimerObservation.from_configuration(self.configuration, active=True)
+
+    def apply_timer(self, configuration: TimerConfiguration) -> TimerObservation:
+        self.configuration = configuration
+        return TimerObservation.from_configuration(configuration, active=configuration.enabled)
+
+    def restore_timer(
+        self,
+        configuration: TimerConfiguration,
+        was_active: bool,
+        dropin_backup: object | None = None,
+    ) -> TimerObservation:
+        self.configuration = configuration
+        return TimerObservation.from_configuration(configuration, active=was_active)
+
+
+class FakeStatusCollector:
+    def collect(self) -> dict[str, object]:
+        return {
+            "schema_version": "1.0.0",
+            "health": "ok",
+            "generator": {"active_state": "inactive"},
+            "timer": {"interval_minutes": 120},
+        }
+
+
+class RaisingSettingsManager:
+    def __init__(self, failure: Exception) -> None:
+        self.failure = failure
+
+    def apply(self, request):
+        raise self.failure
 
 
 class AdminTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.env_file = self.root / "private" / "openai.env"
-        self.env_file.parent.mkdir(mode=0o700)
+        self.paths = SettingsPaths.for_home(self.root)
+        self.env_file = self.paths.env_file
+        self.env_file.parent.mkdir(parents=True, mode=0o700)
         self.env_file.write_text(
             "# local settings\n"
             "OPENAI_API_KEY=super-secret-value\n"
-            "CLOUDFLARE_API_TOKEN=cloudflare-secret-value\n"
             "WIRTELPRIMPF_OPERANDI=story\n"
             "WIRTELPRIMPF_IMAGE_MODEL=gpt-image-2\n"
             "WIRTELPRIMPF_STORY_MODEL=gpt-5-mini\n"
@@ -33,8 +76,23 @@ class AdminTests(unittest.TestCase):
             encoding="utf-8",
         )
         os.chmod(self.env_file, 0o600)
-        self.store = SettingsStore(self.env_file)
-        self.app = AdminApplication(self.store, csrf_token="csrf-token-for-tests")
+        self.paths.cloudflare_token_file.parent.mkdir(parents=True, mode=0o700)
+        self.paths.cloudflare_token_file.write_text(
+            "CLOUDFLARE_API_TOKEN=cloudflare-secret-value\n",
+            encoding="utf-8",
+        )
+        os.chmod(self.paths.cloudflare_token_file, 0o600)
+        self.manager = SettingsManager(
+            self.paths,
+            systemd=FakeSystemd(),
+            validator=lambda values: None,
+        )
+        self.status_collector = FakeStatusCollector()
+        self.app = AdminApplication(
+            self.manager,
+            self.status_collector,
+            csrf_token="csrf-token-for-tests",
+        )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -59,11 +117,20 @@ class AdminTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(AdminError):
                 validate_bind_host(value)
 
-    def test_status_and_settings_never_return_secret_material(self) -> None:
-        response = self.request("GET", "/api/settings")
+    def test_status_is_structurally_independent_from_settings(self) -> None:
+        settings = json.loads(self.request("GET", "/api/settings").body)
+        status = json.loads(self.request("GET", "/api/status").body)
+        self.assertEqual(settings["schema_version"], "2.0.0")
+        self.assertIn("revision", settings)
+        self.assertIn("settings", settings)
+        self.assertNotIn("generator", settings)
+        self.assertEqual(status["schema_version"], "1.0.0")
+        self.assertIn("generator", status)
+        self.assertIn("timer", status)
+        self.assertNotIn("settings", status)
 
-        self.assertEqual(response.status, 200)
-        decoded = json.loads(response.body)
+    def test_settings_never_return_secret_material(self) -> None:
+        decoded = json.loads(self.request("GET", "/api/settings").body)
         serialized = json.dumps(decoded)
         self.assertNotIn("super-secret-value", serialized)
         self.assertNotIn("cloudflare-secret-value", serialized)
@@ -73,34 +140,8 @@ class AdminTests(unittest.TestCase):
         self.assertEqual(decoded["invariants"]["stories_per_book"], 10)
         self.assertEqual(decoded["invariants"]["books_per_archive"], 5)
 
-    def test_foreign_host_origin_and_client_are_rejected(self) -> None:
-        foreign_host = self.request("GET", "/api/settings", headers={"Host": "attacker.invalid"})
-        foreign_origin = self.request(
-            "POST",
-            "/api/settings",
-            headers={"Origin": "https://attacker.invalid", "X-Wirtelprimpf-CSRF": "csrf-token-for-tests"},
-            body={"operandi": "classic"},
-        )
-        foreign_client = self.request("GET", "/api/settings", client_host="192.0.2.1")
-
-        self.assertEqual(foreign_host.status, 403)
-        self.assertEqual(foreign_origin.status, 403)
-        self.assertEqual(foreign_client.status, 403)
-
-    def test_missing_csrf_keeps_previous_configuration_byte_identical(self) -> None:
-        before = self.env_file.read_bytes()
-
-        response = self.request(
-            "POST",
-            "/api/settings",
-            headers={"Origin": "http://127.0.0.1:8765"},
-            body={"operandi": "classic"},
-        )
-
-        self.assertEqual(response.status, 403)
-        self.assertEqual(self.env_file.read_bytes(), before)
-
-    def test_valid_update_is_atomic_private_validated_and_secret_stays_write_only(self) -> None:
+    def test_sparse_update_requires_revision_and_returns_fresh_snapshot(self) -> None:
+        base = json.loads(self.request("GET", "/api/settings").body)
         response = self.request(
             "POST",
             "/api/settings",
@@ -109,35 +150,26 @@ class AdminTests(unittest.TestCase):
                 "X-Wirtelprimpf-CSRF": "csrf-token-for-tests",
             },
             body={
-                "operandi": "both",
-                "image_model": "gpt-image-2",
-                "story_model": "gpt-5-mini",
-                "image_size": "1536x1024",
-                "output_resolution": "4k",
-                "generation_interval_minutes": 180,
-                "publish_immediately": True,
-                "site_title": "Wirtelprimpfs Geschichtenatelier",
-                "site_intro": "Zwei Katzen, eine Möhre und ziemlich viel Unfug.",
-                "openai_api_key": "replacement-secret",
-                "cloudflare_api_token": "replacement-cloudflare-secret",
+                "base_revision": base["revision"],
+                "changes": {"operandi": "both"},
+                "base_values": {"operandi": base["settings"]["operandi"]},
+                "secret_actions": {},
             },
         )
-
+        decoded = json.loads(response.body)
         self.assertEqual(response.status, 200)
-        self.assertEqual(os.stat(self.env_file).st_mode & 0o777, 0o600)
-        self.assertFalse(list(self.env_file.parent.glob("*.part")))
-        raw = self.env_file.read_text(encoding="utf-8")
-        self.assertIn("WIRTELPRIMPF_OPERANDI=both", raw)
-        self.assertIn("WIRTELPRIMPF_OUTPUT_RESOLUTION=4k", raw)
-        self.assertIn("OPENAI_API_KEY=replacement-secret", raw)
-        self.assertIn("CLOUDFLARE_API_TOKEN=replacement-cloudflare-secret", raw)
-        self.assertNotIn("replacement-secret", response.body)
-        self.assertNotIn("replacement-cloudflare-secret", response.body)
-        self.assertTrue(json.loads(response.body)["secrets"]["openai_api_key_present"])
+        self.assertEqual(decoded["settings"]["operandi"], "both")
+        self.assertNotEqual(decoded["revision"], base["revision"])
 
-    def test_invalid_update_is_fail_closed(self) -> None:
-        before = self.env_file.read_bytes()
-
+    def test_same_field_conflict_is_409_and_returns_public_snapshot(self) -> None:
+        base = json.loads(self.request("GET", "/api/settings").body)
+        self.env_file.write_text(
+            self.env_file.read_text(encoding="utf-8").replace(
+                "WIRTELPRIMPF_OPERANDI=story",
+                "WIRTELPRIMPF_OPERANDI=classic",
+            ),
+            encoding="utf-8",
+        )
         response = self.request(
             "POST",
             "/api/settings",
@@ -145,21 +177,102 @@ class AdminTests(unittest.TestCase):
                 "Origin": "http://127.0.0.1:8765",
                 "X-Wirtelprimpf-CSRF": "csrf-token-for-tests",
             },
-            body={"generation_interval_minutes": 1, "operandi": "destructive"},
+            body={
+                "base_revision": base["revision"],
+                "changes": {"operandi": "both"},
+                "base_values": {"operandi": "story"},
+                "secret_actions": {},
+            },
         )
+        decoded = json.loads(response.body)
+        self.assertEqual(response.status, 409)
+        self.assertEqual(decoded["conflicts"], ["operandi"])
+        self.assertEqual(decoded["snapshot"]["settings"]["operandi"], "classic")
 
-        self.assertEqual(response.status, 422)
+    def test_validation_lock_and_apply_failures_have_distinct_status_codes(self) -> None:
+        snapshot = self.manager.snapshot()
+        cases = (
+            (SettingsValidationFailure("invalid field"), 422),
+            (SettingsLockBusy("busy"), 423),
+            (SettingsApplyFailure("failed", rollback_succeeded=True), 503),
+            (SettingsConflict(("operandi",), snapshot), 409),
+        )
+        body = {
+            "base_revision": "a" * 64,
+            "changes": {},
+            "base_values": {},
+            "secret_actions": {},
+        }
+        for failure, expected_status in cases:
+            with self.subTest(expected_status=expected_status):
+                application = AdminApplication(
+                    RaisingSettingsManager(failure),
+                    self.status_collector,
+                    csrf_token="csrf-token-for-tests",
+                )
+                response = application.handle(
+                    "POST",
+                    "/api/settings",
+                    {
+                        "Host": "127.0.0.1:8765",
+                        "Origin": "http://127.0.0.1:8765",
+                        "X-Wirtelprimpf-CSRF": "csrf-token-for-tests",
+                    },
+                    json.dumps(body).encode("utf-8"),
+                    client_host="127.0.0.1",
+                )
+                self.assertEqual(response.status, expected_status)
+
+    def test_foreign_host_origin_and_client_are_rejected(self) -> None:
+        foreign_host = self.request("GET", "/api/settings", headers={"Host": "attacker.invalid"})
+        foreign_origin = self.request(
+            "POST",
+            "/api/settings",
+            headers={
+                "Origin": "https://attacker.invalid",
+                "X-Wirtelprimpf-CSRF": "csrf-token-for-tests",
+            },
+            body={
+                "base_revision": "a" * 64,
+                "changes": {},
+                "base_values": {},
+                "secret_actions": {},
+            },
+        )
+        foreign_client = self.request("GET", "/api/settings", client_host="192.0.2.1")
+        self.assertEqual(foreign_host.status, 403)
+        self.assertEqual(foreign_origin.status, 403)
+        self.assertEqual(foreign_client.status, 403)
+
+    def test_missing_csrf_keeps_previous_configuration_byte_identical(self) -> None:
+        before = self.env_file.read_bytes()
+        response = self.request(
+            "POST",
+            "/api/settings",
+            headers={"Origin": "http://127.0.0.1:8765"},
+            body={
+                "base_revision": "a" * 64,
+                "changes": {"operandi": "classic"},
+                "base_values": {"operandi": "story"},
+                "secret_actions": {},
+            },
+        )
+        self.assertEqual(response.status, 403)
         self.assertEqual(self.env_file.read_bytes(), before)
 
-    def test_config_symlink_is_rejected(self) -> None:
-        other = self.root / "other.env"
-        other.write_text("OPENAI_API_KEY=do-not-touch\n", encoding="utf-8")
-        link = self.root / "linked.env"
-        link.symlink_to(other)
-
-        with self.assertRaisesRegex(AdminError, "symlink"):
-            SettingsStore(link).update({"operandi": "story"})
-        self.assertEqual(other.read_text(encoding="utf-8"), "OPENAI_API_KEY=do-not-touch\n")
+    def test_oversized_body_is_rejected_before_json_or_store_access(self) -> None:
+        response = self.app.handle(
+            "POST",
+            "/api/settings",
+            {
+                "Host": "127.0.0.1:8765",
+                "Origin": "http://127.0.0.1:8765",
+                "X-Wirtelprimpf-CSRF": "csrf-token-for-tests",
+            },
+            b"x" * (64 * 1024 + 1),
+            client_host="127.0.0.1",
+        )
+        self.assertEqual(response.status, 413)
 
     def test_path_traversal_is_not_served(self) -> None:
         response = self.request("GET", "/../../.config/wirtelprimpf/openai.env")
@@ -168,7 +281,6 @@ class AdminTests(unittest.TestCase):
 
     def test_admin_page_explains_book_and_archive_boundaries(self) -> None:
         response = self.request("GET", "/")
-
         self.assertEqual(response.status, 200)
         self.assertIn("10 vollständige Storys", response.body)
         self.assertIn("5 Bücher", response.body)
