@@ -11,6 +11,7 @@ check:
 	$(PYTHON) -m py_compile files/$(UUID)/story_directives_core.py files/$(UUID)/StoryDirectives.py
 	node --check files/$(UUID)/applet.js
 	node tests/test_applet_runtime.js
+	node --test tests/test_admin_ui.mjs
 	$(PYTHON) -m unittest tests.test_semver
 	$(PYTHON) -m unittest tests.test_git_object_fallback
 	$(PYTHON) -m unittest tests.test_release_publication

@@ -9,6 +9,7 @@ import json
 import secrets
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib import resources
 from urllib.parse import urlsplit
 
 from .operational_status import OperationalStatusCollector
@@ -104,6 +105,10 @@ def _json_response(status: int, payload: object) -> AdminResponse:
     )
 
 
+def _static_text(name: str) -> str:
+    return resources.files("wirtelprimpf_platform").joinpath("static", name).read_text(encoding="utf-8")
+
+
 class AdminApplication:
     def __init__(
         self,
@@ -196,11 +201,23 @@ class AdminApplication:
             if not hmac.compare_digest(supplied, self.csrf_token):
                 return _json_response(403, {"ok": False, "error": "invalid CSRF token"})
             return self._post_settings(body)
+        if path == "/assets/admin.css" and effective_verb == "GET":
+            return AdminResponse(
+                status=200,
+                body=_static_text("admin.css"),
+                content_type="text/css; charset=utf-8",
+            )
+        if path == "/assets/admin.mjs" and effective_verb == "GET":
+            return AdminResponse(
+                status=200,
+                body=_static_text("admin.mjs"),
+                content_type="text/javascript; charset=utf-8",
+            )
         if path == "/" and effective_verb == "GET":
             token = html.escape(self.csrf_token, quote=True)
             return AdminResponse(
                 status=200,
-                body=ADMIN_HTML.replace("__CSRF_TOKEN__", token),
+                body=_static_text("admin.html").replace("__CSRF_TOKEN__", token),
                 content_type="text/html; charset=utf-8",
             )
         return _json_response(404, {"ok": False, "error": "not found"})
@@ -256,10 +273,3 @@ def serve_admin(
     server = ThreadingHTTPServer((bind_host, port), _Handler)
     server.application = AdminApplication(settings, status)  # type: ignore[attr-defined]
     server.serve_forever()
-
-
-ADMIN_HTML = """<!doctype html>
-<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="csrf-token" content="__CSRF_TOKEN__"><title>Wirtelprimpf · Ateliersteuerung</title></head>
-<body><main><h1>Das Geschichtenatelier</h1><p>10 vollständige Storys ergeben ein Buch; 5 Bücher und damit 50 Storys ergeben ein Archiv.</p>
-<p>Die transaktionale Steueroberfläche wird geladen.</p></main></body></html>"""

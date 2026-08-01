@@ -6,7 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from wirtelprimpf_platform.admin import AdminApplication, AdminError, validate_bind_host
+from wirtelprimpf_platform.admin import (
+    SECURITY_HEADERS,
+    AdminApplication,
+    AdminError,
+    validate_bind_host,
+)
 from wirtelprimpf_platform.settings import (
     SettingsApplyFailure,
     SettingsConflict,
@@ -285,6 +290,39 @@ class AdminTests(unittest.TestCase):
         self.assertIn("10 vollständige Storys", response.body)
         self.assertIn("5 Bücher", response.body)
         self.assertIn("50 Storys", response.body)
+
+    def test_admin_assets_are_fixed_local_routes_with_strict_csp(self) -> None:
+        page = self.request("GET", "/")
+        stylesheet = self.request("GET", "/assets/admin.css")
+        script = self.request("GET", "/assets/admin.mjs")
+        missing = self.request("GET", "/assets/../../openai.env")
+        self.assertEqual(page.status, 200)
+        self.assertIn(
+            '<meta name="csrf-token" content="csrf-token-for-tests">',
+            page.body,
+        )
+        self.assertNotIn("__CSRF_TOKEN__", page.body)
+        self.assertIn('<select id="image_model" name="image_model">', page.body)
+        self.assertIn('<select id="story_model" name="story_model">', page.body)
+        self.assertIn('href="/assets/admin.css"', page.body)
+        self.assertIn('src="/assets/admin.mjs"', page.body)
+        self.assertEqual(stylesheet.content_type, "text/css; charset=utf-8")
+        self.assertEqual(script.content_type, "text/javascript; charset=utf-8")
+        self.assertEqual(missing.status, 404)
+
+    def test_http_handler_security_headers_disallow_inline_assets(self) -> None:
+        csp = SECURITY_HEADERS["Content-Security-Policy"]
+        self.assertEqual(
+            csp,
+            "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; "
+            "frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+        )
+        self.assertNotIn("unsafe-inline", csp)
+        self.assertNotIn("https://", csp)
+        self.assertEqual(SECURITY_HEADERS["Cache-Control"], "no-store")
+        self.assertEqual(SECURITY_HEADERS["X-Frame-Options"], "DENY")
+        self.assertEqual(SECURITY_HEADERS["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(SECURITY_HEADERS["Referrer-Policy"], "no-referrer")
 
 
 if __name__ == "__main__":
