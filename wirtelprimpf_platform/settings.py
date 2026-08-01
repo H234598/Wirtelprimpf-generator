@@ -416,7 +416,12 @@ class SettingsManager:
                 }
                 for name, fingerprint in fingerprints.items()
             },
-            "timer": timer.revision_dict(),
+            "timer": {
+                "enabled": timer.enabled,
+                "interval_minutes": timer.interval_minutes,
+                "randomized_delay_seconds": timer.randomized_delay_seconds,
+                "persistent": timer.persistent,
+            },
         }
         revision = hashlib.sha256(
             json.dumps(

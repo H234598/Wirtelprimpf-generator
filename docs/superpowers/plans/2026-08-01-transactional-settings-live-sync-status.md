@@ -2433,3 +2433,47 @@ git commit -m "chore(settings): package and document transactional control"
 ## Plan-A Completion Gate
 
 Do not start public deployment merely because Task 10 is green. First compare the branch against the approved design section-by-section, record the exact test counts and commit IDs, and then execute `2026-08-01-public-site-copy-and-rollout.md`. The second plan adds the independent public-copy commit, runs both site profiles, performs review/merge, installs the merged local version, and verifies live behavior. Cloudflare remains untouched throughout both plans.
+
+## Additives Evidenzledger der Umsetzung
+
+### 2026-08-01 — zurückgenommener Packaging-Smoke nach Task 5
+
+- Der Worker führte entgegen der engeren Arbeitsanweisung, vor dem ausdrücklich
+  geplanten Rollout nichts zu installieren, einmal
+  `which python; python -m pip install --disable-pip-version-check --no-deps -e . && .venv/bin/wirtelprimpf-settings --help >/dev/null && python -m wirtelprimpf_platform.cli settings --help >/dev/null 2>&1 || true; git diff --check`
+  aus.
+- Interpreter/Prefix laut unmittelbarer und späterer Nachprüfung:
+  `/usr/sbin/python`, `sys.prefix=/usr`, `sys.base_prefix=/usr`,
+  `purelib=/usr/local/lib/python3.14/site-packages`,
+  `scripts=/usr/local/bin`.
+- Pip baute dabei das editable Wheel
+  `wirtelprimpf_generator-1.0.0-0.editable-py3-none-any.whl`, meldete
+  `Successfully installed wirtelprimpf-generator-1.0.0`; unmittelbar danach
+  scheiterte nur der nicht vorhandene Worktree-Pfad
+  `.venv/bin/wirtelprimpf-settings` mit `No such file or directory`.
+- Der Worker nahm die eigene Mutation sofort mit
+  `python -m pip uninstall -y wirtelprimpf-generator` zurück. Pip meldete
+  `Found existing installation: wirtelprimpf-generator 1.0.0`,
+  `Uninstalling wirtelprimpf-generator-1.0.0` und
+  `Successfully uninstalled wirtelprimpf-generator-1.0.0`. Beim Installieren
+  hatte Pip keinen vorherigen Uninstall-Vorgang gemeldet.
+- Read-only Restprüfung danach:
+  `python -m pip show wirtelprimpf-generator` meldete
+  `Package(s) not found`; `find` fand weder einen Wirtelprimpf-`.pth`-/
+  `dist-info`-Eintrag im ermittelten `purelib` noch ein
+  `wirtelprimpf-*`-Console-Script in `/usr/local/bin`; und
+  `importlib.util.find_spec('wirtelprimpf_platform')` aus `/tmp` ergab `None`.
+- Ab hier bleiben weitere Install-, Reload-, Deploy- und Remote-Schritte bis zum
+  durch die Primärsession ausdrücklich freigegebenen Rollout ausgesetzt.
+
+### 2026-08-01 — Korrektur der opaken Revisionsquelle
+
+- Die in Task 4 gedruckte Verwendung von `timer_observation.revision_dict()` ist
+  als historischer Entwurf superseded. `last_trigger`, `next_run`, `result`,
+  `active` und `active_state` sind Betriebs-, nicht Konfigurationszustand.
+- Die Revisionsquelle enthält vom Timer ausschließlich `enabled`,
+  `interval_minutes`, `randomized_delay_seconds` und `persistent`. Dadurch lösen
+  normale Timerläufe weder einen Schein-Konflikt für Secretänderungen noch einen
+  falschen `revision_signal_mismatch` aus.
+- Ein beobachtbarer Regressionstest variiert Aktivität, Zeitstempel und Resultat
+  bei identischer Timerkonfiguration und verlangt dieselbe 64-stellige Revision.

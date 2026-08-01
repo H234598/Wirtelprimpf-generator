@@ -197,6 +197,23 @@ class SettingsTransactionTests(unittest.TestCase):
         self.assertEqual(snapshot.settings["story_finish_parts_max"], 9)
         self.assertNotIn("invalid_persisted_setting:story_finish_parts_min", snapshot.warnings)
 
+    def test_timer_runtime_events_do_not_change_the_settings_revision(self) -> None:
+        first = self.manager.snapshot()
+        base = self.systemd.observe_timer()
+        self.systemd.observe_timer = lambda: TimerObservation(
+            enabled=base.enabled,
+            active=False,
+            active_state="inactive",
+            interval_minutes=base.interval_minutes,
+            randomized_delay_seconds=base.randomized_delay_seconds,
+            persistent=base.persistent,
+            last_trigger="Sat 2026-08-01 18:00:00 CEST",
+            next_run="Sat 2026-08-01 20:00:00 CEST",
+            result="failure",
+        )
+        second = self.manager.snapshot()
+        self.assertEqual(second.revision, first.revision)
+
     def test_failed_non_timer_change_rolls_back_files_without_touching_systemd(self) -> None:
         before = self.paths.env_file.read_bytes()
         manager = SettingsManager(
