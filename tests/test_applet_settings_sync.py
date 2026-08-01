@@ -218,6 +218,42 @@ def coordinator_for(
 
 
 class AppletSettingsSyncTests(unittest.TestCase):
+    def test_operation_lock_rejects_a_symlinked_parent_without_leaking_its_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            real_parent = root / "real-private-parent"
+            real_parent.mkdir()
+            linked_parent = root / "linked-private-parent"
+            linked_parent.symlink_to(real_parent, target_is_directory=True)
+            lock_path = linked_parent / "settings.lock"
+
+            with (
+                self.assertRaisesRegex(
+                    SYNC.SettingsOperationLockError,
+                    "Einstellungen konnten nicht sicher gesperrt werden",
+                ) as caught,
+                SYNC.exclusive_settings_lock(str(lock_path), timeout_seconds=0),
+            ):
+                self.fail("symlinked parent unexpectedly accepted")
+
+            self.assertNotIn(str(lock_path), str(caught.exception))
+
+    def test_operation_lock_rejects_a_nonregular_target_without_leaking_its_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            lock_path = Path(temporary) / "settings.lock"
+            os.mkfifo(lock_path)
+
+            with (
+                self.assertRaisesRegex(
+                    SYNC.SettingsOperationLockError,
+                    "Einstellungen konnten nicht sicher gesperrt werden",
+                ) as caught,
+                SYNC.exclusive_settings_lock(str(lock_path), timeout_seconds=0),
+            ):
+                self.fail("nonregular target unexpectedly accepted")
+
+            self.assertNotIn(str(lock_path), str(caught.exception))
+
     def test_dirty_state_keeps_local_value_and_marks_external_conflict(self) -> None:
         state = DirtySnapshotState(
             snapshot("r1", operandi="story", image_model="gpt-image-2")

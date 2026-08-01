@@ -49,7 +49,13 @@ function completeAdminSnapshot() {
       cloudflare_api_token_present: false,
       github_auth_present: true,
     },
-    invariants: {},
+    invariants: {
+      numeric_bounds: {
+        generation_interval_minutes: { minimum: 30, maximum: 10_080 },
+        story_finish_parts_min: { minimum: 1, maximum: 12 },
+        story_finish_parts_max: { minimum: 1, maximum: 12 },
+      },
+    },
     warnings: [],
   };
 }
@@ -143,6 +149,50 @@ test("numeric bounds come from the public settings invariants", () => {
     maximum: 10_080,
   });
   assert.equal(numericBounds({}, "generation_interval_minutes"), null);
+});
+
+test("admin snapshots require valid bounds for every rendered numeric control", () => {
+  const invalidSnapshots = [];
+
+  const missingBounds = completeAdminSnapshot();
+  missingBounds.invariants = {};
+  invalidSnapshots.push(missingBounds);
+
+  const missingField = completeAdminSnapshot();
+  delete missingField.invariants.numeric_bounds.story_finish_parts_max;
+  invalidSnapshots.push(missingField);
+
+  const nonIntegerBound = completeAdminSnapshot();
+  nonIntegerBound.invariants.numeric_bounds.story_finish_parts_min.minimum = 0.5;
+  invalidSnapshots.push(nonIntegerBound);
+
+  const reversedBounds = completeAdminSnapshot();
+  reversedBounds.invariants.numeric_bounds.generation_interval_minutes = {
+    minimum: 10_080,
+    maximum: 30,
+  };
+  invalidSnapshots.push(reversedBounds);
+
+  const excludedCurrentValue = completeAdminSnapshot();
+  excludedCurrentValue.invariants.numeric_bounds.story_finish_parts_max = {
+    minimum: 6,
+    maximum: 12,
+  };
+  invalidSnapshots.push(excludedCurrentValue);
+
+  const reversedStoryRange = completeAdminSnapshot();
+  reversedStoryRange.settings.story_finish_parts_min = 8;
+  reversedStoryRange.settings.story_finish_parts_max = 4;
+  invalidSnapshots.push(reversedStoryRange);
+
+  for (const snapshot of invalidSnapshots) {
+    const gate = new InteractionGate();
+    assert.throws(
+      () => AdminUI.acceptInitialSettingsSnapshot(snapshot, gate),
+      /complete settings snapshot/,
+    );
+    assert.equal(gate.ready, false);
+  }
 });
 
 test("missing status timer and story sections render as wholly unknown", () => {

@@ -8,12 +8,16 @@ dispatcher is the only route back to the UI thread.
 from __future__ import annotations
 
 import copy
+import fcntl
 import json
 import logging
 import os
 import stat
 import subprocess
+import time
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 MAX_RESPONSE_BYTES = 1024 * 1024
@@ -79,6 +83,87 @@ class SettingsCliError(RuntimeError):
     def __init__(self, message: str, *, payload: object = None) -> None:
         super().__init__(message)
         self.payload = copy.deepcopy(payload) if isinstance(payload, dict) else {}
+
+
+class SettingsOperationLockError(RuntimeError):
+    """Redacted failure while acquiring the shared settings operation lock."""
+
+
+def _open_settings_operation_lock(path: str) -> int:
+    candidate = Path(os.path.abspath(os.path.expanduser(path)))
+    if not os.path.isabs(path):
+        raise SettingsOperationLockError(
+            "Einstellungen konnten nicht sicher gesperrt werden"
+        )
+    parent = candidate.parent
+    try:
+        for directory in (parent, *parent.parents):
+            if directory.is_symlink():
+                raise SettingsOperationLockError(
+                    "Einstellungen konnten nicht sicher gesperrt werden"
+                )
+            if directory.exists() and not directory.is_dir():
+                raise SettingsOperationLockError(
+                    "Einstellungen konnten nicht sicher gesperrt werden"
+                )
+        parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        os.chmod(parent, 0o700)
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(candidate, flags, 0o600)
+    except SettingsOperationLockError:
+        raise
+    except (OSError, ValueError) as exc:
+        raise SettingsOperationLockError(
+            "Einstellungen konnten nicht sicher gesperrt werden"
+        ) from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise SettingsOperationLockError(
+                "Einstellungen konnten nicht sicher gesperrt werden"
+            )
+        os.fchmod(descriptor, 0o600)
+    except SettingsOperationLockError:
+        os.close(descriptor)
+        raise
+    except OSError as exc:
+        os.close(descriptor)
+        raise SettingsOperationLockError(
+            "Einstellungen konnten nicht sicher gesperrt werden"
+        ) from exc
+    return descriptor
+
+
+@contextmanager
+def exclusive_settings_lock(path: str, *, timeout_seconds: float = 0.1):
+    """Serialize applet operations with settings writes without leaking paths."""
+
+    descriptor = _open_settings_operation_lock(path)
+    acquired = False
+    deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+    try:
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise SettingsOperationLockError(
+                        "Einstellungen sind vorübergehend gesperrt"
+                    ) from None
+                time.sleep(min(0.02, max(0.0, deadline - time.monotonic())))
+            except OSError as exc:
+                raise SettingsOperationLockError(
+                    "Einstellungen konnten nicht sicher gesperrt werden"
+                ) from exc
+        yield
+    finally:
+        try:
+            if acquired:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
 
 
 def trusted_executable(path: str) -> bool:

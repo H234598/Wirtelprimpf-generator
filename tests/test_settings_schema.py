@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import ast
+import fcntl
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -249,24 +251,27 @@ class SettingsSchemaTests(unittest.TestCase):
         module.GLib = SimpleNamespace(
             idle_add=lambda callback, *args: callback(*args),
         )
-        for error, expected_status in (
-            (None, "ok"),
-            (RuntimeError("injected"), "failed: injected"),
-        ):
-            with self.subTest(error=error):
-                editor = bare_editor(module)
-                editor._operation_busy = True
+        with tempfile.TemporaryDirectory() as temporary:
+            lock_path = Path(temporary) / "private" / "settings.lock"
+            for error, expected_status in (
+                (None, "ok"),
+                (RuntimeError("injected"), "failed: injected"),
+            ):
+                with self.subTest(error=error):
+                    editor = bare_editor(module)
+                    editor.settings_lock_path = str(lock_path)
+                    editor._operation_busy = True
 
-                def run(_command, operation_error=error):
-                    if operation_error is not None:
-                        raise operation_error
+                    def run(_command, operation_error=error):
+                        if operation_error is not None:
+                            raise operation_error
 
-                editor._run = run
-                editor._operation_worker((("command",),), "ok", "failed")
-                self.assertFalse(editor._operation_busy)
-                self.assertTrue(editor.run_button.sensitive)
-                self.assertTrue(editor.timer_button.sensitive)
-                self.assertEqual(editor.status_text, expected_status)
+                    editor._run = run
+                    editor._operation_worker((("command",),), "ok", "failed")
+                    self.assertFalse(editor._operation_busy)
+                    self.assertTrue(editor.run_button.sensitive)
+                    self.assertTrue(editor.timer_button.sensitive)
+                    self.assertEqual(editor.status_text, expected_status)
 
         editor = bare_editor(module)
         failing_thread = mock.Mock()
@@ -277,6 +282,73 @@ class SettingsSchemaTests(unittest.TestCase):
         self.assertTrue(editor.run_button.sensitive)
         self.assertTrue(editor.timer_button.sensitive)
         self.assertEqual(editor.status_text, "failed")
+
+    def test_operational_command_sequence_holds_the_settings_lock_until_completion(self) -> None:
+        module = load_settings_logo_module()
+        module.GLib = SimpleNamespace(
+            idle_add=lambda callback, *args: callback(*args),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            lock_path = Path(temporary) / "private" / "settings.lock"
+            editor = bare_editor(module)
+            editor.settings_lock_path = str(lock_path)
+            editor._operation_busy = True
+            observed_commands = []
+
+            def run(command):
+                observed_commands.append(command)
+                with (
+                    lock_path.open("a+b") as competitor,
+                    self.assertRaises(BlockingIOError),
+                ):
+                    fcntl.flock(
+                        competitor.fileno(),
+                        fcntl.LOCK_EX | fcntl.LOCK_NB,
+                    )
+
+            editor._run = run
+            commands = (("first",), ("second",))
+
+            editor._operation_worker(commands, "ok", "failed")
+
+            self.assertEqual(observed_commands, list(commands))
+            self.assertEqual(editor.status_text, "ok")
+            self.assertFalse(editor._operation_busy)
+
+    def test_competing_settings_lock_blocks_systemctl_and_releases_ui_gate_redacted(self) -> None:
+        module = load_settings_logo_module()
+        module.GLib = SimpleNamespace(
+            idle_add=lambda callback, *args: callback(*args),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            lock_path = Path(temporary) / "private" / "settings.lock"
+            lock_path.parent.mkdir(parents=True)
+            lock_path.touch()
+            editor = bare_editor(module)
+            editor.settings_lock_path = str(lock_path)
+            editor._operation_busy = True
+            editor._run = mock.Mock()
+
+            with lock_path.open("a+b") as competitor:
+                fcntl.flock(
+                    competitor.fileno(),
+                    fcntl.LOCK_EX | fcntl.LOCK_NB,
+                )
+                editor._operation_worker(
+                    (("systemctl", "--user", "start", "wirtelprimpf.service"),),
+                    "ok",
+                    "failed",
+                )
+
+            editor._run.assert_not_called()
+            self.assertFalse(editor._operation_busy)
+            self.assertTrue(editor.run_button.sensitive)
+            self.assertTrue(editor.timer_button.sensitive)
+            self.assertEqual(
+                editor.status_text,
+                "failed: Einstellungen sind vorübergehend gesperrt",
+            )
+            self.assertNotIn(str(lock_path), editor.status_text)
 
 
 if __name__ == "__main__":

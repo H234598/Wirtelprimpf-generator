@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
-import os
 import json
+import os
 import random
 import subprocess
 import threading
@@ -9,9 +9,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 import settings_sync
-from JsonSettingsWidgets import SettingsWidget
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
-
+from JsonSettingsWidgets import SettingsWidget
 
 GENERATOR_IMAGE_CHOICES = {
     "atelier": "settings-generator-atelier.png",
@@ -754,6 +753,10 @@ class GeneratorConfigEditor(SettingsWidget):
     revision_state_path = os.path.expanduser(
         "~/.config/wirtelprimpf/settings-state.json"
     )
+    settings_lock_path = os.path.expanduser(
+        "~/.config/wirtelprimpf/settings.lock"
+    )
+    operation_lock_timeout_seconds = 0.1
 
     field_sections = (
         (
@@ -1453,8 +1456,12 @@ class GeneratorConfigEditor(SettingsWidget):
 
     def _operation_worker(self, commands, success, failure_prefix):
         try:
-            for command in commands:
-                self._run(command)
+            with settings_sync.exclusive_settings_lock(
+                self.settings_lock_path,
+                timeout_seconds=self.operation_lock_timeout_seconds,
+            ):
+                for command in commands:
+                    self._run(command)
             message = success
         except Exception as exc:
             message = f"{failure_prefix}: {exc}"

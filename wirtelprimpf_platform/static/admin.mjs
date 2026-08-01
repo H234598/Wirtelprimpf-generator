@@ -215,8 +215,9 @@ export function numericBounds(invariants, name) {
   const bounds = invariants?.numeric_bounds?.[name];
   if (
     !bounds
-    || !Number.isFinite(bounds.minimum)
-    || !Number.isFinite(bounds.maximum)
+    || !Number.isInteger(bounds.minimum)
+    || !Number.isInteger(bounds.maximum)
+    || bounds.minimum > bounds.maximum
   ) return null;
   return { minimum: bounds.minimum, maximum: bounds.maximum };
 }
@@ -245,11 +246,26 @@ const FORM_CHOICE_KEYS = Object.freeze([
   "image_size",
   "output_resolution",
 ]);
+const FORM_NUMERIC_KEYS = Object.freeze([
+  "generation_interval_minutes",
+  "story_finish_parts_min",
+  "story_finish_parts_max",
+]);
 
 function settingValueMatchesKind(value, kind) {
   if (kind === "boolean") return typeof value === "boolean";
   if (kind === "integer") return Number.isInteger(value);
   return typeof value === "string";
+}
+
+function numericBoundsMatchRenderedFields(invariants, settings) {
+  return FORM_NUMERIC_KEYS.every((name) => {
+    const bounds = numericBounds(invariants, name);
+    const value = settings[name];
+    return bounds !== null
+      && value >= bounds.minimum
+      && value <= bounds.maximum;
+  });
 }
 
 function isPublicSettingsSnapshot(snapshot, requireSuccess) {
@@ -276,6 +292,8 @@ function isPublicSettingsSnapshot(snapshot, requireSuccess) {
     && typeof snapshot.secrets.cloudflare_api_token_present === "boolean"
     && Object.values(snapshot.secrets).every((value) => typeof value === "boolean")
     && isRecord(snapshot.invariants)
+    && numericBoundsMatchRenderedFields(snapshot.invariants, snapshot.settings)
+    && snapshot.settings.story_finish_parts_min <= snapshot.settings.story_finish_parts_max
     && Array.isArray(snapshot.warnings)
     && snapshot.warnings.every((warning) => typeof warning === "string");
 }
