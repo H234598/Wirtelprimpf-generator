@@ -56,7 +56,7 @@
 - Produces: exact source wording for both hub and archive builds.
 - Does not alter any data loader, media URL, story ordering, or route.
 
-- [ ] **Step 1: Write the failing copy-contract test**
+- [x] **Step 1: Write the failing copy-contract test**
 
 ```typescript
 import assert from "node:assert/strict";
@@ -86,7 +86,7 @@ test("approved public copy is exact and superseded wording is absent", () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify all six old contracts fail**
+- [x] **Step 2: Run the focused test and verify all six old contracts fail**
 
 Run: `npm --prefix web test -- --test-name-pattern='approved public copy'`
 
@@ -96,7 +96,7 @@ Expected: failures show the current old label, both old landing-page sentences, 
 
 The failure set must also show the old Hero sentence with `Möhren`.
 
-- [ ] **Step 3: Apply the exact four source-file edits**
+- [x] **Step 3: Apply the exact four source-file edits**
 
 Use these exact replacements:
 
@@ -126,7 +126,7 @@ Use these exact replacements:
 
 Do not reflow unrelated compact Astro markup.
 
-- [ ] **Step 4: Run web unit and type checks**
+- [x] **Step 4: Run web unit and type checks**
 
 Run:
 
@@ -137,7 +137,7 @@ WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" WIRTELPRIMPF_SITE_PROFILE=hub np
 
 Expected: all Node tests pass and Astro reports zero errors.
 
-- [ ] **Step 5: Commit the independently reviewable copy change**
+- [x] **Step 5: Commit the independently reviewable copy change**
 
 ```bash
 git add web/tests/copy-contract.test.ts web/src/layouts/BaseLayout.astro web/src/pages/index.astro web/src/components/MediaCard.astro web/src/pages/projekt/status.astro
@@ -154,7 +154,7 @@ git commit -m "feat(web): apply approved public story copy"
 - Consumes: Task 1 source and fixtures.
 - Produces: locally validated hub and archive artifacts with exact required/forbidden text.
 
-- [ ] **Step 1: Build and validate the hub profile**
+- [x] **Step 1: Build and validate the hub profile**
 
 Run:
 
@@ -168,7 +168,7 @@ python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprim
 
 Expected: build and validator exit 0.
 
-- [ ] **Step 2: Assert the hub artifact's exact copy**
+- [x] **Step 2: Assert the hub artifact's exact copy**
 
 Run:
 
@@ -187,7 +187,7 @@ if rg -F -- 'Keine Live-API, keine Trackingabfrage' web/dist; then exit 1; fi
 
 Expected: required matches exist and every forbidden scan is empty.
 
-- [ ] **Step 3: Build and validate the archive profile**
+- [x] **Step 3: Build and validate the archive profile**
 
 Run:
 
@@ -201,7 +201,7 @@ python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprim
 
 Expected: build and validator exit 0; generated canonical URLs use the archive hostname.
 
-- [ ] **Step 4: Assert archive-specific wording and retained contracts**
+- [x] **Step 4: Assert archive-specific wording and retained contracts**
 
 Run:
 
@@ -216,7 +216,7 @@ if rg -F -- 'hashgebunden archiviert' web/dist; then exit 1; fi
 
 Expected: all required matches exist; the archive header remains `Publikationsarchiv 0001`, not `Telacores:`.
 
-- [ ] **Step 5: Verify generated files remain untracked**
+- [x] **Step 5: Verify generated files remain untracked**
 
 Run: `git status --short`
 
@@ -852,3 +852,78 @@ Completion requires all of the following:
 - clean merged generator and archive repositories;
 - exact local applet/source identity;
 - no Cloudflare, upstream Cinnamon, or freeze/watchdog mutation.
+
+## Additives Evidenzledger der lokalen Tasks 1–2
+
+### 2026-08-01 — Task 1: exakt sechs freigegebene öffentliche Copy-Verträge
+
+- Der Contract-Test `web/tests/copy-contract.test.ts` wurde vor jeder
+  Produktionsänderung hinzugefügt. Der erste Lauf
+  `npm --prefix web test -- --test-name-pattern='approved public copy'` endete
+  erwartungsgemäß mit Exit 1: 8/9 Tests waren grün und ausschließlich der neue
+  Copy-Vertrag rot. Da Node nach dem ersten Assertionfehler abbricht, belegte
+  ein zusätzlicher read-only Quellcheck alle sechs Ausgangsverträge einzeln:
+  `brand`, `hero`, `chronology`, `repositories`, `release` und `status` jeweils
+  mit `old_present=True`, Zieltext abwesend, insgesamt 6/6 RED-Verträge.
+- Nach exakt den sechs freigegebenen Änderungen bestand derselbe Fokuslauf
+  9/9. Der Produktionsdiff umfasste ausschließlich vier Astro-Dateien mit sechs
+  geänderten Zeilenpaaren: `Telacores:`, die neue Hero-Zeile, zwei vollständige
+  Satzentfernungen, die Entfernung von `hashgebunden` und den exakten neuen
+  Statussatz. Es gab keine siebte Copy-Änderung und keinen Reflow.
+- `npm --prefix web test` bestand 9/9; der Hub-Check
+  `WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site"
+  WIRTELPRIMPF_SITE_PROFILE=hub npm --prefix web run check` prüfte 22 Dateien
+  mit 0 Fehlern, 0 Warnungen und 0 Hinweisen. `git diff --check` war sauber.
+- Der isolierte Codecommit ist
+  `81d63ecd641316422004bfd903bac922d643a74b`
+  (`feat(web): apply approved public story copy`): fünf Dateien einschließlich
+  des 25-zeiligen Contract-Tests, insgesamt 31 Einfügungen und sechs
+  Entfernungen. Unmittelbar nach dem Commit war `git status --short` leer.
+
+### 2026-08-01 — Task 2: Hub- und Archivartefakte
+
+- Der wörtliche Hub-Beispielbuild nur mit `web/fixtures/site` bestand Build und
+  Validator (12 Dateien, 7 HTML, 77 interne Links, Baum-SHA-256
+  `e75ba7c5ea614b5a92032394c6d95cdc3e4c8adbf638e61f03ec61a73bf884e6`),
+  konnte den geforderten `Im Release`-Text jedoch nicht erzeugen: Das
+  eingecheckte Fixture enthält kein `media-manifest.json` und rendert deshalb
+  bestimmungsgemäß den Medien-Empty-State. Dies war ein Eingabedaten-, kein
+  Copy-Vertragsfehler.
+- Für den vollständigen, weiterhin rein lokalen Artefaktnachweis erhielten
+  beide Builds zusätzlich den read-only Override
+  `WIRTELPRIMPF_MEDIA_MANIFEST="$PWD/data/media-manifest.json"`. Dieses bereits
+  getrackte Manifest der Branch enthält 779 validierte Medieneinträge; es wurde
+  nicht verändert und es wurde keine siebte Quell- oder Copy-Datei ergänzt.
+- Hub-Befehl: `WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site"
+  WIRTELPRIMPF_MEDIA_MANIFEST="$PWD/data/media-manifest.json"
+  WIRTELPRIMPF_SITE_PROFILE=hub
+  WIRTELPRIMPF_SITE_URL=https://wirtelprimpf.telacore.org
+  npm --prefix web run build`, danach
+  `python3 scripts/validate_pages_artifact.py web/dist --expected-domain
+  wirtelprimpf.telacore.org`. Ergebnis: 823 Dateien, 818 HTML, 10.840 interne
+  Links, 4.344.374 Byte, Baum-SHA-256
+  `0acc6695654d3e82e450a3467d96995da89e59d954d00340d5a5028916ab1bb6`.
+  Required-Treffer auf der Start-/Statusseite: `Telacores:` 1,
+  Hero 1, Statussatz 1 und `Im Release` 6. Alle sechs vorgegebenen
+  Forbidden-Scans sowie ein zusätzlicher robuster `Möhren`-Scan waren leer.
+  Die Canonicals lauteten `/` und `/projekt/status/` jeweils unter
+  `https://wirtelprimpf.telacore.org`.
+- Archivbefehl: derselbe Daten-/Manifestvertrag mit
+  `WIRTELPRIMPF_SITE_PROFILE=archive` und
+  `WIRTELPRIMPF_SITE_URL=https://wirtelprimpf-0001.telacore.org`, danach der
+  Validator mit `--expected-domain wirtelprimpf-0001.telacore.org`. Ergebnis:
+  823 Dateien, 818 HTML, 10.840 interne Links, 4.395.867 Byte, Baum-SHA-256
+  `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
+  Required-Treffer: `Publikationsarchiv 0001` 1, `Im Release` 6,
+  ` archiviert.` 6 und Statussatz 1. Alle sieben ausgeführten Forbidden-Scans,
+  der zusätzliche `Telacores:`-Ausschluss im Archivheader und der robuste
+  `Möhren`-Scan waren leer. Alle 818 HTML-Dateien besaßen eine Canonical unter
+  `https://wirtelprimpf-0001.telacore.org/`; fehlend 0, fremde Domain 0.
+- `git status --short` blieb nach beiden Builds leer. `web/dist/` und
+  `web/.astro/` waren ausschließlich ignorierte Artefakte gemäß den
+  `.gitignore`-Zeilen 19 und 20; kein Build- oder Dependency-Artefakt wurde
+  getrackt.
+- Task 3 und alle folgenden Tasks wurden nicht begonnen. Es erfolgten kein
+  Fetch, Push, PR, Merge, Install, `systemctl`, Cinnamon-Reload, Pages-Dispatch,
+  Cloudflare-/DNS-Zugriff, Upstream-Fix und keine Änderung am
+  Generatorvertrag oder an laufenden Systemen.
