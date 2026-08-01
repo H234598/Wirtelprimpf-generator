@@ -1,7 +1,7 @@
 ---
 title: Wirtelprimpf Admin-Live-Synchronisierung und Betriebsstatus
 date: 2026-08-01
-status: approved-design-awaiting-written-review
+status: approved
 project: Wirtelprimpf-generator
 ---
 
@@ -69,6 +69,12 @@ wortgetreu ersetzt durch:
 
 `Dass er unbedeutend ist, und nichts weiß.`
 
+### 4.5 Hero der Hauptseite
+
+Die Überschrift `Wo Katzen, Möhren und Unfug Geschichte schreiben.` wird wortgetreu zu
+`Wo Katzen Unfug und Geschichte schreiben.` geändert. Diese jüngere Vorgabe aus
+`Ausbau II` gilt im Hub- und Archivprofil, soweit beide dasselbe Hero verwenden.
+
 ## 5. Architektur des transaktionalen Konfigurationskerns
 
 ### 5.1 Komponenten
@@ -99,6 +105,12 @@ Das Webadmin importiert den Kern direkt. Das Applet greift über ein lokales JSO
 | GitHub-Anmeldung | bestehende `gh`-Anmeldung beziehungsweise Prozessumgebung | nur Präsenzstatus, kein Secret-Editor |
 
 Der Kern übernimmt keinen Cloudflare-Token aus alten Wirtel-Konfigurationen automatisch. Ein vorhandener alter Eintrag wird als Konfigurationsdrift gemeldet; seine Entfernung oder Migration erfolgt nur über einen expliziten, getesteten Migrationsschritt.
+
+Der Generator-One-shot importiert die getrennte Datei optional über
+`EnvironmentFile=-%h/.config/cloudflare/api-token.env`, damit eine spätere
+Repositoryrotation denselben kanonischen Token verwenden kann. Der Adminprozess
+importiert weder diese Datei noch `openai.env` in seine Prozessumgebung; er greift
+über den Konfigurationskern ausschließlich auf die explizit erlaubten Dateien zu.
 
 ## 6. Gemeinsames Einstellungsschema
 
@@ -368,7 +380,7 @@ Die Implementierung erfolgt testgetrieben. Vor jedem Produktionsverhalten steht 
 8. `/api/settings` und `/api/status` auf Schema, Konfliktverhalten und Secretfreiheit prüfen.
 9. Änderungen committen, pushen und über den bestehenden Review-/Mergeweg auf `main` bringen.
 10. Hub-Pages und das aktuelle Archivprofil neu bauen und validieren.
-11. Öffentliche HTTPS-Seiten auf die fünf Textanforderungen prüfen.
+11. Öffentliche HTTPS-Seiten auf die sechs Textanforderungen prüfen.
 12. Lokale Installation gegen den gemergten Hauptzweig erneut hashen und Dienste/Applet abschließend kontrollieren.
 
 ## 16. Akzeptanzkriterien
@@ -380,6 +392,6 @@ Die Implementierung erfolgt testgetrieben. Vor jedem Produktionsverhalten steht 
 - Beide Modellfelder sind in Webadmin und Applet Dropdowns aus demselben Katalog.
 - `/api/status` zeigt echten lokalen Betriebszustand und keine Einstellungsduplikation.
 - Keine API-Antwort und kein Artefakt enthält einen Geheimwert.
-- Alle fünf öffentlichen Textvorgaben erscheinen exakt im gebauten und deployten Ergebnis.
+- Alle sechs öffentlichen Textvorgaben erscheinen exakt im gebauten und deployten Ergebnis.
 - Vollständige lokale und CI-Testmatrizen bestehen.
 - Der Cinnamon-Upstream-Fix, der Freeze-Watchdog-Fix und die separate Cloudflare-Redirect-Aufgabe bleiben unverändert.
