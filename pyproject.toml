@@ -19,6 +19,7 @@ dependencies = [
 wirtelprimpf-generator = "Sourcecode.wirtelprimpf_generator:main"
 wirtelprimpf-platform = "wirtelprimpf_platform.cli:main"
 wirtelprimpf-admin = "wirtelprimpf_platform.cli:admin_main"
+wirtelprimpf-settings = "wirtelprimpf_platform.cli:settings_entrypoint"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -26,6 +27,7 @@ include = ["Sourcecode*", "wirtelprimpf_platform*"]
 
 [tool.setuptools.package-data]
 Sourcecode = ["*.md", "*.txt", "env.example", "systemd-user/*"]
+wirtelprimpf_platform = ["static/*.html", "static/*.css", "static/*.mjs"]
 
 [tool.ruff]
 target-version = "py312"
