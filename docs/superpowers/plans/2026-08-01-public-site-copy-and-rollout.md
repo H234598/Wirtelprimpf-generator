@@ -399,6 +399,11 @@ Run:
 set -Eeuo pipefail
 generator_pr_number="$(gh pr view --repo H234598/Wirtelprimpf-generator --json number --jq .number)"
 [[ "$generator_pr_number" =~ ^[0-9]+$ ]]
+generator_head="$(git branch --show-current)"
+test -n "$generator_head"
+git check-ref-format --branch "$generator_head" >/dev/null
+[[ "$generator_head" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]
+test "$generator_head" != main
 generator_expected_head="$(git rev-parse HEAD)"
 [[ "$generator_expected_head" =~ ^[0-9a-f]{40}$ ]]
 generator_merge_gate="$(gh pr view "$generator_pr_number" \
@@ -411,6 +416,8 @@ test "$(jq -r '.isDraft' <<<"$generator_merge_gate")" = false
 generator_base_before="$(git ls-remote origin refs/heads/main | cut -f1)"
 [[ "$generator_base_before" =~ ^[0-9a-f]{40}$ ]]
 test "$generator_base_before" = "$(git rev-parse origin/main)"
+test "$(git ls-remote origin "refs/heads/$generator_head" | cut -f1)" = \
+  "$generator_expected_head"
 git merge-base --is-ancestor "$generator_base_before" "$generator_expected_head"
 gh pr checks "$generator_pr_number" \
   --repo H234598/Wirtelprimpf-generator --watch --fail-fast
@@ -424,26 +431,122 @@ test "$(jq -r '.baseRefName' <<<"$generator_post_checks_gate")" = main
 test "$(jq -r '.isDraft' <<<"$generator_post_checks_gate")" = false
 test "$(git ls-remote origin refs/heads/main | cut -f1)" = \
   "$generator_base_before"
-gh pr merge "$generator_pr_number" \
-  --repo H234598/Wirtelprimpf-generator \
-  --merge --delete-branch \
-  --match-head-commit "$generator_expected_head"
-generator_merge_sha="$(gh pr view "$generator_pr_number" \
-  --repo H234598/Wirtelprimpf-generator \
-  --json state,mergeCommit \
-  --jq 'select(.state == "MERGED") | .mergeCommit.oid')"
+
+# Read-only policy gate. A direct exact-lease update is permitted only when no
+# active ruleset/classic branch-protection rule requires GitHub itself to create
+# the merge commit or otherwise blocks this reviewed fast-forward. Never use an
+# admin bypass, disable a rule, or weaken protection as part of this rollout.
+policy_probe="$(mktemp -d /tmp/wirtelprimpf-merge-policy.XXXXXX)"
+[[ "$policy_probe" == /tmp/wirtelprimpf-merge-policy.* ]]
+test -d "$policy_probe" && test ! -L "$policy_probe"
+chmod 0700 "$policy_probe"
+gh api \
+  "repos/H234598/Wirtelprimpf-generator/rules/branches/main" \
+  >"$policy_probe/rulesets.json"
+jq -e 'type == "array"' "$policy_probe/rulesets.json" >/dev/null
+blocking_rules="$(jq -c '[.[] | select(.type == "pull_request" or .type == "required_status_checks" or .type == "required_signatures" or .type == "required_linear_history" or .type == "workflows" or .type == "update")]' "$policy_probe/rulesets.json")"
+test "$blocking_rules" = '[]' || {
+  printf 'Active main rules require an authorized merge path; refusing bypass.\n' >&2
+  exit 1
+}
+if gh api \
+  "repos/H234598/Wirtelprimpf-generator/branches/main/protection" \
+  >"$policy_probe/branch_protection.json" 2>"$policy_probe/branch_protection.error"; then
+  branch_protection="$(<"$policy_probe/branch_protection.json")"
+  jq -e 'type == "object"' <<<"$branch_protection" >/dev/null
+  jq -e '
+    (.required_status_checks == null)
+    and (.required_pull_request_reviews == null)
+    and (.restrictions == null)
+    and ((.required_signatures // {enabled: false}).enabled == false)
+    and ((.required_linear_history // {enabled: false}).enabled == false)
+  ' <<<"$branch_protection" >/dev/null || {
+    printf 'Classic main protection requires an authorized merge path; refusing bypass.\n' >&2
+    exit 1
+  }
+else
+  rg -q -- 'HTTP 404|Not Found' "$policy_probe/branch_protection.error" || {
+    printf 'Unable to classify main branch protection safely.\n' >&2
+    exit 1
+  }
+fi
+[[ "$policy_probe" == /tmp/wirtelprimpf-merge-policy.* ]]
+test -d "$policy_probe" && test ! -L "$policy_probe"
+rm -rf -- "$policy_probe"
+
+# Construct the only permitted merge object locally. Its content is exactly the
+# reviewed head tree; its ordered parents are the observed base and reviewed
+# head. Fixed identity and head timestamp make retries byte-for-byte stable.
+generator_head_tree="$(git rev-parse "$generator_expected_head^{tree}")"
+generator_merge_date="$(git show -s --format=%cI "$generator_expected_head")"
+generator_merge_message="Merge pull request #${generator_pr_number} from $(git branch --show-current)"
+generator_merge_sha="$(
+  printf '%s\n' "$generator_merge_message" |
+    GIT_AUTHOR_NAME=H234598 \
+    GIT_AUTHOR_EMAIL=54270221+H234598@users.noreply.github.com \
+    GIT_AUTHOR_DATE="$generator_merge_date" \
+    GIT_COMMITTER_NAME=H234598 \
+    GIT_COMMITTER_EMAIL=54270221+H234598@users.noreply.github.com \
+    GIT_COMMITTER_DATE="$generator_merge_date" \
+    git commit-tree "$generator_head_tree" \
+      -p "$generator_base_before" -p "$generator_expected_head"
+)"
+[[ "$generator_merge_sha" =~ ^[0-9a-f]{40}$ ]]
+test "$(git rev-parse "$generator_merge_sha^{tree}")" = "$generator_head_tree"
+test "$(git rev-list --parents -n1 "$generator_merge_sha")" = \
+  "$generator_merge_sha $generator_base_before $generator_expected_head"
+git merge-base --is-ancestor "$generator_base_before" "$generator_merge_sha"
+test "$(git ls-remote origin refs/heads/main | cut -f1)" = \
+  "$generator_base_before"
+test "$(git ls-remote origin "refs/heads/$generator_head" | cut -f1)" = \
+  "$generator_expected_head"
+
+# One atomic push binds both moving inputs: main must still equal the reviewed
+# base and the remote PR branch must still equal the reviewed head. Main advances
+# to the deterministic fast-forward merge while that exact head ref is deleted.
+# Neither lease may be widened or replaced by an unleased force push.
+git push --atomic \
+  --force-with-lease=refs/heads/main:$generator_base_before \
+  --force-with-lease=refs/heads/$generator_head:$generator_expected_head \
+  origin \
+  "$generator_merge_sha:refs/heads/main" \
+  ":refs/heads/$generator_head"
 remote_main_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
 [[ "$generator_merge_sha" =~ ^[0-9a-f]{40}$ ]]
 test "$remote_main_sha" = "$generator_merge_sha"
+test -z "$(git ls-remote origin "refs/heads/$generator_head")"
+
+# GitHub documents a locally merged-and-pushed PR as an indirect merge. Poll
+# only for bounded API convergence and require that GitHub records this exact
+# deterministic object, never another server-created merge.
+merge_observation_deadline=$((SECONDS + 60))
+while :; do
+  merged_pr="$(gh pr view "$generator_pr_number" \
+    --repo H234598/Wirtelprimpf-generator \
+    --json state,headRefOid,baseRefName,mergeCommit)"
+  if [[ "$(jq -r '.state' <<<"$merged_pr")" == MERGED ]]; then
+    break
+  fi
+  (( SECONDS < merge_observation_deadline )) || {
+    printf 'GitHub did not classify the exact indirect merge in time.\n' >&2
+    exit 1
+  }
+  sleep 1
+done
+test "$(jq -r '.headRefOid' <<<"$merged_pr")" = "$generator_expected_head"
+test "$(jq -r '.baseRefName' <<<"$merged_pr")" = main
+test "$(jq -r 'select(.state == "MERGED") | .mergeCommit.oid' <<<"$merged_pr")" = \
+  "$generator_merge_sha"
 generator_merge_object="$(gh api \
   "repos/H234598/Wirtelprimpf-generator/git/commits/$generator_merge_sha")"
+test "$(jq -r '.tree.sha' <<<"$generator_merge_object")" = "$generator_head_tree"
 test "$(jq '.parents | length' <<<"$generator_merge_object")" = 2
 test "$(jq -r '.parents[0].sha' <<<"$generator_merge_object")" = "$generator_base_before"
 test "$(jq -r '.parents[1].sha' <<<"$generator_merge_object")" = "$generator_expected_head"
 printf 'Merged generator SHA for Task 4/5: %s\n' "$generator_merge_sha"
 ```
 
-Expected: GitHub main contains the merge commit and the printed 40-character SHA is recorded as the only factory reference permitted in Tasks 4–5. The runtime checkout is deliberately still untouched; its previous SHA is captured and its update begins only inside Task 4 after quiescence, backup, and rollback trapping.
+Expected: GitHub main contains the deterministic two-parent merge after one atomic exact-base/exact-head lease CAS, the reviewed PR head branch is deleted in that same atomic update, and the printed 40-character SHA is recorded as the only factory reference permitted in Tasks 4–5. GitHub reports the same object as the PR's indirect merge; see the official [indirect merges contract](https://docs.github.com/en/pull-requests/reference/pull-request-merges?apiVersion=2022-11-28#indirect-merges). Any active rule requiring another authorized merge path stops the procedure without mutation; no protection is bypassed or weakened. The runtime checkout is deliberately still untouched; its previous SHA is captured and its update begins only inside Task 4 after quiescence, backup, and rollback trapping.
 
 #### Verbindliches Execution-Context-Erratum für Task 3 Step 5 und Task 4
 
@@ -486,6 +589,24 @@ inactive/success, Admin active/running und das Wirtel-Applet laufend. Dieses
 Erratum autorisiert in Task 3 keinen Task-4-Schritt; Installation, Backup,
 Service-/Timeränderung, Livesmoke und Applet-Reload bleiben bis Task 4
 ausgesetzt.
+
+##### Additive, vorrangige Klarstellung zur Runtime-Grenze
+
+Die oben historisch erhaltene Formulierung zu einer Aktualisierung des
+Runtime-Checkouts in Task 3 Step 5 ist **keine** Aktualisierungsfreigabe. Diese
+Klarstellung ist für die Ausführung vorrangig: **Task 3 verändert den Runtime-Checkout nicht**.
+Insbesondere laufen dort weder `fetch`, `pull`,
+`switch`, `update-ref` noch ein anderer Git-Schreibvorgang gegen
+`/home/teladi/.local/share/wirtelprimpf-generator`.
+
+Root darf unmittelbar vor Task 4 ausschließlich das nachfolgende eng begrenzte
+Ownership-Gate ausführen. Dieses Gate ändert keine Git-Referenz und liest weder
+Remote- noch Arbeitsbaumdaten über Git. Beim Eintritt in den normativen
+Task-4-Step-9-Rahmen bleibt `HEAD` der aufgezeichnete alte Runtime-SHA und muss
+vom `target_sha` verschieden sein. Erst nach dem Task-4-CAS und allen davor
+liegenden Backup-, Maskierungs-, Installations- und Smoke-Gates dürfen Runtime
+`HEAD`, `refs/heads/main` und das bereits in Task 4 gefetchte `origin/main` dem
+Ziel-SHA entsprechen. Jede frühere Gleichheit ist ein harter Abbruchgrund.
 
 #### Verbindliches Ownership-Gate vor jedem Runtime-Gitlauf
 
@@ -1340,7 +1461,12 @@ rollback_deployment() {
   local original_status="$1" rollback_failed=0 config_attention=0
   local config_status=0 generator_quiesced=0 critical_recovery_ok=0 final_status
   local main_ref_now="" main_ref_state=unknown
-  trap - EXIT INT TERM
+  # Disarm only recursive EXIT handling. Once recovery begins, a second
+  # HUP/INT/TERM is ignored by this shell and every subsequently executed child
+  # until restore or fail-close and lock release have completed. The status
+  # latched by the first signal remains original_status and is returned below.
+  trap - EXIT
+  trap '' HUP INT TERM
   [[ "$deployment_complete" == 1 ]] && return "$original_status"
   set +e
   # This is deliberately the first recovery mutation. Never replace installed
@@ -1505,6 +1631,7 @@ rollback_deployment() {
 }
 
 trap 'rollback_deployment $?' EXIT
+trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -1628,11 +1755,272 @@ test "$(systemctl --user show wirtelprimpf.service \
   -p ActiveState --value)" = inactive
 test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = masked-runtime
 export WIRTELPRIMPF_SMOKE_OWNERSHIP_MARKER="$deploy_backup/smoke-owned-revision.json"
-# Execute the exact Step-5 API/header/status assertions and the exact corrected
-# Step-6 live-sync script here, synchronously. POST has only a finite client
-# socket timeout; CLI apply has no subprocess kill timeout. Unknown responses
-# reconcile by revision; final restoration uses only last_owned_snapshot and
-# proves a stale restore basis returns 409.
+# The following Step-5 and Step-6 bodies are materialized byte-for-byte from
+# their audited source blocks. They execute synchronously in this transaction;
+# no external insertion or second shell is permitted.
+smoke_dir="$(mktemp -d /home/teladi/.local/state/wirtelprimpf/admin-live-smoke.XXXXXX)"
+chmod 0700 "$smoke_dir"
+curl --fail --silent --show-error \
+  --noproxy '*' --connect-timeout 2 --max-time 10 \
+  --dump-header "$smoke_dir/settings.headers" \
+  --output "$smoke_dir/settings.json" \
+  http://127.0.0.1:8765/api/settings
+curl --fail --silent --show-error \
+  --noproxy '*' --connect-timeout 2 --max-time 10 \
+  --dump-header "$smoke_dir/status.headers" \
+  --output "$smoke_dir/status.json" \
+  http://127.0.0.1:8765/api/status
+for headers in "$smoke_dir/settings.headers" "$smoke_dir/status.headers"; do
+  rg -F -- 'Cache-Control: no-store' "$headers"
+  rg -F -- 'X-Frame-Options: DENY' "$headers"
+  rg -F -- 'X-Content-Type-Options: nosniff' "$headers"
+  rg -F -- 'Referrer-Policy: no-referrer' "$headers"
+done
+python - "$smoke_dir/settings.json" "$smoke_dir/status.json" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+settings = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+status = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+platform = json.loads(
+    Path("/home/teladi/.local/state/wirtelprimpf/platform-state.json").read_text(encoding="utf-8")
+)
+
+image_models = ["gpt-image-2", "gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"]
+story_models = [
+    "gpt-5.5", "gpt-5.5-pro", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.4-pro",
+    "gpt-5.2", "gpt-5.2-pro", "gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5-pro",
+    "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini",
+]
+assert settings["choices"]["image_model"] == image_models
+assert settings["choices"]["story_model"] == story_models
+assert re.fullmatch(r"[0-9a-f]{64}", settings["revision"])
+
+forbidden_keys = {"openai_api_key", "cloudflare_api_token"}
+
+
+def reject_secret_keys(value):
+    if isinstance(value, dict):
+        assert not (forbidden_keys & value.keys())
+        for child in value.values():
+            reject_secret_keys(child)
+    elif isinstance(value, list):
+        for child in value:
+            reject_secret_keys(child)
+
+
+reject_secret_keys(settings)
+reject_secret_keys(status)
+assert status["configuration"]["revision"] == settings["revision"]
+assert status["timer"]["interval_minutes"] == settings["settings"]["generation_interval_minutes"]
+assert status["timer"]["enabled"] == settings["settings"]["timer_enabled"]
+assert status["timer"]["randomized_delay_seconds"] == settings["settings"]["timer_randomized_delay_seconds"]
+assert status["timer"]["persistent"] == settings["settings"]["timer_persistent"]
+
+current_volume = int(platform["current_volume"])
+archive_index = int(platform["active_archive_index"])
+assert status["story"]["current_volume"] == current_volume
+assert status["story"]["book"] == ((current_volume - 1) // 10) + 1
+assert status["story"]["story_in_book"] == ((current_volume - 1) % 10) + 1
+assert status["archive"]["index"] == archive_index
+assert status["archive"]["repository"] == f"Wirtelprimpf-{archive_index:04d}"
+PY
+printf 'Private smoke evidence: %s\n' "$smoke_dir"
+
+/home/teladi/.local/share/wirtelprimpf-generator/.venv/bin/python - <<'PY'
+import json
+import os
+import re
+import subprocess
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+BASE = "http://127.0.0.1:8765"
+CLI = "/home/teladi/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-settings"
+FIELD = "output_resolution"
+
+
+def request(path, *, payload=None, csrf=None):
+    body = None if payload is None else json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        headers.update({
+            "Content-Type": "application/json",
+            "Origin": BASE,
+            "X-Wirtelprimpf-CSRF": csrf,
+        })
+    operation = urllib.request.Request(BASE + path, data=body, headers=headers, method="POST" if body else "GET")
+    try:
+        # Reads fail quickly; writes have a finite client socket timeout so a
+        # wedged connection cannot hang the rollout forever. Disconnecting the
+        # client does not cancel the server-owned settings transaction, so an
+        # ambiguous write is reconciled by revision below instead of retried.
+        opened = urllib.request.urlopen(operation, timeout=10 if body is None else 180)
+        with opened as response:
+            return response.status, json.load(response)
+    except urllib.error.HTTPError as error:
+        return error.code, json.load(error)
+
+
+with urllib.request.urlopen(BASE + "/", timeout=10) as response:
+    page = response.read().decode("utf-8")
+match = re.search(r'<meta name="csrf-token" content="([A-Za-z0-9_-]+)">', page)
+assert match is not None
+csrf = match.group(1)
+
+status, initial = request("/api/settings")
+assert status == 200
+original = initial["settings"][FIELD]
+variants = [value for value in ("source", "2k", "4k") if value != original]
+assert len(variants) == 2
+web_value, cli_value = variants
+last_owned_snapshot = initial
+
+
+def envelope(snapshot, value):
+    return {
+        "base_revision": snapshot["revision"],
+        "changes": {FIELD: value},
+        "base_values": {FIELD: snapshot["settings"][FIELD]},
+        "secret_actions": {},
+    }
+
+
+def reconcile_unknown(base_snapshot):
+    deadline = time.monotonic() + 180
+    while True:
+        try:
+            status, current = request("/api/settings")
+        except (OSError, TimeoutError, ValueError, urllib.error.URLError):
+            status, current = 0, None
+        if status == 200:
+            disposition = (
+                "base-still-current"
+                if current["revision"] == base_snapshot["revision"]
+                else "revision-advanced-without-owned-response"
+            )
+            return disposition, current
+        if time.monotonic() >= deadline:
+            raise RuntimeError("unable to reconcile an unknown write outcome by revision")
+        time.sleep(0.2)
+
+
+def http_apply(base_snapshot, value):
+    try:
+        return request(
+            "/api/settings",
+            payload=envelope(base_snapshot, value),
+            csrf=csrf,
+        )
+    except (OSError, TimeoutError, ValueError, urllib.error.URLError) as error:
+        disposition, _current = reconcile_unknown(base_snapshot)
+        raise RuntimeError(
+            f"HTTP write outcome reconciled as {disposition}; refusing ownership"
+        ) from error
+
+
+def cli(action, payload=None):
+    options = {
+        "input": None if payload is None else json.dumps(payload, separators=(",", ":")),
+        "text": True,
+        "capture_output": True,
+        "check": False,
+    }
+    if action == "snapshot":
+        options["timeout"] = 10
+    # Apply has no client kill deadline; the CLI transaction owns rollback.
+    result = subprocess.run([CLI, action], **options)
+    decoded = json.loads(result.stdout)
+    return result.returncode, decoded
+
+
+def cli_apply(base_snapshot, value):
+    try:
+        return cli("apply", envelope(base_snapshot, value))
+    except (OSError, TimeoutError, ValueError, subprocess.SubprocessError) as error:
+        disposition, _current = reconcile_unknown(base_snapshot)
+        raise RuntimeError(
+            f"CLI write outcome reconciled as {disposition}; refusing ownership"
+        ) from error
+
+
+try:
+    status, web_saved = http_apply(initial, web_value)
+    assert status == 200 and web_saved["settings"][FIELD] == web_value
+    last_owned_snapshot = web_saved
+
+    cli_status, applet_view = cli("snapshot")
+    assert cli_status == 0 and applet_view["settings"][FIELD] == web_value
+
+    cli_status, cli_saved = cli_apply(applet_view, cli_value)
+    assert cli_status == 0 and cli_saved["settings"][FIELD] == cli_value
+    last_owned_snapshot = cli_saved
+
+    deadline = time.monotonic() + 4
+    while True:
+        status, web_view = request("/api/settings")
+        assert status == 200
+        if web_view["settings"][FIELD] == cli_value:
+            break
+        if time.monotonic() >= deadline:
+            raise AssertionError("HTTP view did not observe the CLI change within four seconds")
+        time.sleep(0.2)
+
+    cli_status, stale_cli = cli("snapshot")
+    assert cli_status == 0
+    status, winner = http_apply(web_view, web_value)
+    assert status == 200 and winner["settings"][FIELD] == web_value
+    last_owned_snapshot = winner
+    cli_status, conflict = cli_apply(stale_cli, original)
+    assert cli_status == 3
+    assert conflict["error"] == "conflict"
+    assert conflict["conflicts"] == [FIELD]
+    assert conflict["snapshot"]["settings"][FIELD] == web_value
+
+    status, after_conflict = request("/api/settings")
+    assert status == 200 and after_conflict["settings"][FIELD] == web_value
+
+    # Prove restoration itself is conflict-safe: a competing commit after the
+    # captured restore basis must yield 409 and preserve the competitor.
+    restore_basis = winner
+    status, competitor = http_apply(winner, cli_value)
+    assert status == 200 and competitor["settings"][FIELD] == cli_value
+    status, restore_conflict = http_apply(restore_basis, original)
+    assert status == 409
+    assert restore_conflict["conflicts"] == [FIELD]
+    assert restore_conflict["snapshot"]["settings"][FIELD] == cli_value
+    last_owned_snapshot = competitor
+finally:
+    status, current = request("/api/settings")
+    assert status == 200
+    if current["settings"][FIELD] != original:
+        # Never adopt a fresh GET as write ownership.  Restore only from the
+        # last revision returned by one of this smoke's successful writes.
+        status, restored = http_apply(last_owned_snapshot, original)
+        if status == 409:
+            assert restored["snapshot"]["revision"] == current["revision"]
+            raise RuntimeError("restoration conflict preserved a competing write")
+        assert status == 200 and restored["settings"][FIELD] == original
+        last_owned_snapshot = restored
+
+cli_status, final_cli = cli("snapshot")
+status, final_web = request("/api/settings")
+assert cli_status == 0 and status == 200
+assert final_cli["settings"][FIELD] == original
+assert final_web["settings"][FIELD] == original
+ownership_marker = os.environ.get("WIRTELPRIMPF_SMOKE_OWNERSHIP_MARKER")
+if ownership_marker:
+    marker_path = Path(ownership_marker)
+    marker_path.write_text(
+        json.dumps({"revision": final_web["revision"]}, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(marker_path, 0o600)
+PY
 
 # Prove that neither the smoke nor an applet interaction restarted generation.
 test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive
@@ -1782,7 +2170,11 @@ classifications: backup-byte-equal is preserved, a semantically restored
 smoke-owned revision is preserved without copying old bytes, and a later
 competitor is preserved with an attention-required result. Finally, it proves
 that an existing allowlisted parent changed from `0755` to `0700` by the
-installer returns to `0755` only on rollback:
+installer returns to `0755` only on rollback. The checked-in structural runner
+`python -m unittest tests.test_rollout_plan_contract -v` additionally extracts
+the exact Step-9/Step-10 blocks, syntax-checks both, requires the complete
+audited Step-5/Step-6 bodies byte-for-byte inside Step 9, proves marker-producer
+ordering, and executes this disposable harness:
 
 ```bash
 set -Eeuo pipefail
@@ -1802,6 +2194,7 @@ printf '755\n' >"$sandbox/backup/private-parent-mode"
 printf 'lock-sentinel\n' >"$sandbox/settings.lock"
 printf 'active\n' >"$sandbox/timer-state"
 printf 'enabled\n' >"$sandbox/timer-enablement"
+printf 'enabled\n' >"$sandbox/timer-persistent-enablement"
 printf 'active\n' >"$sandbox/generator-state"
 printf 'static\n' >"$sandbox/service-enablement"
 printf 'active\n' >"$sandbox/admin-state"
@@ -1924,6 +2317,16 @@ rollback_harness() {
   flock -n "$sandbox/settings.lock" true
 }
 
+fail_closed_harness() {
+  printf 'inactive\n' >"$sandbox/admin-state"
+  printf 'inactive\n' >"$sandbox/timer-state"
+  printf 'masked-runtime\n' >"$sandbox/timer-enablement"
+  printf 'masked-runtime\n' >"$sandbox/service-enablement"
+  printf 'fail-closed-admin-stop\nfail-closed-timer-stop\ntimer-runtime-mask\nservice-runtime-mask\n' \
+    >>"$sandbox/recovery-events"
+  test "$(<"$sandbox/timer-persistent-enablement")" = enabled
+}
+
 set +e
 (
   set -Eeuo pipefail
@@ -1962,6 +2365,9 @@ test "$(paste -sd, "$sandbox/recovery-events")" = timer-stop
 : >"$sandbox/recovery-events"
 printf 'inactive\n' >"$sandbox/generator-state"
 printf 'static\n' >"$sandbox/service-enablement"
+printf 'enabled\n' >"$sandbox/timer-enablement"
+printf 'enabled\n' >"$sandbox/timer-persistent-enablement"
+printf 'active\n' >"$sandbox/admin-state"
 exec {competitor_lock}<>"$sandbox/settings.lock"
 flock -n "$competitor_lock"
 set +e
@@ -1969,11 +2375,88 @@ rollback_harness already-inactive 0.05
 lock_wait_status=$?
 set -e
 test "$lock_wait_status" -ne 0
+fail_closed_harness
 test "$(paste -sd, "$sandbox/recovery-events")" = \
-  timer-stop,generator-inactive-before-mask,service-runtime-mask,generator-inactive-after-mask,admin-stop
+  timer-stop,generator-inactive-before-mask,service-runtime-mask,generator-inactive-after-mask,admin-stop,fail-closed-admin-stop,fail-closed-timer-stop,timer-runtime-mask,service-runtime-mask
 test "$(<"$sandbox/service-enablement")" = masked-runtime
+test "$(<"$sandbox/timer-enablement")" = masked-runtime
+test "$(<"$sandbox/timer-persistent-enablement")" = enabled
+test "$(<"$sandbox/timer-state")" = inactive
+test "$(<"$sandbox/admin-state")" = inactive
 flock -u "$competitor_lock"
 exec {competitor_lock}>&-
+
+# Exercise the actual shell signal contract while recovery is deliberately
+# blocked and owns the settings lock. The first TERM latches status 143 and
+# enters EXIT recovery; a second HUP must not interrupt restore/fail-close.
+signal_recovery_probe() {
+  signal_recovery() {
+    local original_status="$1"
+    trap - EXIT
+    trap '' HUP INT TERM
+    exec {signal_lock}<>"$sandbox/settings.lock"
+    flock -n "$signal_lock"
+    printf 'rollback-entered:%s\n' "$original_status" \
+      >>"$sandbox/signal-recovery-events"
+    : >"$sandbox/signal-recovery-ready"
+    while [[ ! -e "$sandbox/signal-recovery-release" ]]; do
+      sleep 0.01
+    done
+    printf 'inactive\n' >"$sandbox/admin-state"
+    printf 'inactive\n' >"$sandbox/timer-state"
+    printf 'masked-runtime\n' >"$sandbox/timer-enablement"
+    printf 'masked-runtime\n' >"$sandbox/service-enablement"
+    test "$(<"$sandbox/timer-persistent-enablement")" = enabled
+    printf 'restore-complete\nfail-close-proof\n' \
+      >>"$sandbox/signal-recovery-events"
+    flock -u "$signal_lock"
+    exec {signal_lock}>&-
+    printf 'settings-unlock\n' >>"$sandbox/signal-recovery-events"
+    exit "$original_status"
+  }
+  trap 'signal_recovery $?' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  : >"$sandbox/signal-probe-armed"
+  while :; do sleep 0.01; done
+}
+
+: >"$sandbox/signal-recovery-events"
+signal_recovery_probe &
+recovery_pid=$!
+for _attempt in $(seq 1 200); do
+  [[ -e "$sandbox/signal-probe-armed" ]] && break
+  sleep 0.01
+done
+test -e "$sandbox/signal-probe-armed"
+kill -TERM "$recovery_pid"
+for _attempt in $(seq 1 200); do
+  [[ -e "$sandbox/signal-recovery-ready" ]] && break
+  sleep 0.01
+done
+test -e "$sandbox/signal-recovery-ready"
+if flock -n "$sandbox/settings.lock" true; then
+  printf 'signal recovery did not retain the settings lock\n' >&2
+  exit 1
+fi
+kill -HUP "$recovery_pid"
+sleep 0.05
+kill -0 "$recovery_pid"
+: >"$sandbox/signal-recovery-release"
+set +e
+wait "$recovery_pid"
+signal_status=$?
+set -e
+test "$signal_status" = 143
+test "$(paste -sd, "$sandbox/signal-recovery-events")" = \
+  rollback-entered:143,restore-complete,fail-close-proof,settings-unlock
+test "$(<"$sandbox/admin-state")" = inactive
+test "$(<"$sandbox/timer-state")" = inactive
+test "$(<"$sandbox/timer-enablement")" = masked-runtime
+test "$(<"$sandbox/service-enablement")" = masked-runtime
+test "$(<"$sandbox/timer-persistent-enablement")" = enabled
+flock -n "$sandbox/settings.lock" true
 
 # Even a synthetic activation in the first inactive-to-mask boundary is caught
 # by the mandatory second wait; no recovery mutation can precede it.
@@ -2099,7 +2582,7 @@ test "$(<"$sandbox/timer-enablement")" = enabled
 test "$(<"$sandbox/timer-state")" = active
 printf 'timer-start\ntimer-proof\n' >>"$sandbox/success-events"
 assert_final_lock_held
-printf 'signals-ignored\n' >>"$sandbox/success-events"
+printf 'final-signal-window-ordered\n' >>"$sandbox/success-events"
 flock -u "$final_lock"
 exec {final_lock}>&-
 printf 'settings-unlock\n' >>"$sandbox/success-events"
@@ -2109,7 +2592,7 @@ printf 'deployment-complete\nexit-trap-cleared\nsignals-restored\n' \
 flock -n "$sandbox/settings.lock" true
 test "$(<"$sandbox/settings.lock")" = lock-sentinel
 test "$(paste -sd, "$sandbox/success-events")" = \
-  settings-lock,revision-proof,fingerprints,artifact-proof,timer-enablement-restored-stopped,timer-runtime-mask,ancestry-proof,update-ref-cas,attach-main-same-tree,timer-runtime-unmask,service-runtime-unmask,service-proof,unit-proof,applet-proof,admin-proof,timer-start,timer-proof,signals-ignored,settings-unlock,deployment-complete,exit-trap-cleared,signals-restored
+  settings-lock,revision-proof,fingerprints,artifact-proof,timer-enablement-restored-stopped,timer-runtime-mask,ancestry-proof,update-ref-cas,attach-main-same-tree,timer-runtime-unmask,service-runtime-unmask,service-proof,unit-proof,applet-proof,admin-proof,timer-start,timer-proof,final-signal-window-ordered,settings-unlock,deployment-complete,exit-trap-cleared,signals-restored
 if rg -q -- 'old-tree|fast-forward|checkout-old|applet-reload|fail-closed' \
   "$sandbox/success-events"; then
   exit 1
@@ -2251,42 +2734,105 @@ fi
 flock -u "$attention_lock"
 exec {attention_lock}>&-
 
-# The remote merge gate is also failure-injected without contacting GitHub.
-# A changed head emits no merge command. Only the reviewed head produces the
-# mandatory --match-head-commit literal, and the resulting merge object must
-# have exactly base then head as its two parents.
-: >"$sandbox/merge-events"
-merge_if_reviewed_head() {
-  local expected_head="$1" observed_head="$2"
-  test "$observed_head" = "$expected_head" || return 1
-  printf 'gh pr merge 17 --merge --match-head-commit %s\n' "$expected_head" \
-    >>"$sandbox/merge-events"
-}
-set +e
-merge_if_reviewed_head "$target_sha" "$third_sha"
-head_mismatch_status=$?
-set -e
-test "$head_mismatch_status" -ne 0
-test ! -s "$sandbox/merge-events"
-merge_if_reviewed_head "$target_sha" "$target_sha"
-test "$(<"$sandbox/merge-events")" = \
-  "gh pr merge 17 --merge --match-head-commit $target_sha"
+# The private smoke marker has one producer and one later consumer. This
+# behavioral probe rejects a missing/stale marker and records the required
+# ordering; the checked-in structural gate ties those operations to Step 9.
+marker_revision=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+marker_path="$sandbox/materialized-smoke-owned-revision.json"
+test ! -e "$marker_path"
+: >"$sandbox/marker-events"
+printf '{"revision":"%s"}\n' "$marker_revision" >"$marker_path"
+chmod 0600 "$marker_path"
+printf 'marker-producer\n' >>"$sandbox/marker-events"
+consumed_marker_revision="$(jq -er '.revision' "$marker_path")"
+test "$consumed_marker_revision" = "$marker_revision"
+printf 'marker-consumer\n' >>"$sandbox/marker-events"
+test "$(paste -sd, "$sandbox/marker-events")" = \
+  marker-producer,marker-consumer
 
-verify_merge_parents() {
-  local expected_base="$1" expected_head="$2"
-  shift 2
-  test "$#" = 2
-  test "$1" = "$expected_base"
-  test "$2" = "$expected_head"
+# Exercise the real local receive-pack CAS without GitHub or network access.
+# The deterministic object has head's tree and exact ordered base/head parents.
+# A head race and a base race must each reject the entire atomic push; only the
+# exact pair may advance main and delete the reviewed head in one transaction.
+merge_source="$sandbox/merge-source"
+merge_remote="$sandbox/merge-remote.git"
+git init -q -b main "$merge_source"
+git -C "$merge_source" config user.name 'Wirtelprimpf Merge Harness'
+git -C "$merge_source" config user.email merge-harness@example.invalid
+printf 'base\n' >"$merge_source/content.txt"
+git -C "$merge_source" add content.txt
+git -C "$merge_source" commit -qm base
+lease_base="$(git -C "$merge_source" rev-parse HEAD)"
+git -C "$merge_source" switch -qc reviewed-head
+printf 'reviewed\n' >"$merge_source/content.txt"
+git -C "$merge_source" commit -qam reviewed-head
+lease_head="$(git -C "$merge_source" rev-parse HEAD)"
+lease_tree="$(git -C "$merge_source" rev-parse "$lease_head^{tree}")"
+lease_merge="$(
+  printf 'deterministic indirect merge\n' |
+    GIT_AUTHOR_NAME='Wirtelprimpf Merge Harness' \
+    GIT_AUTHOR_EMAIL=merge-harness@example.invalid \
+    GIT_AUTHOR_DATE='2001-01-01T00:00:00+00:00' \
+    GIT_COMMITTER_NAME='Wirtelprimpf Merge Harness' \
+    GIT_COMMITTER_EMAIL=merge-harness@example.invalid \
+    GIT_COMMITTER_DATE='2001-01-01T00:00:00+00:00' \
+    git -C "$merge_source" commit-tree "$lease_tree" \
+      -p "$lease_base" -p "$lease_head"
+)"
+test "$(git -C "$merge_source" rev-parse "$lease_merge^{tree}")" = "$lease_tree"
+test "$(git -C "$merge_source" rev-list --parents -n1 "$lease_merge")" = \
+  "$lease_merge $lease_base $lease_head"
+git init -q --bare "$merge_remote"
+git -C "$merge_source" remote add origin "$merge_remote"
+git -C "$merge_source" push -q origin \
+  "$lease_base:refs/heads/main" \
+  "$lease_head:refs/heads/reviewed-head"
+
+atomic_lease_push() {
+  git -C "$merge_source" push --atomic \
+    --force-with-lease=refs/heads/main:$lease_base \
+    --force-with-lease=refs/heads/reviewed-head:$lease_head \
+    origin \
+    "$lease_merge:refs/heads/main" \
+    ':refs/heads/reviewed-head'
 }
-verify_merge_parents "$runtime_sha_before" "$target_sha" \
-  "$runtime_sha_before" "$target_sha"
+
+: >"$sandbox/merge-events"
+git -C "$merge_remote" update-ref \
+  refs/heads/reviewed-head "$lease_base" "$lease_head"
 set +e
-verify_merge_parents "$runtime_sha_before" "$target_sha" \
-  "$target_sha" "$runtime_sha_before"
-parent_mismatch_status=$?
+atomic_lease_push >"$sandbox/head-lease-race.output" 2>&1
+head_lease_status=$?
 set -e
-test "$parent_mismatch_status" -ne 0
+test "$head_lease_status" -ne 0
+test "$(git -C "$merge_remote" rev-parse refs/heads/main)" = "$lease_base"
+test "$(git -C "$merge_remote" rev-parse refs/heads/reviewed-head)" = "$lease_base"
+printf 'head-lease-race-rejected\n' >>"$sandbox/merge-events"
+
+git -C "$merge_remote" update-ref \
+  refs/heads/reviewed-head "$lease_head" "$lease_base"
+git -C "$merge_remote" update-ref refs/heads/main "$lease_head" "$lease_base"
+set +e
+atomic_lease_push >"$sandbox/base-lease-race.output" 2>&1
+base_lease_status=$?
+set -e
+test "$base_lease_status" -ne 0
+test "$(git -C "$merge_remote" rev-parse refs/heads/main)" = "$lease_head"
+test "$(git -C "$merge_remote" rev-parse refs/heads/reviewed-head)" = "$lease_head"
+printf 'base-lease-race-rejected\n' >>"$sandbox/merge-events"
+
+git -C "$merge_remote" update-ref refs/heads/main "$lease_base" "$lease_head"
+atomic_lease_push >"$sandbox/exact-lease.output" 2>&1
+test "$(git -C "$merge_remote" rev-parse refs/heads/main)" = "$lease_merge"
+test "$(git -C "$merge_remote" rev-parse refs/heads/main^{tree})" = "$lease_tree"
+test "$(git -C "$merge_remote" rev-list --parents -n1 refs/heads/main)" = \
+  "$lease_merge $lease_base $lease_head"
+if git -C "$merge_remote" show-ref --verify --quiet refs/heads/reviewed-head; then
+  exit 1
+fi
+printf 'exact-base-head-lease-cas\n' >>"$sandbox/merge-events"
+test "$(paste -sd, "$sandbox/merge-events")" = \
+  head-lease-race-rejected,base-lease-race-rejected,exact-base-head-lease-cas
 ```
 
 Expected: `bash -n` and the harness exit 0. The rollback log proves timer stop
@@ -2304,11 +2850,57 @@ lock held through unit/applet/admin/timer proofs and the final timer path. Its
 update-ref-to-flag signal-window stops both writers and contains no worktree or
 file rewind. A third/unexpected main SHA is classified `unknown` and preserves
 files identically; only the exact recorded pre-deploy SHA authorizes rollback.
-The mocked PR gate emits no merge on head drift, includes
-`--match-head-commit` on an exact match, and rejects reversed or non-two-parent
-merge ancestry.
+The real signal probe sends TERM to enter rollback, sends HUP while recovery is
+blocked beneath the settings lock, and proves the original status survives
+through restore/fail-close and unlock. Lock contention explicitly leaves admin
+and timer inactive, both runtime units masked, and persistent timer enablement
+unchanged. The local bare-remote probe rejects both a head-only and base-only
+lease race without a partial ref update; the exact pair atomically advances
+main to the deterministic head-tree/base-head-parent merge and deletes the
+review head. The marker trace and checked-in structural gate prove producer
+before consumer in the self-contained Step-9 artifact.
 This is local disposable evidence, not permission to execute Step 9; the live
 rollout remains separately gated.
+
+#### 2026-08-02 — Additive Author-Evidenz zur adversarial Rollout-Remediation
+
+- Dieser Abschnitt ersetzt keine historische Passage. Er dokumentiert die
+  vorrangigen Korrekturen des separaten Read-only-Gegenreviews; Remote-,
+  Runtime-, Cloudflare- und Upstream-Arbeiten bleiben weiterhin unberührt.
+- Task 3 erzeugt lokal genau einen deterministischen Mergecommit mit dem Tree
+  des geprüften Heads und den geordneten Eltern `base, head`. Ein read-only
+  Ruleset-/Classic-Protection-Gate stoppt bei einem vorgeschriebenen anderen
+  Mergepfad. Ein einziger atomarer Push bindet `main` und den streng validierten
+  PR-Branch mit exakten Leases, aktualisiert `main` und löscht denselben
+  geprüften Head; anschließend müssen Remote-Main, indirekter GitHub-PR-Merge,
+  Commit-OID, Tree und beide Eltern exakt übereinstimmen.
+- Die additive Runtime-Klarstellung verbietet jede Task-3-Änderung am lokalen
+  Runtime-Checkout. Das eng begrenzte Ownership-Gate ist die einzige
+  Vor-Task-4-Mutation; `HEAD != target_sha` bleibt bis zum geschützten Task-4-CAS
+  verpflichtend.
+- Der normative Step 9 enthält die vollständigen Step-5- und Step-6-Smokes
+  bytegleich in demselben Codeblock. Der Marker-Produzent liegt nachweislich
+  vor seinem Konsumenten; kein manueller Einfügeplatzhalter bleibt.
+- Rollback disarmt nur die rekursive EXIT-Behandlung und ignoriert HUP/INT/TERM
+  bis Restore oder Fail-close und Settings-Lock-Freigabe abgeschlossen sind.
+  Step 10 sendet real TERM, blockiert die Recovery unter Lock, sendet danach
+  HUP und beweist Status `143`, abgeschlossene Recovery und Lockfreigabe.
+- Der erweiterte disposable Harness beweist zusätzlich Admin/Timer inaktiv,
+  Service- und Timer-`masked-runtime`, unveränderte persistente
+  Timer-Enablement-Semantik, Markerreihenfolge sowie echte Base- und
+  Head-Lease-Races gegen einen lokalen Bare-Remote. Beide Races bleiben atomar
+  ohne Teilupdate; nur das exakte Paar setzt Main und löscht den Head.
+- Test-first-Evidenz: Der neue Vertragstest lief initial mit vier gezielten
+  Fehlern bei sechs Tests rot; die nachträglich geforderte `make check`-Bindung
+  lief separat rot, während Task-3/9/10-Syntax bereits grün blieb. Der aktuelle
+  Stand besteht `tests.test_rollout_plan_contract` mit `7/7`.
+- Frische Gesamtverifikation: `make check` Exit 0; Applet-Runtime grün,
+  Admin-UI `24/24`, SemVer `8/8`, Git-Object-Fallback `3/3`,
+  Release-Publication `3/3`, Helper-Environment `7/7`, Applet-Sync `25/25`,
+  Settings-Schema `14/14`, Story-Directives `31/31` und Rollout-Vertrag `7/7`.
+  Der neue Vertragstest ist dauerhaft im Makefile und damit im vorhandenen
+  GitHub-CI-Pfad verankert. Es wurde keine Produktions- oder Weblogik geändert;
+  deshalb war kein erneuter Siteprofil-Build Teil dieser fokussierten Runde.
 
 #### Verbindliches Execution-Context-Erratum für Tasks 5–6
 

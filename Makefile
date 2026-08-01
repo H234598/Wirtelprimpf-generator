@@ -19,6 +19,7 @@ check:
 	$(PYTHON) -m unittest tests.test_applet_settings_sync
 	$(PYTHON) -m unittest tests.test_settings_schema
 	$(PYTHON) -m unittest tests.test_story_directives
+	$(PYTHON) -m unittest tests.test_rollout_plan_contract
 	@test -f files/$(UUID)/assets/settings-header-logo.png
 	@test -f files/$(UUID)/assets/settings-footer-logo.png
 	@test -f files/$(UUID)/assets/settings-generator-atelier.png

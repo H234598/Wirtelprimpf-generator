@@ -2735,3 +2735,44 @@ Do not start public deployment merely because Task 10 is green. First compare th
   Reload, Deploy, Service-/Timerwrite, `systemctl`, `gdbus`, DNS-/Cloudflare-
   oder Upstreamzugriff. Der Doku-/Evidenz-SHA ist der Commit, der diesen
   Abschnitt enthält, und wird im finalen Übergabebericht ausgewiesen.
+
+### 2026-08-02 — Additive Gegenreview-Remediation des Rollout-Abschlusses
+
+- Dieser Abschnitt ist additiv und superseded ausschließlich die unmittelbar
+  zuvor dokumentierten, inzwischen als unzureichend erkannten Aussagen zu
+  `--match-head-commit`, manuell einzufügenden Smokes und rein simulierten
+  Signalen. Produktionscode und der transaktionale Konfigurationskern selbst
+  blieben unverändert.
+- Der kanonische Rolloutplan bindet nun Base und Remote-PR-Head prämutativ:
+  deterministischer lokaler Zwei-Eltern-Merge mit Head-Tree, read-only
+  Ruleset-/Branch-Protection-Gate und ein atomarer Push mit exakter Main- und
+  Head-Lease. Derselbe Push setzt Main und löscht den validierten Head. Danach
+  werden Remote-OID, GitHubs dokumentierter indirekter PR-Merge, Tree und die
+  Elternfolge `base, head` erneut exakt bewiesen.
+- Eine vorrangige additive Klarstellung untersagt jede Task-3-Änderung am
+  Runtime-Checkout. Das Ownership-Gate repariert vor Task 4 ausschließlich den
+  bereits eng aufgelösten Besitz; Runtime-HEAD bleibt bis zum geschützten
+  Task-4-CAS ungleich dem Ziel.
+- Step 9 ist jetzt ein vollständiges ausführbares Artefakt: die exakten
+  API-/Status- und Live-Sync-Smokes stehen bytegleich im normativen Codeblock,
+  und der Ownership-Marker wird vor seiner Revisionsprüfung erzeugt. Der
+  eingecheckte Vertragstest extrahiert Task 3, Step 9 und Step 10, prüft alle
+  drei mit `bash -n`, kontrolliert Inline-Gleichheit und Markerordnung und führt
+  den disposable Step-10-Harness real aus.
+- Rollback disarmt nur EXIT-Rekursion; HUP/INT/TERM bleiben über die gesamte
+  Recovery ignoriert, während der ursprüngliche Status erhalten bleibt. Die
+  reale Signalinjektion sendet TERM, blockiert unter gehaltenem Settings-Lock,
+  sendet HUP und endet erst nach Restore/Fail-close und Unlock mit Status 143.
+- Lock-Contention und Config-Attention beweisen Admin/Timer inaktiv, beide
+  Runtime-Masken gesetzt und persistente Timer-Enablement unverändert. Ein
+  lokaler Bare-Remote belegt, dass Base- oder Head-Race den kompletten atomaren
+  Push zurückweisen; nur beide exakten Leases erlauben Main-CAS plus Head-Löschung.
+- TDD-Evidenz: initial vier gezielte Fehler bei sechs Vertragstests; die
+  dauerhafte Makefile-Bindung anschließend separat rot. GREEN: Vertrag `7/7`.
+  Frisches `make check` bestand mit Applet-Runtime, Admin-UI `24/24`, SemVer
+  `8/8`, Git-Object-Fallback `3/3`, Release-Publication `3/3`,
+  Helper-Environment `7/7`, Applet-Sync `25/25`, Settings-Schema `14/14`,
+  Story-Directives `31/31` und Rollout-Vertrag `7/7`.
+- Auch diese Author-Runde endet vor jeder externen oder lokalen
+  Betriebsänderung: kein Fetch, Push, PR-Write, Merge, Install, Reload, Deploy,
+  `systemctl`, `gdbus`, Runtime-, Cloudflare-, DNS- oder Upstream-Zugriff.
