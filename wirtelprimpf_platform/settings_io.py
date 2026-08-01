@@ -48,9 +48,7 @@ class EnvironmentDocument:
                 words = shlex.split(raw.strip(), comments=False, posix=True)
             except ValueError as exc:
                 raise SettingsIOError("invalid quoted environment value") from exc
-            if len(words) > 1:
-                raise SettingsIOError("environment values must contain one shell word")
-            values[key] = words[0] if words else ""
+            values[key] = " ".join(words)
         return cls(lines, values)
 
     @property
