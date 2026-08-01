@@ -23,4 +23,4 @@ __all__ = [
     "book_target_for_story",
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

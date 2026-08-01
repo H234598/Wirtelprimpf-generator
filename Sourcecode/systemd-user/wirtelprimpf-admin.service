@@ -7,7 +7,6 @@ Type=simple
 WorkingDirectory=%h/.local/share/wirtelprimpf-generator
 RuntimeDirectory=wirtelprimpf-admin
 RuntimeDirectoryMode=0700
-EnvironmentFile=-%h/.config/wirtelprimpf/openai.env
 Environment=TMPDIR=%t/wirtelprimpf-admin
 Environment=TMP=%t/wirtelprimpf-admin
 Environment=TEMP=%t/wirtelprimpf-admin
@@ -20,6 +19,8 @@ PrivateDevices=true
 ProtectSystem=full
 ProtectHome=read-only
 ReadWritePaths=%h/.config/wirtelprimpf
+ReadWritePaths=%h/.config/cloudflare
+ReadWritePaths=%h/.config/systemd/user/wirtelprimpf.timer.d
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
