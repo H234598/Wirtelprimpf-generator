@@ -10,7 +10,6 @@ CURRENT_UID="$(id -u)"
 readonly CURRENT_UID
 declare -ar SECURITY_PATHS_ARRAY=(/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin)
 declare -r SECURITY_BIN_NAME_PATTERNS="python3|python3\.[0-9]+"
-declare -ar SECURITY_PYTHON_CANDIDATES=("python3")
 declare -i HAS_FINDMNT_CMD=0
 declare -i HAS_FILE_CMD=0
 declare -g FINDMNT_COMMAND=""
@@ -91,6 +90,28 @@ is_valid_python_candidate() {
   is_valid_python_binary_name "$candidate"
 }
 
+discover_python_candidates() {
+  local search_path path base
+  local -A seen=()
+  local candidates=()
+
+  for search_path in "${SECURITY_PATHS_ARRAY[@]}"; do
+    for path in "$search_path"/python3 "$search_path"/python3.[0-9]*; do
+      [[ -e "$path" ]] || continue
+      base="${path##*/}"
+      if [[ -n "${seen[$base]:-}" ]]; then
+        continue
+      fi
+      if [[ "$base" =~ ^($SECURITY_BIN_NAME_PATTERNS)$ ]]; then
+        candidates+=("$base")
+        seen[$base]=1
+      fi
+    done
+  done
+
+  printf '%s\n' "${candidates[@]}" | sort -Vr
+}
+
 resolve_python() {
   local candidates=("${PYTHON_BIN:-}")
   if [[ -n "${PYTHON_BIN:-}" ]] && ! is_valid_python_binary_name "$PYTHON_BIN"; then
@@ -98,7 +119,7 @@ resolve_python() {
   fi
   local fallback_set=1
   if [[ -z "${candidates[0]:-}" ]]; then
-    candidates=("${SECURITY_PYTHON_CANDIDATES[@]}")
+    mapfile -t candidates < <(discover_python_candidates)
     fallback_set=0
   fi
 
@@ -222,12 +243,8 @@ validate_python_binary() {
     if [[ ",${mount_opts}," == *",noexec,"* ]]; then
       return 1
     fi
-    if [[ ",${mount_opts}," == *",nosuid,"* ]]; then
-      return 1
-    fi
-    if [[ ",${mount_opts}," == *",nodev,"* ]]; then
-      return 1
-    fi
+    # nosuid and nodev strengthen a systemd mount namespace and do not
+    # prevent execution of this already verified, non-setuid regular file.
   else
     return 1
   fi
@@ -396,7 +413,7 @@ run_python_sandbox() {
     LANG="C.UTF-8" \
     LC_ALL="C.UTF-8" \
     PYTHONSTARTUP= \
-    PYTHONPATH= \
+    PYTHONPATH="$ROOT_DIR" \
     PYTHONHOME= \
     PYTHONSAFEPATH=1 \
     PYTHONUSERBASE= \

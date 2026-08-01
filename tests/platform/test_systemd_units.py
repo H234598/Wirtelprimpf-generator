@@ -35,6 +35,28 @@ class SystemdUnitTests(unittest.TestCase):
                         lines,
                     )
 
+    def test_python_validation_accepts_security_positive_mount_flags(self) -> None:
+        for relative in (
+            "Sourcecode/watch_minor_version.sh",
+            "Sourcecode/check_wirtelprimpf.sh",
+        ):
+            with self.subTest(script=relative):
+                source = (ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn('== *",noexec,"*', source)
+                self.assertNotIn('== *",nosuid,"*', source)
+                self.assertNotIn('== *",nodev,"*', source)
+
+    def test_full_check_discovers_versioned_non_symlink_python(self) -> None:
+        source = (ROOT / "Sourcecode/check_wirtelprimpf.sh").read_text(encoding="utf-8")
+        self.assertNotIn('SECURITY_PYTHON_CANDIDATES=("python3")', source)
+        self.assertIn("discover_python_candidates()", source)
+        self.assertIn("mapfile -t candidates < <(discover_python_candidates)", source)
+
+    def test_full_check_exposes_only_the_trusted_project_root_for_imports(self) -> None:
+        source = (ROOT / "Sourcecode/check_wirtelprimpf.sh").read_text(encoding="utf-8")
+        self.assertIn('PYTHONPATH="$ROOT_DIR"', source)
+        self.assertNotIn("PYTHONPATH= \\", source)
+
 
 if __name__ == "__main__":
     unittest.main()

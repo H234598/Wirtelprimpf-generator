@@ -203,12 +203,8 @@ validate_python_binary() {
     if [[ ",${mount_opts}," == *",noexec,"* ]]; then
       return 1
     fi
-    if [[ ",${mount_opts}," == *",nosuid,"* ]]; then
-      return 1
-    fi
-    if [[ ",${mount_opts}," == *",nodev,"* ]]; then
-      return 1
-    fi
+    # nosuid and nodev strengthen a systemd mount namespace and do not
+    # prevent execution of this already verified, non-setuid regular file.
   else
     return 1
   fi
