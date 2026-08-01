@@ -21,6 +21,7 @@ from .systemd_user import TimerObservation
 @dataclass(frozen=True, slots=True)
 class StatusPaths:
     platform_state: Path
+    settings_state: Path
     hub_outbox: Path
     hub_source: Path
     media_manifest: Path
@@ -34,6 +35,7 @@ class StatusPaths:
         state = Path(home) / ".local/state/wirtelprimpf"
         return cls(
             platform_state=state / "platform-state.json",
+            settings_state=Path(home) / ".config/wirtelprimpf/settings-state.json",
             hub_outbox=state / "hub-dispatch.json",
             hub_source=generator / "data/hub-source.json",
             media_manifest=generator / "data/media-manifest.json",
@@ -151,6 +153,7 @@ class OperationalStatusCollector:
                 "valid": None,
                 "drift": [],
                 "state": "unknown",
+                "observed_at": None,
             },
             "generator": {
                 "active_state": "unknown",
@@ -226,12 +229,26 @@ class OperationalStatusCollector:
                 self._source_error(status, "configuration")
             return None
         drift = list(snapshot.warnings)
-        status["configuration"] = {
+        configuration = {
             "revision": snapshot.revision,
             "valid": not any(warning.startswith("invalid_persisted_setting:") for warning in drift),
             "drift": drift,
             "state": "drift" if drift else "valid",
+            "observed_at": None,
         }
+        if self.paths.settings_state.exists():
+            signal = self._collect_source(
+                status,
+                "revision_signal",
+                lambda: _read_json_object(self.paths.settings_state),
+            )
+            if isinstance(signal, dict):
+                signal_revision = signal.get("revision")
+                if signal_revision != snapshot.revision:
+                    drift.append("revision_signal_mismatch")
+                    configuration["state"] = "drift"
+                configuration["observed_at"] = _mtime(self.paths.settings_state)
+        status["configuration"] = configuration
         status["auth"] = {
             "openai_present": bool(snapshot.secrets.get("openai_api_key_present")),
             "github_present": bool(snapshot.secrets.get("github_auth_present")),
@@ -271,6 +288,9 @@ class OperationalStatusCollector:
         }
 
     def _collect_story(self, status: dict[str, object]) -> None:
+        if not self.paths.platform_state.exists():
+            self._source_error(status, "platform_state")
+            return
         state = self._collect_source(
             status,
             "platform_state",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -104,6 +105,55 @@ class OperationalStatusTests(unittest.TestCase):
         self.assertIsNone(status["story"]["current_volume"])
         self.assertEqual(status["story"]["state"], "unknown")
         self.assertNotIn("token", json.dumps(status).lower())
+
+    def test_missing_platform_state_is_degraded_and_does_not_invent_story_one(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = StatusPaths.for_root(Path(temporary))
+            snapshot = snapshot_for_test(revision="b" * 64, settings={})
+            status = OperationalStatusCollector(
+                paths=paths,
+                snapshot_reader=lambda: snapshot,
+                timer_reader=active_timer,
+                service_reader=lambda: {
+                    "active_state": "inactive",
+                    "result": "success",
+                    "exec_main_status": 0,
+                },
+                clock=lambda: datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+            ).collect()
+        self.assertEqual(status["health"], "degraded")
+        self.assertEqual(status["story"]["state"], "unknown")
+        self.assertIsNone(status["story"]["current_volume"])
+        self.assertIn(
+            {"source": "platform_state", "message": "local source unavailable"},
+            status["errors"],
+        )
+
+    def test_configuration_freshness_uses_revision_signal_mtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = StatusPaths.for_root(Path(temporary))
+            StateStore(paths.platform_state).save(PlatformState())
+            paths.settings_state.parent.mkdir(parents=True, exist_ok=True)
+            paths.settings_state.write_text(
+                json.dumps({"schema_version": "2.0.0", "revision": "b" * 64}) + "\n",
+                encoding="utf-8",
+            )
+            observed_timestamp = datetime(2026, 8, 1, 11, 58, tzinfo=UTC).timestamp()
+            os.utime(paths.settings_state, (observed_timestamp, observed_timestamp))
+            snapshot = snapshot_for_test(revision="b" * 64, settings={})
+            status = OperationalStatusCollector(
+                paths=paths,
+                snapshot_reader=lambda: snapshot,
+                timer_reader=active_timer,
+                service_reader=lambda: {
+                    "active_state": "inactive",
+                    "result": "success",
+                    "exec_main_status": 0,
+                },
+                clock=lambda: datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+            ).collect()
+        self.assertEqual(status["configuration"]["observed_at"], "2026-08-01T11:58:00Z")
+        self.assertEqual(status["configuration"]["state"], "valid")
 
     def test_collector_never_invokes_network_clients(self) -> None:
         forbidden = {"curl", "wget", "gh", "wrangler"}
