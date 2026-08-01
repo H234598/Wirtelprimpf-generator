@@ -139,6 +139,19 @@ class FakeMonitorFactory:
         return monitor
 
 
+class RecoveringMonitorFactory(FakeMonitorFactory):
+    def __init__(self, failing_target: str) -> None:
+        super().__init__()
+        self.failing_target = failing_target
+        self.failed_once = False
+
+    def __call__(self, target: str, callback) -> FakeMonitor:
+        if target == self.failing_target and not self.failed_once:
+            self.failed_once = True
+            raise OSError("simulated missing monitor parent")
+        return super().__call__(target, callback)
+
+
 class QueueClient:
     def __init__(self, snapshots=(), applies=()) -> None:
         self.snapshots = list(snapshots)
@@ -459,6 +472,58 @@ class AppletSettingsSyncTests(unittest.TestCase):
         executor.run_next()
         completions.run_next()
         self.assertEqual(executor.submitted, 3)
+
+    def test_one_monitor_failure_preserves_initial_fallback_focus_and_later_retry(self) -> None:
+        paths = (
+            "/config/openai.env",
+            "/systemd/wirtelprimpf.timer.d/override.conf",
+            "/config/settings-state.json",
+        )
+        client = QueueClient(
+            snapshots=[
+                snapshot("r1", operandi="story"),
+                snapshot("r2", operandi="both"),
+                snapshot("r3", operandi="classic"),
+            ]
+        )
+        scheduler = FakeScheduler()
+        monitors = RecoveringMonitorFactory(paths[1])
+        executor = DeferredExecutor()
+        completions = CompletionQueue()
+        errors = []
+        coordinator = SettingsSyncCoordinator(
+            client=client,
+            scheduler=scheduler,
+            monitor_factory=monitors,
+            executor=executor,
+            completion_dispatch=completions,
+            on_error=errors.append,
+        )
+
+        self.assertTrue(coordinator.start(paths))
+        self.assertEqual(len(monitors.monitors), 2)
+        self.assertEqual(executor.submitted, 1)
+        executor.run_next()
+        completions.run_next()
+        self.assertEqual(coordinator.state.revision, "r1")
+
+        fallback = next(
+            handle for handle in scheduler.handles if handle["kind"] == "repeated"
+        )
+        self.assertTrue(scheduler.fire(fallback))
+        self.assertEqual(len(monitors.monitors), 3)
+        executor.run_next()
+        completions.run_next()
+        self.assertEqual(coordinator.state.revision, "r2")
+
+        self.assertFalse(coordinator.focus_refresh())
+        executor.run_next()
+        completions.run_next()
+        self.assertEqual(coordinator.state.revision, "r3")
+        self.assertEqual(
+            errors,
+            ["Eine lokale Einstellungsdatei kann derzeit nicht überwacht werden"],
+        )
 
     def test_dispose_cancels_sources_monitors_executor_and_late_completion(self) -> None:
         observed = []

@@ -282,6 +282,7 @@ class SettingsSyncCoordinator:
         self.fallback_seconds = fallback_seconds
         self.state: DirtySnapshotState | None = None
         self._watched_paths: set[str] = set()
+        self._failed_monitor_paths: set[str] = set()
         self._monitors: list[Any] = []
         self._debounce_handle: object | None = None
         self._fallback_handle: object | None = None
@@ -307,13 +308,31 @@ class SettingsSyncCoordinator:
             if target in self._watched_paths:
                 continue
             self._watched_paths.add(target)
-            self._monitors.append(self.monitor_factory(target, self.notify_external_change))
+            self._install_monitor(target, report_error=True)
         if self._fallback_handle is None:
             self._fallback_handle = self.scheduler.call_repeated(
                 self.fallback_seconds,
                 self.fallback_refresh,
             )
         return self.queue_refresh()
+
+    def _install_monitor(self, target: str, *, report_error: bool) -> bool:
+        try:
+            monitor = self.monitor_factory(target, self.notify_external_change)
+        except BaseException:
+            self._failed_monitor_paths.add(target)
+            if report_error:
+                self.on_error(
+                    "Eine lokale Einstellungsdatei kann derzeit nicht überwacht werden"
+                )
+            return False
+        self._monitors.append(monitor)
+        self._failed_monitor_paths.discard(target)
+        return True
+
+    def _retry_failed_monitors(self) -> None:
+        for target in tuple(sorted(self._failed_monitor_paths)):
+            self._install_monitor(target, report_error=False)
 
     def notify_external_change(self, changed_path: str | os.PathLike[str]) -> None:
         if self._disposed:
@@ -334,12 +353,14 @@ class SettingsSyncCoordinator:
         return False
 
     def focus_refresh(self) -> bool:
+        self._retry_failed_monitors()
         self.queue_refresh()
         return False
 
     def fallback_refresh(self) -> bool:
         if self._disposed:
             return False
+        self._retry_failed_monitors()
         self.queue_refresh()
         return True
 
@@ -484,6 +505,7 @@ class SettingsSyncCoordinator:
             except BaseException:
                 pass
         self._monitors.clear()
+        self._failed_monitor_paths.clear()
         self.executor.shutdown(wait=False, cancel_futures=True)
 
 
