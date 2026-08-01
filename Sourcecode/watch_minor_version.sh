@@ -14,6 +14,47 @@ log() {
   printf '%s\n' "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*" >&2
 }
 
+root_uid_is_unmapped() {
+  local inside outside length extra
+  local saw_mapping=0
+  [[ -r /proc/self/uid_map && ! -L /proc/self/uid_map ]] || return 1
+  while read -r inside outside length extra; do
+    [[ -z "$extra" ]] || return 1
+    [[ "$inside" =~ ^[0-9]+$ && "$outside" =~ ^[0-9]+$ && "$length" =~ ^[0-9]+$ ]] || return 1
+    (( length > 0 )) || return 1
+    saw_mapping=1
+    if (( inside == 0 )); then
+      return 1
+    fi
+  done < /proc/self/uid_map
+  (( saw_mapping == 1 ))
+}
+
+detect_system_root_uid() {
+  local root_owner
+  root_owner="$(stat -c '%u' / 2>/dev/null)" || return 1
+  if [[ "$root_owner" == 0 ]]; then
+    printf '%s\n' 0
+    return 0
+  fi
+  if [[ "$root_owner" == 65534 ]] && root_uid_is_unmapped; then
+    printf '%s\n' 65534
+    return 0
+  fi
+  return 1
+}
+
+if ! SYSTEM_ROOT_UID="$(detect_system_root_uid)"; then
+  log "cannot establish a trusted system-root ownership mapping"
+  exit 1
+fi
+readonly SYSTEM_ROOT_UID
+
+is_trusted_owner_id() {
+  local owner="$1"
+  [[ "$owner" == "$CURRENT_UID" || "$owner" == "$SYSTEM_ROOT_UID" ]]
+}
+
 if [[ -n "${PYTHON_BIN:-}" && ("${PYTHON_BIN}" == *[[:space:]]* || "${PYTHON_BIN}" == *[$'\r\n\t\v\f']* || "${PYTHON_BIN}" != "${PYTHON_BIN//[^a-zA-Z0-9._-]/}") ]]; then
   log "PYTHON_BIN contains invalid characters: ${PYTHON_BIN}"
   exit 1
@@ -174,13 +215,13 @@ validate_python_binary() {
   if ! IFS=':' read -r mountpoint_mode mountpoint_owner <<<"$(stat -c '%a:%u' "$mountpoint" 2>/dev/null)"; then
     return 1
   fi
-  if [[ "$resolved_owner" != "$CURRENT_UID" && "$resolved_owner" != 0 ]]; then
+  if ! is_trusted_owner_id "$resolved_owner"; then
     return 1
   fi
-  if [[ "$mountpoint_owner" != "$CURRENT_UID" && "$mountpoint_owner" != 0 ]]; then
+  if ! is_trusted_owner_id "$mountpoint_owner"; then
     return 1
   fi
-  if [[ "$parent_owner" != "$CURRENT_UID" && "$parent_owner" != 0 ]]; then
+  if ! is_trusted_owner_id "$parent_owner"; then
     return 1
   fi
   if (( 8#$mountpoint_mode & 8#022 )); then
@@ -348,8 +389,8 @@ run_check_script_sandboxed() {
     log "required bash interpreter unavailable or insecure: ${WATCH_BASH_PATH:-not-found}"
     return 1
   fi
-  if ! is_owned_by_current_user "$WATCH_BASH_PATH"; then
-    log "required bash interpreter must be owned by current user: ${WATCH_BASH_PATH}"
+  if ! is_owned_by_current_user_or_system_root "$WATCH_BASH_PATH"; then
+    log "required bash interpreter must be owned by current user or verified system root: ${WATCH_BASH_PATH}"
     return 1
   fi
   if ! bash_mode="$(stat -c '%a' "$WATCH_BASH_PATH" 2>/dev/null)"; then
@@ -668,6 +709,15 @@ is_owned_by_current_user() {
     return 1
   fi
   [[ "$owner" == "$CURRENT_UID" ]]
+}
+
+is_owned_by_current_user_or_system_root() {
+  local path="$1"
+  local owner
+  if ! owner="$(stat -c '%u' "$path" 2>/dev/null)"; then
+    return 1
+  fi
+  is_trusted_owner_id "$owner"
 }
 
 require_file() {

@@ -57,6 +57,19 @@ class SystemdUnitTests(unittest.TestCase):
         self.assertIn('PYTHONPATH="$ROOT_DIR"', source)
         self.assertNotIn("PYTHONPATH= \\", source)
 
+    def test_shell_validators_recognize_only_verified_unmapped_root(self) -> None:
+        for relative in (
+            "Sourcecode/watch_minor_version.sh",
+            "Sourcecode/check_wirtelprimpf.sh",
+        ):
+            with self.subTest(script=relative):
+                source = (ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn("root_uid_is_unmapped()", source)
+                self.assertIn("detect_system_root_uid()", source)
+                self.assertIn("is_trusted_owner_id()", source)
+                self.assertIn('SYSTEM_ROOT_UID="$(detect_system_root_uid)"', source)
+                self.assertNotIn('!= "$CURRENT_UID" && "$resolved_owner" != 0', source)
+
 
 if __name__ == "__main__":
     unittest.main()
