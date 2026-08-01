@@ -2776,3 +2776,52 @@ Do not start public deployment merely because Task 10 is green. First compare th
 - Auch diese Author-Runde endet vor jeder externen oder lokalen
   Betriebsänderung: kein Fetch, Push, PR-Write, Merge, Install, Reload, Deploy,
   `systemctl`, `gdbus`, Runtime-, Cloudflare-, DNS- oder Upstream-Zugriff.
+
+### 2026-08-02 — Additive Task-3-Auth-/Policy-/Receipt-Remediation
+
+- Dieser parallele Ledger-Eintrag ist additiv und ändert keinen
+  Produktionscode des transaktionalen Konfigurationskerns. Er superseded nur
+  die vorherige Annahme, der Rollout könne seine Ruleset-Typen selektiv
+  klassifizieren, unqualifiziertes Root-Git verwenden oder einen erfolgreichen
+  Remote-Push ohne dauerhaften Commitpunkt als gewöhnlichen Fehler behandeln.
+- Der reale Preflight ergab ungültige persistierte `gh`-Authentifizierung für
+  sowohl `teladi` als auch Root. Öffentliche unauthentifizierte Reads zählen
+  nicht als Write-Freigabe. Der kanonische Rollout verlangt nun vor jeder
+  Writephase einen extern gelieferten ephemeren Token, der über `/user`
+  authentifiziert wird; ohne ihn bleibt alles prämutativ stehen. Es wurde kein
+  Credential erfunden, aus einem Keyring übernommen, gedruckt oder gespeichert.
+- Task 3 Step 5 kapselt sämtliche Gitobjekt-, Receipt- und Remoteoperationen in
+  UID/GID `teladi` unter `env -i`, festem `HOME` und sicherem `PATH`. HTTPS-Git
+  löscht pro Befehl die Helperliste und verwendet ausschließlich
+  `gh auth git-credential`; `setup-git`, persistente Credentials und
+  `safe.directory` sind ausgeschlossen. Step 4/5 beweisen denselben
+  Same-Repository-PR anhand Headname/OID, Cross-Repo-Bit, Owner, Repository-ID
+  und `nameWithOwner`; beide Origin-URLs müssen exakt kanonisches HTTPS sein.
+- Der Policy-Gate akzeptiert nur Applied Rules exakt `[]` und Classic
+  Protection exakt authentifiziertes HTTP 404. Jeder andere Zustand endet vor
+  `commit-tree`. Die Merge-Nachricht konsumiert ausschließlich den einmal
+  geprüften `$generator_head`.
+- Das private atomare Receipt bildet ausschließlich
+  `planned -> remote_committed -> verified` ab. Push-Erfolg wird unmittelbar
+  gelatcht; API-/Postcondition-Ausfälle werden eindeutig als bereits committed
+  und noch nicht verifiziert gemeldet. Wiederanläufe reconciled
+  `OPEN + planned + Remote-Merge` sowie `MERGED + Receipt` ohne zweiten Push;
+  unbekannte Ref-/Receiptzustände bleiben fail-closed.
+- Step 10 beweist den Commitpunkt gegen einen echten lokalen Bare-Remote mit
+  Abbruch direkt nach Push, API-Ausfall, idempotenter Verifikation und
+  unbekanntem Refpaar. Der Vertrag bindet zusätzlich direkt die normative
+  Step-9-Reihenfolge `EXIT-Disarm -> HUP/INT/TERM-Maske -> Recovery ->
+  Lockfreigabe -> Statusausgang`; der reale TERM/HUP-Test bleibt erhalten.
+- TDD-Evidenz: zunächst fünf gezielte Fehler bei zwölf Vertragstests, danach
+  je ein weiterer roter Fokus für das Push-zu-Latch-Fenster und das private
+  Receipt-Elternpfadgate; GREEN `12/12`.
+  Task-3-Step-5, Step 9 und Step 10 bestehen `bash -n`, der disposable Harness
+  Exit 0. Die vollständige als `teladi` unter `env -i` ausgeführte
+  `make check`-Matrix bestand mit Admin-UI `24/24`, SemVer `8/8`,
+  Git-Object-Fallback `3/3`, Release-Publication `3/3`, Helper-Environment
+  `7/7`, Applet-Sync `25/25`, Settings-Schema `14/14`, Story-Directives
+  `31/31` und Rollout-Vertrag `12/12`.
+- Es erfolgten kein Fetch, Push, PR-Write, Merge, Install, Reload, Deploy,
+  Runtime-, `systemctl`-, `gdbus`-, Cloudflare-, DNS- oder Upstreamzugriff. Der
+  Doku-/Test-SHA ist der lokale `teladi`-Commit dieser additiven Remediation und
+  wird in der Übergabe ausgewiesen.
