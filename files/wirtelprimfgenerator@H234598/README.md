@@ -1,6 +1,6 @@
 # Wirtelprimfgenerator Story Menu
 
-Cinnamon-Applet für `H234598/Wirtelprimpf-generator`: aktuelles lokales Story-Bild, Generated-/Classic-Bild, Full-Story-Dateien, Storyteile, 50-Bände-Archivwarnung und TTS mit crash-sicherem Lese-State.
+Cinnamon-Applet für `H234598/Wirtelprimpf-generator`: aktuelles lokales Story-Bild, Generated-/Classic-Bild, Full-Story-Dateien, Storyteile, Buchfortschritt, 50-Story-/5-Bücher-Archivwarnung und TTS mit crash-sicherem Lese-State.
 
 ## Speed-of-Cinnamon-Abgleich
 

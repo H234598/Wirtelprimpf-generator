@@ -1,8 +1,13 @@
 {
   "archive_index": 1,
+  "book_end": 5,
+  "book_start": 1,
   "domain": "wirtelprimpf-0001.telacore.org",
   "repository": "Wirtelprimpf-0001",
   "schema_version": "1.0.0",
+  "stories_per_book": 10,
+  "story_end": 50,
+  "story_start": 1,
   "volume_end": 50,
   "volume_start": 1
 }

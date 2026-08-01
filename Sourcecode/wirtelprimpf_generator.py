@@ -3089,7 +3089,8 @@ def main() -> None:
                             raise RuntimeError("published story completion has no verified Git revision")
                         if completed_volume % 50 == 0:
                             print(
-                                f"WARNUNG: {completed_volume} vollständige Story-Bände sind abgeschlossen; "
+                                f"WARNUNG: {completed_volume} vollständige Storys beziehungsweise "
+                                f"{completed_volume // 10} Bücher sind abgeschlossen; "
                                 "das nächste fortlaufende Wirtelprimpf-Repository wird jetzt provisioniert."
                             )
                         platform_state = publication_runtime(config).record_volume_completion(

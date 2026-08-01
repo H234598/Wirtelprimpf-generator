@@ -4,12 +4,18 @@ import json
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
+from wirtelprimpf_platform.cli import main as cli_main
 from wirtelprimpf_platform.naming import (
     ARCHIVE_CAPACITY,
+    BOOKS_PER_ARCHIVE,
+    STORIES_PER_BOOK,
     archive_name,
     archive_target_for_volume,
+    book_target_for_story,
 )
 from wirtelprimpf_platform.state import (
     PlatformState,
@@ -17,6 +23,7 @@ from wirtelprimpf_platform.state import (
     StateStore,
     complete_volume,
     finish_rotation,
+    status_to_dict,
 )
 
 
@@ -44,6 +51,55 @@ class NamingTests(unittest.TestCase):
                 archive_target_for_volume(value)  # type: ignore[arg-type]
         with self.assertRaises(ValueError):
             archive_name(10_000)
+
+    def test_mapping_cli_reports_book_position_without_renaming_legacy_fields(self) -> None:
+        output = StringIO()
+
+        with redirect_stdout(output):
+            result = cli_main(["mapping", "51"])
+
+        self.assertEqual(result, 0)
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["global_volume"], 51)
+        self.assertEqual(payload["repository"], "Wirtelprimpf-0002")
+        self.assertEqual(payload["book"], {
+            "book_in_archive": 1,
+            "global_book": 6,
+            "story_in_book": 1,
+            "story_end": 60,
+            "story_start": 51,
+        })
+
+    def test_ten_stories_form_one_global_book_without_changing_archive_boundaries(self) -> None:
+        self.assertEqual(STORIES_PER_BOOK, 10)
+        self.assertEqual(BOOKS_PER_ARCHIVE, 5)
+        cases = {
+            1: (1, 1, 1, 1, 10, 1),
+            10: (1, 10, 1, 1, 10, 1),
+            11: (2, 1, 2, 11, 20, 1),
+            50: (5, 10, 5, 41, 50, 1),
+            51: (6, 1, 1, 51, 60, 2),
+            100: (10, 10, 5, 91, 100, 2),
+            101: (11, 1, 1, 101, 110, 3),
+        }
+        for story, expected in cases.items():
+            with self.subTest(story=story):
+                target = book_target_for_story(story)
+                self.assertEqual(
+                    (
+                        target.global_book,
+                        target.story_in_book,
+                        target.book_in_archive,
+                        target.story_start,
+                        target.story_end,
+                        target.archive_index,
+                    ),
+                    expected,
+                )
+
+        for value in (0, -1, True, 1.2, "1"):
+            with self.subTest(value=value), self.assertRaises((TypeError, ValueError)):
+                book_target_for_story(value)  # type: ignore[arg-type]
 
 
 class PlatformStateTests(unittest.TestCase):
@@ -94,6 +150,29 @@ class PlatformStateTests(unittest.TestCase):
     def test_out_of_order_completion_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "expected volume 1"):
             complete_volume(PlatformState(), 2, transaction_id="invalid")
+
+    def test_book_progress_is_derived_without_changing_persisted_state_schema(self) -> None:
+        state = PlatformState(completed_volumes=10, current_volume=11, active_archive_index=1)
+
+        status = status_to_dict(state)
+
+        self.assertEqual(status["completed_volumes"], 10)
+        self.assertEqual(status["current_volume"], 11)
+        self.assertEqual(status["book"], {
+            "books_per_archive": 5,
+            "completed_books": 1,
+            "current_book": 2,
+            "story_in_book": 1,
+            "stories_per_book": 10,
+        })
+        persisted = json.loads(json.dumps({
+            "schema_version": state.schema_version,
+            "completed_volumes": state.completed_volumes,
+            "current_volume": state.current_volume,
+            "active_archive_index": state.active_archive_index,
+            "rotation": None,
+        }))
+        self.assertNotIn("book", persisted)
 
 
 class StateStoreTests(unittest.TestCase):

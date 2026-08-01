@@ -70,6 +70,8 @@ class AdminTests(unittest.TestCase):
         self.assertTrue(decoded["secrets"]["openai_api_key_present"])
         self.assertTrue(decoded["secrets"]["cloudflare_api_token_present"])
         self.assertNotIn("OPENAI_API_KEY", decoded["settings"])
+        self.assertEqual(decoded["invariants"]["stories_per_book"], 10)
+        self.assertEqual(decoded["invariants"]["books_per_archive"], 5)
 
     def test_foreign_host_origin_and_client_are_rejected(self) -> None:
         foreign_host = self.request("GET", "/api/settings", headers={"Host": "attacker.invalid"})
@@ -163,6 +165,14 @@ class AdminTests(unittest.TestCase):
         response = self.request("GET", "/../../.config/wirtelprimpf/openai.env")
         self.assertEqual(response.status, 404)
         self.assertNotIn("super-secret-value", response.body)
+
+    def test_admin_page_explains_book_and_archive_boundaries(self) -> None:
+        response = self.request("GET", "/")
+
+        self.assertEqual(response.status, 200)
+        self.assertIn("10 vollständige Storys", response.body)
+        self.assertIn("5 Bücher", response.body)
+        self.assertIn("50 Storys", response.body)
 
 
 if __name__ == "__main__":

@@ -102,7 +102,7 @@ Publication policy:
   record JSON; all four public downloads must match their local SHA-256 values.
 - Git receives prompt, story documents and `media-manifest.json`, never the PNG.
 - Each verified publication commit is pushed immediately.
-- Exactly 50 completed story volumes belong to one archive. Boundary completion
+- Exactly ten completed stories form one book and five books (50 completed stories) belong to one archive. Boundary completion
   blocks further generation until the next sequential archive is fully ready.
 
 Runtime state is stored in:

@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from .naming import ARCHIVE_CAPACITY, BOOKS_PER_ARCHIVE, STORIES_PER_BOOK
+
 MAX_REQUEST_BYTES = 64 * 1024
 PUBLIC_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 OPERANDI = frozenset({"classic", "story", "both"})
@@ -222,9 +224,11 @@ class SettingsStore:
                 ),
             },
             "invariants": {
-                "archive_capacity": 50,
+                "archive_capacity": ARCHIVE_CAPACITY,
+                "books_per_archive": BOOKS_PER_ARCHIVE,
                 "repository_pattern": "Wirtelprimpf-####",
                 "domain_suffix": "telacore.org",
+                "stories_per_book": STORIES_PER_BOOK,
                 "story_order_on_landing_page": "newest-first",
             },
         }
@@ -415,7 +419,7 @@ ADMIN_HTML = """<!doctype html>
 :root{color-scheme:dark;--ink:#f8eddd;--muted:#cbbdaf;--card:#241d2cdd;--line:#6f5b77;--gold:#f2b85b;--mint:#79d7b5;--rose:#ef879c}*{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,sans-serif;color:var(--ink);background:radial-gradient(circle at 15% 10%,#51354d,transparent 38%),radial-gradient(circle at 85% 0,#164b4b,transparent 35%),#15121b;min-height:100vh}.wrap{width:min(1040px,calc(100% - 2rem));margin:auto;padding:3rem 0 5rem}header{display:grid;gap:.6rem;margin-bottom:1.5rem}h1{font:700 clamp(2rem,7vw,4.8rem)/.95 Georgia,serif;margin:0;max-width:12ch}header p{color:var(--muted);max-width:65ch}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:1rem}.card{background:var(--card);border:1px solid var(--line);border-radius:1.4rem;padding:1.2rem;box-shadow:0 20px 50px #0006}h2{font:700 1.25rem Georgia,serif;margin:.1rem 0 1rem;color:var(--gold)}label{display:grid;gap:.35rem;margin:.8rem 0;color:var(--muted)}input,select,textarea,button{font:inherit}input,select,textarea{width:100%;background:#110e16;color:var(--ink);border:1px solid var(--line);border-radius:.7rem;padding:.7rem}textarea{min-height:7rem;resize:vertical}.check{display:flex;align-items:center;gap:.65rem}.check input{width:auto}button{border:0;border-radius:999px;padding:.8rem 1.25rem;background:var(--gold);color:#201520;font-weight:800;cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--mint);outline-offset:2px}.status{min-height:1.5rem;color:var(--mint)}.secret{border-color:var(--rose)}code{color:var(--mint)}
 </style></head><body><main class="wrap"><header><span>Lokale Steuerzentrale · nur Loopback</span><h1>Das Geschichtenatelier</h1><p>Generator, Story, Zeitplan und Publikation an einem sicheren Ort. Geheimnisse werden niemals angezeigt; ein Schlüssel kann nur ersetzt oder gelöscht werden.</p></header>
 <form id="settings"><div class="grid"><section class="card"><h2>Generierung</h2><label>Modus<select name="operandi"><option>classic</option><option>story</option><option>both</option></select></label><label>Bildmodell<input name="image_model"></label><label>Storymodell<input name="story_model"></label><label>API-Bildgröße<select name="image_size"><option>1024x1024</option><option>1536x1024</option><option>1024x1536</option></select></label><label>Ausgabeauflösung<select name="output_resolution"><option>source</option><option>2k</option><option>4k</option></select></label></section>
-<section class="card"><h2>Story & Zeitplan</h2><label>Intervall in Minuten<input type="number" min="30" max="10080" name="generation_interval_minutes"></label><label>Minimale Abschlussteile<input type="number" min="1" max="12" name="story_finish_parts_min"></label><label>Maximale Abschlussteile<input type="number" min="1" max="12" name="story_finish_parts_max"></label><label class="check"><input type="checkbox" name="publish_immediately"> Nach Erfolg sofort publizieren</label><p>Fix: <code>50 vollständige Bände</code> je Archiv; danach vollautomatische Rotation.</p></section>
+<section class="card"><h2>Story & Zeitplan</h2><label>Intervall in Minuten<input type="number" min="30" max="10080" name="generation_interval_minutes"></label><label>Minimale Abschlussteile<input type="number" min="1" max="12" name="story_finish_parts_min"></label><label>Maximale Abschlussteile<input type="number" min="1" max="12" name="story_finish_parts_max"></label><label class="check"><input type="checkbox" name="publish_immediately"> Nach Erfolg sofort publizieren</label><p>Fix: <code>10 vollständige Storys = 1 Buch</code>; <code>5 Bücher = 50 Storys</code> je Archiv. Erst danach rotiert das Repository vollautomatisch.</p></section>
 <section class="card"><h2>Website</h2><label>Seitentitel<input name="site_title" maxlength="120"></label><label>Einleitung<textarea name="site_intro" maxlength="500"></textarea></label><p>Die aktuelle Story erscheint auf der Landingpage verbindlich mit dem neuesten Teil zuerst.</p></section>
 <section class="card"><h2>Geheimnisse</h2><label>OpenAI-Schlüssel ersetzen<input class="secret" type="password" name="openai_api_key" autocomplete="new-password" placeholder="bleibt leer, wenn unverändert"></label><label class="check"><input type="checkbox" name="delete_openai_api_key"> vorhandenen OpenAI-Schlüssel löschen</label><label>Cloudflare-Token ersetzen<input class="secret" type="password" name="cloudflare_api_token" autocomplete="new-password" placeholder="nur für Archivrotation nötig"></label><label class="check"><input type="checkbox" name="delete_cloudflare_api_token"> vorhandenen Cloudflare-Token löschen</label><p id="secret-state"></p></section></div><p><button type="submit">Sicher anwenden</button></p><p class="status" id="status" role="status" aria-live="polite"></p></form></main>
 <script>

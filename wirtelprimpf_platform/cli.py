@@ -22,9 +22,9 @@ from .media import (
     materialize_release_plan,
     publish_release_plan,
 )
-from .naming import archive_target_for_volume
+from .naming import ARCHIVE_CAPACITY, archive_target_for_volume, book_target_for_story
 from .provision import RotationOrchestrator
-from .state import PlatformState, StateStore, state_to_dict
+from .state import PlatformState, StateStore, state_to_dict, status_to_dict
 from .target_switch import GeneratorTargetSwitcher, GitCatalogPublisher
 
 
@@ -52,13 +52,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="wirtelprimpf-platform")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    mapping = subparsers.add_parser("mapping", help="map a global story volume to its archive")
+    mapping = subparsers.add_parser("mapping", help="map a global story to its archive")
     mapping.add_argument("volume", type=int)
 
     status = subparsers.add_parser("status", help="show private platform state without secrets")
     status.add_argument("--state", type=Path, required=True)
 
-    initialize = subparsers.add_parser("initialize-state", help="initialize state from completed story volumes")
+    initialize = subparsers.add_parser("initialize-state", help="initialize state from completed stories")
     initialize.add_argument("--state", type=Path, required=True)
     initialize.add_argument("--completed-volumes", type=int, required=True)
 
@@ -77,7 +77,7 @@ def _build_parser() -> argparse.ArgumentParser:
     admin.add_argument("--host", default="127.0.0.1")
     admin.add_argument("--port", type=int, default=8765)
 
-    rotate = subparsers.add_parser("rotate", help="resume a staged 50-volume repository rotation")
+    rotate = subparsers.add_parser("rotate", help="resume a staged five-book / 50-story repository rotation")
     rotate.add_argument("--state", type=Path, required=True)
     rotate.add_argument("--catalog", type=Path, required=True)
     rotate.add_argument("--generator-root", type=Path, required=True)
@@ -95,7 +95,7 @@ def _initialize_state(path: Path, completed: int) -> PlatformState:
     if isinstance(completed, bool) or completed < 0:
         raise ValueError("completed volumes must be non-negative")
     current = completed + 1
-    active_archive_index = ((current - 1) // 50) + 1
+    active_archive_index = ((current - 1) // ARCHIVE_CAPACITY) + 1
     state = PlatformState(
         completed_volumes=completed,
         current_volume=current,
@@ -112,13 +112,24 @@ def _initialize_state(path: Path, completed: int) -> PlatformState:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "mapping":
-        _json(asdict(archive_target_for_volume(args.volume)))
+        archive = archive_target_for_volume(args.volume)
+        book = book_target_for_story(args.volume)
+        _json({
+            **asdict(archive),
+            "book": {
+                "book_in_archive": book.book_in_archive,
+                "global_book": book.global_book,
+                "story_in_book": book.story_in_book,
+                "story_end": book.story_end,
+                "story_start": book.story_start,
+            },
+        })
         return 0
     if args.command == "status":
-        _json(state_to_dict(StateStore(args.state).load()))
+        _json(status_to_dict(StateStore(args.state).load()))
         return 0
     if args.command == "initialize-state":
-        _json(state_to_dict(_initialize_state(args.state, args.completed_volumes)))
+        _json(status_to_dict(_initialize_state(args.state, args.completed_volumes)))
         return 0
     if args.command == "media-migrate":
         inventory = build_media_inventory(args.source, archive_index=args.archive_index)

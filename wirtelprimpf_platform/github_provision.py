@@ -12,7 +12,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .naming import ARCHIVE_CAPACITY, archive_domain, archive_name
+from .naming import ARCHIVE_CAPACITY, STORIES_PER_BOOK, archive_domain, archive_name
 
 ARCHIVE_GITIGNORE = """# Lokale Laufzeit- und Migrationsartefakte.
 __pycache__/
@@ -208,12 +208,19 @@ class GitHubProvisioner:
             raise GitHubProvisionError(f"archive checkout is missing: {path}")
         volume_start = ((archive_index - 1) * ARCHIVE_CAPACITY) + 1
         volume_end = volume_start + ARCHIVE_CAPACITY - 1
+        book_start = ((volume_start - 1) // STORIES_PER_BOOK) + 1
+        book_end = ((volume_end - 1) // STORIES_PER_BOOK) + 1
         archive_manifest = {
             "archive_index": archive_index,
+            "book_end": book_end,
+            "book_start": book_start,
             "domain": domain,
             "repository": repository,
             "schema_version": "1.0.0",
             "status": "active",
+            "stories_per_book": STORIES_PER_BOOK,
+            "story_end": volume_end,
+            "story_start": volume_start,
             "volume_end": volume_end,
             "volume_start": volume_start,
         }
@@ -251,7 +258,8 @@ jobs:
 '''
         readme = f"""# {repository}
 
-Publikationsarchiv für die globalen Wirtelprimpf-Story-Bände {volume_start} bis {volume_end}.
+Publikationsarchiv für die globalen Wirtelprimpf-Storys {volume_start} bis {volume_end}
+beziehungsweise die Bücher {book_start} bis {book_end}. Je zehn vollständig abgeschlossene Storys bilden ein Buch.
 
 - Website: <https://{domain}>
 - Zentrale: <https://wirtelprimpf.telacore.org>

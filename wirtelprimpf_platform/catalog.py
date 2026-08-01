@@ -8,7 +8,7 @@ import uuid
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
-from .naming import ARCHIVE_CAPACITY, archive_domain, archive_name
+from .naming import ARCHIVE_CAPACITY, STORIES_PER_BOOK, archive_domain, archive_name
 
 CATALOG_SCHEMA_VERSION = "1.0.0"
 
@@ -27,6 +27,14 @@ class CatalogEntry:
     revision: str | None = None
     media_manifest_url: str | None = None
     media_manifest_sha256: str | None = None
+
+    @property
+    def book_start(self) -> int:
+        return ((self.volume_start - 1) // STORIES_PER_BOOK) + 1
+
+    @property
+    def book_end(self) -> int:
+        return ((self.volume_end - 1) // STORIES_PER_BOOK) + 1
 
     @classmethod
     def for_archive(
@@ -61,7 +69,7 @@ class CatalogEntry:
             raise ValueError("catalog Pages URL violates archive domain contract")
         expected_start = ((self.archive_index - 1) * ARCHIVE_CAPACITY) + 1
         if (self.volume_start, self.volume_end) != (expected_start, expected_start + ARCHIVE_CAPACITY - 1):
-            raise ValueError("catalog volume range violates 50-volume contract")
+            raise ValueError("catalog story range violates five-book / 50-story contract")
 
 
 @dataclass(frozen=True, slots=True)

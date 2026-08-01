@@ -5,11 +5,12 @@ import test from "node:test";
 
 import {
   assertReleaseAssetUrl,
+  groupStoriesByBook,
   parseStoryDocument,
   renderSafeMarkdown,
   sortStoryPartsNewestFirst,
 } from "../src/lib/content.ts";
-import { loadStories } from "../src/lib/data.ts";
+import { archiveBookRange, loadStories } from "../src/lib/data.ts";
 
 
 function relativeLuminance(hex: string): number {
@@ -43,6 +44,8 @@ Zweiter Teil.
 `, "Wirtelprimpf_Story_II.md", 2);
 
   assert.equal(story.title, "Die funkelnde Möhre");
+  assert.equal(story.book, 1);
+  assert.equal(story.storyInBook, 2);
   assert.deepEqual(story.parts.map((part) => part.timestamp), [
     "2026-07-01 10:00:00",
     "2026-07-01 12:00:00",
@@ -52,6 +55,38 @@ Zweiter Teil.
     "2026-07-01 10:00:00",
   ]);
   assert.match(story.parts[0]?.id ?? "", /^band-0002-teil-[a-f0-9]{12}$/);
+});
+
+
+test("ten complete stories form a book while global story routes stay stable", () => {
+  const storyTen = parseStoryDocument("# Zehn\n", "Wirtelprimpf_Story_X.md", 10);
+  const storyEleven = parseStoryDocument("# Elf\n", "Wirtelprimpf_Story_XI.md", 11);
+
+  const books = groupStoriesByBook([storyEleven, storyTen]);
+
+  assert.deepEqual(books.map((book) => ({
+    number: book.number,
+    storyStart: book.storyStart,
+    storyEnd: book.storyEnd,
+    stories: book.stories.map((story) => story.volume),
+  })), [
+    { number: 1, storyStart: 1, storyEnd: 10, stories: [10] },
+    { number: 2, storyStart: 11, storyEnd: 20, stories: [11] },
+  ]);
+  assert.equal(storyTen.book, 1);
+  assert.equal(storyTen.storyInBook, 10);
+  assert.equal(storyEleven.book, 2);
+  assert.equal(storyEleven.storyInBook, 1);
+});
+
+
+test("each fifty-story archive exposes exactly five global books", () => {
+  assert.deepEqual(archiveBookRange(1), { bookStart: 1, bookEnd: 5 });
+  assert.deepEqual(archiveBookRange(2), { bookStart: 6, bookEnd: 10 });
+  assert.deepEqual(archiveBookRange(3), { bookStart: 11, bookEnd: 15 });
+  for (const value of [0, -1, 1.5, Number.NaN]) {
+    assert.throws(() => archiveBookRange(value), /archive index/);
+  }
 });
 
 
