@@ -1923,7 +1923,7 @@ git commit -m "feat(admin): add conflict-safe live settings UI"
 - Runs every blocking CLI invocation on one private worker thread; GTK/Gio widgets remain main-thread-only and are updated through `GLib.idle_add`.
 - `GeneratorConfigEditor` monitors environment, timer drop-in, revision signal, and parent directories via Gio; it never writes configuration files directly.
 
-- [ ] **Step 1: Write failing pure client/state tests and the static GTK contracts from Step 6**
+- [x] **Step 1: Write failing pure client/state tests and the static GTK contracts from Step 6**
 
 ```python
 from __future__ import annotations
@@ -2055,13 +2055,13 @@ The committed test uses the loader above because `@` prevents package import syn
 
 Before touching either production file, also replace the superseded assertions in `tests/test_settings_schema.py` with the exact three tests printed in Step 6. This makes the no-direct-writer, shared-catalog, Gio timing, and off-main-thread contracts red in the same test-first phase.
 
-- [ ] **Step 2: Run the focused tests and verify the helper is missing**
+- [x] **Step 2: Run the focused tests and verify the helper is missing**
 
 Run: `python -m unittest tests.test_applet_settings_sync tests.test_settings_schema -v`
 
 Expected: failure because `settings_sync.py` does not exist and the current applet still owns writers/catalogs and has no serialized worker bridge.
 
-- [ ] **Step 3: Implement the bounded pure helper**
+- [x] **Step 3: Implement the bounded pure helper**
 
 ```python
 class SettingsCliError(RuntimeError):
@@ -2116,7 +2116,7 @@ class SettingsCliClient:
 
 Implement `DirtySnapshotState` with `revision`, `server`, `visible`, `base_revision`, `base_values`, `dirty`, `secret_dirty`, `conflicts`, `mark_secret_dirty(name)`, `discard(name)`, and `discard_secret(name)`, matching Task 8 field-for-field. `build_request` rejects unless the secret-action names exactly equal `secret_dirty`; the state stores no secret values. This duplication is intentional because Cinnamon cannot import browser JavaScript; server-side conflict enforcement remains authoritative.
 
-- [ ] **Step 4: Replace the applet's independent writers with the shared client**
+- [x] **Step 4: Replace the applet's independent writers with the shared client**
 
 In `SettingsLogo.py`:
 
@@ -2150,7 +2150,7 @@ On a CLI conflict payload, merge `payload["snapshot"]`, retain dirty values, add
 
 For every conflicting applet row, show an `Externen Wert übernehmen` action that calls `sync_state.discard(key)` and updates only that widget. Also provide one confirmed `Alle lokalen Entwürfe verwerfen` action. Neither action calls the CLI; they merely resolve the local draft against the latest received public snapshot.
 
-- [ ] **Step 5: Add Gio monitoring, debounce, a serialized background bridge, focus refresh, and cleanup**
+- [x] **Step 5: Add Gio monitoring, debounce, a serialized background bridge, focus refresh, and cleanup**
 
 Monitor the parent directory of each canonical path so file creation and replacement are both observed:
 
@@ -2180,7 +2180,7 @@ The save callback builds the immutable sparse request on the GTK thread, increme
 
 `_dispose_sync` sets `_disposed`, cancels debounce/fallback source IDs, calls `cancel()` on every monitor, and invokes `self._executor.shutdown(wait=False, cancel_futures=True)`. Completion handlers return immediately when disposed. The 30-second callback returns `True`; debounce, map, focus, and idle completion callbacks return `False`.
 
-- [ ] **Step 6: Make the prewritten static GTK contracts green**
+- [x] **Step 6: Make the prewritten static GTK contracts green**
 
 Replace the old constant-tuple and applet-owned persistence tests with these static contracts. Keep the test that secret values are never placed into entries, but source its payload from a redacted `SettingsSnapshot`; byte-preservation and atomicity now belong exclusively to Tasks 2 and 4.
 
@@ -2223,7 +2223,7 @@ def test_applet_sync_contract_contains_event_debounce_focus_and_fallback(self) -
     self.assertIn("_dispose_sync", source)
 ```
 
-- [ ] **Step 7: Run applet and configuration regressions**
+- [x] **Step 7: Run applet and configuration regressions**
 
 Run: `python -m unittest tests.test_applet_settings_sync tests.test_settings_schema tests.test_story_directives -v`
 
@@ -2231,7 +2231,7 @@ Run: `python -m py_compile files/wirtelprimfgenerator@H234598/SettingsLogo.py fi
 
 Expected: all tests pass; source scan finds no applet-owned environment/drop-in writer.
 
-- [ ] **Step 8: Add the helper to `make check` and commit**
+- [x] **Step 8: Add the helper to `make check` and commit**
 
 Add `settings_sync.py` to `py_compile` and `tests.test_applet_settings_sync` to unittest commands.
 
@@ -2463,6 +2463,35 @@ Do not start public deployment merely because Task 10 is green. First compare th
   Request-Snapshot und entsperrt über `finally` bei Erfolg, `409`, abgelehnter
   Antwort und Exception. Der Abschlusslauf umfasste 14/14 Node-Verträge und
   34/34 Admin-/Transaktions-/Statusregressionen.
+
+### 2026-08-01 — Task 9: transaktionale Applet-Synchronisation
+
+- Task 9 ist in `da15d76` (`feat(applet): synchronize settings
+  transactionally`) umgesetzt. Das Applet besitzt keine Environment-/Drop-in-
+  Writer mehr und reicht jede Konfigurationsänderung über denselben sparsamen
+  Revisionsvertrag an `wirtelprimpf-settings` weiter.
+- Der nachträglich korrigierte Testvertrag ist maßgeblich: 17 beobachtbare
+  Helper-/Coordinator-Verträge fahren Scheduler, Monitore, Executor und
+  Completion-Dispatcher mit Fakes beziehungsweise einem echten einzelnen
+  Worker-Thread. Sie belegen 250-ms-Coalescing, 30-s-Fallback, Fokus-Refresh,
+  Epoch-Verwerfung, Dirty-Erhalt, Disposal/Cancellation, CLI-Ausführung abseits
+  des Aufrufer-/GTK-Threads, redigierte Fehler sowie Secret-Konfliktauflösung.
+  Die AST-Prüfung auf entfernte Writer dient nur noch als Packaging-Smoke.
+- Der fokussierte Abschlusslauf umfasste 54/54 Verträge aus Applet-Sync,
+  Settings-Schema und Story-Directives; `make check` lief davor mit allen zu
+  diesem Zeitpunkt enthaltenen 16 Applet-Sync-Verträgen vollständig grün. Nach
+  dem zusätzlich testgetriebenen Katalogvertrag liefen alle 17/17 Sync-Verträge
+  und die benachbarten Suiten erneut grün; beide Python-Dateien kompilierten und
+  `git diff --check` war leer.
+- Präzisierung zur Antwortgröße: Der aktuelle Client erzwingt 10-/90-s-
+  Prozesszeitlimits und verwirft eine bereits vollständig empfangene Antwort
+  oberhalb 1 MiB. Das ist ausdrücklich **kein** Streaming- oder harter
+  Speichernutzungsgrenzwert, weil `subprocess.run(..., stdout=PIPE)` die Ausgabe
+  zunächst vollständig sammelt. Additives Härtungsitem: auf inkrementelles,
+  timeoutgebundenes Lesen mit Prozessabbruch direkt beim Überschreiten des
+  Limits umstellen und dies mit einem tatsächlich endlosen/übergroßen Fake-
+  Prozess beweisen; bis dahin darf die 1-MiB-Prüfung nur als nachgelagerte
+  Antwortgrößenvalidierung beschrieben werden.
 
 ### 2026-08-01 — zurückgenommener Packaging-Smoke nach Task 5
 
