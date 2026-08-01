@@ -1103,3 +1103,49 @@ Completion requires all of the following:
   Fetch, Push, PR, Merge, Install, `systemctl`, Cinnamon-Reload, Pages-Dispatch,
   Cloudflare-/DNS-Zugriff, Upstream-Fix und keine Änderung am
   Generatorvertrag oder an laufenden Systemen.
+
+### 2026-08-01 — Task 3: additive Schlussreview-Remediation vor dem erneuten Push
+
+- Der historische Abschlussvermerk der lokalen Tasks 1–2 unmittelbar darüber
+  bleibt unverändert erhalten. Task 3 wurde danach begonnen: Der bereits
+  eröffnete, nicht als Draft markierte Generator-PR ist
+  `https://github.com/H234598/Wirtelprimpf-generator/pull/4`. Vor dem erneuten
+  Push wurde ausdrücklich weder gemergt noch der Runtime-Checkout berührt.
+- Vier zusätzliche Root-Reviewbefunde wurden jeweils vor der
+  Produktionsänderung reproduziert. Der RED-Lauf über 47 fokussierte Tests
+  belegte: ein bereits existierender privater finaler Parent blieb `0755`;
+  `Content-Length: 100` mit nur zwei Bodybytes blockierte den Handler bis zum
+  Schließen des Peers und GET/HEAD lasen nichtleere Bodies; die reale doppelte
+  systemd-Eigenschaft `TimersMonotonic=` verlor durch Dictionary-Überschreiben
+  den `OnUnitActiveUSec`-Eintrag; Applet-Save und operative systemd-Aktionen
+  besaßen getrennte Busy-Gates. Es gab sechs erwartete Assertionfehler und drei
+  erwartete Fehlerpfade ausschließlich in diesen neuen Verträgen.
+- Der Produktionsfix `6d4454a` (`fix(settings): close final review blockers`)
+  umfasst genau acht Dateien. Neue private Zwischenverzeichnisse bleiben
+  `0700`, und zusätzlich wird der bestehende finale private Parent wieder auf
+  `0700` gehärtet. Der lokale HTTP-Handler verwirft nichtleere GET-/HEAD-Bodies,
+  begrenzt POST-Bodyreads pro Verbindung auf zwei Sekunden, antwortet bei
+  Timeout mit 408, bei vorzeitigem EOF mit 400 und stellt das vorherige
+  Socket-Timeout wieder her. Der systemd-Adapter sammelt alle wiederholten
+  Propertywerte und wählt den `OnUnitActiveUSec`-Eintrag unabhängig von der
+  Reihenfolge. Applet-Save und operative Aktionen teilen ein gemeinsames Gate;
+  Erfolgs-, Fehler- und Threadstartfehlerpfad geben es exakt wieder frei.
+- Der GREEN-Fokuslauf bestand 47/47. Ein zusätzlicher read-only Livesmoke als
+  UID/GID `teladi` mit `PYTHONPATH` auf diesen Worktree wertete die echte
+  systemd-Ausgabe erfolgreich aus: Timer enabled/active, Intervall 120 Minuten,
+  Randomisierung 120 Sekunden, persistent, Result `success`. Es wurden dabei
+  weder Drop-in noch Timerzustand verändert.
+- Die vollständige Matrix wurde anschließend auf dem sauberen Commit
+  `6d4454a` wiederholt: Plattform 139/139; gesamtes `make check` einschließlich
+  Admin-UI 22/22, Applet-Sync 20/20, Settings-Schema 12/12 und
+  Story-Direktiven 31/31; Web 9/9; Astro 22 Dateien mit 0 Fehlern, 0 Warnungen
+  und 0 Hinweisen; `compileall`, fokussiertes Ruff und `git diff --check`
+  erfolgreich. Beide vollständigen Hub-/Archivprofile bestanden erneut Build,
+  Artefaktvalidator, Copy-, Canonical- und Forbidden-Scans; der Archivbaum
+  blieb bei 823 Dateien, 818 HTML, 10.840 internen Links und SHA-256
+  `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
+- Der erneute Delta-Sicherheitsreview fand keine verbleibende Regression und
+  keine Credential-/Key-Muster, neuen Shell-/Eval-/Deserialisierungs-Sinks oder
+  erweiterten Schreibziele. Bis zu diesem Ledger-Eintrag erfolgten weiterhin
+  kein erneuter Push, kein Merge, keine Installation, kein Service-/Timerwrite,
+  kein Cinnamon-Reload und keine Cloudflare-/DNS-/Upstream-Mutation.
