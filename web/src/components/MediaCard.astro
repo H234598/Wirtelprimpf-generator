@@ -15,6 +15,6 @@ const label = item.kind === "story" ? "Storybild" : item.kind === "classic" ? "A
       <span class="kind-badge">{label}</span>
     </div>
     <h3>{item.source_path.replace(/\.[^.]+$/, "").replaceAll("_", " ")}</h3>
-    <p>Im Release <code>{item.release_tag}</code> hashgebunden archiviert.</p>
+    <p>Im Release <code>{item.release_tag}</code> archiviert.</p>
   </a>
 </article>
