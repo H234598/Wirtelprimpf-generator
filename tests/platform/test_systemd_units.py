@@ -99,14 +99,21 @@ class SystemdUnitTests(unittest.TestCase):
             .splitlines()
             if line.strip() and not line.lstrip().startswith("#")
         }
-        self.assertNotIn("EnvironmentFile=-%h/.config/wirtelprimpf/openai.env", lines)
-        self.assertIn("ReadWritePaths=%h/.config/wirtelprimpf", lines)
-        self.assertIn("ReadWritePaths=%h/.config/cloudflare", lines)
-        self.assertIn(
-            "ReadWritePaths=%h/.config/systemd/user/wirtelprimpf.timer.d",
-            lines,
+        environment_files = {
+            line.partition("=")[2].removeprefix("-")
+            for line in lines
+            if line.startswith("EnvironmentFile=")
+        }
+        self.assertEqual(environment_files, set())
+        self.assertNotIn("%h/.config/wirtelprimpf/openai.env", environment_files)
+        self.assertEqual(
+            {line for line in lines if line.startswith("ReadWritePaths=")},
+            {
+                "ReadWritePaths=%h/.config/wirtelprimpf",
+                "ReadWritePaths=%h/.config/cloudflare",
+                "ReadWritePaths=%h/.config/systemd/user/wirtelprimpf.timer.d",
+            },
         )
-        self.assertNotIn("ReadWritePaths=%h/.config", lines)
 
     def test_generator_imports_the_separate_cloudflare_token_file_without_moving_it_back(self) -> None:
         lines = {

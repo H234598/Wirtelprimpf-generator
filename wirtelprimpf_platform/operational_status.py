@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 from .catalog import CatalogStore
 from .naming import book_target_for_story
-from .settings import SettingsSnapshot
+from .settings import SettingsPaths, SettingsSnapshot
 from .state import StateStore
 from .systemd_user import TimerObservation
 
@@ -30,12 +30,13 @@ class StatusPaths:
     cloudflare_token: Path
 
     @classmethod
-    def for_home(cls, home: Path) -> "StatusPaths":
-        generator = Path(home) / ".local/share/wirtelprimpf-generator"
-        state = Path(home) / ".local/state/wirtelprimpf"
+    def for_home(cls, home: Path) -> StatusPaths:
+        settings_paths = SettingsPaths.for_home(home)
+        generator = settings_paths.generator_root
+        state = settings_paths.platform_state.parent
         return cls(
-            platform_state=state / "platform-state.json",
-            settings_state=Path(home) / ".config/wirtelprimpf/settings-state.json",
+            platform_state=settings_paths.platform_state,
+            settings_state=settings_paths.state_file,
             hub_outbox=state / "hub-dispatch.json",
             hub_source=generator / "data/hub-source.json",
             media_manifest=generator / "data/media-manifest.json",
@@ -45,7 +46,7 @@ class StatusPaths:
         )
 
     @classmethod
-    def for_root(cls, root: Path) -> "StatusPaths":
+    def for_root(cls, root: Path) -> StatusPaths:
         return cls.for_home(Path(root))
 
 
@@ -138,12 +139,14 @@ class OperationalStatusCollector:
 
     @staticmethod
     def _empty_status(observed_at: str) -> dict[str, object]:
-        unknown_publication = lambda: {
-            "state": "unknown",
-            "value": None,
-            "observed_at": None,
-            "source": None,
-        }
+        def unknown_publication() -> dict[str, object]:
+            return {
+                "state": "unknown",
+                "value": None,
+                "observed_at": None,
+                "source": None,
+            }
+
         return {
             "schema_version": "1.0.0",
             "observed_at": observed_at,

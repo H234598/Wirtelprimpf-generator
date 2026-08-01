@@ -10,7 +10,7 @@ from pathlib import Path
 
 from wirtelprimpf_platform.catalog import CatalogEntry, CatalogStore, PublicationCatalog
 from wirtelprimpf_platform.operational_status import OperationalStatusCollector, StatusPaths
-from wirtelprimpf_platform.settings import SettingsSnapshot
+from wirtelprimpf_platform.settings import SettingsPaths, SettingsSnapshot
 from wirtelprimpf_platform.state import PlatformState, StateStore
 from wirtelprimpf_platform.systemd_user import TimerConfiguration, TimerObservation
 
@@ -39,6 +39,14 @@ def active_timer() -> TimerObservation:
 
 
 class OperationalStatusTests(unittest.TestCase):
+    def test_configuration_status_paths_are_owned_by_settings_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            status_paths = StatusPaths.for_home(root)
+            settings_paths = SettingsPaths.for_home(root)
+        self.assertEqual(status_paths.platform_state, settings_paths.platform_state)
+        self.assertEqual(status_paths.settings_state, settings_paths.state_file)
+
     def test_local_state_builds_real_story_book_archive_and_timer_status(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

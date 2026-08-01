@@ -103,10 +103,15 @@ class PackagingVersionTests(unittest.TestCase):
         self.assertEqual(platform_version, "1.1.0")
         self.assertEqual(metadata["version"], "0.9.0")
         self.assertEqual(metadata["comments"], "Version: 0.9.0")
-        gate = installer.index(
-            'if [[ ! -f "${SETTINGS_CLI}" || ! -x "${SETTINGS_CLI}" || -L "${SETTINGS_CLI}" ]]'
+        gate_source = (
+            'if [[ ! -f "${SETTINGS_CLI}" || ! -x "${SETTINGS_CLI}" || '
+            '-L "${SETTINGS_CLI}" ]]'
         )
-        replace = installer.index('rm -rf -- "${DEST}"')
+        replace_source = 'rm -rf -- "${DEST}"'
+        self.assertIn(gate_source, installer, "settings CLI validation gate is missing")
+        self.assertIn(replace_source, installer, "destination replacement is missing")
+        gate = installer.index(gate_source)
+        replace = installer.index(replace_source)
         self.assertLess(gate, replace)
 
     def test_installer_prepares_only_private_transaction_directories(self) -> None:

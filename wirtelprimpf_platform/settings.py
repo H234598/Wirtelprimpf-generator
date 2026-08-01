@@ -18,8 +18,8 @@ from typing import Literal
 
 from .settings_io import EnvironmentDocument, FileBackup, SecureFile, SettingsIOError, SingleSecretStore
 from .settings_schema import (
-    SETTINGS_SCHEMA_VERSION,
     SETTING_SPECS,
+    SETTINGS_SCHEMA_VERSION,
     SettingsValidationError,
     choices_payload,
     invariants_payload,
@@ -53,7 +53,7 @@ class SettingsLockBusy(SettingsError):
 
 
 class SettingsConflict(SettingsError):
-    def __init__(self, fields: tuple[str, ...], snapshot: "SettingsSnapshot") -> None:
+    def __init__(self, fields: tuple[str, ...], snapshot: SettingsSnapshot) -> None:
         self.fields = tuple(sorted(fields))
         self.snapshot = snapshot
         super().__init__(f"settings conflict: {', '.join(self.fields)}")
@@ -79,7 +79,7 @@ class SettingsPaths:
     hub_outbox: Path
 
     @classmethod
-    def for_home(cls, home: Path) -> "SettingsPaths":
+    def for_home(cls, home: Path) -> SettingsPaths:
         home = Path(home)
         return cls(
             env_file=home / ".config/wirtelprimpf/openai.env",
@@ -136,7 +136,7 @@ class ChangeRequest:
     secret_actions: dict[str, SecretAction]
 
     @classmethod
-    def from_payload(cls, payload: object) -> "ChangeRequest":
+    def from_payload(cls, payload: object) -> ChangeRequest:
         if not isinstance(payload, dict) or set(payload) != {
             "base_revision",
             "changes",
@@ -237,6 +237,13 @@ def _safe_process_environment() -> dict[str, str]:
     }
 
 
+def _close_quietly(descriptor: int) -> None:
+    try:
+        os.close(descriptor)
+    except OSError:
+        return
+
+
 def validate_generator_environment(generator_root: Path, environment: Mapping[str, str]) -> None:
     executable = Path(generator_root) / ".venv/bin/wirtelprimpf-generator"
     try:
@@ -296,12 +303,19 @@ class SettingsManager:
             os.chmod(parent, 0o700)
             flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
             descriptor = os.open(self.paths.lock_file, flags, 0o600)
+        except OSError as exc:
+            raise SettingsError("cannot open settings lock") from exc
+        try:
             metadata = os.fstat(descriptor)
             if not stat.S_ISREG(metadata.st_mode):
                 raise SettingsError("settings lock must be a regular file")
             os.fchmod(descriptor, 0o600)
         except OSError as exc:
+            _close_quietly(descriptor)
             raise SettingsError("cannot open settings lock") from exc
+        except BaseException:
+            _close_quietly(descriptor)
+            raise
         operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
         deadline = time.monotonic() + self.lock_timeout_seconds
         try:
@@ -321,8 +335,11 @@ class SettingsManager:
                 os.close(descriptor)
 
     def snapshot(self) -> SettingsSnapshot:
-        with self._lock(exclusive=False):
-            return self._read_snapshot_unlocked()
+        try:
+            with self._lock(exclusive=False):
+                return self._read_snapshot_unlocked()
+        except SettingsIOError as exc:
+            raise SettingsError("settings snapshot unavailable") from exc
 
     def _environment_document(self) -> EnvironmentDocument:
         content = self._environment_file.read_bytes()
@@ -331,7 +348,11 @@ class SettingsManager:
         except UnicodeDecodeError as exc:
             raise SettingsIOError("settings environment is not UTF-8") from exc
 
-    def _normalized_settings(self, values: Mapping[str, str], timer: TimerObservation) -> tuple[dict[str, object], list[str]]:
+    def _normalized_settings(
+        self,
+        values: Mapping[str, str],
+        timer: TimerObservation,
+    ) -> tuple[dict[str, object], list[str]]:
         normalized: dict[str, object] = {}
         warnings: list[str] = []
         for key, spec in SETTING_SPECS.items():
@@ -361,6 +382,8 @@ class SettingsManager:
                         raise ValueError("multiline string")
                     if spec.max_length is not None and len(parsed) > spec.max_length:
                         raise ValueError("string too long")
+                    if parsed and spec.pattern is not None and spec.pattern.fullmatch(parsed) is None:
+                        raise ValueError("invalid string format")
                     if spec.choices and key not in {"image_model", "story_model"} and parsed not in spec.choices:
                         raise ValueError("invalid choice")
                     normalized[key] = parsed
@@ -523,7 +546,7 @@ class SettingsManager:
             sort_keys=True,
             separators=(",", ":"),
         )
-        self._state_file.replace_bytes(f"{payload}\n".encode("utf-8"))
+        self._state_file.replace_bytes(f"{payload}\n".encode())
 
     def _rollback(
         self,
@@ -561,7 +584,10 @@ class SettingsManager:
 
     def apply(self, request: ChangeRequest) -> SettingsSnapshot:
         with self._lock(exclusive=True):
-            before = self._read_snapshot_unlocked()
+            try:
+                before = self._read_snapshot_unlocked()
+            except SettingsIOError as exc:
+                raise SettingsError("settings transaction unavailable") from exc
             conflicts = tuple(
                 sorted(
                     key
@@ -602,7 +628,7 @@ class SettingsManager:
                 result = self._read_snapshot_unlocked()
                 state_signal_touched = True
                 self._write_revision_signal(result.revision)
-                return self._read_snapshot_unlocked()
+                return result
             except SettingsConflict:
                 raise
             except Exception as exc:

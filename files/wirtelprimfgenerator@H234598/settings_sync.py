@@ -9,17 +9,17 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import stat
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
 from typing import Any
-
 
 MAX_RESPONSE_BYTES = 1024 * 1024
 SNAPSHOT_TIMEOUT_SECONDS = 10
 APPLY_TIMEOUT_SECONDS = 90
+_LOGGER = logging.getLogger(__name__)
 
 
 class SettingsCliError(RuntimeError):
@@ -142,8 +142,7 @@ def catalog_options(
         options.append(
             (
                 current_text,
-                "%s · konfiguriert · nicht mehr im empfohlenen Katalog"
-                % current_text,
+                f"{current_text} · konfiguriert · nicht mehr im empfohlenen Katalog",
                 True,
             )
         )
@@ -166,9 +165,17 @@ class DirtySnapshotState:
         self.conflicts: set[str] = set()
 
     def change(self, name: str, value: object) -> None:
+        server_value = self.server.get(name)
+        if type(value) is type(server_value) and value == server_value:
+            self.visible[name] = copy.deepcopy(server_value)
+            self.dirty.discard(name)
+            self.conflicts.discard(name)
+            self.base_values.pop(name, None)
+            self._clear_base_if_clean()
+            return
         if name not in self.dirty:
             self.base_revision = self.base_revision or self.revision
-            self.base_values[name] = copy.deepcopy(self.server.get(name))
+            self.base_values[name] = copy.deepcopy(server_value)
             self.dirty.add(name)
         self.visible[name] = copy.deepcopy(value)
 
@@ -487,7 +494,11 @@ class SettingsSyncCoordinator:
         self.on_save_result("error", message, {})
 
     @staticmethod
-    def _safe_error(_error: BaseException, fallback: str) -> str:
+    def _safe_error(error: BaseException, fallback: str) -> str:
+        _LOGGER.warning(
+            "settings synchronization failure type=%s",
+            type(error).__name__,
+        )
         return fallback
 
     def dispose(self) -> None:
@@ -503,17 +514,17 @@ class SettingsSyncCoordinator:
             try:
                 monitor.cancel()
             except BaseException:
-                pass
+                continue
         self._monitors.clear()
         self._failed_monitor_paths.clear()
         self.executor.shutdown(wait=False, cancel_futures=True)
 
 
 __all__ = [
-    "catalog_options",
     "DirtySnapshotState",
     "SettingsCliClient",
     "SettingsCliError",
     "SettingsSyncCoordinator",
+    "catalog_options",
     "trusted_executable",
 ]

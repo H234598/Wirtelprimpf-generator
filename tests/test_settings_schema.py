@@ -17,6 +17,25 @@ SETTINGS_LOGO_PATH = APPLET_ROOT / "SettingsLogo.py"
 SYNC_PATH = APPLET_ROOT / "settings_sync.py"
 
 
+def editor_literal(name: str):
+    tree = ast.parse(
+        SETTINGS_LOGO_PATH.read_text(encoding="utf-8"),
+        filename=str(SETTINGS_LOGO_PATH),
+    )
+    editor = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "GeneratorConfigEditor"
+    )
+    assignment = next(
+        node
+        for node in editor.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)
+    )
+    return ast.literal_eval(assignment.value)
+
+
 class SettingsSchemaTests(unittest.TestCase):
     def test_no_stale_about_version_setting_key(self) -> None:
         schema = json.loads((APPLET_ROOT / "settings-schema.json").read_text(encoding="utf-8"))
@@ -43,6 +62,12 @@ class SettingsSchemaTests(unittest.TestCase):
         schema = json.loads((APPLET_ROOT / "settings-schema.json").read_text(encoding="utf-8"))
         source = SETTINGS_LOGO_PATH.read_text(encoding="utf-8")
         helper_source = (APPLET_ROOT / "helper.py").read_text(encoding="utf-8")
+        field_keys = {
+            field[0]
+            for _section, fields in editor_literal("field_sections")
+            for field in fields
+        }
+        secret_keys = {secret[0] for secret in editor_literal("secret_specs")}
         self.assertEqual(
             schema["github-url"]["default"],
             "https://github.com/H234598/Wirtelprimpf-generator",
@@ -61,7 +86,7 @@ class SettingsSchemaTests(unittest.TestCase):
             "story_model",
         ):
             with self.subTest(key=key):
-                self.assertIn(key, source)
+                self.assertIn(key, field_keys | secret_keys)
 
     def test_applet_has_no_independent_configuration_writer_methods(self) -> None:
         tree = ast.parse(SETTINGS_LOGO_PATH.read_text(encoding="utf-8"), filename=str(SETTINGS_LOGO_PATH))
@@ -98,6 +123,21 @@ class SettingsSchemaTests(unittest.TestCase):
     def test_generator_dropin_does_not_clear_private_runtime_environment(self) -> None:
         source = SETTINGS_LOGO_PATH.read_text(encoding="utf-8")
         self.assertNotIn('"Environment=",', source)
+
+    def test_discard_confirmation_is_modal_for_the_settings_toplevel(self) -> None:
+        source = SETTINGS_LOGO_PATH.read_text(encoding="utf-8")
+        self.assertIn("transient_for = self.get_toplevel()", source)
+        self.assertIn("isinstance(transient_for, Gtk.Window)", source)
+        self.assertIn("transient_for=transient_for", source)
+        self.assertIn("flags=Gtk.DialogFlags.MODAL", source)
+
+    def test_operational_buttons_share_one_completion_guard(self) -> None:
+        source = SETTINGS_LOGO_PATH.read_text(encoding="utf-8")
+        self.assertIn("self._operation_busy = False", source)
+        self.assertIn("self.run_button = Gtk.Button", source)
+        self.assertIn("self.timer_button = Gtk.Button", source)
+        self.assertIn("if self._operation_busy or self._disposed:", source)
+        self.assertIn("GLib.idle_add(self._finish_operation_idle, message)", source)
 
 
 if __name__ == "__main__":

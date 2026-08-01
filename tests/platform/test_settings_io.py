@@ -49,6 +49,15 @@ class SettingsIOTests(unittest.TestCase):
             self.assertEqual(target.parent.stat().st_mode & 0o777, 0o700)
             self.assertEqual(list(target.parent.glob(".*.part")), [])
 
+    def test_every_new_private_parent_component_has_private_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = root / "first"
+            second = first / "second"
+            SecureFile(second / "settings.env", private=True).replace_bytes(b"A=one\n")
+            self.assertEqual(first.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(second.stat().st_mode & 0o777, 0o700)
+
     def test_restore_of_previously_absent_file_removes_only_the_regular_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "private" / "new.env"

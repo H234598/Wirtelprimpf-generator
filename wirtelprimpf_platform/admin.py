@@ -226,22 +226,7 @@ class AdminApplication:
 class _Handler(BaseHTTPRequestHandler):
     server_version = "WirtelprimpfAdmin/1.1"
 
-    def _dispatch(self) -> None:
-        application: AdminApplication = self.server.application  # type: ignore[attr-defined]
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length < 0:
-                raise ValueError("negative content length")
-        except ValueError:
-            length = MAX_REQUEST_BYTES + 1
-        body = self.rfile.read(min(length, MAX_REQUEST_BYTES + 1))
-        response = application.handle(
-            self.command,
-            self.path.split("?", 1)[0],
-            {key: value for key, value in self.headers.items()},
-            body,
-            client_host=self.client_address[0],
-        )
+    def _write_admin_response(self, response: AdminResponse) -> None:
         encoded = response.body.encode("utf-8")
         self.send_response(response.status)
         self.send_header("Content-Type", response.content_type)
@@ -251,6 +236,39 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(encoded)
+
+    def _dispatch(self) -> None:
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            if self.command == "POST":
+                self._write_admin_response(
+                    _json_response(411, {"ok": False, "error": "content length required"})
+                )
+                return
+            length = 0
+        else:
+            normalized_length = raw_length.strip()
+            if not normalized_length.isdecimal():
+                self._write_admin_response(
+                    _json_response(400, {"ok": False, "error": "invalid content length"})
+                )
+                return
+            length = int(normalized_length)
+        if length > MAX_REQUEST_BYTES:
+            self._write_admin_response(
+                _json_response(413, {"ok": False, "error": "request too large"})
+            )
+            return
+        application: AdminApplication = self.server.application  # type: ignore[attr-defined]
+        body = self.rfile.read(length)
+        response = application.handle(
+            self.command,
+            self.path.split("?", 1)[0],
+            {key: value for key, value in self.headers.items()},
+            body,
+            client_host=self.client_address[0],
+        )
+        self._write_admin_response(response)
 
     do_GET = _dispatch
     do_HEAD = _dispatch

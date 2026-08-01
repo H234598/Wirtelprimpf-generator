@@ -160,6 +160,7 @@ Run:
 
 ```bash
 WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" \
+WIRTELPRIMPF_MEDIA_MANIFEST="$PWD/data/media-manifest.json" \
 WIRTELPRIMPF_SITE_PROFILE=hub \
 WIRTELPRIMPF_SITE_URL=https://wirtelprimpf.telacore.org \
 npm --prefix web run build
@@ -193,6 +194,7 @@ Run:
 
 ```bash
 WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" \
+WIRTELPRIMPF_MEDIA_MANIFEST="$PWD/data/media-manifest.json" \
 WIRTELPRIMPF_SITE_PROFILE=archive \
 WIRTELPRIMPF_SITE_URL=https://wirtelprimpf-0001.telacore.org \
 npm --prefix web run build
@@ -237,6 +239,12 @@ Expected: no `web/dist` or dependency artifact appears; only expected plan/imple
 Run:
 
 ```bash
+generator_dirty="$(git status --porcelain)"
+if [[ -n "$generator_dirty" ]]; then
+  printf 'Generator checkout is not clean; aborting local matrix.\n' >&2
+  printf '%s\n' "$generator_dirty" >&2
+  exit 1
+fi
 python -m unittest discover -s tests/platform -p 'test_*.py' -v
 make check
 python -m compileall -q Sourcecode wirtelprimpf_platform scripts
@@ -252,6 +260,12 @@ Then repeat the two profile builds and validators from Task 2. Expected: every c
 Run:
 
 ```bash
+generator_dirty="$(git status --porcelain)"
+if [[ -n "$generator_dirty" ]]; then
+  printf 'Generator checkout is not clean; aborting review.\n' >&2
+  printf '%s\n' "$generator_dirty" >&2
+  exit 1
+fi
 git status --short
 git log --oneline --decorate "$(git merge-base HEAD origin/main)"..HEAD
 git diff --stat "$(git merge-base HEAD origin/main)"..HEAD
@@ -268,7 +282,11 @@ Run:
 git fetch origin
 if ! git merge-base --is-ancestor origin/main HEAD; then
   git log --oneline --decorate HEAD..origin/main
-  git merge --no-edit origin/main
+  if ! git merge --no-edit origin/main; then
+    git merge --abort || true
+    printf 'origin/main merge failed or conflicted; review required.\n' >&2
+    exit 1
+  fi
   python -m unittest discover -s tests/platform -p 'test_*.py' -v
   make check
   npm --prefix web test
@@ -371,7 +389,13 @@ ausgesetzt.
 Run:
 
 ```bash
-git -C /home/teladi/.local/share/wirtelprimpf-generator status --short
+generator_runtime=/home/teladi/.local/share/wirtelprimpf-generator
+generator_dirty="$(git -C "$generator_runtime" status --porcelain)"
+if [[ -n "$generator_dirty" ]]; then
+  printf 'Generator runtime checkout is not clean; refusing installation.\n' >&2
+  printf '%s\n' "$generator_dirty" >&2
+  exit 1
+fi
 install -d -m0700 /home/teladi/.local/state/wirtelprimpf/deploy-backups
 deploy_backup="$(mktemp -d /home/teladi/.local/state/wirtelprimpf/deploy-backups/20260801-admin-live.XXXXXX)"
 chmod 0700 "$deploy_backup"
@@ -379,6 +403,21 @@ printf '%s\n' "$deploy_backup" > /home/teladi/.local/state/wirtelprimpf/deploy-b
 chmod 0600 /home/teladi/.local/state/wirtelprimpf/deploy-backups/latest-admin-live-backup
 timer_enabled_before="$(systemctl --user is-enabled wirtelprimpf.timer || true)"
 timer_active_before="$(systemctl --user is-active wirtelprimpf.timer || true)"
+case "$timer_enabled_before" in
+  enabled|enabled-runtime|disabled|static|indirect|linked|linked-runtime|alias|masked|masked-runtime|not-found) ;;
+  *) printf 'Unsupported timer UnitFileState before mutation: %s\n' "$timer_enabled_before" >&2; exit 1 ;;
+esac
+case "$timer_active_before" in
+  active|inactive|failed) ;;
+  *) printf 'Unsupported timer ActiveState before mutation: %s\n' "$timer_active_before" >&2; exit 1 ;;
+esac
+case "$timer_enabled_before:$timer_active_before" in
+  masked:active|masked-runtime:active|not-found:active)
+    printf 'Inconsistent timer state cannot be restored safely: %s/%s\n' \
+      "$timer_enabled_before" "$timer_active_before" >&2
+    exit 1
+    ;;
+esac
 printf '%s\n' "$timer_enabled_before" > "$deploy_backup/timer-enabled-before"
 printf '%s\n' "$timer_active_before" > "$deploy_backup/timer-active-before"
 chmod 0600 "$deploy_backup/timer-enabled-before" "$deploy_backup/timer-active-before"
@@ -477,9 +516,15 @@ curl --fail --silent --show-error \
   --output "$smoke_dir/settings.json" \
   http://127.0.0.1:8765/api/settings
 curl --fail --silent --show-error \
+  --dump-header "$smoke_dir/status.headers" \
   --output "$smoke_dir/status.json" \
   http://127.0.0.1:8765/api/status
-rg -n -- 'Cache-Control: no-store|X-Frame-Options: DENY|X-Content-Type-Options: nosniff|Referrer-Policy: no-referrer' "$smoke_dir/settings.headers"
+for headers in "$smoke_dir/settings.headers" "$smoke_dir/status.headers"; do
+  rg -F -- 'Cache-Control: no-store' "$headers"
+  rg -F -- 'X-Frame-Options: DENY' "$headers"
+  rg -F -- 'X-Content-Type-Options: nosniff' "$headers"
+  rg -F -- 'Referrer-Policy: no-referrer' "$headers"
+done
 python - "$smoke_dir/settings.json" "$smoke_dir/status.json" <<'PY'
 import json
 import re
@@ -501,7 +546,22 @@ story_models = [
 assert settings["choices"]["image_model"] == image_models
 assert settings["choices"]["story_model"] == story_models
 assert re.fullmatch(r"[0-9a-f]{64}", settings["revision"])
-assert not ({"openai_api_key", "cloudflare_api_token"} & settings["settings"].keys())
+
+forbidden_keys = {"openai_api_key", "cloudflare_api_token"}
+
+
+def reject_secret_keys(value):
+    if isinstance(value, dict):
+        assert not (forbidden_keys & value.keys())
+        for child in value.values():
+            reject_secret_keys(child)
+    elif isinstance(value, list):
+        for child in value:
+            reject_secret_keys(child)
+
+
+reject_secret_keys(settings)
+reject_secret_keys(status)
 assert status["configuration"]["revision"] == settings["revision"]
 assert status["timer"]["interval_minutes"] == settings["settings"]["generation_interval_minutes"]
 assert status["timer"]["enabled"] == settings["settings"]["timer_enabled"]
@@ -652,12 +712,35 @@ Restore from the captured values rather than a plan-time assumption:
 deploy_backup="$(< /home/teladi/.local/state/wirtelprimpf/deploy-backups/latest-admin-live-backup)"
 timer_enabled_before="$(< "$deploy_backup/timer-enabled-before")"
 timer_active_before="$(< "$deploy_backup/timer-active-before")"
-case "$timer_enabled_before:$timer_active_before" in
-  enabled:active) systemctl --user enable --now wirtelprimpf.timer ;;
-  enabled:inactive) systemctl --user enable wirtelprimpf.timer; systemctl --user stop wirtelprimpf.timer ;;
-  disabled:*) systemctl --user disable --now wirtelprimpf.timer ;;
-  *) printf 'Unsupported recorded timer state: %s/%s\n' "$timer_enabled_before" "$timer_active_before" >&2; exit 1 ;;
+timer_enabled_now="$(systemctl --user is-enabled wirtelprimpf.timer || true)"
+if [[ "$timer_enabled_now" != "$timer_enabled_before" ]]; then
+  case "$timer_enabled_before" in
+    enabled) systemctl --user enable wirtelprimpf.timer ;;
+    enabled-runtime) systemctl --user enable --runtime wirtelprimpf.timer ;;
+    disabled) systemctl --user disable wirtelprimpf.timer ;;
+    masked) systemctl --user mask wirtelprimpf.timer ;;
+    masked-runtime) systemctl --user mask --runtime wirtelprimpf.timer ;;
+    static|indirect|linked|linked-runtime|alias|not-found)
+      printf 'Recorded timer UnitFileState drift cannot be reconstructed safely: %s -> %s\n' \
+        "$timer_enabled_before" "$timer_enabled_now" >&2
+      exit 1
+      ;;
+    *) printf 'Unsupported recorded timer UnitFileState: %s\n' "$timer_enabled_before" >&2; exit 1 ;;
+  esac
+fi
+case "$timer_active_before" in
+  active) systemctl --user start wirtelprimpf.timer ;;
+  inactive) systemctl --user stop wirtelprimpf.timer ;;
+  failed)
+    test "$(systemctl --user is-active wirtelprimpf.timer || true)" = failed || {
+      printf 'Recorded failed timer state drifted and cannot be recreated safely.\n' >&2
+      exit 1
+    }
+    ;;
+  *) printf 'Unsupported recorded timer ActiveState: %s\n' "$timer_active_before" >&2; exit 1 ;;
 esac
+test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = "$timer_enabled_before"
+test "$(systemctl --user is-active wirtelprimpf.timer || true)" = "$timer_active_before"
 ```
 
 Then run:
@@ -698,11 +781,18 @@ Expected: no difference.
 Run:
 
 ```bash
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 status --short
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 fetch origin
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 switch main
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 pull --ff-only origin main
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 switch -c chore/pin-transactional-site-factory
+archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
+archive_dirty="$(git -C "$archive_checkout" status --porcelain)"
+if [[ -n "$archive_dirty" ]]; then
+  printf 'Archive checkout is not clean before synchronization.\n' >&2
+  printf '%s\n' "$archive_dirty" >&2
+  exit 1
+fi
+git -C "$archive_checkout" fetch origin
+git -C "$archive_checkout" switch main
+git -C "$archive_checkout" pull --ff-only origin main
+test -z "$(git -C "$archive_checkout" status --porcelain)"
+git -C "$archive_checkout" switch -c chore/pin-transactional-site-factory
 ```
 
 Expected: clean checkout; stop if unrelated user changes appear.
@@ -730,10 +820,18 @@ Run:
 
 ```bash
 generator_factory_sha="$(git -C /home/teladi/.local/share/wirtelprimpf-generator rev-parse HEAD)"
-test "$(rg -o -- '[0-9a-f]{40}' /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001/.github/workflows/pages.yml | sort -u | wc -l)" -eq 1
-rg -F -- "$generator_factory_sha" /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001/.github/workflows/pages.yml
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 diff --check
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 diff -- .github/workflows/pages.yml
+generator_checkout=/home/teladi/.local/share/wirtelprimpf-generator
+archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
+workflow="$archive_checkout/.github/workflows/pages.yml"
+test "$generator_factory_sha" = "$(git -C "$generator_checkout" rev-parse origin/main)"
+test "$generator_factory_sha" = "$(git -C "$generator_checkout" ls-remote origin refs/heads/main | cut -f1)"
+test "$(rg -o -- '[0-9a-f]{40}' "$workflow" | sort -u | wc -l)" -eq 1
+test "$(rg -o -F -- "$generator_factory_sha" "$workflow" | wc -l)" -eq 2
+rg -F -- "$generator_factory_sha" "$workflow"
+test "$(git -C "$archive_checkout" diff --name-only)" = .github/workflows/pages.yml
+test "$(git -C "$archive_checkout" diff --numstat)" = $'2\t2\t.github/workflows/pages.yml'
+git -C "$archive_checkout" diff --check
+git -C "$archive_checkout" diff -- .github/workflows/pages.yml
 ```
 
 Expected: exactly two occurrences of one SHA and a two-line value-only diff.
@@ -754,10 +852,35 @@ archive_pr_url="$(gh pr create \
   --body 'Pins both reusable-workflow references to the reviewed immutable Wirtelprimpf-generator merge SHA. No story, media, DNS, or redirect content changes.')"
 archive_pr_number="${archive_pr_url##*/}"
 [[ "$archive_pr_number" =~ ^[0-9]+$ ]]
-gh pr checks "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 --watch --fail-fast
+archive_head_sha="$(git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 rev-parse HEAD)"
+test "$(gh pr view "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 --json headRefOid --jq .headRefOid)" = "$archive_head_sha"
+archive_mergeable=UNKNOWN
+for attempt in $(seq 1 15); do
+  archive_mergeable="$(gh pr view "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 --json mergeable --jq .mergeable)"
+  case "$archive_mergeable" in
+    MERGEABLE) break ;;
+    CONFLICTING) printf 'Archive pin PR is conflicting.\n' >&2; exit 1 ;;
+    UNKNOWN) sleep 2 ;;
+    *) printf 'Unexpected mergeability state: %s\n' "$archive_mergeable" >&2; exit 1 ;;
+  esac
+done
+test "$archive_mergeable" = MERGEABLE
+test "$(gh pr view "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 --json files --jq '.files[].path')" = .github/workflows/pages.yml
+test "$(git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 diff --name-only origin/main...HEAD)" = .github/workflows/pages.yml
+test "$(git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 diff --numstat origin/main...HEAD)" = $'2\t2\t.github/workflows/pages.yml'
+check_count="$(gh pr view "$archive_pr_number" \
+  --repo H234598/Wirtelprimpf-0001 \
+  --json statusCheckRollup \
+  --jq '.statusCheckRollup | length')"
+if (( check_count > 0 )); then
+  gh pr checks "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 --watch --fail-fast
+else
+  printf '%s\n' 'No pull-request checks are configured for pages.yml; this is an accepted absence of PR CI, not a CI success.'
+  rg -n -- '^\s*pull_request\s*:' /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001/.github/workflows/pages.yml && exit 1 || true
+fi
 ```
 
-Expected: the branch contains only the two equal SHA-value changes and every configured pull-request check succeeds.
+Expected: the PR head equals the reviewed local commit, GitHub reports it mergeable, the file list contains only `pages.yml`, and the committed diff is exactly two removed plus two added SHA-value lines. Every check that exists succeeds. Because the current `pages.yml` has no `pull_request` trigger, a genuine zero-check result is explicitly accepted only as **no PR CI configured**, never reported as CI success. The post-merge `main` Pages run in Step 6 is the real build/deploy gate.
 
 - [ ] **Step 6: Merge and watch the exact archive Pages run**
 

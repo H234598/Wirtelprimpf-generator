@@ -5,16 +5,19 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from wirtelprimpf_platform.settings import (
     ChangeRequest,
     SettingsApplyFailure,
     SettingsConflict,
+    SettingsError,
     SettingsLockBusy,
     SettingsManager,
     SettingsPaths,
     SettingsValidationFailure,
 )
+from wirtelprimpf_platform.settings_io import SettingsIOError
 from wirtelprimpf_platform.systemd_user import TimerConfiguration, TimerObservation
 
 
@@ -25,8 +28,10 @@ class FakeSystemd:
         self.fail_apply = False
         self.apply_calls = 0
         self.restore_calls = 0
+        self.observe_calls = 0
 
     def observe_timer(self) -> TimerObservation:
+        self.observe_calls += 1
         return TimerObservation.from_configuration(self.configuration, active=self.active)
 
     def apply_timer(self, configuration: TimerConfiguration) -> TimerObservation:
@@ -184,6 +189,57 @@ class SettingsTransactionTests(unittest.TestCase):
         signal = self.paths.state_file.read_text(encoding="utf-8")
         self.assertEqual(json.loads(signal)["revision"], result.revision)
         self.assertNotIn("original-openai-secret", signal)
+
+    def test_success_reuses_the_result_snapshot_after_writing_the_signal(self) -> None:
+        base = self.manager.snapshot()
+        self.systemd.observe_calls = 0
+        self.manager.apply(
+            self.request(base.revision, {"operandi": "classic"}, {"operandi": "story"})
+        )
+        self.assertEqual(self.systemd.observe_calls, 3)
+
+    def test_initial_read_errors_are_wrapped_at_the_manager_boundary(self) -> None:
+        secret = "OPENAI_API_KEY=must-never-escape"
+        base = self.manager.snapshot()
+        request = self.request(base.revision, {}, {})
+        for operation in (
+            lambda: self.manager.snapshot(),
+            lambda: self.manager.apply(request),
+        ):
+            with self.subTest(operation=operation):
+                with (
+                patch.object(
+                    self.manager,
+                    "_read_snapshot_unlocked",
+                    side_effect=SettingsIOError(secret),
+                ),
+                self.assertRaises(SettingsError) as caught,
+                ):
+                    operation()
+                self.assertNotIsInstance(caught.exception, SettingsIOError)
+                self.assertNotIn(secret, str(caught.exception))
+
+    def test_lock_descriptor_closes_when_post_open_validation_fails(self) -> None:
+        real_open = os.open
+        descriptors: list[int] = []
+
+        def tracking_open(*args, **kwargs):
+            descriptor = real_open(*args, **kwargs)
+            descriptors.append(descriptor)
+            return descriptor
+
+        with (
+            patch("wirtelprimpf_platform.settings.os.open", side_effect=tracking_open),
+            patch(
+                "wirtelprimpf_platform.settings.os.fstat",
+                side_effect=OSError("injected fstat failure"),
+            ),
+            self.assertRaisesRegex(SettingsError, "cannot open settings lock"),
+        ):
+            self.manager.snapshot()
+        self.assertEqual(len(descriptors), 1)
+        with self.assertRaises(OSError):
+            os.fstat(descriptors[0])
 
     def test_snapshot_validates_persisted_cross_field_values_as_one_configuration(self) -> None:
         self.paths.env_file.write_text(

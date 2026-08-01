@@ -11,7 +11,9 @@ from pathlib import Path
 from .settings_io import FileBackup, SecureFile
 
 _TIMER_UNIT = "wirtelprimpf.timer"
-_DURATION_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)(us|ms|s|min|h|d)$")
+_DURATION_COMPONENT_RE = re.compile(
+    r"([0-9]+(?:\.[0-9]+)?)(us|µs|μs|ms|min|s|h|d)"
+)
 Runner = Callable[[list[str], float], subprocess.CompletedProcess[str]]
 
 
@@ -44,7 +46,7 @@ class TimerObservation:
         cls,
         configuration: TimerConfiguration,
         active: bool,
-    ) -> "TimerObservation":
+    ) -> TimerObservation:
         return cls(
             enabled=configuration.enabled,
             active=bool(active),
@@ -87,19 +89,29 @@ def _default_runner(command: list[str], timeout: float) -> subprocess.CompletedP
 
 
 def _duration_seconds(value: str) -> int:
-    match = _DURATION_RE.fullmatch(value.strip())
-    if match is None:
-        raise SystemdCommandError("systemctl returned an invalid timer duration")
-    amount = float(match.group(1))
-    multiplier = {
+    normalized = value.strip()
+    total_seconds = 0.0
+    position = 0
+    component_found = False
+    multipliers = {
         "us": 0.000001,
+        "µs": 0.000001,
+        "μs": 0.000001,
         "ms": 0.001,
         "s": 1.0,
         "min": 60.0,
         "h": 3600.0,
         "d": 86_400.0,
-    }[match.group(2)]
-    return round(amount * multiplier)
+    }
+    for match in _DURATION_COMPONENT_RE.finditer(normalized):
+        if normalized[position : match.start()].strip():
+            raise SystemdCommandError("systemctl returned an invalid timer duration")
+        component_found = True
+        total_seconds += float(match.group(1)) * multipliers[match.group(2)]
+        position = match.end()
+    if not component_found or normalized[position:].strip():
+        raise SystemdCommandError("systemctl returned an invalid timer duration")
+    return round(total_seconds)
 
 
 def _boolean(value: str) -> bool:
@@ -180,7 +192,10 @@ class SystemdUserManager:
                 key, value = line.split("=", 1)
                 values[key] = value.strip()
         try:
-            interval_value = re.search(r"(?:^|[ {;])OnUnitActiveUSec=([^ ;}]+)", values["TimersMonotonic"])
+            interval_value = re.search(
+                r"(?:^|[ {;])OnUnitActiveUSec=([^;}]+)",
+                values["TimersMonotonic"],
+            )
             if interval_value is None:
                 raise KeyError("OnUnitActiveUSec")
             interval_seconds = _duration_seconds(interval_value.group(1))
@@ -204,7 +219,12 @@ class SystemdUserManager:
         )
 
     @staticmethod
-    def _require(configuration: TimerConfiguration, observation: TimerObservation, *, active: bool | None = None) -> None:
+    def _require(
+        configuration: TimerConfiguration,
+        observation: TimerObservation,
+        *,
+        active: bool | None = None,
+    ) -> None:
         matches = (
             observation.enabled == configuration.enabled
             and observation.interval_minutes == configuration.interval_minutes

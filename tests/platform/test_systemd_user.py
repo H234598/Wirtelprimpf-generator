@@ -10,12 +10,15 @@ from wirtelprimpf_platform.systemd_user import (
     SystemdCommandError,
     SystemdUserManager,
     TimerConfiguration,
+    _duration_seconds,
 )
 
 
 class FakeRunner:
-    def __init__(self) -> None:
+    def __init__(self, *, interval: str = "2h", delay: str = "2min") -> None:
         self.commands: list[list[str]] = []
+        self.interval = interval
+        self.delay = delay
 
     def __call__(self, command: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
         self.commands.append(command)
@@ -27,7 +30,9 @@ class FakeRunner:
                 0,
                 (
                     "ActiveState=active\nResult=success\nPersistent=yes\n"
-                    "RandomizedDelayUSec=2min\nTimersMonotonic={ OnUnitActiveUSec=2h ; }\n"
+                    f"RandomizedDelayUSec={self.delay}\n"
+                    f"TimersMonotonic={{ OnUnitActiveUSec={self.interval} ; "
+                    "next_elapse=12h 4min 6.248989s }}\n"
                     "LastTriggerUSec=Sat 2026-08-01 05:26:37 CEST\n"
                     "NextElapseUSecRealtime=Sat 2026-08-01 07:28:15 CEST\n"
                 ),
@@ -46,7 +51,12 @@ class StatefulRunner:
         self.commands.append(command)
         action = command[2]
         if action == "is-enabled":
-            return subprocess.CompletedProcess(command, 0 if self.enabled else 1, "enabled\n" if self.enabled else "disabled\n", "")
+            return subprocess.CompletedProcess(
+                command,
+                0 if self.enabled else 1,
+                "enabled\n" if self.enabled else "disabled\n",
+                "",
+            )
         if action == "show":
             return subprocess.CompletedProcess(
                 command,
@@ -113,7 +123,10 @@ class SystemdUserTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             dropin = Path(temporary) / "override.conf"
             file = SecureFile(dropin, private=False)
-            original = b"# local operator note\n[Timer]\nOnUnitActiveSec = 2h\nRandomizedDelaySec=120\nPersistent=true\n"
+            original = (
+                b"# local operator note\n[Timer]\nOnUnitActiveSec = 2h\n"
+                b"RandomizedDelaySec=120\nPersistent=true\n"
+            )
             file.replace_bytes(original)
             backup = file.capture()
             file.replace_bytes(b"[Timer]\nOnUnitActiveSec=3h\n")
@@ -136,6 +149,21 @@ class SystemdUserTests(unittest.TestCase):
         self.assertEqual(observation.interval_minutes, 120)
         self.assertEqual(observation.randomized_delay_seconds, 120)
         self.assertEqual(observation.last_trigger, "Sat 2026-08-01 05:26:37 CEST")
+
+    def test_compound_duration_components_are_summed(self) -> None:
+        self.assertEqual(_duration_seconds("1h 30min"), 5_400)
+        self.assertEqual(_duration_seconds("3min 20s"), 200)
+        self.assertEqual(_duration_seconds("1.5s 499ms 1000us"), 2)
+
+    def test_full_timers_monotonic_duration_is_extracted(self) -> None:
+        runner = FakeRunner(interval="1h 30min", delay="3min 20s")
+        with tempfile.TemporaryDirectory() as temporary:
+            observation = SystemdUserManager(
+                Path(temporary) / "override.conf",
+                runner=runner,
+            ).observe_timer()
+        self.assertEqual(observation.interval_minutes, 90)
+        self.assertEqual(observation.randomized_delay_seconds, 200)
 
 
 if __name__ == "__main__":

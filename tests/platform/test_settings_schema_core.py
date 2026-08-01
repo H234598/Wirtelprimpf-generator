@@ -47,6 +47,21 @@ class SettingsSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(SettingsValidationError, "unknown settings"):
             validate_changes({"shell_command": "false"}, current)
 
+    def test_cloudflare_zone_id_is_empty_or_exact_lowercase_hex32(self) -> None:
+        current = {key: spec.default for key, spec in SETTING_SPECS.items()}
+        valid = "0123456789abcdef0123456789abcdef"
+        self.assertEqual(validate_changes({"cloudflare_zone_id": ""}, current)["cloudflare_zone_id"], "")
+        self.assertEqual(
+            validate_changes({"cloudflare_zone_id": valid}, current)["cloudflare_zone_id"],
+            valid,
+        )
+        for value in (valid[:-1], f"{valid}0", valid.upper(), "g" * 32):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                SettingsValidationError,
+                "cloudflare_zone_id",
+            ):
+                validate_changes({"cloudflare_zone_id": value}, current)
+
     def test_boolean_integer_and_single_line_types_cannot_cross_coerce(self) -> None:
         current = {key: spec.default for key, spec in SETTING_SPECS.items()}
         invalid = (
@@ -68,6 +83,11 @@ class SettingsSchemaTests(unittest.TestCase):
                 "domain_suffix": "telacore.org",
                 "stories_per_book": 10,
                 "story_order_on_landing_page": "newest-first",
+                "numeric_bounds": {
+                    "generation_interval_minutes": {"minimum": 30, "maximum": 10_080},
+                    "story_finish_parts_min": {"minimum": 1, "maximum": 12},
+                    "story_finish_parts_max": {"minimum": 1, "maximum": 12},
+                },
             },
         )
 

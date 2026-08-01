@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from wirtelprimpf_platform.admin import (
     SECURITY_HEADERS,
     AdminApplication,
     AdminError,
+    _Handler,
     validate_bind_host,
 )
 from wirtelprimpf_platform.settings import (
@@ -278,6 +281,34 @@ class AdminTests(unittest.TestCase):
             client_host="127.0.0.1",
         )
         self.assertEqual(response.status, 413)
+
+    def test_invalid_post_content_lengths_are_rejected_without_reading(self) -> None:
+        class UnreadableBody:
+            def read(self, _size: int) -> bytes:
+                raise AssertionError("request body must not be read")
+
+        for raw_length, expected_status in ((None, 411), ("invalid", 400), ("-1", 400)):
+            with self.subTest(raw_length=raw_length):
+                handler = object.__new__(_Handler)
+                handler.command = "POST"
+                handler.path = "/api/settings"
+                handler.headers = {} if raw_length is None else {"Content-Length": raw_length}
+                handler.rfile = UnreadableBody()
+                handler.wfile = io.BytesIO()
+                handler.client_address = ("127.0.0.1", 1)
+                handler.server = SimpleNamespace(
+                    application=SimpleNamespace(
+                        handle=lambda *_args, **_kwargs: self.fail("application must not run")
+                    )
+                )
+                statuses: list[int] = []
+                handler.send_response = statuses.append
+                handler.send_header = lambda *_args: None
+                handler.end_headers = lambda: None
+
+                handler._dispatch()
+
+                self.assertEqual(statuses, [expected_status])
 
     def test_path_traversal_is_not_served(self) -> None:
         response = self.request("GET", "/../../.config/wirtelprimpf/openai.env")

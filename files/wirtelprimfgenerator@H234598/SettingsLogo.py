@@ -721,7 +721,7 @@ class _GLibScheduler:
         try:
             GLib.source_remove(handle)
         except Exception:
-            pass
+            return
 
 
 class _GioMonitorFactory:
@@ -825,7 +825,7 @@ class GeneratorConfigEditor(SettingsWidget):
         ),
     )
 
-    integer_ranges = {
+    integer_ranges = {  # noqa: RUF012 - immutable class-level schema contract
         "generation_interval_minutes": (30, 10080),
         "story_finish_parts_min": (1, 12),
         "story_finish_parts_max": (1, 12),
@@ -861,6 +861,7 @@ class GeneratorConfigEditor(SettingsWidget):
         self.settings_client = None
         self._suppress_dirty = False
         self._save_busy = False
+        self._operation_busy = False
         self._disposed = False
         self._executor = ThreadPoolExecutor(
             max_workers=1,
@@ -902,17 +903,17 @@ class GeneratorConfigEditor(SettingsWidget):
         self.discard_all_button.set_sensitive(False)
         self.discard_all_button.connect("clicked", self._on_discard_all)
 
-        run_button = Gtk.Button(label="Generator jetzt starten")
-        run_button.connect("clicked", self._on_start_generator)
+        self.run_button = Gtk.Button(label="Generator jetzt starten")
+        self.run_button.connect("clicked", self._on_start_generator)
 
-        timer_button = Gtk.Button(label="Timer neu starten")
-        timer_button.connect("clicked", self._on_restart_timers)
+        self.timer_button = Gtk.Button(label="Timer neu starten")
+        self.timer_button.connect("clicked", self._on_restart_timers)
 
         for button in (
             self.save_button,
             self.discard_all_button,
-            run_button,
-            timer_button,
+            self.run_button,
+            self.timer_button,
         ):
             buttons.pack_start(button, False, False, 0)
 
@@ -953,7 +954,7 @@ class GeneratorConfigEditor(SettingsWidget):
             else:
                 self._executor.shutdown(wait=False, cancel_futures=True)
             self._set_status(
-                "Transaktionale Einstellungen sind nicht verfügbar: %s" % exc
+                f"Transaktionale Einstellungen sind nicht verfügbar: {exc}"
             )
 
     def _dispatch_completion(self, callback, *args):
@@ -1241,7 +1242,7 @@ class GeneratorConfigEditor(SettingsWidget):
 
         for key, label in self.field_state_labels.items():
             if key in state.conflicts:
-                label.set_text("Extern geändert – lokaler Entwurf bleibt erhalten")
+                label.set_text("Extern geändert – lokaler Entwurf bleibt erhalten")  # noqa: RUF001
             elif key in state.dirty:
                 label.set_text("Ungespeichert")
             else:
@@ -1252,7 +1253,7 @@ class GeneratorConfigEditor(SettingsWidget):
 
         for key, label in self.secret_state_labels.items():
             if key in state.conflicts:
-                label.set_text("Extern geändert – Secret-Entwurf bleibt erhalten")
+                label.set_text("Extern geändert – Secret-Entwurf bleibt erhalten")  # noqa: RUF001
             elif key in state.secret_dirty:
                 label.set_text("Ungespeicherter Secret-Entwurf")
             else:
@@ -1293,9 +1294,12 @@ class GeneratorConfigEditor(SettingsWidget):
     def _on_discard_all(self, _button):
         if self._save_busy or self.sync_state is None:
             return
+        transient_for = self.get_toplevel()
+        if not isinstance(transient_for, Gtk.Window):
+            transient_for = None
         dialog = Gtk.MessageDialog(
-            transient_for=None,
-            flags=0,
+            transient_for=transient_for,
+            flags=Gtk.DialogFlags.MODAL,
             message_type=Gtk.MessageType.QUESTION,
             buttons=Gtk.ButtonsType.OK_CANCEL,
             text="Alle lokalen, noch nicht gespeicherten Entwürfe verwerfen?",
@@ -1349,7 +1353,7 @@ class GeneratorConfigEditor(SettingsWidget):
         try:
             request = state.build_request(values, self._secret_actions())
         except settings_sync.SettingsCliError as exc:
-            self._set_status("Speichern abgelehnt: %s" % exc)
+            self._set_status(f"Speichern abgelehnt: {exc}")
             return
         if not request["changes"] and not request["secret_actions"]:
             self._set_status("Keine lokalen Änderungen.")
@@ -1421,12 +1425,20 @@ class GeneratorConfigEditor(SettingsWidget):
         )
 
     def _run_operation(self, commands, success, failure_prefix):
+        if self._operation_busy or self._disposed:
+            return
+        self._operation_busy = True
+        self.run_button.set_sensitive(False)
+        self.timer_button.set_sensitive(False)
         thread = threading.Thread(
             target=self._operation_worker,
             args=(commands, success, failure_prefix),
             daemon=True,
         )
-        thread.start()
+        try:
+            thread.start()
+        except Exception:
+            self._finish_operation_idle(failure_prefix)
 
     def _operation_worker(self, commands, success, failure_prefix):
         try:
@@ -1434,15 +1446,14 @@ class GeneratorConfigEditor(SettingsWidget):
                 self._run(command)
             message = success
         except Exception as exc:
-            message = "%s: %s" % (failure_prefix, exc)
-        GLib.idle_add(self._set_status_idle, message)
+            message = f"{failure_prefix}: {exc}"
+        GLib.idle_add(self._finish_operation_idle, message)
 
     def _run(self, args):
         result = subprocess.run(
             args,
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             timeout=30,
             check=False,
             shell=False,
@@ -1451,13 +1462,16 @@ class GeneratorConfigEditor(SettingsWidget):
             message = (
                 result.stderr.strip()
                 or result.stdout.strip()
-                or "exit %s" % result.returncode
+                or f"exit {result.returncode}"
             )
             raise RuntimeError("%s: %s" % (" ".join(args), message))
         return result
 
-    def _set_status_idle(self, text):
+    def _finish_operation_idle(self, text):
+        self._operation_busy = False
         if not self._disposed:
+            self.run_button.set_sensitive(True)
+            self.timer_button.set_sensitive(True)
             self._set_status(text)
         return False
 

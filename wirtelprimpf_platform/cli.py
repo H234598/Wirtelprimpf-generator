@@ -137,6 +137,9 @@ def _run_settings_command(command: str, manager: SettingsManager) -> int:
             }
         )
         return 6
+    except Exception:
+        _json({"ok": False, "error": "settings operation unavailable"})
+        return 6
 
 
 def settings_main(argv: list[str] | None = None) -> int:

@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
   FormSyncState,
   InteractionGate,
   RequestEpochGate,
+  controlValue,
+  isConflictPayload,
   mergeConflictSnapshot,
   modelOptions,
+  numericBounds,
+  optionValuesMatch,
+  reconcileControlValue,
+  statusLabels,
   withInteractionSave,
 } from "../wirtelprimpf_platform/static/admin.mjs";
 
@@ -26,6 +33,22 @@ test("polling updates clean fields but preserves and marks a dirty conflict", ()
   assert.deepEqual([...state.conflicts], ["site_title"]);
 });
 
+test("returning to the typed server value clears the public draft", () => {
+  const state = new FormSyncState({
+    revision: "r1",
+    settings: { timer_enabled: true, site_title: "Alt" },
+  });
+  state.change("site_title", "Neu");
+  state.change("site_title", "Alt");
+
+  assert.deepEqual([...state.dirty], []);
+  assert.deepEqual([...state.baseValues], []);
+  assert.equal(state.baseRevision, null);
+
+  state.change("timer_enabled", 1);
+  assert.deepEqual([...state.dirty], ["timer_enabled"]);
+});
+
 test("request contains only dirty values and their original bases", () => {
   const state = new FormSyncState({
     revision: "r1",
@@ -38,6 +61,76 @@ test("request contains only dirty values and their original bases", () => {
     base_values: { site_title: "Alt" },
     secret_actions: {},
   });
+});
+
+test("empty and invalid numeric controls stay invalid and cannot enter a request", () => {
+  assert.equal(controlValue({ type: "number", value: "" }), null);
+  assert.equal(controlValue({ type: "number", value: "not-a-number" }), null);
+  assert.equal(controlValue({ type: "number", value: "120" }), 120);
+
+  const state = new FormSyncState({
+    revision: "r1",
+    settings: { generation_interval_minutes: 120 },
+  });
+  state.change("generation_interval_minutes", null);
+  assert.throws(
+    () => state.buildRequest({ generation_interval_minutes: null }, {}),
+    /invalid local value/,
+  );
+});
+
+test("clean controls reconcile only when unfocused and materially changed", () => {
+  const control = { type: "text", value: "Alt" };
+  assert.equal(reconcileControlValue(control, "Extern", control), false);
+  assert.equal(control.value, "Alt");
+  assert.equal(reconcileControlValue(control, "Alt", null), false);
+  assert.equal(reconcileControlValue(control, "Extern", null), true);
+  assert.equal(control.value, "Extern");
+});
+
+test("unchanged select catalogs preserve their existing option nodes", () => {
+  const select = { options: [{ value: "story" }, { value: "both" }] };
+  assert.equal(optionValuesMatch(select, [{ value: "story" }, { value: "both" }]), true);
+  assert.equal(optionValuesMatch(select, [{ value: "classic" }, { value: "both" }]), false);
+});
+
+test("numeric bounds come from the public settings invariants", () => {
+  const invariants = {
+    numeric_bounds: {
+      generation_interval_minutes: { minimum: 30, maximum: 10_080 },
+      story_finish_parts_min: { minimum: 1, maximum: 12 },
+    },
+  };
+  assert.deepEqual(numericBounds(invariants, "generation_interval_minutes"), {
+    minimum: 30,
+    maximum: 10_080,
+  });
+  assert.equal(numericBounds({}, "generation_interval_minutes"), null);
+});
+
+test("missing status timer and story sections render as wholly unknown", () => {
+  for (const status of [{}, { timer: null, story: null }]) {
+    const labels = statusLabels(status);
+    assert.equal(labels.timer, "Unbekannt");
+    assert.equal(labels.story, "Unbekannt");
+  }
+});
+
+test("conflict payloads require a usable snapshot and a conflicts array", () => {
+  const valid = {
+    snapshot: {
+      revision: "r2",
+      settings: { site_title: "Extern" },
+      choices: {},
+      secrets: {},
+      invariants: {},
+    },
+    conflicts: ["site_title"],
+  };
+  assert.equal(isConflictPayload(valid), true);
+  assert.equal(isConflictPayload({ snapshot: null, conflicts: [] }), false);
+  assert.equal(isConflictPayload({ snapshot: valid.snapshot, conflicts: null }), false);
+  assert.equal(isConflictPayload({ snapshot: {}, conflicts: [] }), false);
 });
 
 test("legacy model remains visible without becoming a catalog choice", () => {
@@ -161,20 +254,18 @@ test("save-busy interaction gate blocks post-snapshot edits and reopens afterwar
   assert.equal(mutations, 1);
 });
 
-test("save wrapper unlocks controls after success, conflict, and rejected response branches", async () => {
-  for (const branch of ["success", "409", "error-response"]) {
-    const gate = new InteractionGate();
-    const enabled = [];
-    gate.markReady();
-    const result = await withInteractionSave(
-      gate,
-      (value) => enabled.push(value),
-      async () => branch,
-    );
-    assert.deepEqual(result, { started: true, value: branch });
-    assert.deepEqual(enabled, [false, true]);
-    assert.equal(gate.run(() => {}), true);
-  }
+test("save wrapper unlocks controls after a resolved operation", async () => {
+  const gate = new InteractionGate();
+  const enabled = [];
+  gate.markReady();
+  const result = await withInteractionSave(
+    gate,
+    (value) => enabled.push(value),
+    async () => "resolved",
+  );
+  assert.deepEqual(result, { started: true, value: "resolved" });
+  assert.deepEqual(enabled, [false, true]);
+  assert.equal(gate.run(() => {}), true);
 });
 
 test("save wrapper unlocks controls when the operation throws", async () => {
@@ -210,4 +301,12 @@ test("a conflict snapshot is logically merged exactly once", () => {
   assert.equal(fake.calls, 1);
   assert.deepEqual(visible, { site_title: "Extern" });
   assert.deepEqual([...fake.conflicts], ["site_title"]);
+});
+
+test("both live polls use bounded request timeouts", () => {
+  const source = readFileSync(
+    new URL("../wirtelprimpf_platform/static/admin.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.equal(source.match(/signal: AbortSignal\.timeout\(4000\)/g)?.length, 2);
 });

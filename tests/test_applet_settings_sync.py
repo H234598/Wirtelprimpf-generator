@@ -11,7 +11,6 @@ import unittest
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SYNC_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "settings_sync.py"
 SPEC = importlib.util.spec_from_file_location(
@@ -219,6 +218,18 @@ class AppletSettingsSyncTests(unittest.TestCase):
         self.assertEqual(visible["image_model"], "gpt-image-1.5")
         self.assertEqual(state.conflicts, {"image_model"})
 
+    def test_returning_to_typed_server_value_clears_the_public_draft(self) -> None:
+        state = DirtySnapshotState(snapshot("r1", timer_enabled=True, site_title="Alt"))
+        state.change("site_title", "Neu")
+        state.change("site_title", "Alt")
+
+        self.assertEqual(state.dirty, set())
+        self.assertEqual(state.base_values, {})
+        self.assertIsNone(state.base_revision)
+
+        state.change("timer_enabled", 1)
+        self.assertEqual(state.dirty, {"timer_enabled"})
+
     def test_catalog_options_keep_one_labeled_legacy_value_without_cataloguing_it(self) -> None:
         self.assertEqual(
             SYNC.catalog_options(
@@ -304,7 +315,7 @@ class AppletSettingsSyncTests(unittest.TestCase):
         for result, message in cases:
             client = SettingsCliClient(
                 "/trusted/wirtelprimpf-settings",
-                runner=lambda command, **kwargs: result,
+                runner=lambda command, _result=result, **kwargs: _result,
                 executable_check=lambda _path: True,
             )
             with self.subTest(message=message), self.assertRaisesRegex(
@@ -562,6 +573,7 @@ class AppletSettingsSyncTests(unittest.TestCase):
             completion_dispatch=completions,
             on_snapshot=lambda *_args: observed.append(threading.get_ident()),
         )
+        self.addCleanup(coordinator.dispose)
         self.assertTrue(coordinator.queue_refresh())
         self.assertTrue(client.called.wait(timeout=2))
         for _attempt in range(100):
@@ -573,7 +585,18 @@ class AppletSettingsSyncTests(unittest.TestCase):
         self.assertEqual(observed, [])
         completions.run_next()
         self.assertEqual(observed, [caller_thread])
-        coordinator.dispose()
+
+    def test_safe_error_logs_only_the_exception_type(self) -> None:
+        secret = "OPENAI_API_KEY=must-never-escape"
+        with self.assertLogs(SYNC.__name__, level="WARNING") as captured:
+            message = SettingsSyncCoordinator._safe_error(
+                RuntimeError(secret),
+                "Einstellungen konnten nicht aktualisiert werden",
+            )
+        rendered = "\n".join(captured.output)
+        self.assertEqual(message, "Einstellungen konnten nicht aktualisiert werden")
+        self.assertIn("RuntimeError", rendered)
+        self.assertNotIn(secret, rendered)
 
     def test_conflict_save_keeps_dirty_value_and_reports_conflict(self) -> None:
         results = []

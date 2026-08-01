@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
@@ -31,6 +32,7 @@ STORY_MODEL_CHOICES = (
     "gpt-4o-mini",
 )
 ValueKind = Literal["string", "integer", "boolean"]
+_HEX32 = re.compile(r"[0-9a-f]{32}")
 
 
 class SettingsValidationError(ValueError):
@@ -47,6 +49,7 @@ class SettingSpec:
     maximum: int | None = None
     max_length: int | None = None
     allow_empty: bool = False
+    pattern: re.Pattern[str] | None = None
     web_visible: bool = False
     applet_visible: bool = False
 
@@ -58,6 +61,7 @@ def _string(
     choices: tuple[str, ...] = (),
     max_length: int,
     allow_empty: bool = False,
+    pattern: re.Pattern[str] | None = None,
     web: bool = False,
     applet: bool = False,
 ) -> SettingSpec:
@@ -68,6 +72,7 @@ def _string(
         choices=choices,
         max_length=max_length,
         allow_empty=allow_empty,
+        pattern=pattern,
         web_visible=web,
         applet_visible=applet,
     )
@@ -223,7 +228,12 @@ SETTING_SPECS: dict[str, SettingSpec] = {
     ),
     "cloudflare_zone": _string("WIRTELPRIMPF_CLOUDFLARE_ZONE", "telacore.org", max_length=253, applet=True),
     "cloudflare_zone_id": _string(
-        "WIRTELPRIMPF_CLOUDFLARE_ZONE_ID", "", max_length=32, allow_empty=True, applet=True
+        "WIRTELPRIMPF_CLOUDFLARE_ZONE_ID",
+        "",
+        max_length=32,
+        allow_empty=True,
+        pattern=_HEX32,
+        applet=True,
     ),
     "git_author_name": _string(
         "WIRTELPRIMPF_GIT_AUTHOR_NAME", "", max_length=255, allow_empty=True, applet=True
@@ -285,6 +295,8 @@ def validate_changes(changes: Mapping[str, object], current: Mapping[str, object
                 raise SettingsValidationError(f"{key} must not be empty")
             if spec.max_length is not None and len(value) > spec.max_length:
                 raise SettingsValidationError(f"{key} exceeds {spec.max_length} characters")
+            if value and spec.pattern is not None and spec.pattern.fullmatch(value) is None:
+                raise SettingsValidationError(f"{key} has an invalid format")
             if spec.choices and value not in spec.choices and value != current.get(key):
                 raise SettingsValidationError(f"{key} must be selected from the catalog")
         validated[key] = value
@@ -299,6 +311,14 @@ def choices_payload() -> dict[str, list[object]]:
 
 
 def invariants_payload() -> dict[str, object]:
+    numeric_bounds = {
+        key: {"minimum": SETTING_SPECS[key].minimum, "maximum": SETTING_SPECS[key].maximum}
+        for key in (
+            "generation_interval_minutes",
+            "story_finish_parts_min",
+            "story_finish_parts_max",
+        )
+    }
     return {
         "archive_capacity": ARCHIVE_CAPACITY,
         "books_per_archive": BOOKS_PER_ARCHIVE,
@@ -306,4 +326,5 @@ def invariants_payload() -> dict[str, object]:
         "domain_suffix": "telacore.org",
         "stories_per_book": STORIES_PER_BOOK,
         "story_order_on_landing_page": "newest-first",
+        "numeric_bounds": numeric_bounds,
     }

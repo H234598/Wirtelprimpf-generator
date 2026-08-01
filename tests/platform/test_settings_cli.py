@@ -124,6 +124,37 @@ class SettingsCLITests(unittest.TestCase):
                 self.assertEqual(code, expected_code)
                 self.assertEqual(json.loads(output.getvalue())["error"], expected_error)
 
+    def test_unexpected_snapshot_and_apply_failures_are_stable_and_redacted(self) -> None:
+        secret = "CLOUDFLARE_API_TOKEN=must-never-escape"
+        snapshot = snapshot_for_test(revision="a" * 64, settings={})
+        valid_request = json.dumps(
+            {
+                "base_revision": "a" * 64,
+                "changes": {},
+                "base_values": {},
+                "secret_actions": {},
+            }
+        )
+        for command in ("snapshot", "apply"):
+            with self.subTest(command=command):
+                manager = FakeManager(snapshot)
+                if command == "snapshot":
+                    manager.snapshot = lambda: (_ for _ in ()).throw(RuntimeError(secret))
+                else:
+                    manager.apply = lambda _request: (_ for _ in ()).throw(RuntimeError(secret))
+                output = io.StringIO()
+                with (
+                    patch("sys.stdin", io.StringIO(valid_request)),
+                    patch("sys.stdout", output),
+                ):
+                    code = cli._run_settings_command(command, manager)
+                self.assertEqual(code, 6)
+                self.assertEqual(
+                    json.loads(output.getvalue()),
+                    {"ok": False, "error": "settings operation unavailable"},
+                )
+                self.assertNotIn(secret, output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

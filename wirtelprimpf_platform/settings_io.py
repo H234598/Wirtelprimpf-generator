@@ -26,7 +26,7 @@ class EnvironmentDocument:
     _values: dict[str, str]
 
     @classmethod
-    def parse(cls, text: str) -> "EnvironmentDocument":
+    def parse(cls, text: str) -> EnvironmentDocument:
         lines = tuple(text.splitlines(keepends=True))
         if text and not lines:
             lines = (text,)
@@ -106,10 +106,21 @@ def _reject_existing_parent_chain(parent: Path) -> None:
 def _prepare_parent(parent: Path, *, private: bool) -> None:
     _reject_existing_parent_chain(parent)
     mode = 0o700 if private else 0o755
+    missing: list[Path] = []
+    candidate = parent
+    while not candidate.exists():
+        missing.append(candidate)
+        candidate = candidate.parent
     try:
-        parent.mkdir(parents=True, mode=mode, exist_ok=True)
-        if private:
-            os.chmod(parent, mode)
+        for candidate in reversed(missing):
+            created = False
+            try:
+                candidate.mkdir(mode=mode)
+                created = True
+            except FileExistsError:
+                pass
+            if created and private:
+                os.chmod(candidate, mode)
     except OSError as exc:
         raise SettingsIOError("cannot prepare configuration parent directory") from exc
     _reject_existing_parent_chain(parent)
@@ -241,7 +252,7 @@ class SingleSecretStore:
             or any(character in value for character in "\x00\r\n")
         ):
             raise SettingsIOError("secret replacement is invalid")
-        self.file.replace_bytes(f"{self.env_name}={shlex.quote(value)}\n".encode("utf-8"))
+        self.file.replace_bytes(f"{self.env_name}={shlex.quote(value)}\n".encode())
 
     def delete(self) -> None:
         self.file.restore(FileBackup(False, b"", None))

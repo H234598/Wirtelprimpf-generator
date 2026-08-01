@@ -11,6 +11,14 @@ export class FormSyncState {
   }
 
   change(name, value) {
+    if (Object.is(value, this.server[name])) {
+      this.visible[name] = structuredClone(this.server[name]);
+      this.dirty.delete(name);
+      this.conflicts.delete(name);
+      this.baseValues.delete(name);
+      if (this.dirty.size === 0 && this.secretDirty.size === 0) this.baseRevision = null;
+      return;
+    }
     if (!this.dirty.has(name)) {
       this.baseRevision ??= this.revision;
       this.baseValues.set(name, this.server[name]);
@@ -54,6 +62,14 @@ export class FormSyncState {
   }
 
   buildRequest(values, secretActions) {
+    const invalidValues = [...this.dirty].filter((name) => (
+      values[name] === null
+      || values[name] === undefined
+      || (typeof values[name] === "number" && !Number.isFinite(values[name]))
+    ));
+    if (invalidValues.length > 0) {
+      throw new TypeError(`invalid local value: ${invalidValues.join(", ")}`);
+    }
     const changes = Object.fromEntries([...this.dirty].map((name) => [name, values[name]]));
     const baseValues = Object.fromEntries(
       [...this.dirty].map((name) => [name, this.baseValues.get(name)]),
@@ -167,8 +183,82 @@ export function modelOptions(catalog, current) {
   return options;
 }
 
+export function controlValue(control) {
+  if (control.type === "checkbox") return control.checked;
+  if (control.type === "number") {
+    if (String(control.value).trim() === "") return null;
+    const parsed = Number(control.value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return control.value;
+}
+
+export function setControlValue(control, value) {
+  if (!control) return;
+  if (control.type === "checkbox") control.checked = Boolean(value);
+  else control.value = value ?? "";
+}
+
+export function reconcileControlValue(control, value, activeElement) {
+  if (!control || control === activeElement || Object.is(controlValue(control), value)) return false;
+  setControlValue(control, value);
+  return true;
+}
+
+export function optionValuesMatch(select, options) {
+  const existing = [...select.options].map((option) => option.value);
+  return existing.length === options.length
+    && options.every((item, index) => item.value === existing[index]);
+}
+
+export function numericBounds(invariants, name) {
+  const bounds = invariants?.numeric_bounds?.[name];
+  if (
+    !bounds
+    || !Number.isFinite(bounds.minimum)
+    || !Number.isFinite(bounds.maximum)
+  ) return null;
+  return { minimum: bounds.minimum, maximum: bounds.maximum };
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function isConflictPayload(data) {
+  return isRecord(data)
+    && isRecord(data.snapshot)
+    && typeof data.snapshot.revision === "string"
+    && data.snapshot.revision.length > 0
+    && isRecord(data.snapshot.settings)
+    && isRecord(data.snapshot.choices)
+    && isRecord(data.snapshot.secrets)
+    && isRecord(data.snapshot.invariants)
+    && Array.isArray(data.conflicts)
+    && data.conflicts.every((name) => typeof name === "string");
+}
+
 function text(value, fallback = "Unbekannt") {
   return value === null || value === undefined || value === "" ? fallback : String(value);
+}
+
+export function statusLabels(status) {
+  const payload = isRecord(status) ? status : {};
+  const timer = isRecord(payload.timer) ? payload.timer : null;
+  const story = isRecord(payload.story) ? payload.story : null;
+  return {
+    health: text(payload.health),
+    lastRun: text(payload.generator?.last_run),
+    nextRun: text(timer?.next_run),
+    timer: timer && timer.enabled !== null && timer.enabled !== undefined
+      ? `${timer.enabled ? "aktiviert" : "deaktiviert"} · ${text(timer.interval_minutes)} min`
+      : "Unbekannt",
+    story: story && story.current_volume !== null && story.current_volume !== undefined
+      ? `Buch ${text(story.book)} · Story ${text(story.story_in_book)}/10`
+      : "Unbekannt",
+    repository: text(payload.archive?.repository),
+    result: text(payload.generator?.result),
+  };
 }
 
 async function bootstrap() {
@@ -192,23 +282,12 @@ async function bootstrap() {
 
   setInterfaceEnabled(false);
 
-  function controlValue(control) {
-    if (control.type === "checkbox") return control.checked;
-    if (control.type === "number") return Number(control.value);
-    return control.value;
-  }
-
-  function setControlValue(control, value) {
-    if (!control) return;
-    if (control.type === "checkbox") control.checked = Boolean(value);
-    else control.value = value ?? "";
-  }
-
   function populateSelect(name, catalog, current, models = false) {
     const select = settingControl(name);
     const options = models
       ? modelOptions(catalog, current)
       : catalog.map((value) => ({ value: String(value), label: String(value), legacy: false }));
+    if (optionValuesMatch(select, options)) return;
     select.replaceChildren(
       ...options.map((item) => {
         const option = document.createElement("option");
@@ -229,22 +308,35 @@ async function bootstrap() {
     for (const row of document.querySelectorAll("[data-field]")) {
       const name = row.dataset.field;
       const state = document.querySelector(`#${name}-state`);
+      const invalid = syncState.visible[name] === null;
       row.classList.toggle("is-dirty", syncState.dirty.has(name));
       row.classList.toggle("has-conflict", syncState.conflicts.has(name));
-      state.replaceChildren();
-      if (syncState.conflicts.has(name)) {
-        state.append("Extern geändert – Speichern prüft den Konflikt");
-      } else if (syncState.dirty.has(name)) {
-        state.append("Ungespeichert");
-      }
-      if (syncState.dirty.has(name)) {
-        const button = document.createElement("button");
+      row.classList.toggle("is-invalid", invalid);
+      let message = state.querySelector("[data-role='field-message']");
+      let lineBreak = state.querySelector("br");
+      let button = state.querySelector("button");
+      if (!message || !lineBreak || !button) {
+        message = document.createElement("span");
+        message.dataset.role = "field-message";
+        lineBreak = document.createElement("br");
+        button = document.createElement("button");
         button.type = "button";
         button.className = "secondary";
         button.textContent = "Externen Wert übernehmen";
         button.addEventListener("click", () => discardField(name));
-        state.append(document.createElement("br"), button);
+        state.replaceChildren(message, lineBreak, button);
       }
+      if (invalid) {
+        message.textContent = "Ungültige oder leere Zahl";
+      } else if (syncState.conflicts.has(name)) {
+        message.textContent = "Extern geändert – Speichern prüft den Konflikt";
+      } else if (syncState.dirty.has(name)) {
+        message.textContent = "Ungespeichert";
+      } else {
+        message.textContent = "";
+      }
+      lineBreak.hidden = !syncState.dirty.has(name);
+      button.hidden = !syncState.dirty.has(name);
     }
     document.querySelector("#status-sync").textContent = syncState.dirty.size || syncState.secretDirty.size
       ? `${syncState.dirty.size + syncState.secretDirty.size} lokale Entwürfe`
@@ -266,9 +358,20 @@ async function bootstrap() {
     }
     populateSelect("image_model", snapshot.choices.image_model ?? [], visible.image_model, true);
     populateSelect("story_model", snapshot.choices.story_model ?? [], visible.story_model, true);
+    for (const name of [
+      "generation_interval_minutes",
+      "story_finish_parts_min",
+      "story_finish_parts_max",
+    ]) {
+      const bounds = numericBounds(snapshot.invariants, name);
+      const control = settingControl(name);
+      if (bounds && control) {
+        control.min = String(bounds.minimum);
+        control.max = String(bounds.maximum);
+      }
+    }
     for (const [name, value] of Object.entries(visible)) {
-      if (!syncState.dirty.has(name)) setControlValue(settingControl(name), value);
-      else setControlValue(settingControl(name), visible[name]);
+      reconcileControlValue(settingControl(name), value, document.activeElement);
     }
     renderSecretPresence(snapshot);
     renderFieldStates();
@@ -288,17 +391,14 @@ async function bootstrap() {
   }
 
   function renderStatus(status) {
-    document.querySelector("#status-health").textContent = text(status.health);
-    document.querySelector("#status-last-run").textContent = text(status.generator?.last_run);
-    document.querySelector("#status-next-run").textContent = text(status.timer?.next_run);
-    document.querySelector("#status-timer").textContent = status.timer?.enabled === null
-      ? "Unbekannt"
-      : `${status.timer.enabled ? "aktiviert" : "deaktiviert"} · ${text(status.timer.interval_minutes)} min`;
-    document.querySelector("#status-story").textContent = status.story?.current_volume === null
-      ? "Unbekannt"
-      : `Buch ${text(status.story?.book)} · Story ${text(status.story?.story_in_book)}/10`;
-    document.querySelector("#status-repository").textContent = text(status.archive?.repository);
-    document.querySelector("#status-result").textContent = text(status.generator?.result);
+    const labels = statusLabels(status);
+    document.querySelector("#status-health").textContent = labels.health;
+    document.querySelector("#status-last-run").textContent = labels.lastRun;
+    document.querySelector("#status-next-run").textContent = labels.nextRun;
+    document.querySelector("#status-timer").textContent = labels.timer;
+    document.querySelector("#status-story").textContent = labels.story;
+    document.querySelector("#status-repository").textContent = labels.repository;
+    document.querySelector("#status-result").textContent = labels.result;
   }
 
   async function pollSettings() {
@@ -307,7 +407,10 @@ async function bootstrap() {
     if (requestEpoch === null) return;
     settingsInFlight = true;
     try {
-      const response = await fetch("/api/settings", { cache: "no-store" });
+      const response = await fetch("/api/settings", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(4000),
+      });
       if (!response.ok) throw new Error("settings unavailable");
       const snapshot = await response.json();
       if (requestGate.acceptPoll(requestEpoch)) applySettingsSnapshot(snapshot);
@@ -322,7 +425,10 @@ async function bootstrap() {
     if (statusInFlight) return;
     statusInFlight = true;
     try {
-      const response = await fetch("/api/status", { cache: "no-store" });
+      const response = await fetch("/api/status", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(4000),
+      });
       if (!response.ok) throw new Error("status unavailable");
       renderStatus(await response.json());
     } catch {
@@ -398,7 +504,7 @@ async function bootstrap() {
     try {
       request = syncState.buildRequest(publicValues(), actions);
     } catch {
-      saveStatus.textContent = "Lokaler Secret-Entwurf ist unvollständig.";
+      saveStatus.textContent = "Lokale Eingabe ist unvollständig oder ungültig.";
       return;
     }
     const run = await withInteractionSave(interactionGate, setInterfaceEnabled, async () => {
@@ -415,7 +521,11 @@ async function bootstrap() {
         });
         const data = await response.json();
         if (response.status === 409) {
-          const visible = mergeConflictSnapshot(syncState, data.snapshot, data.conflicts ?? []);
+          if (!isConflictPayload(data)) {
+            saveStatus.textContent = "Konfliktantwort war ungültig; lokale Entwürfe bleiben erhalten.";
+            return;
+          }
+          const visible = mergeConflictSnapshot(syncState, data.snapshot, data.conflicts);
           renderSettingsSnapshot(data.snapshot, visible);
           saveStatus.textContent = "Konflikt: lokale Entwürfe wurden nicht überschrieben.";
           return;
@@ -429,7 +539,7 @@ async function bootstrap() {
         document.querySelector("#cloudflare_api_token").value = "";
         document.querySelector("#delete_openai_api_key").checked = false;
         document.querySelector("#delete_cloudflare_api_token").checked = false;
-        applySettingsSnapshot(data);
+        renderSettingsSnapshot(data, structuredClone(syncState.visible));
         saveStatus.textContent = "Atomar gespeichert und validiert.";
       } catch {
         saveStatus.textContent = "Speichern ist lokal fehlgeschlagen.";
