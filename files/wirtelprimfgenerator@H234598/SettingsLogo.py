@@ -4,9 +4,11 @@ import os
 import json
 import random
 import re
+import stat
 import subprocess
 import threading
 import urllib.request
+import uuid
 
 from JsonSettingsWidgets import SettingsWidget
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
@@ -720,6 +722,7 @@ class PiperModelChooser(SettingsWidget):
 class GeneratorConfigEditor(SettingsWidget):
     env_path = os.path.expanduser("~/.config/wirtelprimpf/openai.env")
     systemd_user_dir = os.path.expanduser("~/.config/systemd/user")
+    secret_env_names = frozenset(("OPENAI_API_KEY", "CLOUDFLARE_API_TOKEN"))
 
     env_fields = (
         ("OPENAI_API_KEY", "OpenAI API Key", "secret", ()),
@@ -894,6 +897,7 @@ class GeneratorConfigEditor(SettingsWidget):
         if kind == "secret":
             entry.set_visibility(False)
             entry.set_invisible_char("*")
+            entry.set_placeholder_text("Leer lassen = vorhandenen Wert beibehalten")
         return entry
 
     def _set_widget_value(self, widget, value):
@@ -977,13 +981,22 @@ class GeneratorConfigEditor(SettingsWidget):
     def _read_env_file(self):
         values = {}
         try:
-            with open(self.env_path, "r", encoding="utf-8") as handle:
+            flags = os.O_RDONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            descriptor = os.open(self.env_path, flags)
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                os.close(descriptor)
+                raise OSError("Env-Pfad ist keine regulaere Datei")
+            with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
                 for raw_line in handle:
                     line = raw_line.strip()
                     if not line or line.startswith("#") or "=" not in line:
                         continue
                     key, value = line.split("=", 1)
                     key = key.strip()
+                    if key in self.secret_env_names:
+                        continue
                     value = self._unquote_env_value(value.strip())
                     values[key] = value
         except FileNotFoundError:
@@ -1007,19 +1020,112 @@ class GeneratorConfigEditor(SettingsWidget):
         escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
         return '"%s"' % escaped
 
+    def _atomic_write_text(self, path, content, mode):
+        target = os.path.abspath(os.path.expanduser(path))
+        parent = os.path.dirname(target)
+        os.makedirs(parent, mode=0o700, exist_ok=True)
+
+        parent_stat = os.lstat(parent)
+        if stat.S_ISLNK(parent_stat.st_mode) or not stat.S_ISDIR(parent_stat.st_mode):
+            raise OSError("Zielverzeichnis ist kein regulaeres Verzeichnis: %s" % parent)
+        os.chmod(parent, 0o700)
+
+        try:
+            target_stat = os.lstat(target)
+        except FileNotFoundError:
+            target_stat = None
+        if target_stat is not None and (
+            stat.S_ISLNK(target_stat.st_mode) or not stat.S_ISREG(target_stat.st_mode)
+        ):
+            raise OSError("Ziel ist keine regulaere Datei: %s" % target)
+
+        part = os.path.join(
+            parent,
+            ".%s.%s.%s.part" % (os.path.basename(target), os.getpid(), uuid.uuid4().hex),
+        )
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = None
+        try:
+            descriptor = os.open(part, flags, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+                descriptor = None
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(part, mode)
+            os.replace(part, target)
+            os.chmod(target, mode)
+            directory_descriptor = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            try:
+                os.unlink(part)
+            except FileNotFoundError:
+                pass
+
+    def _existing_env_lines(self):
+        try:
+            flags = os.O_RDONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            descriptor = os.open(self.env_path, flags)
+        except FileNotFoundError:
+            return [
+                "# Wirtelprimpf generator settings.",
+                "# Written by the Cinnamon applet settings UI.",
+                "",
+            ]
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            os.close(descriptor)
+            raise OSError("Env-Pfad ist keine regulaere Datei")
+        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+            return handle.read().splitlines()
+
     def _write_env_file(self):
-        os.makedirs(os.path.dirname(self.env_path), exist_ok=True)
         values = {name: self._get_widget_value(widget) for name, widget in self.env_widgets.items()}
-        lines = [
-            "# Wirtelprimpf generator settings.",
-            "# Written by the Cinnamon applet settings UI.",
-            "",
-        ]
-        for name, _label, _kind, _options in self.env_fields:
-            lines.append("%s=%s" % (name, self._quote_env_value(values.get(name, ""))))
-        with open(self.env_path, "w", encoding="utf-8") as handle:
-            handle.write("\n".join(lines) + "\n")
-        os.chmod(self.env_path, 0o600)
+        try:
+            updates = {}
+            ordered_names = []
+            for name, _label, kind, _options in self.env_fields:
+                ordered_names.append(name)
+                value = values.get(name, "")
+                if kind == "secret" and not value:
+                    continue
+                updates[name] = "%s=%s" % (name, self._quote_env_value(value))
+
+            lines = self._existing_env_lines()
+            seen = set()
+            rendered = []
+            for raw_line in lines:
+                stripped = raw_line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    rendered.append(raw_line)
+                    continue
+                key = stripped.split("=", 1)[0].strip()
+                if key in seen:
+                    raise ValueError("Doppelter Environment-Schluessel: %s" % key)
+                seen.add(key)
+                rendered.append(updates.pop(key, raw_line))
+
+            for name in ordered_names:
+                if name in updates:
+                    rendered.append(updates.pop(name))
+            for name in sorted(updates):
+                rendered.append(updates[name])
+
+            self._atomic_write_text(self.env_path, "\n".join(rendered) + "\n", 0o600)
+        finally:
+            for name in self.secret_env_names:
+                widget = self.env_widgets.get(name)
+                if widget is not None:
+                    widget.set_text("")
 
     def _read_systemd_values(self):
         return {
@@ -1040,10 +1146,10 @@ class GeneratorConfigEditor(SettingsWidget):
         return result.stdout.strip()
 
     def _write_dropin(self, unit, content):
+        if not re.fullmatch(r"[A-Za-z0-9_.@-]+\.(?:service|timer)", unit):
+            raise ValueError("Ungueltiger systemd-Unit-Name: %s" % unit)
         dropin_dir = os.path.join(self.systemd_user_dir, "%s.d" % unit)
-        os.makedirs(dropin_dir, exist_ok=True)
-        with open(os.path.join(dropin_dir, "override.conf"), "w", encoding="utf-8") as handle:
-            handle.write(content)
+        self._atomic_write_text(os.path.join(dropin_dir, "override.conf"), content, 0o644)
 
     def _write_systemd_dropins(self):
         env = {name: self._get_widget_value(widget) for name, widget in self.env_widgets.items()}
@@ -1054,7 +1160,6 @@ class GeneratorConfigEditor(SettingsWidget):
             "\n".join(
                 [
                     "[Service]",
-                    "Environment=",
                     "Environment=WIRTELPRIMPF_OPERANDI=%s" % env.get("WIRTELPRIMPF_OPERANDI", "story"),
                     "",
                 ]

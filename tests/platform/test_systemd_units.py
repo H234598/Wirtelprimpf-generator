@@ -70,6 +70,14 @@ class SystemdUnitTests(unittest.TestCase):
                 self.assertIn('SYSTEM_ROOT_UID="$(detect_system_root_uid)"', source)
                 self.assertNotIn('!= "$CURRENT_UID" && "$resolved_owner" != 0', source)
 
+    def test_watcher_uid_map_parser_overrides_the_global_restricted_ifs(self) -> None:
+        source = (ROOT / "Sourcecode/watch_minor_version.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "while IFS=$' \\t' read -r inside outside length extra; do",
+            source,
+        )
+
     def test_full_check_tmpdir_cannot_be_redirected_by_environment(self) -> None:
         source = (ROOT / "Sourcecode/check_wirtelprimpf.sh").read_text(encoding="utf-8")
         invocation = 'mktemp -d -p "$CHECK_TMP_BASE_DIR" wirtelprimpf-check-XXXXXX'

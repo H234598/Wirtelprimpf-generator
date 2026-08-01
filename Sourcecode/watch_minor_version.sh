@@ -18,7 +18,7 @@ root_uid_is_unmapped() {
   local inside outside length extra
   local saw_mapping=0
   [[ -r /proc/self/uid_map && ! -L /proc/self/uid_map ]] || return 1
-  while read -r inside outside length extra; do
+  while IFS=$' \t' read -r inside outside length extra; do
     [[ -z "$extra" ]] || return 1
     [[ "$inside" =~ ^[0-9]+$ && "$outside" =~ ^[0-9]+$ && "$length" =~ ^[0-9]+$ ]] || return 1
     (( length > 0 )) || return 1

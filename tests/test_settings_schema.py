@@ -6,10 +6,13 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import os
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,7 +76,29 @@ class FakeSpinButton:
 
 
 class FakeEntry:
-    pass
+    def __init__(self, text=""):
+        self.text = text
+        self.placeholder = ""
+        self.hexpand = False
+        self.visible = True
+
+    def get_text(self):
+        return self.text
+
+    def set_text(self, value):
+        self.text = value
+
+    def set_placeholder_text(self, value):
+        self.placeholder = value
+
+    def set_hexpand(self, value):
+        self.hexpand = bool(value)
+
+    def set_visibility(self, value):
+        self.visible = bool(value)
+
+    def set_invisible_char(self, _value):
+        return None
 
 
 def load_settings_logo_with_fake_gtk():
@@ -175,6 +200,107 @@ class SettingsSchemaTests(unittest.TestCase):
         ):
             with self.subTest(env_name=env_name):
                 self.assertIn(env_name, settings_source)
+
+    def test_private_settings_reader_never_returns_secret_values(self):
+        module = load_settings_logo_with_fake_gtk()
+        editor = module.GeneratorConfigEditor.__new__(module.GeneratorConfigEditor)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            editor.env_path = os.path.join(tmpdir, "openai.env")
+            Path(editor.env_path).write_text(
+                "OPENAI_API_KEY=fake-openai-secret\n"
+                "CLOUDFLARE_API_TOKEN=fake-cloudflare-secret\n"
+                "WIRTELPRIMPF_REPO_SLUG=H234598/Wirtelprimpf-0001\n",
+                encoding="utf-8",
+            )
+
+            values = editor._read_env_file()
+
+        self.assertNotIn("OPENAI_API_KEY", values)
+        self.assertNotIn("CLOUDFLARE_API_TOKEN", values)
+        self.assertEqual(values["WIRTELPRIMPF_REPO_SLUG"], "H234598/Wirtelprimpf-0001")
+
+    def test_private_settings_write_preserves_blank_secrets_and_unknown_keys(self):
+        module = load_settings_logo_with_fake_gtk()
+        editor = module.GeneratorConfigEditor.__new__(module.GeneratorConfigEditor)
+        editor.env_fields = (
+            ("OPENAI_API_KEY", "OpenAI", "secret", ()),
+            ("CLOUDFLARE_API_TOKEN", "Cloudflare", "secret", ()),
+            ("WIRTELPRIMPF_REPO_SLUG", "Repo", "entry", ()),
+        )
+        editor.env_widgets = {
+            "OPENAI_API_KEY": FakeEntry(""),
+            "CLOUDFLARE_API_TOKEN": FakeEntry(""),
+            "WIRTELPRIMPF_REPO_SLUG": FakeEntry("H234598/Wirtelprimpf-0001"),
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            editor.env_path = os.path.join(tmpdir, "config", "openai.env")
+            path = Path(editor.env_path)
+            path.parent.mkdir()
+            path.write_text(
+                "# custom comment\n"
+                "OPENAI_API_KEY='fake preserved openai'\n"
+                "CLOUDFLARE_API_TOKEN=fake-preserved-cloudflare\n"
+                "FUTURE_SETTING=keep-me\n"
+                "WIRTELPRIMPF_REPO_SLUG=old/repository\n",
+                encoding="utf-8",
+            )
+
+            editor._write_env_file()
+            content = path.read_text(encoding="utf-8")
+            mode = path.stat().st_mode & 0o777
+            parts = list(path.parent.glob(".*.part"))
+
+        self.assertIn("# custom comment", content)
+        self.assertIn("OPENAI_API_KEY='fake preserved openai'", content)
+        self.assertIn("CLOUDFLARE_API_TOKEN=fake-preserved-cloudflare", content)
+        self.assertIn("FUTURE_SETTING=keep-me", content)
+        self.assertIn("WIRTELPRIMPF_REPO_SLUG=H234598/Wirtelprimpf-0001", content)
+        self.assertEqual(mode, 0o600)
+        self.assertEqual(parts, [])
+        self.assertEqual(editor.env_widgets["OPENAI_API_KEY"].get_text(), "")
+        self.assertEqual(editor.env_widgets["CLOUDFLARE_API_TOKEN"].get_text(), "")
+
+    def test_private_settings_replace_failure_leaves_original_bytes(self):
+        module = load_settings_logo_with_fake_gtk()
+        editor = module.GeneratorConfigEditor.__new__(module.GeneratorConfigEditor)
+        editor.env_fields = (("WIRTELPRIMPF_REPO_SLUG", "Repo", "entry", ()),)
+        editor.env_widgets = {
+            "WIRTELPRIMPF_REPO_SLUG": FakeEntry("H234598/Wirtelprimpf-0001"),
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            editor.env_path = os.path.join(tmpdir, "openai.env")
+            path = Path(editor.env_path)
+            original = b"WIRTELPRIMPF_REPO_SLUG=old/repository\n"
+            path.write_bytes(original)
+
+            with patch.object(module.os, "replace", side_effect=OSError("injected replace failure")):
+                with self.assertRaises(OSError):
+                    editor._write_env_file()
+
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(list(path.parent.glob(".*.part")), [])
+
+    def test_systemd_dropin_replace_failure_leaves_original_bytes(self):
+        module = load_settings_logo_with_fake_gtk()
+        editor = module.GeneratorConfigEditor.__new__(module.GeneratorConfigEditor)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            editor.systemd_user_dir = tmpdir
+            dropin = Path(tmpdir) / "wirtelprimpf.timer.d" / "override.conf"
+            dropin.parent.mkdir()
+            original = b"[Timer]\nOnUnitActiveSec=120min\n"
+            dropin.write_bytes(original)
+
+            with patch.object(module.os, "replace", side_effect=OSError("injected replace failure")):
+                with self.assertRaises(OSError):
+                    editor._write_dropin("wirtelprimpf.timer", "[Timer]\nOnUnitActiveSec=60min\n")
+
+            self.assertEqual(dropin.read_bytes(), original)
+            self.assertEqual(list(dropin.parent.glob(".*.part")), [])
+
+    def test_generator_dropin_does_not_clear_private_runtime_environment(self):
+        source = SETTINGS_LOGO_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn('"Environment=",', source)
 
 
 if __name__ == "__main__":

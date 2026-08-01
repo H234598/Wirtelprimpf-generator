@@ -4,7 +4,7 @@ Cinnamon-Applet für `H234598/Wirtelprimpf-generator`: aktuelles lokales Story-B
 
 ## Speed-of-Cinnamon-Abgleich
 
-Version `0.7.0` übernimmt die relevanten Produktmuster aus Speed of Cinnamon und den getrennten Generator-/Archivvertrag:
+Version `0.7.1` übernimmt die relevanten Produktmuster aus Speed of Cinnamon und den getrennten Generator-/Archivvertrag:
 
 - responsive Logo in den Cinnamon-Optionen über `SettingsLogo.py` und `assets/settings-*.png`;
 - Settings mit Seiten/Layout, About-Seite, TTS-Engine-Auswahl und Aktionsbuttons;
@@ -12,7 +12,9 @@ Version `0.7.0` übernimmt die relevanten Produktmuster aus Speed of Cinnamon un
 - `Run doctor` und `Copy setup plan` direkt aus Menü und Optionen;
 - Runtime-State unter `~/.local/state/wirtelprimfgenerator-applet` mit Migration aus der alten `~/.config`-Position;
 - Helper/Backend-Grenze: Cinnamon macht UI, Python scannt Dateien, verwaltet State und TTS;
-- Custom-TTS wird ohne Shell als Argumentliste gestartet. Shell-Operatoren wie `|`, `&&`, `>` werden abgelehnt.
+- Custom-TTS wird ohne Shell als Argumentliste gestartet. Shell-Operatoren wie `|`, `&&`, `>` werden abgelehnt;
+- Geheimnisse werden nie aus `openai.env` in das Einstellungsfenster geladen. Ein leeres Geheimnisfeld bedeutet „vorhandenen Wert beibehalten“;
+- `openai.env` und systemd-Drop-ins werden atomar ersetzt. Kommentare, unbekannte künftige Variablen und die private Laufzeitumgebung der Basis-Units bleiben erhalten.
 
 ## Installation lokal
 
