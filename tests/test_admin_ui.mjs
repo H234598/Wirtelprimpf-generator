@@ -7,6 +7,7 @@ import {
   RequestEpochGate,
   mergeConflictSnapshot,
   modelOptions,
+  withInteractionSave,
 } from "../wirtelprimpf_platform/static/admin.mjs";
 
 test("polling updates clean fields but preserves and marks a dirty conflict", () => {
@@ -143,6 +144,53 @@ test("interaction stays fail-closed until a valid initial snapshot is accepted",
   gate.markReady();
   assert.equal(gate.run(() => { mutations += 1; }), true);
   assert.equal(mutations, 1);
+});
+
+test("save-busy interaction gate blocks post-snapshot edits and reopens afterwards", () => {
+  const gate = new InteractionGate();
+  let mutations = 0;
+  gate.markReady();
+
+  assert.equal(gate.beginSave(), true);
+  assert.equal(gate.run(() => { mutations += 1; }), false);
+  assert.equal(mutations, 0);
+  assert.equal(gate.beginSave(), false);
+
+  gate.endSave();
+  assert.equal(gate.run(() => { mutations += 1; }), true);
+  assert.equal(mutations, 1);
+});
+
+test("save wrapper unlocks controls after success, conflict, and rejected response branches", async () => {
+  for (const branch of ["success", "409", "error-response"]) {
+    const gate = new InteractionGate();
+    const enabled = [];
+    gate.markReady();
+    const result = await withInteractionSave(
+      gate,
+      (value) => enabled.push(value),
+      async () => branch,
+    );
+    assert.deepEqual(result, { started: true, value: branch });
+    assert.deepEqual(enabled, [false, true]);
+    assert.equal(gate.run(() => {}), true);
+  }
+});
+
+test("save wrapper unlocks controls when the operation throws", async () => {
+  const gate = new InteractionGate();
+  const enabled = [];
+  gate.markReady();
+  await assert.rejects(
+    withInteractionSave(
+      gate,
+      (value) => enabled.push(value),
+      async () => { throw new Error("simulated network failure"); },
+    ),
+    /simulated network failure/,
+  );
+  assert.deepEqual(enabled, [false, true]);
+  assert.equal(gate.run(() => {}), true);
 });
 
 test("a conflict snapshot is logically merged exactly once", () => {

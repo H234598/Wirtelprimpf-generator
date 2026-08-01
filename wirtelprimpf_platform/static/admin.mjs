@@ -114,16 +114,38 @@ export class RequestEpochGate {
 export class InteractionGate {
   constructor() {
     this.ready = false;
+    this.saveBusy = false;
   }
 
   markReady() {
     this.ready = true;
   }
 
+  beginSave() {
+    if (!this.ready || this.saveBusy) return false;
+    this.saveBusy = true;
+    return true;
+  }
+
+  endSave() {
+    this.saveBusy = false;
+  }
+
   run(action) {
-    if (!this.ready) return false;
+    if (!this.ready || this.saveBusy) return false;
     action();
     return true;
+  }
+}
+
+export async function withInteractionSave(gate, setInterfaceEnabled, operation) {
+  if (!gate.beginSave()) return { started: false };
+  try {
+    setInterfaceEnabled(false);
+    return { started: true, value: await operation() };
+  } finally {
+    gate.endSave();
+    setInterfaceEnabled(true);
   }
 }
 
@@ -379,39 +401,45 @@ async function bootstrap() {
       saveStatus.textContent = "Lokaler Secret-Entwurf ist unvollständig.";
       return;
     }
-    requestGate.beginSave();
-    saveStatus.textContent = "Prüfe und speichere …";
-    try {
-      const response = await fetch("/api/settings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Wirtelprimpf-CSRF": csrfToken,
-        },
-        body: JSON.stringify(request),
-      });
-      const data = await response.json();
-      if (response.status === 409) {
-        const visible = mergeConflictSnapshot(syncState, data.snapshot, data.conflicts ?? []);
-        renderSettingsSnapshot(data.snapshot, visible);
-        saveStatus.textContent = "Konflikt: lokale Entwürfe wurden nicht überschrieben.";
-        return;
+    const run = await withInteractionSave(interactionGate, setInterfaceEnabled, async () => {
+      requestGate.beginSave();
+      saveStatus.textContent = "Prüfe und speichere …";
+      try {
+        const response = await fetch("/api/settings", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Wirtelprimpf-CSRF": csrfToken,
+          },
+          body: JSON.stringify(request),
+        });
+        const data = await response.json();
+        if (response.status === 409) {
+          const visible = mergeConflictSnapshot(syncState, data.snapshot, data.conflicts ?? []);
+          renderSettingsSnapshot(data.snapshot, visible);
+          saveStatus.textContent = "Konflikt: lokale Entwürfe wurden nicht überschrieben.";
+          return;
+        }
+        if (!response.ok) {
+          saveStatus.textContent = data.error || "Änderung abgelehnt.";
+          return;
+        }
+        syncState.acceptSavedSnapshot(data);
+        document.querySelector("#openai_api_key").value = "";
+        document.querySelector("#cloudflare_api_token").value = "";
+        document.querySelector("#delete_openai_api_key").checked = false;
+        document.querySelector("#delete_cloudflare_api_token").checked = false;
+        applySettingsSnapshot(data);
+        saveStatus.textContent = "Atomar gespeichert und validiert.";
+      } catch {
+        saveStatus.textContent = "Speichern ist lokal fehlgeschlagen.";
+      } finally {
+        requestGate.endSave();
       }
-      if (!response.ok) {
-        saveStatus.textContent = data.error || "Änderung abgelehnt.";
-        return;
-      }
-      syncState.acceptSavedSnapshot(data);
-      document.querySelector("#openai_api_key").value = "";
-      document.querySelector("#cloudflare_api_token").value = "";
-      document.querySelector("#delete_openai_api_key").checked = false;
-      document.querySelector("#delete_cloudflare_api_token").checked = false;
-      applySettingsSnapshot(data);
-      saveStatus.textContent = "Atomar gespeichert und validiert.";
-    } catch {
-      saveStatus.textContent = "Speichern ist lokal fehlgeschlagen.";
-    } finally {
-      requestGate.endSave();
+    });
+    if (!run.started) {
+      saveStatus.textContent = "Eine Speicherung läuft bereits.";
+    } else {
       void pollSettings();
     }
   });
