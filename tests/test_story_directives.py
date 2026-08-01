@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -23,6 +24,8 @@ GENERATOR_PATH = ROOT / "Sourcecode" / "wirtelprimpf_generator.py"
 SERVICE_PATH = ROOT / "Sourcecode" / "systemd-user" / "wirtelprimpf.service"
 SOURCE_README_PATH = ROOT / "Sourcecode" / "README.md"
 STORY_GUIDE_PATH = ROOT / "Sourcecode" / "STORY_DIRECTIVES.md"
+IMPLEMENTATION_PLAN_PATH = ROOT / "docs" / "superpowers" / "plans" / "2026-07-31-story-directives-implementation.md"
+CHECK_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "check.yml"
 MAKEFILE_PATH = ROOT / "Makefile"
 SETTINGS_SCHEMA_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "settings-schema.json"
 STORY_UI_PATH = ROOT / "files" / "wirtelprimfgenerator@H234598" / "StoryDirectives.py"
@@ -154,13 +157,14 @@ class StoryDirectivesCoreTests(unittest.TestCase):
         state_path.write_text(json.dumps({"current_volume": 3}), encoding="utf-8")
         self.core.load_ledger(ledger_path, seed_story_iii=True)
 
-        with self.assertRaisesRegex(ValueError, "editable story window changed"):
+        with self.assertRaises(self.core.EditableWindowChanged) as captured:
             self.core.save_editable_window(
                 ledger_path,
                 state_path=state_path,
                 current_volume=3,
                 directives={2: "Vergangenheit ändern", 3: "Aktuell", 4: "Nächste"},
             )
+        self.assertIn("editable story window changed", str(captured.exception))
 
     def test_editable_window_rejects_story_state_that_advanced_after_reload(self):
         ledger_path = self.root / "story_directives.json"
@@ -168,13 +172,14 @@ class StoryDirectivesCoreTests(unittest.TestCase):
         state_path.write_text(json.dumps({"current_volume": 4}), encoding="utf-8")
         self.core.load_ledger(ledger_path, seed_story_iii=True)
 
-        with self.assertRaisesRegex(ValueError, "editable story window changed"):
+        with self.assertRaises(self.core.EditableWindowChanged) as captured:
             self.core.save_editable_window(
                 ledger_path,
                 state_path=state_path,
                 current_volume=3,
                 directives={3: "Inzwischen vergangen", 4: "Aktuell", 5: "Nächste"},
             )
+        self.assertIn("editable story window changed", str(captured.exception))
 
         ledger = self.core.load_ledger(ledger_path, seed_story_iii=True)
         self.assertNotIn("Inzwischen vergangen", json.dumps(ledger, ensure_ascii=False))
@@ -390,6 +395,26 @@ class StoryDirectivesCoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlink"):
             self.core.apply_active_directive(env_path=env_path)
 
+    def test_parent_creation_secures_every_new_directory_level(self):
+        ledger_path = self.root / "private" / "nested" / "story_directives.json"
+
+        self.core.load_ledger(ledger_path, seed_story_iii=True)
+
+        self.assertEqual(stat.S_IMODE((self.root / "private").stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((self.root / "private" / "nested").stat().st_mode), 0o700)
+
+    def test_parent_creation_rejects_intermediate_symlink(self):
+        real_parent = self.root / "real-parent"
+        real_parent.mkdir()
+        linked_parent = self.root / "linked-parent"
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+        ledger_path = linked_parent / "nested" / "story_directives.json"
+
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            self.core.load_ledger(ledger_path, seed_story_iii=True)
+
+        self.assertFalse((real_parent / "nested").exists())
+
     def test_regular_file_reader_keeps_open_descriptor_when_path_is_replaced(self):
         env_path = self.root / "openai.env"
         moved_path = self.root / "openai.original"
@@ -400,9 +425,10 @@ class StoryDirectivesCoreTests(unittest.TestCase):
         swapped = threading.Event()
 
         def replace_path_after_open(descriptor, *args, **kwargs):
-            env_path.rename(moved_path)
-            env_path.symlink_to(attacker_path)
-            swapped.set()
+            if not swapped.is_set():
+                env_path.rename(moved_path)
+                env_path.symlink_to(attacker_path)
+                swapped.set()
             return original_fdopen(descriptor, *args, **kwargs)
 
         with mock.patch.object(self.core.os, "fdopen", side_effect=replace_path_after_open):
@@ -508,6 +534,12 @@ class StoryDirectivesIntegrationTests(unittest.TestCase):
         self.assertIn(helper_source, readme)
         self.assertIn(helper_target, readme)
         self.assertLess(readme.index(helper_source), readme.index(service_source))
+        checkout = "cd ~/.local/share/wirtelprimpf-generator"
+        venv = "python3 -m venv ~/.local/share/wirtelprimpf-generator/.venv"
+        pip_install = "~/.local/share/wirtelprimpf-generator/.venv/bin/pip install"
+        self.assertIn(checkout, readme)
+        self.assertLess(readme.index(venv), readme.index(checkout))
+        self.assertLess(readme.index(checkout), readme.index(pip_install))
 
     def test_source_guides_use_only_the_current_generator_runtime_paths(self):
         for path in (SOURCE_README_PATH, STORY_GUIDE_PATH):
@@ -517,9 +549,39 @@ class StoryDirectivesIntegrationTests(unittest.TestCase):
                 self.assertNotIn("~/.local/bin/wirtelprimpf_generator.py", text)
                 self.assertIn("~/.local/share/wirtelprimpf-generator/.venv", text)
 
+    def test_source_readme_documents_exit_code_two_for_any_per_plan_failure(self):
+        readme = SOURCE_README_PATH.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "one or more per-plan generation, write, transform, or repository-publication operations failed",
+            readme,
+        )
+        self.assertNotIn(
+            "partial failure; at least one prompt or image failed while another succeeded",
+            readme,
+        )
+
+    def test_repo_plan_documents_state_path_in_editable_window_signature(self):
+        plan = IMPLEMENTATION_PLAN_PATH.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "save_editable_window(path, *, state_path, current_volume, directives, ...)",
+            plan,
+        )
+
+    def test_applet_ci_pins_the_node_runtime_used_by_make_check(self):
+        workflow = CHECK_WORKFLOW_PATH.read_text(encoding="utf-8")
+        applet_job = workflow.split("  applet:\n", 1)[1].split("  platform:\n", 1)[0]
+
+        self.assertIn("actions/setup-node@", applet_job)
+        self.assertIn('node-version: "24.13.1"', applet_job)
+
     def test_make_check_compiles_and_runs_story_directives(self):
+        make_executable = shutil.which("make")
+        if make_executable is None:
+            self.skipTest("make is not available")
         result = subprocess.run(
-            ["make", "-n", "check"],
+            [make_executable, "-n", "check"],
             cwd=ROOT,
             check=True,
             capture_output=True,
@@ -530,6 +592,12 @@ class StoryDirectivesIntegrationTests(unittest.TestCase):
         self.assertIn("story_directives_core.py", makefile)
         self.assertIn("StoryDirectives.py", makefile)
         self.assertIn("-m unittest tests.test_story_directives", result.stdout)
+
+    def test_story_editor_catches_typed_stale_window_exception(self):
+        source = STORY_UI_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("except core.EditableWindowChanged:", source)
+        self.assertNotIn('"editable story window changed" in str(exc)', source)
 
     def test_projection_failure_is_reported_after_successful_ledger_save(self):
         ui_module_name = "story_directives_ui_under_test"

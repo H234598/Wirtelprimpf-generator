@@ -254,15 +254,14 @@ class StoryDirectivesEditor(SettingsWidget):
                 directives=directives,
                 source="cinnamon-settings",
             )
+        except core.EditableWindowChanged:
+            self._reload()
+            self._set_status(
+                "Der laufende Band hat sich geändert. Die Ansicht wurde neu geladen; "
+                "bitte Änderungen im aktuellen Dreierfenster erneut vornehmen."
+            )
         except ValueError as exc:
-            if "editable story window changed" in str(exc):
-                self._reload()
-                self._set_status(
-                    "Der laufende Band hat sich geändert. Die Ansicht wurde neu geladen; "
-                    "bitte Änderungen im aktuellen Dreierfenster erneut vornehmen."
-                )
-            else:
-                self._set_status("Speichern fehlgeschlagen: %s" % exc)
+            self._set_status("Speichern fehlgeschlagen: %s" % exc)
         except Exception as exc:
             self._set_status("Speichern fehlgeschlagen: %s" % exc)
         else:

@@ -11,6 +11,9 @@ import {
 
 export type SiteProfile = "hub" | "archive";
 
+const BOOKS_PER_ARCHIVE = 5;
+const STORIES_PER_ARCHIVE = STORIES_PER_BOOK * BOOKS_PER_ARCHIVE;
+
 export interface ArchiveEntry {
   archive_index: number;
   repository: string;
@@ -31,8 +34,8 @@ export function archiveBookRange(archiveIndex: number): { bookStart: number; boo
   if (!Number.isSafeInteger(archiveIndex) || archiveIndex < 1) {
     throw new Error(`archive index must be a positive integer: ${archiveIndex}`);
   }
-  const firstStory = ((archiveIndex - 1) * 50) + 1;
-  const lastStory = firstStory + 49;
+  const firstStory = ((archiveIndex - 1) * STORIES_PER_ARCHIVE) + 1;
+  const lastStory = firstStory + STORIES_PER_ARCHIVE - 1;
   return {
     bookStart: Math.floor((firstStory - 1) / STORIES_PER_BOOK) + 1,
     bookEnd: Math.floor((lastStory - 1) / STORIES_PER_BOOK) + 1,
@@ -161,7 +164,7 @@ export function loadStories(dataRoot: string, profile: SiteProfile): StoryDocume
 }
 
 
-function loadCatalog(dataRoot: string): ArchiveEntry[] {
+export function loadCatalog(dataRoot: string): ArchiveEntry[] {
   const path = process.env.WIRTELPRIMPF_CATALOG_PATH || resolve(dataRoot, "publication-catalog.json");
   const payload = readJson(path, false);
   if (payload === null) return [];
@@ -179,6 +182,14 @@ function loadCatalog(dataRoot: string): ArchiveEntry[] {
     if (entry.verified !== true) throw new Error(`unverified archive leaked into catalog: ${repository}`);
     const volumeStart = integerValue(entry.volume_start, "volume start");
     const volumeEnd = integerValue(entry.volume_end, "volume end");
+    const expectedVolumeStart = ((archiveIndex - 1) * STORIES_PER_ARCHIVE) + 1;
+    const expectedVolumeEnd = expectedVolumeStart + STORIES_PER_ARCHIVE - 1;
+    if (volumeStart !== expectedVolumeStart) {
+      throw new Error(`catalog volume start mismatch: ${repository}`);
+    }
+    if (volumeEnd !== expectedVolumeEnd) {
+      throw new Error(`catalog volume end mismatch: ${repository}`);
+    }
     const books = archiveBookRange(archiveIndex);
     if (entry.book_start !== undefined && integerValue(entry.book_start, "book start") !== books.bookStart) {
       throw new Error(`catalog book start mismatch: ${repository}`);

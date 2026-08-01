@@ -168,19 +168,24 @@ class PlatformStateTests(unittest.TestCase):
             "story_in_book": 1,
             "stories_per_book": 10,
         })
-        persisted = json.loads(json.dumps({
-            "schema_version": state.schema_version,
-            "completed_volumes": state.completed_volumes,
-            "current_volume": state.current_volume,
-            "active_archive_index": state.active_archive_index,
-            "rotation": None,
-        }))
-        self.assertNotIn("book", persisted)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "platform-state.json"
+            StateStore(path).save(state)
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            self.assertNotIn("book", persisted)
 
 
 class CatalogBookContractTests(unittest.TestCase):
+    def test_platform_ci_checks_out_the_catalog_fixture(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "check.yml").read_text(encoding="utf-8")
+        platform_job = workflow.split("  platform:\n", 1)[1].split("  web:\n", 1)[0]
+
+        self.assertIn("web/fixtures/site", platform_job)
+
     def test_checked_in_book_fixture_loads_and_store_round_trip_preserves_fields(self) -> None:
         fixture = ROOT / "web" / "fixtures" / "site" / "publication-catalog.json"
+
+        self.assertTrue(fixture.is_file(), "platform checkout omitted the catalog fixture")
 
         catalog = CatalogStore(fixture).load()
 

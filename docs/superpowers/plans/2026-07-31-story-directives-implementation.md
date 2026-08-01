@@ -150,7 +150,7 @@ Ein getrenntes Cinnamon-GTK-Widget verwendet dieselbe Kernlogik für Anzeige und
 ### Schnittstellen
 
 - Custom-Widget: `StoryDirectivesEditor(SettingsWidget)`
-- Sicheres Speichern: `save_editable_window(path, *, current_volume, directives, ...)`
+- Sicheres Speichern: `save_editable_window(path, *, state_path, current_volume, directives, ...)`
 
 ### Schritte
 
@@ -276,3 +276,22 @@ Die vier neuen Sicherheits-/Fehlersemantik-Regressionen wurden zunächst rot nac
 Das unabhängige Abschlussreview reproduzierte drei weitere Defekte vor deren Korrektur: abgeleitete Buchfelder fehlten beim Katalog-Roundtrip und brachen zugleich das Laden des eingecheckten Webfixtures; nichtkanonische Ledgerkeys wie `"01"` wurden akzeptiert, aber bei der Laufzeitsuche still ignoriert; zwischen UI-Kontextlesen und Ledger-Speicherung konnte ein Generator-Statewechsel einen inzwischen vergangenen Band beschreibbar machen. Die neuen Regressionen erzwingen nun eine validierte rückwärtskompatible Katalogserialisierung, kanonische Dezimalschlüssel und einen zwischen Generator und Cinnamon-Editor gemeinsam gehaltenen Story-State-Lock.
 
 Der Story-Vorgaben-Teststand beträgt nun **25 von 25 Tests**, die Plattform-Suite **74 von 74 Tests**. Die Appletversion für diese neue Einstellungs- und Laufzeitfunktion ist `0.8.0`. Externe Generator-PR-, CI- und Review-Gates werden erst nach dem vollständigen Repositorytest und dem abschließenden unabhängigen Review als abgeschlossen markiert.
+
+## Vollständiger Generator-PR-Review und zweite Abschlusskorrektur am 1. August 2026
+
+Der vollständige CodeRabbit-Review des portierten Generator-PRs wurde gegen den jeweils aktuellen Code geprüft. Sämtliche noch gültigen Hinweise wurden testgetrieben umgesetzt: Die Installationsanleitung wechselt vor relativen Installationsbefehlen ausdrücklich in den geklonten Checkout; Exitcode `2` beschreibt jetzt jede fehlgeschlagene planbezogene Erzeugungs-, Schreib-, Transformations- oder Publikationsoperation; der Persistenzvertrag wird über einen echten `StateStore.save()`-Roundtrip geprüft; der Webkatalog weist zum Archivindex unpassende Storygrenzen ab; die Gruppierung wird mit zwei vollständigen Büchern zu je zehn Storys geprüft; alle neu erzeugten Ebenen privater Verzeichnisketten erhalten Modus `0700` und zwischengeschaltete Symlinks werden abgewiesen; der Applet-CI-Job pinnt Node.js `24.13.1`; Deskriptor-Swap und `make`-Aufruf der Tests sind deterministisch beziehungsweise explizit aufgelöst; und ein eigener Exception-Typ ersetzt die fragile Auswertung eines englischen Fehlertextes in der GTK-Oberfläche.
+
+Der von der unabhängigen Review-Biene gefundene Remote-CI-Fehler wurde ebenfalls zuerst als reproduzierbarer Vertrag festgehalten: Der Plattform-Sparse-Checkout enthielt das eingecheckte Katalogfixture nicht, sodass der korrekte Roundtrip-Test remote einen leeren Katalog sah. Der Plattformjob checkt `web/fixtures/site` nun ausdrücklich aus. Die dabei zusätzlich festgestellte Plansignatur wurde um das verpflichtende `state_path` ergänzt.
+
+Lokale Abschlussmatrix dieses Korrekturstands:
+
+- **31 von 31** Story-Vorgaben-, Installations- und UI-Regressionen grün;
+- vollständiges Repository-`make check` grün;
+- **75 von 75** Plattform-Vertragstests grün;
+- **8 von 8** Webtests grün;
+- Astro: **0 Fehler, 0 Warnungen, 0 Hinweise**;
+- Python-Kompilierung und `git diff --check` grün;
+- deterministisches Hub-Artefakt: `2669dc54877d822e9e395ea1295ec6ba2e9e953f419657e224b0bb2fde1d52c4`;
+- deterministisches Archiv-Artefakt: `7755574d5b9745b915d78927f4e8a3ccfb581b381a246d6b62eccda54b13b8c2`.
+
+Die erneuten GitHub-Actions-, Review- und Merge-Gates bleiben bis zur Prüfung des daraus erzeugten exakten Remote-Heads offen und werden erst mit der dortigen Evidenz abgeschlossen.

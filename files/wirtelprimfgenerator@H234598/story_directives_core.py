@@ -40,6 +40,10 @@ _MANAGED_SECTION_RE: Final = re.compile(
 )
 
 
+class EditableWindowChanged(ValueError):
+    """The editable story window moved between loading and saving."""
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -112,12 +116,30 @@ def _read_regular_text(
 
 
 def _ensure_safe_parent(path: Path) -> None:
-    parent = path.parent
-    if parent.exists() and parent.is_symlink():
-        raise ValueError(f"Parent directory must not be a symlink: {parent}")
-    parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if not parent.is_dir() or parent.is_symlink():
-        raise ValueError(f"Parent directory must be a regular directory: {parent}")
+    parent = Path(path).expanduser().parent
+    ancestors = [parent]
+    while ancestors[-1].parent != ancestors[-1]:
+        ancestors.append(ancestors[-1].parent)
+
+    for directory in reversed(ancestors):
+        try:
+            metadata = directory.lstat()
+        except FileNotFoundError:
+            try:
+                directory.mkdir(mode=0o700)
+            except FileExistsError as exc:
+                raise ValueError(
+                    f"Parent directory changed while it was being created: {directory}"
+                ) from exc
+            metadata = directory.lstat()
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                raise ValueError(f"Parent directory must be a regular directory: {directory}")
+            os.chmod(directory, 0o700, follow_symlinks=False)
+            continue
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError(f"Parent directory must not be a symlink: {directory}")
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise ValueError(f"Parent directory must be a regular directory: {directory}")
 
 
 @contextmanager
@@ -479,7 +501,7 @@ def save_editable_window(
         expected = {effective_volume, effective_volume + 1, effective_volume + 2}
         actual = set(directives)
         if effective_volume != current_volume or actual != expected:
-            raise ValueError(
+            raise EditableWindowChanged(
                 "editable story window changed; reload before saving "
                 f"(loaded current {current_volume}, effective current {effective_volume}, "
                 f"expected {sorted(expected)}, got {sorted(actual)})"

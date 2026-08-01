@@ -63,6 +63,7 @@ stable CLI path in `ExecStartPre`.
 ```bash
 git clone https://github.com/H234598/Wirtelprimpf-generator ~/.local/share/wirtelprimpf-generator
 python3 -m venv ~/.local/share/wirtelprimpf-generator/.venv
+cd ~/.local/share/wirtelprimpf-generator
 ~/.local/share/wirtelprimpf-generator/.venv/bin/pip install -e ~/.local/share/wirtelprimpf-generator
 
 install -Dm0755 Sourcecode/wirtelprimpf-set-openai-key ~/.local/bin/wirtelprimpf-set-openai-key
@@ -471,7 +472,7 @@ Praktische Fehlerauswertung:
 
 - `exit_code == 0`: kein command-wide Fehler; bei `--status` können Einzelchecks fehlerhaft sein, ohne dass der Kommando-Exitcode steigt.
 - `exit_code == 1`: kritische Setup-, Config- oder Repo-Fehler; keine erfolgreiche Ausführung.
-- `exit_code == 2`: partielle Ausführung; suche `checks` mit `"ok": false` und die zugehörigen `message`-Felder.
+- `exit_code == 2`: one or more per-plan generation, write, transform, or repository-publication operations failed; das gilt auch dann, wenn alle Pläne fehlschlagen.
 - Für `dry_run`-Events gilt: `status` spiegelt den Laufstatus pro Block; `checks` enthält die Einzelbewertung.
 
 `mode` ist ein strikter Diskriminator und kann nur `status`, `check_config`,
@@ -492,7 +493,7 @@ ausdrücklich als Textzeilen aus.
 
 - `0`: success
 - `1`: unrecoverable setup/configuration failure for execution paths
-- `2`: partial failure; at least one prompt or image failed while another succeeded
+- `2`: one or more per-plan generation, write, transform, or repository-publication operations failed, including when all plans fail
 
 ## Two-hour Timer
 
