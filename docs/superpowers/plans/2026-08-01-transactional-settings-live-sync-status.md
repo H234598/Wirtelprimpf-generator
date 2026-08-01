@@ -131,7 +131,7 @@ Secrets are not ordinary registry rows. Their only API keys are `openai_api_key`
 - Produces: `choices_payload() -> dict[str, list[object]]` and `invariants_payload() -> dict[str, object]`.
 - Consumed by: Tasks 4, 5, 7, 8, and 9.
 
-- [ ] **Step 1: Write failing catalog, visibility, type, and legacy-model tests**
+- [x] **Step 1: Write failing catalog, visibility, type, and legacy-model tests**
 
 ```python
 from __future__ import annotations
@@ -178,13 +178,13 @@ class SettingsSchemaTests(unittest.TestCase):
             validate_changes({"shell_command": "false"}, current)
 ```
 
-- [ ] **Step 2: Run the focused tests and verify the missing module fails**
+- [x] **Step 2: Run the focused tests and verify the missing module fails**
 
 Run: `python -m unittest tests.platform.test_settings_schema_core -v`
 
 Expected: `ERROR` with `ModuleNotFoundError: No module named 'wirtelprimpf_platform.settings_schema'`.
 
-- [ ] **Step 3: Implement the immutable registry and validators**
+- [x] **Step 3: Implement the immutable registry and validators**
 
 Implement the complete registry from “Canonical Field Registry” and use these exact public types and model tuples:
 
@@ -277,13 +277,13 @@ def invariants_payload() -> dict[str, object]:
 
 For boolean environment values, Tasks 2 and 4 encode `true` as `1` and `false` as `0`. The schema itself never parses files.
 
-- [ ] **Step 4: Run schema tests and the existing naming/admin contracts**
+- [x] **Step 4: Run schema tests and the existing naming/admin contracts**
 
 Run: `python -m unittest tests.platform.test_settings_schema_core tests.platform.test_naming_state tests.platform.test_admin -v`
 
 Expected: all tests pass; existing admin tests remain unchanged in this task.
 
-- [ ] **Step 5: Commit the schema unit**
+- [x] **Step 5: Commit the schema unit**
 
 ```bash
 git add wirtelprimpf_platform/settings_schema.py tests/platform/test_settings_schema_core.py
@@ -303,7 +303,7 @@ git commit -m "feat(settings): define shared configuration schema"
 - Produces: `SingleSecretStore(path: Path, env_name: str)`, `present()`, `replace(value)`, `delete()`, `capture()`, and `restore()`.
 - Consumed by: Task 4.
 
-- [ ] **Step 1: Write failing preservation, permissions, restore, and path-defense tests**
+- [x] **Step 1: Write failing preservation, permissions, restore, and path-defense tests**
 
 ```python
 from __future__ import annotations
@@ -356,13 +356,13 @@ class SettingsIOTests(unittest.TestCase):
                 SecureFile(link / "settings.env", private=True).replace_bytes(b"A=one\n")
 ```
 
-- [ ] **Step 2: Run the focused tests and verify the missing module fails**
+- [x] **Step 2: Run the focused tests and verify the missing module fails**
 
 Run: `python -m unittest tests.platform.test_settings_io -v`
 
 Expected: `ERROR` with `ModuleNotFoundError` for `settings_io`.
 
-- [ ] **Step 3: Implement lossless parsing and atomic replacement**
+- [x] **Step 3: Implement lossless parsing and atomic replacement**
 
 Use `shlex.split(..., comments=False, posix=True)` to parse values and `shlex.quote()` to render replacements. Reject duplicate or malformed keys. Implement replacement with this exact sequence:
 
@@ -396,13 +396,13 @@ def replace_bytes(self, content: bytes) -> None:
 
 `SingleSecretStore.replace()` validates a single-line value of 8–512 characters and writes exactly `ENV_NAME=<shlex-quoted-value>\n`. `present()` parses the file through `EnvironmentDocument` and never returns its value.
 
-- [ ] **Step 4: Run focused IO and existing atomic-state tests**
+- [x] **Step 4: Run focused IO and existing atomic-state tests**
 
 Run: `python -m unittest tests.platform.test_settings_io tests.platform.test_naming_state tests.platform.test_target_switch -v`
 
 Expected: all tests pass and no `.part` file remains.
 
-- [ ] **Step 5: Commit the IO unit**
+- [x] **Step 5: Commit the IO unit**
 
 ```bash
 git add wirtelprimpf_platform/settings_io.py tests/platform/test_settings_io.py
@@ -421,7 +421,7 @@ git commit -m "feat(settings): add secure configuration file stores"
 - Produces: `SystemdUserManager.observe_timer()`, `render_dropin(configuration)`, `apply_timer(configuration)`, and `restore_timer(configuration, was_active, dropin_backup)`.
 - Consumed by: Tasks 4 and 6.
 
-- [ ] **Step 1: Write failing rendering, command, timeout, and effective-state tests**
+- [x] **Step 1: Write failing rendering, command, timeout, and effective-state tests**
 
 ```python
 from __future__ import annotations
@@ -482,13 +482,13 @@ class SystemdUserTests(unittest.TestCase):
             self.assertNotIn("must-not-echo", str(caught.exception))
 ```
 
-- [ ] **Step 2: Run the focused tests and verify the missing module fails**
+- [x] **Step 2: Run the focused tests and verify the missing module fails**
 
 Run: `python -m unittest tests.platform.test_systemd_user -v`
 
 Expected: `ERROR` with `ModuleNotFoundError` for `systemd_user`.
 
-- [ ] **Step 3: Implement the bounded systemd adapter**
+- [x] **Step 3: Implement the bounded systemd adapter**
 
 The default runner must be shell-free and bounded:
 
@@ -508,13 +508,13 @@ Use only literal unit name `wirtelprimpf.timer`. `observe_timer()` runs `systemc
 
 `TimerObservation.from_configuration(configuration, active)` is a deterministic constructor used by tests and rollback comparisons; it copies enabled/interval/delay/persistence, maps `active` to `"active"` or `"inactive"`, and sets timestamp/result fields to `None`/`"unknown"`.
 
-- [ ] **Step 4: Run systemd and unit-file regressions**
+- [x] **Step 4: Run systemd and unit-file regressions**
 
 Run: `python -m unittest tests.platform.test_systemd_user tests.platform.test_systemd_units -v`
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit the timer adapter**
+- [x] **Step 5: Commit the timer adapter**
 
 ```bash
 git add wirtelprimpf_platform/systemd_user.py tests/platform/test_systemd_user.py
@@ -536,7 +536,7 @@ git commit -m "feat(settings): manage the effective user timer"
 - Produces exceptions: `SettingsConflict`, `SettingsValidationFailure`, `SettingsLockBusy`, `SettingsApplyFailure`.
 - Consumed by: Tasks 5, 6, and 7.
 
-- [ ] **Step 1: Write failing sparse-merge, same-field, secret, lock, and rollback tests**
+- [x] **Step 1: Write failing sparse-merge, same-field, secret, lock, and rollback tests**
 
 ```python
 from __future__ import annotations
@@ -738,13 +738,13 @@ def test_busy_lock_times_out_without_touching_configuration(self) -> None:
     self.assertEqual(self.paths.env_file.read_bytes(), before)
 ```
 
-- [ ] **Step 2: Run the focused tests and verify the missing module fails**
+- [x] **Step 2: Run the focused tests and verify the missing module fails**
 
 Run: `python -m unittest tests.platform.test_settings_transaction -v`
 
 Expected: `ERROR` with `ModuleNotFoundError` for `settings`.
 
-- [ ] **Step 3: Define the exact request, snapshot, paths, and failure types**
+- [x] **Step 3: Define the exact request, snapshot, paths, and failure types**
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -864,7 +864,7 @@ class SettingsApplyFailure(SettingsError):
 
 Only fixed redacted phase strings such as `settings transaction failed` may be supplied to `SettingsApplyFailure`; never command output, exception text, or values. `SettingsConflict` exposes field names and the already redacted public snapshot only.
 
-- [ ] **Step 4: Implement locking, revision generation, sparse conflict checks, and transaction order**
+- [x] **Step 4: Implement locking, revision generation, sparse conflict checks, and transaction order**
 
 Use shared locks for snapshots and exclusive locks for updates. The retry loop uses `time.monotonic()`, sleeps at most 20 ms between `fcntl.flock(... LOCK_NB)` attempts, and raises `SettingsLockBusy` at the configured deadline.
 
@@ -936,13 +936,13 @@ The real validator runs `<generator_root>/.venv/bin/wirtelprimpf-generator --che
 
 The revision excludes `settings.lock` and `settings-state.json` because both are coordination artifacts derived from the transaction. Including the signal file would create a self-referential revision that changes when written.
 
-- [ ] **Step 5: Run transaction tests, then inject a systemd failure and verify rollback**
+- [x] **Step 5: Run transaction tests, then inject a systemd failure and verify rollback**
 
 Run: `python -m unittest tests.platform.test_settings_transaction tests.platform.test_settings_io tests.platform.test_systemd_user -v`
 
 Expected: all tests pass, including a test with `self.systemd.fail_apply = True` that leaves environment bytes, separate token bytes, drop-in bytes, enabled state, and active state unchanged.
 
-- [ ] **Step 6: Commit the transactional core**
+- [x] **Step 6: Commit the transactional core**
 
 ```bash
 git add wirtelprimpf_platform/settings.py tests/platform/test_settings_transaction.py
@@ -963,7 +963,7 @@ git commit -m "feat(settings): add revisioned transactional updates"
 - Produces exit codes: 0 success, 3 conflict, 4 validation, 5 lock busy, 6 application/rollback failure.
 - Consumed by: Task 9.
 
-- [ ] **Step 1: Write failing snapshot, stdin, conflict, limit, and secret-redaction tests**
+- [x] **Step 1: Write failing snapshot, stdin, conflict, limit, and secret-redaction tests**
 
 ```python
 from __future__ import annotations
@@ -1050,13 +1050,13 @@ def test_exception_exit_codes_are_stable_and_redacted(self) -> None:
 
 The 3/conflict JSON body additionally contains `conflicts` and `snapshot`; application failure exposes only `rollback_succeeded` beyond the fixed error.
 
-- [ ] **Step 2: Run the focused tests and verify parser/entrypoint failures**
+- [x] **Step 2: Run the focused tests and verify parser/entrypoint failures**
 
 Run: `python -m unittest tests.platform.test_settings_cli -v`
 
 Expected: failures because `settings_main`, the nested parser, and the console script do not exist.
 
-- [ ] **Step 3: Add nested settings commands and the stable console script**
+- [x] **Step 3: Add nested settings commands and the stable console script**
 
 Add to `pyproject.toml`:
 
@@ -1118,7 +1118,7 @@ def settings_entrypoint() -> int:
 
 `build_settings_manager()` uses `SettingsPaths.for_home(Path.home())`, the real `SystemdUserManager`, and the bounded generator validator. The existing `wirtelprimpf-platform` command receives the same `settings` subparser for diagnostics; both entrypoints call the same functions.
 
-- [ ] **Step 4: Run CLI and packaging regressions**
+- [x] **Step 4: Run CLI and packaging regressions**
 
 Run: `python -m unittest tests.platform.test_settings_cli tests.platform.test_settings_transaction -v`
 
@@ -1126,7 +1126,7 @@ Run: `python -m pip install --no-deps -e . && .venv/bin/wirtelprimpf-settings --
 
 Expected: tests pass; the installed command exposes the stable settings CLI without touching live configuration. JSON and secret-redaction behavior are covered by the injected-manager CLI tests above.
 
-- [ ] **Step 5: Commit the CLI unit**
+- [x] **Step 5: Commit the CLI unit**
 
 ```bash
 git add pyproject.toml wirtelprimpf_platform/cli.py tests/platform/test_settings_cli.py
@@ -1145,7 +1145,7 @@ git commit -m "feat(settings): expose the transactional JSON bridge"
 - The returned object always contains `schema_version`, `observed_at`, `health`, `configuration`, `generator`, `timer`, `story`, `archive`, `rotation`, `publication`, `auth`, `warnings`, and `errors`.
 - Consumed by: Task 7.
 
-- [ ] **Step 1: Write failing complete, degraded, timeout, and no-network tests**
+- [x] **Step 1: Write failing complete, degraded, timeout, and no-network tests**
 
 ```python
 from __future__ import annotations
@@ -1263,13 +1263,13 @@ def test_service_timeout_is_redacted_and_degraded(self) -> None:
 
 Import `subprocess` in the test file.
 
-- [ ] **Step 2: Run the focused tests and verify the missing module fails**
+- [x] **Step 2: Run the focused tests and verify the missing module fails**
 
 Run: `python -m unittest tests.platform.test_operational_status -v`
 
 Expected: `ERROR` with `ModuleNotFoundError` for `operational_status`.
 
-- [ ] **Step 3: Implement fixed-shape partial-source aggregation**
+- [x] **Step 3: Implement fixed-shape partial-source aggregation**
 
 Define status paths explicitly so tests never inspect the developer's real home:
 
@@ -1345,13 +1345,13 @@ Local sources and freshness are:
 
 If the catalog marks an archive verified, set both Pages and DNS to `state: "verified"`, value to its canonical URL/domain, and source to `publication-catalog.json`. Do not claim freshness later than the catalog mtime.
 
-- [ ] **Step 4: Run status, state, hub, and catalog regressions**
+- [x] **Step 4: Run status, state, hub, and catalog regressions**
 
 Run: `python -m unittest tests.platform.test_operational_status tests.platform.test_naming_state tests.platform.test_hub tests.platform.test_provisioning -v`
 
 Expected: all tests pass; the fake runner records no network-capable command.
 
-- [ ] **Step 5: Commit the status collector**
+- [x] **Step 5: Commit the status collector**
 
 ```bash
 git add wirtelprimpf_platform/operational_status.py tests/platform/test_operational_status.py
@@ -1372,7 +1372,7 @@ git commit -m "feat(status): collect redacted local operations state"
 - Preserves the existing `AdminResponse`, loopback request checks, CSRF check, request-size cap, and security headers.
 - Consumed by: Task 8.
 
-- [ ] **Step 1: Replace old alias tests with failing API-contract tests**
+- [x] **Step 1: Replace old alias tests with failing API-contract tests**
 
 Update the fixture to inject a real temporary `SettingsManager` with fake systemd/validator and a fake collector. Add these assertions:
 
@@ -1453,13 +1453,13 @@ def test_validation_lock_and_apply_failures_have_distinct_status_codes(self) -> 
             self.assertEqual(response.status, expected_status)
 ```
 
-- [ ] **Step 2: Run admin tests and verify old routing fails**
+- [x] **Step 2: Run admin tests and verify old routing fails**
 
 Run: `python -m unittest tests.platform.test_admin -v`
 
 Expected: status-structure and sparse-envelope tests fail because `/api/status` aliases settings and POST still accepts a flat form.
 
-- [ ] **Step 3: Delegate routes without weakening transport security**
+- [x] **Step 3: Delegate routes without weakening transport security**
 
 Change the application constructor and route core to this contract:
 
@@ -1518,13 +1518,13 @@ class AdminApplication:
 
 Update `serve_admin()` to receive both dependencies. Update `cli.admin_main` construction to use the same default `SettingsManager` and a collector that shares its snapshot/systemd dependencies.
 
-- [ ] **Step 4: Run API and security regressions**
+- [x] **Step 4: Run API and security regressions**
 
 Run: `python -m unittest tests.platform.test_admin tests.platform.test_settings_transaction tests.platform.test_operational_status -v`
 
 Expected: all tests pass; serialized responses contain none of the fixture secrets.
 
-- [ ] **Step 5: Commit the API unit**
+- [x] **Step 5: Commit the API unit**
 
 ```bash
 git add wirtelprimpf_platform/admin.py wirtelprimpf_platform/cli.py tests/platform/test_admin.py
@@ -1549,7 +1549,7 @@ git commit -m "feat(admin): separate settings and operational APIs"
 - Produces static routes `/assets/admin.css` and `/assets/admin.mjs`.
 - Consumed behavior mirrored by: Task 9 applet state machine.
 
-- [ ] **Step 1: Write failing browser-state and fixed-route/security contracts**
+- [x] **Step 1: Write failing browser-state and fixed-route/security contracts**
 
 ```javascript
 import assert from "node:assert/strict";
@@ -1655,7 +1655,7 @@ test("poll response started before a save cannot overwrite the save result", () 
 
 Before modifying admin production code or assets, also add the two exact Python route/security tests printed in Step 5 to `tests/platform/test_admin.py`.
 
-- [ ] **Step 2: Run the Node test and verify the module is missing**
+- [x] **Step 2: Run the Node test and verify the module is missing**
 
 Run: `node --test tests/test_admin_ui.mjs`
 
@@ -1663,7 +1663,7 @@ Run: `python -m unittest tests.platform.test_admin -v`
 
 Expected: the Node run reports `ERR_MODULE_NOT_FOUND` for `static/admin.mjs`; the Python run fails because fixed asset routes, strict CSP, and packaged dropdown markup do not exist yet.
 
-- [ ] **Step 3: Implement the pure browser state machine**
+- [x] **Step 3: Implement the pure browser state machine**
 
 ```javascript
 export class FormSyncState {
@@ -1776,7 +1776,7 @@ export class RequestEpochGate {
 
 `modelOptions()` prepends at most one legacy current value and never adds it to the received catalog.
 
-- [ ] **Step 4: Build the accessible HTML/CSS and DOM adapter**
+- [x] **Step 4: Build the accessible HTML/CSS and DOM adapter**
 
 `admin.html` contains an `aria-live="polite"` save-status region, a status card before the form, and these exact model controls:
 
@@ -1844,7 +1844,7 @@ Serve assets with exact MIME types and no dynamic paths. Replace the embedded `A
 
 Expose the fixed headers as `SECURITY_HEADERS: dict[str, str]` in `admin.py` and have `_Handler._dispatch()` iterate that mapping. This keeps the route tests and emitted HTTP headers on one source of truth.
 
-- [ ] **Step 5: Make the prewritten Python route/static/security tests green**
+- [x] **Step 5: Make the prewritten Python route/static/security tests green**
 
 Add this concrete route/security test and retain the existing request-security cases:
 
@@ -1878,7 +1878,7 @@ def test_http_handler_security_headers_disallow_inline_assets(self) -> None:
 
 Import `SECURITY_HEADERS` from `admin.py`; `_Handler._dispatch()` iterates this exact mapping so the tested values are the emitted values.
 
-- [ ] **Step 6: Run UI, API, and packaging tests**
+- [x] **Step 6: Run UI, API, and packaging tests**
 
 Run: `node --test tests/test_admin_ui.mjs`
 
@@ -1888,7 +1888,7 @@ Run: `python -m build --wheel --no-isolation` only if the `build` module is alre
 
 Expected: all tests pass and installed package resources resolve.
 
-- [ ] **Step 7: Add the Node contract to `make check` and commit**
+- [x] **Step 7: Add the Node contract to `make check` and commit**
 
 Add `node --test tests/test_admin_ui.mjs` after the existing applet runtime test.
 
@@ -2435,6 +2435,34 @@ git commit -m "chore(settings): package and document transactional control"
 Do not start public deployment merely because Task 10 is green. First compare the branch against the approved design section-by-section, record the exact test counts and commit IDs, and then execute `2026-08-01-public-site-copy-and-rollout.md`. The second plan adds the independent public-copy commit, runs both site profiles, performs review/merge, installs the merged local version, and verifies live behavior. Cloudflare remains untouched throughout both plans.
 
 ## Additives Evidenzledger der Umsetzung
+
+### 2026-08-01 — Fortschritt Tasks 1–8
+
+- Task 1: `12db8cd` (`feat(settings): define shared configuration schema`).
+- Task 2: `b6492bb` (`feat(settings): add secure configuration file stores`).
+- Task 3: `c43f3b1` (`feat(settings): manage the effective user timer`).
+- Task 4: `b01a357` (`feat(settings): add revisioned transactional updates`).
+- Task 5: `77c5c81` (`feat(settings): expose the transactional JSON bridge`).
+- Task 6: `07e1e6a` (`feat(status): collect redacted local operations state`) mit
+  den additiven Korrekturen `04178c8` (fehlender Plattformzustand bleibt
+  unbekannt/degradiert) und `9091b1a` (reine Timer-Laufzeitfelder ändern die
+  opake Konfigurationsrevision nicht).
+- Task 7: `ce016c2` (`feat(admin): separate settings and operational APIs`).
+- Task 8: `50387c1` (`feat(admin): add conflict-safe live settings UI`). Der
+  Abschlusslauf umfasste 11/11 Node-Verträge sowie 52/52 benachbarte Python-
+  Verträge für Admin, Transaktion, Schema, Dateizugriff, CLI und Status. Die
+  Admin-Assets wurden zusätzlich ohne Installation über `importlib.resources`
+  aus dem Worktree gelesen; `git diff --check` war leer.
+- Die Review-Nachbesserungen aus Task 8 sind beobachtbar abgedeckt: Vor dem
+  ersten gültigen Snapshot blockiert ein DOM-neutraler `InteractionGate` jede
+  Mutation, und der `409`-Konfliktpfad führt exakt einen logischen Snapshot-
+  Merge aus.
+- Der nachgelagerte Integrationsbefund „Eingabe während eines laufenden POST“
+  ist in `5e44b8c` (`fix(admin): lock edits while saving settings`) geschlossen.
+  Ein separater Save-Busy-Zustand sperrt State-Mutationen und Controls ab dem
+  Request-Snapshot und entsperrt über `finally` bei Erfolg, `409`, abgelehnter
+  Antwort und Exception. Der Abschlusslauf umfasste 14/14 Node-Verträge und
+  34/34 Admin-/Transaktions-/Statusregressionen.
 
 ### 2026-08-01 — zurückgenommener Packaging-Smoke nach Task 5
 
