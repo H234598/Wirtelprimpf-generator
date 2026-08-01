@@ -2261,7 +2261,7 @@ git commit -m "feat(applet): synchronize settings through the shared core"
 - Produces: package version `1.1.0`, applet version `0.9.0`, installed static assets, stable CLI path, minimal service write paths, and documented recovery behavior.
 - Produces a fully green generator branch ready for the public-copy plan; it does not deploy or mutate Cloudflare.
 
-- [ ] **Step 1: Write failing unit hardening and packaging assertions**
+- [x] **Step 1: Write failing unit hardening and packaging assertions**
 
 Add to `tests/platform/test_systemd_units.py`:
 
@@ -2312,13 +2312,13 @@ class PackagingVersionTests(unittest.TestCase):
         self.assertLess(gate, replace)
 ```
 
-- [ ] **Step 2: Run focused tests and verify current unit/version values fail**
+- [x] **Step 2: Run focused tests and verify current unit/version values fail**
 
 Run: `python -m unittest tests.platform.test_systemd_units tests.test_settings_schema tests.test_semver -v`
 
 Expected: failures for service paths, process EnvironmentFile, version numbers, and settings CLI install gate.
 
-- [ ] **Step 3: Harden the service and installer**
+- [x] **Step 3: Harden the service and installer**
 
 The service write-path block becomes exactly:
 
@@ -2352,7 +2352,7 @@ install -d -m0700 -- "${HOME}/.config/systemd/user/wirtelprimpf.timer.d"
 
 The uninstall script removes only the applet tree and explicitly preserves the venv CLI, Wirtel settings, separate Cloudflare token, revision signal, and systemd drop-in.
 
-- [ ] **Step 4: Bump versions and document the operational contract**
+- [x] **Step 4: Bump versions and document the operational contract**
 
 Set package/platform version to `1.1.0` and applet metadata version/comments to `0.9.0`. Document:
 
@@ -2369,7 +2369,7 @@ Set package/platform version to `1.1.0` and applet metadata version/comments to 
 
 Update `Sourcecode/env.example` to remove any `CLOUDFLARE_API_TOKEN` example from the Wirtel file and point to `~/.config/cloudflare/api-token.env` in comments without showing a token value.
 
-- [ ] **Step 5: Ensure CI runs every new contract**
+- [x] **Step 5: Ensure CI runs every new contract**
 
 The applet job's `make check` covers both new root tests. The platform job already discovers `tests/platform/test_*.py`; retain that discovery. Add a CI assertion after editable install:
 
@@ -2380,7 +2380,7 @@ The applet job's `make check` covers both new root tests. The platform job alrea
 
 The help-only assertion verifies packaging without requiring a systemd user bus or inspecting the runner's credentials.
 
-- [ ] **Step 6: Run the complete Python, applet, and static-asset matrix**
+- [x] **Step 6: Run the complete Python, applet, and static-asset matrix**
 
 Run:
 
@@ -2394,7 +2394,7 @@ git diff --check
 
 Expected: every command exits 0. No test contacts OpenAI, GitHub, or Cloudflare.
 
-- [ ] **Step 7: Scan tracked changes for secret or split-writer regressions**
+- [x] **Step 7: Scan tracked changes for secret or split-writer regressions**
 
 Run:
 
@@ -2406,7 +2406,7 @@ rg -n -- 'def (_write_env_file|_write_systemd_dropins|_apply_enabled_state)' fil
 
 Expected: the first command is clean; token assignment occurs only in fixture strings and the separated store implementation; the split-writer scan returns no match.
 
-- [ ] **Step 8: Commit the integration unit**
+- [x] **Step 8: Commit the integration unit**
 
 ```bash
 git add Sourcecode/systemd-user/wirtelprimpf-admin.service tests/platform/test_systemd_units.py scripts/install-local.sh scripts/uninstall-local.sh files/wirtelprimfgenerator@H234598/metadata.json pyproject.toml wirtelprimpf_platform/__init__.py README.md files/wirtelprimfgenerator@H234598/README.md Sourcecode/env.example .github/workflows/check.yml
@@ -2544,3 +2544,45 @@ Do not start public deployment merely because Task 10 is green. First compare th
   falschen `revision_signal_mismatch` aus.
 - Ein beobachtbarer Regressionstest variiert Aktivität, Zeitstempel und Resultat
   bei identischer Timerkonfiguration und verlangt dieselbe 64-stellige Revision.
+
+### 2026-08-01 — Task 10: Packaging, Unit-Härtung und vollständige lokale Regression
+
+- Der testgetriebene RED-Lauf
+  `python -m unittest tests.platform.test_systemd_units tests.test_settings_schema tests.test_semver -v`
+  schlug zunächst wie vorgesehen an den noch fehlenden Servicepfaden, dem
+  Settings-CLI-Installationsgate und den alten Versionswerten fehl. Der finale
+  fokussierte Lauf bestand 24/24 Verträge, einschließlich eines zusätzlichen
+  beobachtbaren Paketressourcentests für `admin.html`, `admin.css` und
+  `admin.mjs` über `importlib.resources`.
+- `46f07c593b132d293c2f5368e7ee6ef00f136e79`
+  (`chore(settings): package and document transactional control`) enthält die
+  Task-10-Integration: Paket-/Plattformversion `1.1.0`, Appletversion `0.9.0`,
+  minimierte Admin-Schreibpfade ohne importierte Secret-Environmentdatei, die
+  optionale separate Cloudflare-Token-Datei ausschließlich im Generatorservice,
+  das fail-closed Settings-CLI-Gate vor Applet-Ersatz, konservative
+  Deinstallation, CI-Entrypointprüfung und den vollständigen Betriebsvertrag.
+- Die finale, nach dem letzten Testzusatz erneut ausgeführte Matrix bestand:
+  `python -m unittest discover -s tests/platform -p 'test_*.py' -v` mit 125/125;
+  `make check` mit Applet-Runtime grün, Admin-UI 14/14, SemVer/Packaging 8/8,
+  Git-Object-Fallback 3/3, Release-Publication 3/3, Helper-Environment 7/7,
+  Applet-Sync 18/18, Settings-Schema 6/6 und Story-Directives 31/31;
+  `python -m compileall -q Sourcecode wirtelprimpf_platform scripts` ohne Fehler;
+  der eigenständige `node --test tests/test_admin_ui.mjs` erneut 14/14; und
+  `git diff --cached --check` ohne Befund.
+- Der abschließende Secret-Scan fand `CLOUDFLARE_API_TOKEN=` ausschließlich in
+  drei Testassertionen/-fixtures und keinen Treffer in Produktivcode,
+  Beispielkonfiguration oder Dokumentation. Der Scan auf die bekannten
+  tatsächlich verwendeten Tokenfragmente fand null Treffer. Der
+  Split-Writer-Scan auf `_write_env_file`, `_write_systemd_dropins` und
+  `_apply_enabled_state` in `SettingsLogo.py` blieb leer.
+- Das optionale Python-Modul `build` war lokal nicht vorhanden. Deshalb wurde
+  bewusst weder ein Paket installiert noch eine neue Buildabhängigkeit
+  bezogen; Package-Data und Entrypoint wurden aus `pyproject.toml` gelesen und
+  die drei statischen Assets direkt als Paketressourcen validiert. Die CI führt
+  nach ihrer regulären Editable-Installation zusätzlich
+  `wirtelprimpf-settings --help` aus.
+- Unmittelbar nach dem Codecommit war `git status --short` leer. Während Task 10
+  erfolgten keine Installation, kein Reload, kein Deploy, kein Push, kein PR,
+  kein Merge, keine Cloudflare-/DNS-Mutation, kein Cinnamon-Upstream-Fix und
+  keine sonstige Systemmutation. Die Public-Copy-Tasks bleiben bis zum
+  vereinbarten Review-Checkpoint unangetastet.
