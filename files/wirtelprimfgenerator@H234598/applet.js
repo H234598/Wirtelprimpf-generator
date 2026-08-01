@@ -14,6 +14,12 @@ const Main = imports.ui.main;
 
 const UUID = "wirtelprimfgenerator@H234598";
 const DEFAULT_GITHUB_URL = "https://github.com/H234598/Wirtelprimpf-generator";
+const LEGACY_GITHUB_URLS = [
+    "https://github.com/H234598/Katzenbilder",
+    "https://github.com/H234598/Katzenbilder.git",
+    "https://github.com/H234598/Wirtelprimpf-0001",
+    "https://github.com/H234598/Wirtelprimpf-0001.git"
+];
 const HELPER_OUTPUT_LIMIT = 1024 * 1024;
 const FULL_STORY_LIMIT = 50;
 const RECENT_PART_LIMIT = 15;
@@ -78,6 +84,7 @@ WirtelApplet.prototype = {
 
         this.settings = new Settings.AppletSettings(this, UUID, instanceId);
         this._bindSettings();
+        this._migrateLegacySettings();
 
         this._setIdlePresentation();
         this.set_applet_tooltip(_("Wirtelprimfgenerator"));
@@ -117,6 +124,22 @@ WirtelApplet.prototype = {
         bind("notify-errors", "notifyErrors");
         bind("github-url", "githubUrl");
         bind("panel-icon-choice", "panelIconChoice");
+    },
+
+    _migrateLegacySettings: function() {
+        let current = this.githubUrl;
+        try {
+            if (this.settings && this.settings.getValue) current = this.settings.getValue("github-url");
+        } catch (e) {}
+        if (LEGACY_GITHUB_URLS.indexOf(current) < 0) return false;
+        try {
+            if (this.settings && this.settings.setValue) this.settings.setValue("github-url", DEFAULT_GITHUB_URL);
+            else this.githubUrl = DEFAULT_GITHUB_URL;
+        } catch (e2) {
+            global.logError("[" + UUID + "] legacy GitHub URL migration failed: " + e2);
+            return false;
+        }
+        return true;
     },
 
     _onSettingsChanged: function() {
@@ -680,7 +703,9 @@ WirtelApplet.prototype = {
     },
 
     _openProjectRepository: function() {
-        this._spawnDetached(["xdg-open", this.githubUrl || DEFAULT_GITHUB_URL]);
+        let url = this.githubUrl || DEFAULT_GITHUB_URL;
+        if (LEGACY_GITHUB_URLS.indexOf(url) >= 0) url = DEFAULT_GITHUB_URL;
+        this._spawnDetached(["xdg-open", url]);
     },
 
     _openOutputFolderFromSettings: function() {
