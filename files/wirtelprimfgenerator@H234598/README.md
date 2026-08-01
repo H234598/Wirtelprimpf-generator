@@ -4,7 +4,7 @@ Cinnamon-Applet für `H234598/Wirtelprimpf-generator`: aktuelles lokales Story-B
 
 ## Speed-of-Cinnamon-Abgleich
 
-Version `0.7.1` übernimmt die relevanten Produktmuster aus Speed of Cinnamon und den getrennten Generator-/Archivvertrag:
+Version `0.7.2` übernimmt die relevanten Produktmuster aus Speed of Cinnamon und den getrennten Generator-/Archivvertrag:
 
 - responsive Logo in den Cinnamon-Optionen über `SettingsLogo.py` und `assets/settings-*.png`;
 - Settings mit Seiten/Layout, About-Seite, TTS-Engine-Auswahl und Aktionsbuttons;
@@ -15,6 +15,8 @@ Version `0.7.1` übernimmt die relevanten Produktmuster aus Speed of Cinnamon un
 - Custom-TTS wird ohne Shell als Argumentliste gestartet. Shell-Operatoren wie `|`, `&&`, `>` werden abgelehnt;
 - Geheimnisse werden nie aus `openai.env` in das Einstellungsfenster geladen. Ein leeres Geheimnisfeld bedeutet „vorhandenen Wert beibehalten“;
 - `openai.env` und systemd-Drop-ins werden atomar ersetzt. Kommentare, unbekannte künftige Variablen und die private Laufzeitumgebung der Basis-Units bleiben erhalten.
+- Storyteil-Nummern folgen den Überschriften der kanonischen Full Story und bleiben dadurch auch bei einer historisch fehlenden Sidecar-Datei korrekt.
+- Alte gespeicherte Projektlinks zu `Katzenbilder` oder `Wirtelprimpf-0001` werden einmalig auf `Wirtelprimpf-generator` migriert; absichtlich gesetzte fremde URLs bleiben unverändert.
 
 ## Installation lokal
 

@@ -361,10 +361,33 @@ function testTtsSchedulingFailureReleasesOwnedOperation() {
     assert.equal(applet._isReading, false);
 }
 
+function testLegacyRepositoryUrlIsMigratedWithoutOverwritingCustomUrls() {
+    const applet = makeApplet();
+    const writes = [];
+    let storedUrl = "https://github.com/H234598/Katzenbilder";
+    applet.settings = {
+        getValue() { return storedUrl; },
+        setValue(key, value) { writes.push([key, value]); storedUrl = value; },
+    };
+    applet.githubUrl = "https://github.com/H234598/Wirtelprimpf-generator";
+
+    applet._migrateLegacySettings();
+
+    assert.equal(applet.githubUrl, "https://github.com/H234598/Wirtelprimpf-generator");
+    assert.deepEqual(writes, [["github-url", "https://github.com/H234598/Wirtelprimpf-generator"]]);
+
+    storedUrl = "https://example.invalid/custom";
+    applet.githubUrl = storedUrl;
+    applet._migrateLegacySettings();
+    assert.equal(applet.githubUrl, "https://example.invalid/custom");
+    assert.equal(writes.length, 1, "an intentional custom repository URL is preserved");
+}
+
 testPersistentMenuPools();
 testSinglePendingScanAndGeneration();
 testOwnedProcessTeardown();
 testLateCallbacksAndTimerlessStop();
 testRemovedAppletCannotStartDetachedActions();
 testTtsSchedulingFailureReleasesOwnedOperation();
+testLegacyRepositoryUrlIsMigratedWithoutOverwritingCustomUrls();
 console.log("Wirtel applet runtime stability tests passed");

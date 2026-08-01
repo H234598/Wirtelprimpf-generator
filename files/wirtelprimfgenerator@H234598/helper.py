@@ -81,7 +81,7 @@ class PartInfo:
     mtime: float
     roman: Optional[str] = None
     roman_int: int = 0
-    part_no: int = 0
+    part_no: Optional[int] = None
 
     @property
     def date_label(self) -> str:
@@ -91,6 +91,10 @@ class PartInfo:
     def tooltip(self) -> str:
         suffix = "" if self.dt_source != "mtime" else " (mtime)"
         return self.dt.strftime("%d.%m.%Y %H:%M") + suffix
+
+    @property
+    def part_label(self) -> str:
+        return f"Part{self.part_no}" if self.part_no is not None else "Part?"
 
 
 def eprint(*args: Any) -> None:
@@ -528,14 +532,47 @@ def active_full_story(root: Path, full_stories: List[Dict[str, Any]]) -> Optiona
     return Path(str(newest["path"]))
 
 
-def story_entry_stamps(full_story: Optional[Path]) -> set[str]:
+def normalize_story_section(text: str) -> str:
+    return "\n".join(line.rstrip() for line in text.strip().splitlines()).strip()
+
+
+def story_entry_sections(full_story: Optional[Path]) -> Dict[str, List[Tuple[int, str]]]:
     if not full_story or not full_story.exists() or full_story.suffix.lower() not in {".md", ".markdown"}:
-        return set()
+        return {}
     try:
         text = full_story.read_text(encoding="utf-8", errors="replace")
     except Exception:
-        return set()
-    return {f"{m.group(1)} {m.group(2)}" for m in ENTRY_HEADING_RE.finditer(text)}
+        return {}
+    matches = list(ENTRY_HEADING_RE.finditer(text))
+    sections: Dict[str, List[Tuple[int, str]]] = {}
+    for index, match in enumerate(matches):
+        stamp = f"{match.group(1)} {match.group(2)}"
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        body = normalize_story_section(text[match.end():end])
+        sections.setdefault(stamp, []).append((index + 1, body))
+    return sections
+
+
+def story_entry_numbers(full_story: Optional[Path]) -> Dict[str, List[int]]:
+    return {
+        stamp: [part_no for part_no, _body in sections]
+        for stamp, sections in story_entry_sections(full_story).items()
+    }
+
+
+def story_entry_stamps(full_story: Optional[Path]) -> set[str]:
+    return set(story_entry_numbers(full_story))
+
+
+def single_story_entry_body(path: Path) -> Optional[str]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+    matches = list(ENTRY_HEADING_RE.finditer(text))
+    if len(matches) != 1:
+        return None
+    return normalize_story_section(text[matches[0].end():])
 
 
 def is_part_candidate(root: Path, p: Path, args: ScanArgs) -> bool:
@@ -569,22 +606,41 @@ def part_info(root: Path, path: Path, active_roman: Optional[str], active_roman_
 def scan_parts(root: Path, files: List[Path], args: ScanArgs, full_stories: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[PartInfo]]:
     active = active_full_story(root, full_stories)
     active_roman, active_roman_int = parse_roman_from_path(active) if active else (None, 0)
-    stamps = story_entry_stamps(active)
+    entry_sections = story_entry_sections(active)
+    stamps = set(entry_sections)
 
-    infos: List[PartInfo] = []
+    candidates: List[Tuple[PartInfo, Optional[str]]] = []
     for p in files:
         if not is_part_candidate(root, p, args):
             continue
         info, stamp = part_info(root, p, active_roman, active_roman_int)
         if stamps and stamp not in stamps:
             continue
-        infos.append(info)
+        candidates.append((info, stamp))
 
-    if not infos:
+    if not candidates:
         return [], [], []
-    infos.sort(key=lambda fi: (fi.dt, fi.mtime, fi.rel))
-    for i, fi in enumerate(infos, start=1):
-        fi.part_no = i
+    candidates.sort(key=lambda item: (item[0].dt, item[0].mtime, item[0].rel))
+    if entry_sections:
+        used_positions: set[int] = set()
+        infos: List[PartInfo] = []
+        for info, stamp in candidates:
+            sections = entry_sections.get(stamp or "", [])
+            available = [(part_no, body) for part_no, body in sections if part_no not in used_positions]
+            if len(sections) == 1 and len(available) == 1:
+                info.part_no = available[0][0]
+            elif len(sections) > 1:
+                sidecar_body = single_story_entry_body(info.path)
+                matches = [part_no for part_no, body in available if sidecar_body is not None and body == sidecar_body]
+                if len(matches) == 1:
+                    info.part_no = matches[0]
+            if info.part_no is not None:
+                used_positions.add(info.part_no)
+            infos.append(info)
+    else:
+        infos = [info for info, _stamp in candidates]
+        for i, fi in enumerate(infos, start=1):
+            fi.part_no = i
     desc = list(reversed(infos))
     recent = desc[:RECENT_PART_LIMIT]
 
@@ -592,14 +648,14 @@ def scan_parts(root: Path, files: List[Path], args: ScanArgs, full_stories: List
         "label": f"Last {idx}h",
         "path": str(fi.path),
         "date_label": fi.date_label,
-        "tooltip": f"Part{fi.part_no} – {fi.tooltip}",
+        "tooltip": f"{fi.part_label} – {fi.tooltip}",
         "part_no": fi.part_no,
         "roman": fi.roman,
     } for idx, fi in enumerate(recent, start=1)]
     all_out = [{
         "label": fi.date_label,
         "path": str(fi.path),
-        "tooltip": f"Part{fi.part_no} – {fi.tooltip}",
+        "tooltip": f"{fi.part_label} – {fi.tooltip}",
         "part_no": fi.part_no,
         "roman": fi.roman,
     } for fi in desc]
