@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -10,6 +10,24 @@ import {
   sortStoryPartsNewestFirst,
 } from "../src/lib/content.ts";
 import { loadStories } from "../src/lib/data.ts";
+
+
+function relativeLuminance(hex: string): number {
+  const channels = hex.match(/[0-9a-f]{2}/gi)?.map((channel) => Number.parseInt(channel, 16) / 255);
+  assert.equal(channels?.length, 3);
+  const linear = channels!.map((channel) => (
+    channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  ));
+  return 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!;
+}
+
+
+function contrastRatio(first: string, second: string): number {
+  const firstLuminance = relativeLuminance(first);
+  const secondLuminance = relativeLuminance(second);
+  return (Math.max(firstLuminance, secondLuminance) + 0.05)
+    / (Math.min(firstLuminance, secondLuminance) + 0.05);
+}
 
 
 test("story parts are parsed chronologically and can be rendered newest first", () => {
@@ -84,4 +102,16 @@ test("hub loads the explicit current story with its declared global volume", () 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+test("code inside paper story cards keeps WCAG AA text contrast", () => {
+  const css = readFileSync(new URL("../src/styles/global.css", import.meta.url), "utf8");
+  const paper = css.match(/--paper:\s*(#[0-9a-f]{6})/i)?.[1];
+  const paperCode = css.match(/--paper-code:\s*(#[0-9a-f]{6})/i)?.[1];
+
+  assert.ok(paper);
+  assert.ok(paperCode);
+  assert.match(css, /\.story-part code\s*\{[^}]*color:\s*var\(--paper-code\)/s);
+  assert.ok(contrastRatio(paperCode, paper) >= 4.5);
 });
