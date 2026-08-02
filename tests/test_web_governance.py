@@ -456,6 +456,40 @@ class WebGovernanceValidationTests(unittest.TestCase):
             result = self.validate(root)
         self.assert_rejected(result, "CI")
 
+    def test_rejects_unnamed_ci_publication_step(self) -> None:
+        """Rejects a publication command hidden in an unnamed workflow step."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            workflow = root / WORKFLOW
+            content = workflow.read_text(encoding="utf-8")
+            workflow.write_text(
+                content.replace(
+                    "    steps:\n",
+                    "    steps:\n      - run: wrangler pages publish web/dist\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            result = self.validate(root)
+        self.assert_rejected(result, "CI")
+
+    def test_rejects_unnamed_ci_external_action_step(self) -> None:
+        """Rejects a foreign action hidden in an unnamed workflow step."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            workflow = root / WORKFLOW
+            content = workflow.read_text(encoding="utf-8")
+            workflow.write_text(
+                content.replace(
+                    "    steps:\n",
+                    "    steps:\n      - uses: attacker/deploy-action@0000000000000000000000000000000000000000\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            result = self.validate(root)
+        self.assert_rejected(result, "CI")
+
     def test_readme_links_governance_authority_and_local_checks(self) -> None:
         """Makes governance artifacts and commands discoverable from README."""
         readme = (ROOT / README).read_text(encoding="utf-8")

@@ -301,8 +301,8 @@ def validate_ci_integration(root: Path) -> None:
     for name, commands in CI_JOB_COMMANDS.items():
         job_actions = tuple(re.findall(r"^\s+uses:\s+(\S+)(?:\s+#.*)?$", bodies[name], re.MULTILINE))
         require(job_actions == CI_JOB_ACTIONS[name], "CI action pin")
-        names = tuple(re.findall(r"^      - name: (.+)$", bodies[name], re.MULTILINE))
-        require(names == CI_STEP_NAMES[name], "CI job steps")
+        steps = tuple(re.findall(r"^      - (.+)$", bodies[name], re.MULTILINE))
+        require(steps == tuple(f"name: {step}" for step in CI_STEP_NAMES[name]), "CI job steps")
         executable = ci_run_commands(bodies[name])
         require(
             not any(re.search(r"\b(?:deploy|publish)\b", command, re.IGNORECASE) for command in executable),
