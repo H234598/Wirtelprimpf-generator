@@ -5377,6 +5377,513 @@ while :; do sleep 0.01; done
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_task4_binds_remote_factory_and_local_hardening_target_separately(self) -> None:
+        marker = "TASK4_FACTORY_TARGET_BINDING"
+        self.assertIn(f"# BEGIN {marker}", self.deployment)
+        binding = _marked_block(self.deployment, marker)
+        self.assertIn(
+            "factory_sha=\"${GENERATOR_MERGE_SHA:?verified Task-3 receipt SHA required}\"",
+            self.deployment,
+        )
+        self.assertIn(
+            "target_ref=refs/heads/agent/pr4-closed-merge-reconcile",
+            self.deployment,
+        )
+        self.assertIn('[[ "$factory_sha" =~ ^[0-9a-f]{40}$ ]]', binding)
+        self.assertIn(
+            'test "$factory_sha" = 274b25c9e1f9ea97d3b060997ed5c425d2b30e9f',
+            binding,
+        )
+        self.assertIn('[[ "$target_sha" =~ ^[0-9a-f]{40}$ ]]', binding)
+        self.assertIn('test "$factory_sha" != "$target_sha"', binding)
+        self.assertIn('git_runtime cat-file -e "$factory_sha^{commit}"', binding)
+        self.assertIn('git_runtime cat-file -e "$target_sha^{tree}"', binding)
+        self.assertIn(
+            'test "$(git_runtime rev-parse refs/remotes/origin/main)" = "$factory_sha"',
+            binding,
+        )
+        self.assertIn(
+            'test "$(git_runtime rev-parse "$target_ref^{commit}")" = "$target_sha"',
+            binding,
+        )
+        self.assertIn(
+            'git_runtime merge-base --is-ancestor "$factory_sha" "$target_sha"',
+            binding,
+        )
+        initial_binding = self.deployment.index(
+            "\nassert_task4_factory_target_binding\n"
+        )
+        first_mutation = self.deployment.index(
+            'deploy_backup="$(mktemp -d', initial_binding
+        )
+        fetch = self.deployment.index("\ngit_runtime_fetch_bounded\n")
+        rebound = self.deployment.index(
+            "\nassert_task4_factory_target_binding\n", fetch
+        )
+        self.assertLess(initial_binding, first_mutation)
+        self.assertLess(fetch, rebound)
+        self.assertNotIn(
+            'test "$(git_runtime rev-parse origin/main)" = "$target_sha"',
+            self.deployment,
+        )
+
+    def test_step6_redacts_every_unexpected_http_status_or_payload(self) -> None:
+        marker = "STEP6_REDACTED_HTTP_ASSERTION"
+        self.assertIn(f"# BEGIN {marker}", self.smoke_sync)
+        helper = _marked_block(self.smoke_sync, marker)
+        namespace: dict[str, object] = {"json": json, "FIELD": "output_resolution"}
+        exec(compile(helper, "<step6-redacted-http>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        require_http = namespace["require_http"]
+        secret = "OPENAI_API_KEY=must-never-escape"
+        path = "/home/teladi/.config/wirtelprimpf/openai.env"
+        payload = {
+            "error": f"{secret}:{path}",
+            "conflicts": ["output_resolution", secret, path],
+            "rollback_succeeded": True,
+            "settings": {"output_resolution": "source", "secret": secret},
+        }
+        with self.assertRaises(AssertionError) as caught:
+            require_http(False, 403, payload)
+        evidence = json.loads(str(caught.exception))
+        self.assertEqual(
+            set(evidence),
+            {
+                "status",
+                "error",
+                "conflicts",
+                "rollback_succeeded",
+                "expected_field",
+                "expected_value_class",
+            },
+        )
+        self.assertEqual(evidence["status"], 403)
+        self.assertEqual(evidence["error"], "redacted-unexpected-error")
+        self.assertEqual(evidence["conflicts"], "redacted-unexpected-conflicts")
+        self.assertEqual(evidence["rollback_succeeded"], True)
+        self.assertEqual(evidence["expected_field"], "output_resolution")
+        self.assertEqual(evidence["expected_value_class"], "string-choice")
+        self.assertNotIn(secret, str(caught.exception))
+        self.assertNotIn(path, str(caught.exception))
+        self.assertNotIn("settings", str(caught.exception))
+        malformed_payload = {
+            "error": [secret, {"path": path}],
+            "conflicts": {"secret": secret, "path": path},
+            "rollback_succeeded": "yes",
+            "settings": {"secret": secret},
+        }
+        with self.assertRaises(AssertionError) as malformed_caught:
+            require_http(False, f"403:{secret}", malformed_payload)
+        malformed_evidence = json.loads(str(malformed_caught.exception))
+        self.assertEqual(malformed_evidence["status"], "redacted-unexpected-status")
+        self.assertEqual(malformed_evidence["error"], "redacted-unexpected-error")
+        self.assertEqual(
+            malformed_evidence["conflicts"], "redacted-unexpected-conflicts"
+        )
+        self.assertIsNone(malformed_evidence["rollback_succeeded"])
+        self.assertNotIn(secret, str(malformed_caught.exception))
+        self.assertNotIn(path, str(malformed_caught.exception))
+        self.assertNotIn("assert status ==", self.smoke_sync)
+        self.assertGreaterEqual(self.smoke_sync.count("require_http("), 10)
+        self.assertEqual(self.deployment.count(self.smoke_sync), 1)
+
+    def test_task5_pins_factory_while_runtime_main_is_the_hardening_target(self) -> None:
+        marker = "TASK5_GENERATOR_BOOTSTRAP_GATE"
+        for name, script in (
+            ("step1", self.task5_step1),
+            ("step2", self.task5_step2),
+            ("step3", self.task5_step3),
+            ("step4", self.task5_step4),
+            ("step5", self.task5_step5),
+            ("step6", self.task5_step6),
+        ):
+            with self.subTest(name=name):
+                self.assertIn(f"# BEGIN {marker}", script)
+                self.assertIn("assert_task5_generator_bootstrap", script)
+                self.assertNotIn(
+                    'test "$generator_factory_sha" = \\\n  "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"',
+                    script,
+                )
+        gate = _marked_block(self.task5_step1, marker)
+        self.assertIn(
+            "generator_target_ref=refs/heads/agent/pr4-closed-merge-reconcile",
+            self.task5_step1,
+        )
+        self.assertIn('test "$generator_factory_sha" != "$generator_target_sha"', gate)
+        self.assertIn(
+            'test "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)" = '
+            '"$generator_target_sha"',
+            gate,
+        )
+        self.assertIn(
+            'test "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)" = '
+            '"$generator_factory_sha"',
+            gate,
+        )
+        self.assertIn(
+            '"$generator_factory_sha:.github/workflows/archive-pages.yml"', gate
+        )
+        self.assertIn(
+            '"$generator_target_sha:.github/workflows/archive-pages.yml"', gate
+        )
+        self.assertIn('test "$factory_blob" = "$target_blob"', gate)
+
+    def test_generator_followup_runs_only_after_task5_and_verifies_merge_before_cas(self) -> None:
+        heading = "### Task 5a: Publish the locally deployed generator hardening"
+        self.assertIn(heading, self.document)
+        followup_offset = self.document.index(heading)
+        task6_offset = self.document.index("### Task 6:")
+        self.assertLess(followup_offset, task6_offset)
+        followup = _code_block_after(
+            self.document[followup_offset:task6_offset],
+            "**Step 1: Gate, publish, merge, and reconcile the generator hardening**",
+        )
+        archive_gate = followup.index("assert_followup_archive_complete")
+        local_gate = followup.index("assert_followup_local_rollout")
+        identity_gate_offset = followup.index("# BEGIN FOLLOWUP_REMOTE_IDENTITY_GATE")
+        push = followup.index("git_followup_remote push")
+        pull_request = followup.index("followup_gh pr create")
+        checks = followup.index("followup_gh pr checks")
+        review = followup.index("assert_followup_review")
+        final_pr_gate = followup.index("assert_followup_final_pr_gate")
+        merge = followup.index('merge_sha="$(git_followup_commit_tree')
+        atomic_push = followup.index("git_followup_remote push --atomic")
+        fetch = followup.index("git_followup_fetch_main_bounded")
+        tree_gate = followup.index('test "$merge_tree" = "$target_tree"')
+        parent_gate = followup.index('test "${merge_parents[0]}" = "$factory_sha"')
+        cas = followup.index(
+            'update-ref refs/heads/main "$merge_sha" "$target_sha"'
+        )
+        postflight = followup.rindex("assert_followup_local_rollout")
+        self.assertLess(local_gate, archive_gate)
+        self.assertLess(archive_gate, push)
+        self.assertLess(identity_gate_offset, push)
+        self.assertLess(push, pull_request)
+        self.assertLess(pull_request, checks)
+        self.assertLess(checks, review)
+        self.assertLess(review, final_pr_gate)
+        self.assertLess(final_pr_gate, merge)
+        self.assertLess(review, merge)
+        self.assertLess(merge, tree_gate)
+        self.assertLess(tree_gate, parent_gate)
+        self.assertLess(parent_gate, atomic_push)
+        self.assertLess(atomic_push, fetch)
+        self.assertLess(fetch, cas)
+        self.assertLess(cas, postflight)
+        self.assertIn('test "$merge_sha" = "$remote_main_sha"', followup)
+        self.assertIn('test -z "$(git_followup status --porcelain)"', followup)
+        self.assertNotIn("followup_gh pr merge", followup)
+        identity_gate = _marked_block(followup, "FOLLOWUP_REMOTE_IDENTITY_GATE")
+        self.assertIn("H234598:54270221", identity_gate)
+        self.assertIn("R_kgDOTpr2BA", identity_gate)
+        self.assertIn("H234598/Wirtelprimpf-generator", identity_gate)
+        git_config_guard = _marked_block(followup, "FOLLOWUP_GIT_CONFIG_GUARD")
+        for rejected_key_family in (
+            "include",
+            "url",
+            "http",
+            "protocol",
+            "credential",
+            "core\\.(askpass|hookspath|sshcommand|gitproxy|fsmonitor)",
+            "remote\\..*\\.(proxy|vcs|receivepack|uploadpack|pushurl)",
+        ):
+            self.assertIn(rejected_key_family, git_config_guard)
+        self.assertIn('assert_safe_followup_git_config "$runtime"', followup)
+        self.assertIn('assert_safe_followup_git_config "$hardening_checkout"', followup)
+        receipt = _marked_block(followup, "FOLLOWUP_TASK3_RECEIPT_V3")
+        self.assertIn("keys == [", receipt)
+        self.assertIn('.version == 3 and .state == "verified"', receipt)
+        self.assertIn('.review_state == "APPROVED"', receipt)
+        self.assertIn("274b25c9e1f9ea97d3b060997ed5c425d2b30e9f", followup)
+        self.assertIn('test "$package_version" = 1.1.0', followup)
+        for unit_gate in (
+            'test "$(systemctl --user is-enabled wirtelprimpf.timer)" = enabled',
+            'test "$(systemctl --user show wirtelprimpf.timer -p ActiveState --value)" = active',
+            'test "$(systemctl --user show wirtelprimpf.timer -p SubState --value)" = waiting',
+            'test "$(systemctl --user is-enabled wirtelprimpf.service)" = static',
+            'test "$(systemctl --user show wirtelprimpf.service -p ActiveState --value)" = inactive',
+            'test "$(systemctl --user show wirtelprimpf.service -p SubState --value)" = dead',
+            'test "$(systemctl --user is-enabled wirtelprimpf-admin.service)" = enabled',
+            'test "$(systemctl --user show wirtelprimpf-admin.service -p ActiveState --value)" = active',
+            'test "$(systemctl --user show wirtelprimpf-admin.service -p SubState --value)" = running',
+        ):
+            self.assertIn(unit_gate, followup)
+        final_gate = _marked_block(followup, "FOLLOWUP_FINAL_PR_GATE")
+        for predicate in (
+            '.state == "OPEN"',
+            '.headRefOid == $target',
+            '.baseRefName == "main"',
+            ".statusCheckRollup",
+            "assert_followup_review",
+            'test "$final_remote_main_sha" = "$factory_sha"',
+        ):
+            self.assertIn(predicate, final_gate)
+        exact_cas = _marked_block(followup, "FOLLOWUP_EXACT_REMOTE_CAS")
+        self.assertIn('"$remote_ref" == refs/heads/main', exact_cas)
+        self.assertIn('"$remote_sha" == "$FOLLOWUP_EXPECTED_FACTORY"', exact_cas)
+        self.assertIn('"$local_sha" == "$FOLLOWUP_EXPECTED_MERGE"', exact_cas)
+        self.assertIn('test "$record_count" = 1', exact_cas)
+        self.assertNotIn("FOLLOWUP_EXPECTED_TARGET", exact_cas)
+        self.assertIn(
+            'FOLLOWUP_EXPECTED_FACTORY="${FOLLOWUP_EXPECTED_FACTORY:-}"',
+            followup,
+        )
+        self.assertIn(
+            'FOLLOWUP_EXPECTED_MERGE="${FOLLOWUP_EXPECTED_MERGE:-}"',
+            followup,
+        )
+        self.assertIn(
+            'FOLLOWUP_EXPECTED_ORIGIN="${FOLLOWUP_EXPECTED_ORIGIN:-}"',
+            followup,
+        )
+        self.assertIn("--atomic", followup)
+        self.assertNotIn('":$remote_target_ref"', followup)
+        self.assertIn(
+            'test "$postmerge_remote_target_sha" = "$target_sha"', followup
+        )
+        remote_commitpoint = _marked_block(
+            followup, "FOLLOWUP_REMOTE_COMMITPOINT"
+        )
+        self.assertIn('printf "push\\n"', remote_commitpoint)
+        self.assertIn('printf "reconcile\\n"', remote_commitpoint)
+        self.assertIn('"$remote_main_sha" == "$factory_sha"', remote_commitpoint)
+        self.assertIn('"$remote_main_sha" == "$merge_sha"', remote_commitpoint)
+        self.assertIn('"$remote_target_sha" == "$target_sha"', remote_commitpoint)
+        self.assertEqual(followup.count("git_followup_remote push --atomic"), 1)
+        discovery = _marked_block(followup, "FOLLOWUP_IDEMPOTENT_PR_DISCOVERY")
+        self.assertIn("--state all", discovery)
+        self.assertIn('"OPEN"|"MERGED"', discovery)
+        self.assertIn("followup_gh pr create", discovery)
+        local_cas = _marked_block(followup, "FOLLOWUP_IDEMPOTENT_LOCAL_CAS")
+        self.assertIn('"$target_sha")', local_cas)
+        self.assertIn('"$merge_sha")', local_cas)
+        self.assertLess(postflight, followup.index("unset followup_ephemeral_token"))
+        self.assertLess(postflight, followup.rindex("unset GH_TOKEN"))
+        self.assertIn('test -z "${GH_TOKEN+x}"', followup)
+        self.assertIn("No reinstall is performed", self.document[followup_offset:task6_offset])
+        self.assertIn("Run or reconcile", self.document[followup_offset:task6_offset])
+        self.assertNotIn("Run once", self.document[followup_offset:task6_offset])
+        self.assertNotRegex(followup, r"(?:--force|-f)(?:\s|$)")
+
+    def test_generator_followup_exact_main_cas_runs_in_a_real_bare_remote(self) -> None:
+        heading = "### Task 5a: Publish the locally deployed generator hardening"
+        offset = self.document.index(heading)
+        followup = _code_block_after(
+            self.document[offset : self.document.index("### Task 6:")],
+            "**Step 1: Gate, publish, merge, and reconcile the generator hardening**",
+        )
+        hook = "#!/bin/bash\nset -Eeuo pipefail\n" + _marked_block(
+            followup, "FOLLOWUP_EXACT_REMOTE_CAS"
+        )
+        classifier = _marked_block(followup, "FOLLOWUP_REMOTE_COMMITPOINT")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            local = root / "local"
+            remote = root / "remote.git"
+            hooks = root / "hooks"
+            hooks.mkdir(mode=0o700)
+            hook_path = hooks / "pre-push"
+            hook_path.write_text(hook, encoding="utf-8")
+            hook_path.chmod(0o700)
+
+            def git(*arguments: str, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    ["/usr/bin/git", "-c", "protocol.file.allow=always", *arguments],
+                    input=input_text,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                    timeout=15,
+                    env=dict(_FIXTURE_GIT_ENV),
+                )
+
+            git("init", "--bare", str(remote))
+            git("init", "-b", "main", str(local))
+            git("-C", str(local), "config", "user.name", "H234598")
+            git(
+                "-C",
+                str(local),
+                "config",
+                "user.email",
+                "54270221+H234598@users.noreply.github.com",
+            )
+            (local / "state.txt").write_text("factory\n", encoding="utf-8")
+            git("-C", str(local), "add", "state.txt")
+            git("-C", str(local), "commit", "-m", "factory")
+            factory = git("-C", str(local), "rev-parse", "HEAD").stdout.strip()
+            git("-C", str(local), "push", str(remote), "main:refs/heads/main")
+            git("-C", str(local), "switch", "-c", "agent/pr4-closed-merge-reconcile")
+            (local / "state.txt").write_text("target\n", encoding="utf-8")
+            git("-C", str(local), "commit", "-am", "target")
+            target = git("-C", str(local), "rev-parse", "HEAD").stdout.strip()
+            git(
+                "-C",
+                str(local),
+                "push",
+                str(remote),
+                "HEAD:refs/heads/agent/pr4-closed-merge-reconcile",
+            )
+            tree = git("-C", str(local), "rev-parse", "HEAD^{tree}").stdout.strip()
+            merge = git(
+                "-C",
+                str(local),
+                "commit-tree",
+                tree,
+                "-p",
+                factory,
+                "-p",
+                target,
+                input_text="deterministic merge\n",
+            ).stdout.strip()
+            push_env = {
+                **_FIXTURE_GIT_ENV,
+                "FOLLOWUP_EXPECTED_ORIGIN": str(remote),
+                "FOLLOWUP_EXPECTED_FACTORY": factory,
+                "FOLLOWUP_EXPECTED_MERGE": merge,
+            }
+
+            def classify_remote(main_sha: str) -> str:
+                script = (
+                    classifier
+                    + "\nclassify_followup_remote_state "
+                    + "\"$TEST_MAIN\" \"$TEST_TARGET\" "
+                    + "\"$TEST_FACTORY\" \"$TEST_MERGE\" "
+                    + "\"$TEST_TARGET\"\n"
+                )
+                result = subprocess.run(
+                    ["/usr/bin/bash"],
+                    input=script,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                    timeout=15,
+                    env={
+                        "HOME": "/home/teladi",
+                        "PATH": "/usr/bin:/bin",
+                        "TEST_MAIN": main_sha,
+                        "TEST_TARGET": target,
+                        "TEST_FACTORY": factory,
+                        "TEST_MERGE": merge,
+                    },
+                )
+                return result.stdout.strip()
+
+            self.assertEqual(classify_remote(factory), "push")
+            push_command = [
+                "/usr/bin/git",
+                "-c",
+                "protocol.file.allow=always",
+                "-c",
+                f"core.hooksPath={hooks}",
+                "-C",
+                str(local),
+                "push",
+                "--atomic",
+                str(remote),
+                f"{merge}:refs/heads/main",
+            ]
+            accepted = subprocess.run(
+                push_command,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=15,
+                env=push_env,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(
+                git("--git-dir", str(remote), "rev-parse", "refs/heads/main").stdout.strip(),
+                merge,
+            )
+            self.assertEqual(
+                git(
+                    "--git-dir",
+                    str(remote),
+                    "rev-parse",
+                    "refs/heads/agent/pr4-closed-merge-reconcile",
+                ).stdout.strip(),
+                target,
+            )
+            self.assertEqual(classify_remote(merge), "reconcile")
+
+            git(
+                "--git-dir",
+                str(remote),
+                "update-ref",
+                "refs/heads/main",
+                target,
+                merge,
+            )
+            rejected = subprocess.run(
+                push_command,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=15,
+                env=push_env,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertEqual(
+                git("--git-dir", str(remote), "rev-parse", "refs/heads/main").stdout.strip(),
+                target,
+            )
+
+    def test_generator_followup_git_config_guard_rejects_transport_overrides(self) -> None:
+        heading = "### Task 5a: Publish the locally deployed generator hardening"
+        offset = self.document.index(heading)
+        followup = _code_block_after(
+            self.document[offset : self.document.index("### Task 6:")],
+            "**Step 1: Gate, publish, merge, and reconcile the generator hardening**",
+        )
+        guard = _marked_block(followup, "FOLLOWUP_GIT_CONFIG_GUARD")
+        canonical_origin = "https://github.com/H234598/Wirtelprimpf-generator.git"
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repository"
+            _fixture_git(["init", "-q", "-b", "main", str(repository)], check=True)
+            _fixture_git(
+                ["-C", str(repository), "remote", "add", "origin", canonical_origin],
+                check=True,
+            )
+            script = (
+                "set -Eeuo pipefail\n"
+                'canonical_origin="$2"\n'
+                + guard
+                + '\nassert_safe_followup_git_config "$1"\n'
+            )
+
+            def execute() -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    ["/usr/bin/bash", "-c", script, "followup-config", str(repository), canonical_origin],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=15,
+                    env=dict(_FIXTURE_GIT_ENV),
+                )
+
+            accepted = execute()
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            forbidden = (
+                ("include.path", "/tmp/foreign-config"),
+                ("url.https://attacker.invalid/.insteadOf", "https://github.com/"),
+                ("http.proxy", "https://attacker.invalid"),
+                ("protocol.file.allow", "always"),
+                ("credential.helper", "/bin/false"),
+                ("core.hooksPath", "/tmp/foreign-hooks"),
+                ("remote.origin.uploadpack", "/bin/false"),
+            )
+            for key, value in forbidden:
+                with self.subTest(key=key):
+                    _fixture_git(
+                        ["-C", str(repository), "config", "--local", key, value],
+                        check=True,
+                    )
+                    rejected = execute()
+                    self.assertNotEqual(rejected.returncode, 0)
+                    _fixture_git(
+                        ["-C", str(repository), "config", "--local", "--unset-all", key],
+                        check=True,
+                    )
+
     def test_make_check_runs_the_rollout_contract(self) -> None:
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
         self.assertIn(

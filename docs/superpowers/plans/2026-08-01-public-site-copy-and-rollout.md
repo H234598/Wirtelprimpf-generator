@@ -2299,9 +2299,12 @@ Ownership-Gate ausführen. Dieses Gate ändert keine Git-Referenz und liest wede
 Remote- noch Arbeitsbaumdaten über Git. Beim Eintritt in den normativen
 Task-4-Step-9-Rahmen bleibt `HEAD` der aufgezeichnete alte Runtime-SHA und muss
 vom `target_sha` verschieden sein. Erst nach dem Task-4-CAS und allen davor
-liegenden Backup-, Maskierungs-, Installations- und Smoke-Gates dürfen Runtime
-`HEAD`, `refs/heads/main` und das bereits in Task 4 gefetchte `origin/main` dem
-Ziel-SHA entsprechen. Jede frühere Gleichheit ist ein harter Abbruchgrund.
+liegenden Backup-, Maskierungs-, Installations- und Smoke-Gates dürfen
+Runtime-`HEAD` und `refs/heads/main` dem lokalen Ziel-SHA entsprechen. Das in
+Task 4 erneut gefetchte `origin/main` bleibt dagegen bis zum separaten
+Generator-Follow-up auf dem verifizierten Factory-SHA aus dem Task-3-Receipt.
+Jede frühere Gleichheit von Runtime-HEAD oder lokalem Main mit dem Ziel-SHA ist
+ein harter Abbruchgrund.
 
 #### Verbindliches Ownership-Gate vor jedem Runtime-Gitlauf
 
@@ -4038,6 +4041,45 @@ CLI = "/home/teladi/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-s
 FIELD = "output_resolution"
 
 
+# BEGIN STEP6_REDACTED_HTTP_ASSERTION
+def _response_value(payload, *path):
+    current = payload
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    return current
+
+
+def require_http(condition, status, payload):
+    if condition:
+        return
+    raw_error = _response_value(payload, "error")
+    safe_error = (
+        raw_error
+        if isinstance(raw_error, str)
+        and raw_error in {"conflict", "busy", "invalid-request", "csrf-rejected"}
+        else "redacted-unexpected-error"
+    )
+    raw_conflicts = _response_value(payload, "conflicts")
+    safe_conflicts = (
+        raw_conflicts
+        if raw_conflicts == [FIELD]
+        else "redacted-unexpected-conflicts"
+    )
+    rollback = _response_value(payload, "rollback_succeeded")
+    evidence = {
+        "status": status if isinstance(status, int) and not isinstance(status, bool) else "redacted-unexpected-status",
+        "error": safe_error,
+        "conflicts": safe_conflicts,
+        "rollback_succeeded": rollback if isinstance(rollback, bool) else None,
+        "expected_field": FIELD,
+        "expected_value_class": "string-choice",
+    }
+    raise AssertionError(json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+# END STEP6_REDACTED_HTTP_ASSERTION
+
+
 def request(path, *, payload=None, csrf=None):
     body = None if payload is None else json.dumps(payload, separators=(",", ":")).encode("utf-8")
     headers = {"Accept": "application/json"}
@@ -4067,8 +4109,14 @@ assert match is not None
 csrf = match.group(1)
 
 status, initial = request("/api/settings")
-assert status == 200
-original = initial["settings"][FIELD]
+require_http(
+    status == 200
+    and isinstance(_response_value(initial, "revision"), str)
+    and _response_value(initial, "settings", FIELD) in {"source", "2k", "4k"},
+    status,
+    initial,
+)
+original = _response_value(initial, "settings", FIELD)
 variants = [value for value in ("source", "2k", "4k") if value != original]
 assert len(variants) == 2
 web_value, cli_value = variants
@@ -4144,7 +4192,11 @@ def cli_apply(base_snapshot, value):
 
 try:
     status, web_saved = http_apply(initial, web_value)
-    assert status == 200 and web_saved["settings"][FIELD] == web_value
+    require_http(
+        status == 200 and _response_value(web_saved, "settings", FIELD) == web_value,
+        status,
+        web_saved,
+    )
     last_owned_snapshot = web_saved
 
     cli_status, applet_view = cli("snapshot")
@@ -4157,8 +4209,8 @@ try:
     deadline = time.monotonic() + 4
     while True:
         status, web_view = request("/api/settings")
-        assert status == 200
-        if web_view["settings"][FIELD] == cli_value:
+        require_http(status == 200, status, web_view)
+        if _response_value(web_view, "settings", FIELD) == cli_value:
             break
         if time.monotonic() >= deadline:
             raise AssertionError("HTTP view did not observe the CLI change within four seconds")
@@ -4167,7 +4219,11 @@ try:
     cli_status, stale_cli = cli("snapshot")
     assert cli_status == 0
     status, winner = http_apply(web_view, web_value)
-    assert status == 200 and winner["settings"][FIELD] == web_value
+    require_http(
+        status == 200 and _response_value(winner, "settings", FIELD) == web_value,
+        status,
+        winner,
+    )
     last_owned_snapshot = winner
     cli_status, conflict = cli_apply(stale_cli, original)
     assert cli_status == 3
@@ -4176,36 +4232,62 @@ try:
     assert conflict["snapshot"]["settings"][FIELD] == web_value
 
     status, after_conflict = request("/api/settings")
-    assert status == 200 and after_conflict["settings"][FIELD] == web_value
+    require_http(
+        status == 200 and _response_value(after_conflict, "settings", FIELD) == web_value,
+        status,
+        after_conflict,
+    )
 
     # Prove restoration itself is conflict-safe: a competing commit after the
     # captured restore basis must yield 409 and preserve the competitor.
     restore_basis = winner
     status, competitor = http_apply(winner, cli_value)
-    assert status == 200 and competitor["settings"][FIELD] == cli_value
+    require_http(
+        status == 200 and _response_value(competitor, "settings", FIELD) == cli_value,
+        status,
+        competitor,
+    )
     status, restore_conflict = http_apply(restore_basis, original)
-    assert status == 409
-    assert restore_conflict["conflicts"] == [FIELD]
-    assert restore_conflict["snapshot"]["settings"][FIELD] == cli_value
+    require_http(
+        status == 409
+        and _response_value(restore_conflict, "conflicts") == [FIELD]
+        and _response_value(restore_conflict, "snapshot", "settings", FIELD) == cli_value,
+        status,
+        restore_conflict,
+    )
     last_owned_snapshot = competitor
 finally:
     status, current = request("/api/settings")
-    assert status == 200
-    if current["settings"][FIELD] != original:
+    require_http(status == 200, status, current)
+    if _response_value(current, "settings", FIELD) != original:
         # Never adopt a fresh GET as write ownership.  Restore only from the
         # last revision returned by one of this smoke's successful writes.
         status, restored = http_apply(last_owned_snapshot, original)
         if status == 409:
-            assert restored["snapshot"]["revision"] == current["revision"]
+            require_http(
+                _response_value(restored, "snapshot", "revision")
+                == _response_value(current, "revision"),
+                status,
+                restored,
+            )
             raise RuntimeError("restoration conflict preserved a competing write")
-        assert status == 200 and restored["settings"][FIELD] == original
+        require_http(
+            status == 200 and _response_value(restored, "settings", FIELD) == original,
+            status,
+            restored,
+        )
         last_owned_snapshot = restored
 
 cli_status, final_cli = cli("snapshot")
 status, final_web = request("/api/settings")
-assert cli_status == 0 and status == 200
+require_http(status == 200, status, final_web)
+assert cli_status == 0
 assert final_cli["settings"][FIELD] == original
-assert final_web["settings"][FIELD] == original
+require_http(
+    _response_value(final_web, "settings", FIELD) == original,
+    status,
+    final_web,
+)
 ownership_marker = os.environ.get("WIRTELPRIMPF_SMOKE_OWNERSHIP_MARKER")
 if ownership_marker:
     marker_path = Path(ownership_marker)
@@ -4332,11 +4414,13 @@ bereits vorhandenen Rollback.
 ```bash
 set -Eeuo pipefail
 
-target_sha="${GENERATOR_MERGE_SHA:?recorded Task-3 merge SHA required}"
+factory_sha="${GENERATOR_MERGE_SHA:?verified Task-3 receipt SHA required}"
+target_ref=refs/heads/agent/pr4-closed-merge-reconcile
+target_sha=
 runtime=/home/teladi/.local/share/wirtelprimpf-generator
 runtime_canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
 backup_root=/home/teladi/.local/state/wirtelprimpf/deploy-backups
-[[ "$target_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ "$factory_sha" =~ ^[0-9a-f]{40}$ ]]
 
 assert_runtime_owned() {
   test -d "$runtime" && test ! -L "$runtime"
@@ -4397,7 +4481,7 @@ assert_safe_runtime_git_config() {
 git_runtime() {
   local operation="${1:-}"
   case "$operation" in
-    status|branch|rev-parse|merge-base|update-ref) ;;
+    status|branch|rev-parse|merge-base|cat-file|update-ref) ;;
     remote)
       [[ "$*" == "remote get-url origin" ]] || return 1
       ;;
@@ -4448,6 +4532,22 @@ git_runtime_fetch_bounded() {
         refs/heads/main:refs/remotes/origin/main
 }
 # END TASK4_RUNTIME_GIT_GUARD
+
+# BEGIN TASK4_FACTORY_TARGET_BINDING
+assert_task4_factory_target_binding() {
+  [[ "$factory_sha" =~ ^[0-9a-f]{40}$ ]]
+  [[ "$target_sha" =~ ^[0-9a-f]{40}$ ]]
+  test "$factory_sha" = 274b25c9e1f9ea97d3b060997ed5c425d2b30e9f
+  test "$factory_sha" != "$target_sha"
+  git_runtime cat-file -e "$factory_sha^{commit}"
+  git_runtime cat-file -e "$factory_sha^{tree}"
+  git_runtime cat-file -e "$target_sha^{commit}"
+  git_runtime cat-file -e "$target_sha^{tree}"
+  test "$(git_runtime rev-parse refs/remotes/origin/main)" = "$factory_sha"
+  test "$(git_runtime rev-parse "$target_ref^{commit}")" = "$target_sha"
+  git_runtime merge-base --is-ancestor "$factory_sha" "$target_sha"
+}
+# END TASK4_FACTORY_TARGET_BINDING
 
 # BEGIN TASK4_BACKUP_ROOT_PREFLIGHT
 assert_private_backup_root() {
@@ -5292,6 +5392,8 @@ TASK4_RUNTIME_BARRIER_PY
 command -v timeout >/dev/null
 command -v jq >/dev/null
 assert_private_backup_root "$backup_root" "/home/teladi/.local/state/wirtelprimpf/deploy-backups" 1000 1000 53 7999241
+target_sha="$(git_runtime rev-parse "$target_ref^{commit}")"
+assert_task4_factory_target_binding
 test -z "$(git_runtime status --porcelain)"
 runtime_branch_before="$(git_runtime branch --show-current)"
 runtime_sha_before="$(git_runtime rev-parse HEAD)"
@@ -6040,7 +6142,7 @@ done
 backup_complete=1
 
 git_runtime_fetch_bounded
-test "$(git_runtime rev-parse origin/main)" = "$target_sha"
+assert_task4_factory_target_binding
 git_runtime switch --detach "$target_sha"
 install_editable_offline_bounded "$runtime" \
   "$backend_wheelhouse" "$backend_wheel" \
@@ -6187,6 +6289,45 @@ CLI = "/home/teladi/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-s
 FIELD = "output_resolution"
 
 
+# BEGIN STEP6_REDACTED_HTTP_ASSERTION
+def _response_value(payload, *path):
+    current = payload
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    return current
+
+
+def require_http(condition, status, payload):
+    if condition:
+        return
+    raw_error = _response_value(payload, "error")
+    safe_error = (
+        raw_error
+        if isinstance(raw_error, str)
+        and raw_error in {"conflict", "busy", "invalid-request", "csrf-rejected"}
+        else "redacted-unexpected-error"
+    )
+    raw_conflicts = _response_value(payload, "conflicts")
+    safe_conflicts = (
+        raw_conflicts
+        if raw_conflicts == [FIELD]
+        else "redacted-unexpected-conflicts"
+    )
+    rollback = _response_value(payload, "rollback_succeeded")
+    evidence = {
+        "status": status if isinstance(status, int) and not isinstance(status, bool) else "redacted-unexpected-status",
+        "error": safe_error,
+        "conflicts": safe_conflicts,
+        "rollback_succeeded": rollback if isinstance(rollback, bool) else None,
+        "expected_field": FIELD,
+        "expected_value_class": "string-choice",
+    }
+    raise AssertionError(json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+# END STEP6_REDACTED_HTTP_ASSERTION
+
+
 def request(path, *, payload=None, csrf=None):
     body = None if payload is None else json.dumps(payload, separators=(",", ":")).encode("utf-8")
     headers = {"Accept": "application/json"}
@@ -6216,8 +6357,14 @@ assert match is not None
 csrf = match.group(1)
 
 status, initial = request("/api/settings")
-assert status == 200
-original = initial["settings"][FIELD]
+require_http(
+    status == 200
+    and isinstance(_response_value(initial, "revision"), str)
+    and _response_value(initial, "settings", FIELD) in {"source", "2k", "4k"},
+    status,
+    initial,
+)
+original = _response_value(initial, "settings", FIELD)
 variants = [value for value in ("source", "2k", "4k") if value != original]
 assert len(variants) == 2
 web_value, cli_value = variants
@@ -6293,7 +6440,11 @@ def cli_apply(base_snapshot, value):
 
 try:
     status, web_saved = http_apply(initial, web_value)
-    assert status == 200 and web_saved["settings"][FIELD] == web_value
+    require_http(
+        status == 200 and _response_value(web_saved, "settings", FIELD) == web_value,
+        status,
+        web_saved,
+    )
     last_owned_snapshot = web_saved
 
     cli_status, applet_view = cli("snapshot")
@@ -6306,8 +6457,8 @@ try:
     deadline = time.monotonic() + 4
     while True:
         status, web_view = request("/api/settings")
-        assert status == 200
-        if web_view["settings"][FIELD] == cli_value:
+        require_http(status == 200, status, web_view)
+        if _response_value(web_view, "settings", FIELD) == cli_value:
             break
         if time.monotonic() >= deadline:
             raise AssertionError("HTTP view did not observe the CLI change within four seconds")
@@ -6316,7 +6467,11 @@ try:
     cli_status, stale_cli = cli("snapshot")
     assert cli_status == 0
     status, winner = http_apply(web_view, web_value)
-    assert status == 200 and winner["settings"][FIELD] == web_value
+    require_http(
+        status == 200 and _response_value(winner, "settings", FIELD) == web_value,
+        status,
+        winner,
+    )
     last_owned_snapshot = winner
     cli_status, conflict = cli_apply(stale_cli, original)
     assert cli_status == 3
@@ -6325,36 +6480,62 @@ try:
     assert conflict["snapshot"]["settings"][FIELD] == web_value
 
     status, after_conflict = request("/api/settings")
-    assert status == 200 and after_conflict["settings"][FIELD] == web_value
+    require_http(
+        status == 200 and _response_value(after_conflict, "settings", FIELD) == web_value,
+        status,
+        after_conflict,
+    )
 
     # Prove restoration itself is conflict-safe: a competing commit after the
     # captured restore basis must yield 409 and preserve the competitor.
     restore_basis = winner
     status, competitor = http_apply(winner, cli_value)
-    assert status == 200 and competitor["settings"][FIELD] == cli_value
+    require_http(
+        status == 200 and _response_value(competitor, "settings", FIELD) == cli_value,
+        status,
+        competitor,
+    )
     status, restore_conflict = http_apply(restore_basis, original)
-    assert status == 409
-    assert restore_conflict["conflicts"] == [FIELD]
-    assert restore_conflict["snapshot"]["settings"][FIELD] == cli_value
+    require_http(
+        status == 409
+        and _response_value(restore_conflict, "conflicts") == [FIELD]
+        and _response_value(restore_conflict, "snapshot", "settings", FIELD) == cli_value,
+        status,
+        restore_conflict,
+    )
     last_owned_snapshot = competitor
 finally:
     status, current = request("/api/settings")
-    assert status == 200
-    if current["settings"][FIELD] != original:
+    require_http(status == 200, status, current)
+    if _response_value(current, "settings", FIELD) != original:
         # Never adopt a fresh GET as write ownership.  Restore only from the
         # last revision returned by one of this smoke's successful writes.
         status, restored = http_apply(last_owned_snapshot, original)
         if status == 409:
-            assert restored["snapshot"]["revision"] == current["revision"]
+            require_http(
+                _response_value(restored, "snapshot", "revision")
+                == _response_value(current, "revision"),
+                status,
+                restored,
+            )
             raise RuntimeError("restoration conflict preserved a competing write")
-        assert status == 200 and restored["settings"][FIELD] == original
+        require_http(
+            status == 200 and _response_value(restored, "settings", FIELD) == original,
+            status,
+            restored,
+        )
         last_owned_snapshot = restored
 
 cli_status, final_cli = cli("snapshot")
 status, final_web = request("/api/settings")
-assert cli_status == 0 and status == 200
+require_http(status == 200, status, final_web)
+assert cli_status == 0
 assert final_cli["settings"][FIELD] == original
-assert final_web["settings"][FIELD] == original
+require_http(
+    _response_value(final_web, "settings", FIELD) == original,
+    status,
+    final_web,
+)
 ownership_marker = os.environ.get("WIRTELPRIMPF_SMOKE_OWNERSHIP_MARKER")
 if ownership_marker:
     marker_path = Path(ownership_marker)
@@ -7774,10 +7955,30 @@ test -d "$generator_runtime" && test ! -L "$generator_runtime"
 test "$(realpath -e -- "$generator_runtime")" = "$generator_runtime"
 test -z "$(find "$generator_runtime" -xdev \
   \( ! -user teladi -o ! -group teladi \) -print -quit)"
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_runtime" rev-parse HEAD)"
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_runtime" rev-parse origin/main)"
+generator_checkout=$generator_runtime
+generator_target_ref=refs/heads/agent/pr4-closed-merge-reconcile
+generator_target_sha=
+# BEGIN TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap() {
+  local factory_blob target_blob
+  [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+  generator_target_sha="$(/usr/bin/git -C "$generator_checkout" \
+    rev-parse "$generator_target_ref^{commit}")"
+  [[ "$generator_target_sha" =~ ^[0-9a-f]{40}$ ]]
+  test "$generator_factory_sha" != "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse refs/heads/main)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)" = "$generator_factory_sha"
+  /usr/bin/git -C "$generator_checkout" merge-base --is-ancestor \
+    "$generator_factory_sha" "$generator_target_sha"
+  factory_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_factory_sha:.github/workflows/archive-pages.yml")"
+  target_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_target_sha:.github/workflows/archive-pages.yml")"
+  test "$factory_blob" = "$target_blob"
+}
+# END TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap
 task5_git_repository=$generator_runtime
 canonical_origin=$canonical_generator_origin
 test "$generator_factory_sha" = \
@@ -7911,10 +8112,30 @@ test "$(( $(/usr/bin/git -C "$generator_runtime" remote get-url --all origin | w
 test "$(/usr/bin/git -C "$generator_runtime" remote get-url origin)" = "$canonical_origin"
 generator_factory_sha="$(load_verified_task3_factory_sha)"
 [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_runtime" rev-parse HEAD)"
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_runtime" rev-parse origin/main)"
+generator_checkout=$generator_runtime
+generator_target_ref=refs/heads/agent/pr4-closed-merge-reconcile
+generator_target_sha=
+# BEGIN TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap() {
+  local factory_blob target_blob
+  [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+  generator_target_sha="$(/usr/bin/git -C "$generator_checkout" \
+    rev-parse "$generator_target_ref^{commit}")"
+  [[ "$generator_target_sha" =~ ^[0-9a-f]{40}$ ]]
+  test "$generator_factory_sha" != "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse refs/heads/main)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)" = "$generator_factory_sha"
+  /usr/bin/git -C "$generator_checkout" merge-base --is-ancestor \
+    "$generator_factory_sha" "$generator_target_sha"
+  factory_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_factory_sha:.github/workflows/archive-pages.yml")"
+  target_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_target_sha:.github/workflows/archive-pages.yml")"
+  test "$factory_blob" = "$target_blob"
+}
+# END TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap
 task5_git_repository=$generator_runtime
 test "$generator_factory_sha" = \
   "$(task5_git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
@@ -8026,10 +8247,29 @@ generator_factory_sha="$(load_verified_task3_factory_sha)"
 [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
 test "$(/usr/bin/git -C "$generator_checkout" remote get-url origin)" = \
   "$canonical_origin"
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)"
+generator_target_ref=refs/heads/agent/pr4-closed-merge-reconcile
+generator_target_sha=
+# BEGIN TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap() {
+  local factory_blob target_blob
+  [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+  generator_target_sha="$(/usr/bin/git -C "$generator_checkout" \
+    rev-parse "$generator_target_ref^{commit}")"
+  [[ "$generator_target_sha" =~ ^[0-9a-f]{40}$ ]]
+  test "$generator_factory_sha" != "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse refs/heads/main)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)" = "$generator_factory_sha"
+  /usr/bin/git -C "$generator_checkout" merge-base --is-ancestor \
+    "$generator_factory_sha" "$generator_target_sha"
+  factory_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_factory_sha:.github/workflows/archive-pages.yml")"
+  target_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_target_sha:.github/workflows/archive-pages.yml")"
+  test "$factory_blob" = "$target_blob"
+}
+# END TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap
 task5_git_repository=$generator_checkout
 test "$generator_factory_sha" = \
   "$(task5_git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
@@ -8281,10 +8521,29 @@ generator_factory_sha="$(load_verified_task3_factory_sha)"
 [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
 test "$(/usr/bin/git -C "$generator_checkout" remote get-url origin)" = \
   "$canonical_origin"
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)"
+generator_target_ref=refs/heads/agent/pr4-closed-merge-reconcile
+generator_target_sha=
+# BEGIN TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap() {
+  local factory_blob target_blob
+  [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+  generator_target_sha="$(/usr/bin/git -C "$generator_checkout" \
+    rev-parse "$generator_target_ref^{commit}")"
+  [[ "$generator_target_sha" =~ ^[0-9a-f]{40}$ ]]
+  test "$generator_factory_sha" != "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse refs/heads/main)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)" = "$generator_factory_sha"
+  /usr/bin/git -C "$generator_checkout" merge-base --is-ancestor \
+    "$generator_factory_sha" "$generator_target_sha"
+  factory_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_factory_sha:.github/workflows/archive-pages.yml")"
+  target_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_target_sha:.github/workflows/archive-pages.yml")"
+  test "$factory_blob" = "$target_blob"
+}
+# END TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap
 task5_git_repository=$generator_checkout
 test "$generator_factory_sha" = \
   "$(task5_git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
@@ -8426,10 +8685,29 @@ generator_factory_sha="$(load_verified_task3_factory_sha)"
 test -d "$generator_checkout" && test ! -L "$generator_checkout"
 test -z "$(find "$generator_checkout" -xdev \
   \( ! -user teladi -o ! -group teladi \) -print -quit)"
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)"
+generator_target_ref=refs/heads/agent/pr4-closed-merge-reconcile
+generator_target_sha=
+# BEGIN TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap() {
+  local factory_blob target_blob
+  [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+  generator_target_sha="$(/usr/bin/git -C "$generator_checkout" \
+    rev-parse "$generator_target_ref^{commit}")"
+  [[ "$generator_target_sha" =~ ^[0-9a-f]{40}$ ]]
+  test "$generator_factory_sha" != "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse refs/heads/main)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)" = "$generator_factory_sha"
+  /usr/bin/git -C "$generator_checkout" merge-base --is-ancestor \
+    "$generator_factory_sha" "$generator_target_sha"
+  factory_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_factory_sha:.github/workflows/archive-pages.yml")"
+  target_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_target_sha:.github/workflows/archive-pages.yml")"
+  test "$factory_blob" = "$target_blob"
+}
+# END TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap
 test "$(/usr/bin/rg -o -F -- "$generator_factory_sha" \
   "$archive_checkout/.github/workflows/pages.yml" | wc -l)" = 2
 
@@ -8750,10 +9028,29 @@ test -z "$(find "$generator_checkout" -xdev \
   \( ! -user teladi -o ! -group teladi \) -print -quit)"
 generator_factory_sha="$(load_verified_task3_factory_sha)"
 [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
-test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)"
+generator_target_ref=refs/heads/agent/pr4-closed-merge-reconcile
+generator_target_sha=
+# BEGIN TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap() {
+  local factory_blob target_blob
+  [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+  generator_target_sha="$(/usr/bin/git -C "$generator_checkout" \
+    rev-parse "$generator_target_ref^{commit}")"
+  [[ "$generator_target_sha" =~ ^[0-9a-f]{40}$ ]]
+  test "$generator_factory_sha" != "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse refs/heads/main)" = "$generator_target_sha"
+  test "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)" = "$generator_factory_sha"
+  /usr/bin/git -C "$generator_checkout" merge-base --is-ancestor \
+    "$generator_factory_sha" "$generator_target_sha"
+  factory_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_factory_sha:.github/workflows/archive-pages.yml")"
+  target_blob="$(/usr/bin/git -C "$generator_checkout" rev-parse \
+    "$generator_target_sha:.github/workflows/archive-pages.yml")"
+  test "$factory_blob" = "$target_blob"
+}
+# END TASK5_GENERATOR_BOOTSTRAP_GATE
+assert_task5_generator_bootstrap
 task5_git_repository=$generator_checkout
 canonical_origin=$canonical_generator_origin
 test "$generator_factory_sha" = \
@@ -9049,6 +9346,594 @@ A zero-check fallback is accepted only when that exact head has no
 merge commit, remote main must equal it, and the feature ref list must be empty
 before the exact Pages run may be selected. Only then do archive build, artifact
 validation, upload, and deploy complete successfully.
+
+### Task 5a: Publish the locally deployed generator hardening
+
+Dieser Follow-up darf erst nach einem vollständig erfolgreichen lokalen
+Task-4-Rollout **und** dem abgeschlossenen Archiv-Push, Merge und Pages-Erfolg
+aus Task 5 beginnen. Bis dahin bleiben Generator-Remote-Main und der
+Generator-PR unangetastet. Der Runtime-Checkout enthält zu diesem Zeitpunkt
+bereits den geprüften Hardening-Target; das Archiv bleibt weiterhin exakt an
+den Factory-SHA aus dem verifizierten Task-3-Receipt gebunden.
+
+- [ ] **Step 1: Gate, publish, merge, and reconcile the generator hardening**
+
+Run or reconcile inside the established private `teladi` execution and
+ephemeral-token boundary. Every already-committed state follows its explicit
+no-push reconciliation branch:
+
+```bash
+set -Eeuo pipefail
+set +x
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
+test -n "${GH_TOKEN:-}"
+followup_ephemeral_token=$GH_TOKEN
+unset GH_TOKEN
+test -z "${GH_TOKEN+x}"
+export XDG_RUNTIME_DIR=/run/user/1000
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+
+runtime=/home/teladi/.local/share/wirtelprimpf-generator
+hardening_checkout=/home/teladi/codex_worktrees/Wirtelprimpf-generator-transactional
+archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
+receipt_file=/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+canonical_repository=H234598/Wirtelprimpf-generator
+target_ref=refs/heads/agent/pr4-closed-merge-reconcile
+remote_target_ref=refs/heads/agent/pr4-closed-merge-reconcile
+expected_runtime_sha=
+expected_origin_sha=
+followup_push_hooks=/dev/null
+
+git_followup() {
+  /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+    /usr/bin/git -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+      -C "$runtime" "$@"
+}
+
+followup_gh() {
+  /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    GH_TOKEN="$followup_ephemeral_token" /usr/bin/gh "$@"
+}
+
+# BEGIN FOLLOWUP_GIT_CONFIG_GUARD
+followup_local_config() {
+  local repository_path="$1"
+  shift
+  /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    /usr/bin/git -C "$repository_path" config --local --no-includes "$@"
+}
+
+assert_safe_followup_git_config() {
+  local repository_path="$1" all_keys forbidden_pattern key
+  test -d "$repository_path" && test ! -L "$repository_path"
+  test "$(realpath -e -- "$repository_path")" = "$repository_path"
+  all_keys="$(followup_local_config "$repository_path" \
+    --name-only --get-regexp '.*')"
+  forbidden_pattern='^(include\..*|includeif\..*|url\..*\.(insteadof|pushinsteadof)|http\..*|protocol\..*|alias\..*|credential\..*|core\.(askpass|hookspath|sshcommand|gitproxy|fsmonitor)|remote\..*\.(proxy|vcs|receivepack|uploadpack|pushurl))$'
+  if /usr/bin/grep -Eq -- "$forbidden_pattern" <<<"$all_keys"; then
+    return 1
+  fi
+  while IFS= read -r key; do
+    case "$key" in
+      core.repositoryformatversion|core.filemode|core.bare|core.logallrefupdates|\
+      remote.origin.url|remote.origin.fetch|remote.origin.promisor|\
+      remote.origin.partialclonefilter|branch.*.remote|branch.*.merge)
+        ;;
+      *) return 1 ;;
+    esac
+  done <<<"$all_keys"
+  test "$(followup_local_config "$repository_path" \
+    --get-all remote.origin.url | wc -l)" = 1
+  test "$(followup_local_config "$repository_path" \
+    --get-all remote.origin.url)" = "$canonical_origin"
+}
+# END FOLLOWUP_GIT_CONFIG_GUARD
+assert_safe_followup_git_config "$runtime"
+assert_safe_followup_git_config "$hardening_checkout"
+
+# BEGIN FOLLOWUP_REMOTE_IDENTITY_GATE
+test "$(followup_gh api /user \
+  --jq '.login + ":" + (.id | tostring)')" = H234598:54270221
+followup_repository_json="$(followup_gh repo view "$canonical_repository" \
+  --json id,nameWithOwner)"
+/usr/bin/jq -e '
+  .id == "R_kgDOTpr2BA"
+  and .nameWithOwner == "H234598/Wirtelprimpf-generator"
+' <<<"$followup_repository_json" >/dev/null
+# END FOLLOWUP_REMOTE_IDENTITY_GATE
+
+# BEGIN FOLLOWUP_TASK3_RECEIPT_V3
+load_followup_factory_sha() {
+  test "$(stat -c '%F' "$receipt_file")" = 'regular file'
+  test ! -L "$receipt_file"
+  test "$(stat -c '%u:%g:%a' "$receipt_file")" = 1000:1000:600
+  /usr/bin/jq -e '
+    keys == [
+      "actor_id", "actor_login", "base_before", "canonical_origin",
+      "expected_head", "head_ref", "head_tree", "merge_date",
+      "merge_message", "merge_sha", "pr_number", "repository",
+      "repository_id", "review_author_id", "review_author_login",
+      "review_commit", "review_id", "review_state", "state", "version"
+    ]
+    and .version == 3 and .state == "verified"
+    and .actor_login == "H234598" and .actor_id == 54270221
+    and .repository_id == "R_kgDOTpr2BA"
+    and .repository == "H234598/Wirtelprimpf-generator"
+    and .canonical_origin == "https://github.com/H234598/Wirtelprimpf-generator.git"
+    and (.pr_number | type == "number" and . > 0 and floor == .)
+    and (.expected_head | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.base_before | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.head_tree | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.merge_date | type == "string" and length > 0)
+    and (.merge_message | type == "string" and length > 0)
+    and (.merge_sha | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.review_id | type == "number" and . > 0 and floor == .)
+    and .review_author_login == "coderabbitai[bot]"
+    and .review_author_id == 136622811
+    and .review_commit == .expected_head
+    and .review_state == "APPROVED"
+  ' "$receipt_file" >/dev/null
+  /usr/bin/jq -r '.merge_sha' "$receipt_file"
+}
+# END FOLLOWUP_TASK3_RECEIPT_V3
+factory_sha="$(load_followup_factory_sha)"
+test "$factory_sha" = 274b25c9e1f9ea97d3b060997ed5c425d2b30e9f
+target_sha="$(git_followup rev-parse "$target_ref^{commit}")"
+[[ "$target_sha" =~ ^[0-9a-f]{40}$ ]]
+test "$factory_sha" != "$target_sha"
+git_followup merge-base --is-ancestor "$factory_sha" "$target_sha"
+test "$(git_followup rev-parse "$target_sha^{tree}")" = \
+  "$(/usr/bin/git -C "$hardening_checkout" rev-parse 'HEAD^{tree}')"
+
+assert_followup_local_rollout() {
+  local running_xlets package_source package_version
+  for owned_root in "$runtime/.git" "$hardening_checkout"; do
+    test -d "$owned_root" && test ! -L "$owned_root"
+    test -z "$(find "$owned_root" -xdev \
+      \( ! -uid 1000 -o ! -gid 1000 \) -print -quit)"
+  done
+  test -z "$(git_followup status --porcelain)"
+  test "$(git_followup branch --show-current)" = main
+  test "$(git_followup rev-parse HEAD)" = "$expected_runtime_sha"
+  test "$(git_followup rev-parse refs/heads/main)" = "$expected_runtime_sha"
+  test "$(git_followup rev-parse refs/remotes/origin/main)" = "$expected_origin_sha"
+  package_source="$("$runtime/.venv/bin/python" -c \
+    'from pathlib import Path; import wirtelprimpf_platform; print(Path(wirtelprimpf_platform.__file__).resolve().parents[1])')"
+  package_version="$("$runtime/.venv/bin/python" -c \
+    'from importlib.metadata import version; print(version("wirtelprimpf-generator"))')"
+  test "$package_source" = "$runtime"
+  test "$package_version" = 1.1.0
+  cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf.service" \
+    /home/teladi/.config/systemd/user/wirtelprimpf.service
+  cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf.timer" \
+    /home/teladi/.config/systemd/user/wirtelprimpf.timer
+  cmp --silent "$runtime/Sourcecode/systemd-user/wirtelprimpf-admin.service" \
+    /home/teladi/.config/systemd/user/wirtelprimpf-admin.service
+  diff --recursive --brief --exclude='__pycache__' --exclude='*.pyc' \
+    "$runtime/files/wirtelprimfgenerator@H234598" \
+    /home/teladi/.local/share/cinnamon/applets/wirtelprimfgenerator@H234598
+  test "$(systemctl --user is-enabled wirtelprimpf.timer)" = enabled
+  test "$(systemctl --user show wirtelprimpf.timer -p LoadState --value)" = loaded
+  test "$(systemctl --user show wirtelprimpf.timer -p ActiveState --value)" = active
+  test "$(systemctl --user show wirtelprimpf.timer -p SubState --value)" = waiting
+  test "$(systemctl --user is-enabled wirtelprimpf.service)" = static
+  test "$(systemctl --user show wirtelprimpf.service -p LoadState --value)" = loaded
+  test "$(systemctl --user show wirtelprimpf.service -p ActiveState --value)" = inactive
+  test "$(systemctl --user show wirtelprimpf.service -p SubState --value)" = dead
+  test "$(systemctl --user is-enabled wirtelprimpf-admin.service)" = enabled
+  test "$(systemctl --user show wirtelprimpf-admin.service -p LoadState --value)" = loaded
+  test "$(systemctl --user show wirtelprimpf-admin.service -p ActiveState --value)" = active
+  test "$(systemctl --user show wirtelprimpf-admin.service -p SubState --value)" = running
+  running_xlets="$(gdbus call --session --dest org.Cinnamon \
+    --object-path /org/Cinnamon \
+    --method org.Cinnamon.GetRunningXletUUIDs applet)"
+  [[ "$running_xlets" == *wirtelprimfgenerator@H234598* ]]
+}
+
+assert_followup_archive_complete() {
+  local archive_sha archive_run
+  test -d "$archive_checkout" && test ! -L "$archive_checkout"
+  test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
+  test -z "$(find "$archive_checkout" -xdev \
+    \( ! -uid 1000 -o ! -gid 1000 \) -print -quit)"
+  test -z "$(/usr/bin/git -C "$archive_checkout" status --porcelain)"
+  test "$(/usr/bin/git -C "$archive_checkout" branch --show-current)" = main
+  archive_sha="$(/usr/bin/git -C "$archive_checkout" rev-parse HEAD)"
+  test "$archive_sha" = \
+    "$(/usr/bin/git -C "$archive_checkout" rev-parse refs/remotes/origin/main)"
+  test "$(/usr/bin/rg -o -F -- "$factory_sha" \
+    "$archive_checkout/.github/workflows/pages.yml" | wc -l)" = 2
+  archive_run="$(followup_gh run list --repo H234598/Wirtelprimpf-0001 \
+    --workflow pages.yml --branch main --event push --limit 1 \
+    --json headSha,status,conclusion)"
+  /usr/bin/jq -e --arg sha "$archive_sha" '
+    length == 1 and .[0].headSha == $sha
+    and .[0].status == "completed" and .[0].conclusion == "success"
+  ' <<<"$archive_run" >/dev/null
+}
+
+assert_followup_merge_shape() {
+  local candidate_sha="$1" candidate_tree
+  local -a candidate_parents
+  [[ "$candidate_sha" =~ ^[0-9a-f]{40}$ ]]
+  git_followup cat-file -e "$candidate_sha^{commit}"
+  candidate_tree="$(git_followup rev-parse "$candidate_sha^{tree}")"
+  test "$candidate_tree" = "$(git_followup rev-parse "$target_sha^{tree}")"
+  mapfile -t candidate_parents < <(
+    git_followup show -s --format='%P' "$candidate_sha" | tr ' ' '\n'
+  )
+  test "${#candidate_parents[@]}" = 2
+  test "${candidate_parents[0]}" = "$factory_sha"
+  test "${candidate_parents[1]}" = "$target_sha"
+}
+
+local_main_before="$(git_followup rev-parse refs/heads/main)"
+local_origin_before="$(git_followup rev-parse refs/remotes/origin/main)"
+preexisting_merge_sha=
+if [[ "$local_main_before" == "$target_sha" ]]; then
+  if [[ "$local_origin_before" != "$factory_sha" ]]; then
+    assert_followup_merge_shape "$local_origin_before"
+    preexisting_merge_sha=$local_origin_before
+  fi
+else
+  assert_followup_merge_shape "$local_main_before"
+  test "$local_origin_before" = "$local_main_before"
+  preexisting_merge_sha=$local_main_before
+fi
+expected_runtime_sha=$local_main_before
+expected_origin_sha=$local_origin_before
+assert_followup_local_rollout
+assert_followup_archive_complete
+
+git_followup_remote() {
+  local operation="${1:-}" argument canonical_url_count=0
+  case "$operation" in ls-remote|push) ;; *) return 1 ;; esac
+  for argument in "$@"; do
+    [[ "$argument" == "$canonical_origin" ]] && \
+      canonical_url_count=$((canonical_url_count + 1))
+  done
+  test "$canonical_url_count" = 1
+  assert_safe_followup_git_config "$runtime"
+  /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    GH_TOKEN="$followup_ephemeral_token" \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    FOLLOWUP_EXPECTED_ORIGIN="${FOLLOWUP_EXPECTED_ORIGIN:-}" \
+    FOLLOWUP_EXPECTED_FACTORY="${FOLLOWUP_EXPECTED_FACTORY:-}" \
+    FOLLOWUP_EXPECTED_MERGE="${FOLLOWUP_EXPECTED_MERGE:-}" \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+    /usr/bin/git -c http.extraHeader= \
+      -c "http.$canonical_origin.extraHeader=" -c http.proxy= \
+      -c http.sslVerify=true -c http.curloptResolve= \
+      -c credential.helper= \
+      -c credential.helper='!/usr/bin/gh auth git-credential' \
+      -c core.askPass=/bin/false -c core.hooksPath="$followup_push_hooks" \
+      -c core.fsmonitor=false -c core.sshCommand=/bin/false \
+      -c core.gitProxy=/bin/false -c protocol.allow=never \
+      -c protocol.https.allow=always -c protocol.ext.allow=never \
+      -C "$runtime" "$@"
+}
+
+initial_remote_main_sha="$(git_followup_remote ls-remote "$canonical_origin" \
+  refs/heads/main | cut -f1)"
+remote_target_sha="$(git_followup_remote ls-remote "$canonical_origin" \
+  "$remote_target_ref" | cut -f1)"
+if [[ "$initial_remote_main_sha" == "$factory_sha" ]]; then
+  case "$remote_target_sha" in
+    "") git_followup_remote push "$canonical_origin" "$target_ref:$remote_target_ref" ;;
+    "$target_sha") ;;
+    *) exit 1 ;;
+  esac
+else
+  assert_followup_merge_shape "$initial_remote_main_sha"
+  if [[ -n "$preexisting_merge_sha" ]]; then
+    test "$preexisting_merge_sha" = "$initial_remote_main_sha"
+  fi
+  preexisting_merge_sha=$initial_remote_main_sha
+  test "$remote_target_sha" = "$target_sha"
+fi
+test "$(git_followup_remote ls-remote "$canonical_origin" \
+  "$remote_target_ref" | cut -f1)" = "$target_sha"
+
+# BEGIN FOLLOWUP_IDEMPOTENT_PR_DISCOVERY
+followup_pr_inventory="$(followup_gh pr list \
+  --repo "$canonical_repository" \
+  --head agent/pr4-closed-merge-reconcile --state all --limit 100 \
+  --json number,state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository)"
+followup_pr_candidates="$(/usr/bin/jq -c --arg target "$target_sha" '[
+  .[] | select(
+    .headRefName == "agent/pr4-closed-merge-reconcile"
+    and .headRefOid == $target
+    and .baseRefName == "main"
+    and .isDraft == false
+    and .isCrossRepository == false
+    and .headRepository.id == "R_kgDOTpr2BA"
+    and .headRepository.nameWithOwner == "H234598/Wirtelprimpf-generator"
+  )
+]' <<<"$followup_pr_inventory")"
+case "$(/usr/bin/jq 'length' <<<"$followup_pr_candidates")" in
+  0)
+    test "$initial_remote_main_sha" = "$factory_sha"
+    followup_pr_url="$(followup_gh pr create \
+      --repo "$canonical_repository" --base main \
+      --head agent/pr4-closed-merge-reconcile \
+      --title 'Publish transactional configuration hardening' \
+      --body 'Publishes the exact locally deployed and smoke-tested hardening tree after the archive rollout completed successfully.')"
+    followup_pr_number="${followup_pr_url##*/}"
+    discovered_pr_state=OPEN
+    ;;
+  1)
+    followup_pr_number="$(/usr/bin/jq -r '.[0].number' \
+      <<<"$followup_pr_candidates")"
+    discovered_pr_state="$(/usr/bin/jq -r '.[0].state' \
+      <<<"$followup_pr_candidates")"
+    case "$discovered_pr_state" in "OPEN"|"MERGED") ;; *) exit 1 ;; esac
+    ;;
+  *) exit 1 ;;
+esac
+[[ "$followup_pr_number" =~ ^[1-9][0-9]*$ ]]
+# END FOLLOWUP_IDEMPOTENT_PR_DISCOVERY
+followup_gh pr checks "$followup_pr_number" \
+  --repo "$canonical_repository" --watch --fail-fast
+
+assert_followup_review() {
+  local reviews
+  reviews="$(followup_gh api \
+    "repos/$canonical_repository/pulls/$followup_pr_number/reviews" --paginate)"
+  /usr/bin/jq -e --arg head "$target_sha" '
+    [ .[] | select(
+      .user.login == "coderabbitai[bot]"
+      and .user.id == 136622811
+      and .state == "APPROVED"
+      and .commit_id == $head
+    ) ] | length >= 1
+  ' <<<"$reviews" >/dev/null
+}
+assert_followup_review
+
+# BEGIN FOLLOWUP_FINAL_PR_GATE
+assert_followup_final_pr_gate() {
+  local final_pr_json final_remote_main_sha final_remote_target_sha
+  local local_files remote_files
+  assert_followup_review
+  final_pr_json="$(followup_gh pr view "$followup_pr_number" \
+    --repo "$canonical_repository" \
+    --json state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,files,statusCheckRollup)"
+  /usr/bin/jq -e --arg target "$target_sha" '
+    .state == "OPEN"
+    and .headRefName == "agent/pr4-closed-merge-reconcile"
+    and .headRefOid == $target
+    and .baseRefName == "main"
+    and .isDraft == false
+    and .isCrossRepository == false
+    and .headRepository.id == "R_kgDOTpr2BA"
+    and .headRepository.nameWithOwner == "H234598/Wirtelprimpf-generator"
+    and (.files | type == "array" and length > 0)
+    and (.statusCheckRollup | type == "array" and length > 0)
+    and all(.statusCheckRollup[];
+      ((.conclusion // .state // "") | IN("SUCCESS", "NEUTRAL", "SKIPPED")))
+  ' <<<"$final_pr_json" >/dev/null
+  local_files="$(git_followup diff --name-only \
+    "$factory_sha...$target_sha" | LC_ALL=C sort)"
+  remote_files="$(/usr/bin/jq -r '.files[].path' \
+    <<<"$final_pr_json" | LC_ALL=C sort)"
+  test -n "$local_files"
+  test "$remote_files" = "$local_files"
+  final_remote_main_sha="$(followup_gh api \
+    "repos/$canonical_repository/git/ref/heads/main" --jq .object.sha)"
+  final_remote_target_sha="$(followup_gh api \
+    "repos/$canonical_repository/git/ref/heads/agent/pr4-closed-merge-reconcile" \
+    --jq .object.sha)"
+  test "$final_remote_main_sha" = "$factory_sha"
+  test "$final_remote_target_sha" = "$target_sha"
+}
+# END FOLLOWUP_FINAL_PR_GATE
+
+target_tree="$(git_followup rev-parse "$target_sha^{tree}")"
+merge_date="$(git_followup show -s --format=%cI "$target_sha")"
+merge_message="Merge pull request #$followup_pr_number from H234598/agent/pr4-closed-merge-reconcile"
+git_followup_commit_tree() {
+  local commit_date="$1"
+  shift
+  /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_AUTHOR_NAME=H234598 \
+    GIT_AUTHOR_EMAIL=54270221+H234598@users.noreply.github.com \
+    GIT_AUTHOR_DATE="$commit_date" \
+    GIT_COMMITTER_NAME=H234598 \
+    GIT_COMMITTER_EMAIL=54270221+H234598@users.noreply.github.com \
+    GIT_COMMITTER_DATE="$commit_date" \
+    /usr/bin/git -c core.hooksPath=/dev/null -C "$runtime" commit-tree "$@"
+}
+merge_sha="$(git_followup_commit_tree "$merge_date" "$target_tree" \
+  -p "$factory_sha" -p "$target_sha" <<<"$merge_message")"
+[[ "$merge_sha" =~ ^[0-9a-f]{40}$ ]]
+git_followup cat-file -e "$merge_sha^{commit}"
+merge_tree="$(git_followup rev-parse "$merge_sha^{tree}")"
+test "$merge_tree" = "$target_tree"
+mapfile -t merge_parents < <(git_followup show -s --format='%P' "$merge_sha" | tr ' ' '\n')
+test "${#merge_parents[@]}" = 2
+test "${merge_parents[0]}" = "$factory_sha"
+test "${merge_parents[1]}" = "$target_sha"
+if [[ -n "$preexisting_merge_sha" ]]; then
+  test "$preexisting_merge_sha" = "$merge_sha"
+fi
+
+# BEGIN FOLLOWUP_REMOTE_COMMITPOINT
+classify_followup_remote_state() {
+  local remote_main_sha="$1" remote_target_sha="$2"
+  local factory_sha="$3" merge_sha="$4" target_sha="$5"
+  if [[ "$remote_main_sha" == "$factory_sha" && \
+        "$remote_target_sha" == "$target_sha" ]]; then
+    printf "push\n"
+  elif [[ "$remote_main_sha" == "$merge_sha" && \
+          "$remote_target_sha" == "$target_sha" ]]; then
+    printf "reconcile\n"
+  else
+    return 1
+  fi
+}
+# END FOLLOWUP_REMOTE_COMMITPOINT
+commitpoint_remote_main_sha="$(git_followup_remote ls-remote \
+  "$canonical_origin" refs/heads/main | cut -f1)"
+commitpoint_remote_target_sha="$(git_followup_remote ls-remote \
+  "$canonical_origin" "$remote_target_ref" | cut -f1)"
+remote_action="$(classify_followup_remote_state \
+  "$commitpoint_remote_main_sha" "$commitpoint_remote_target_sha" \
+  "$factory_sha" "$merge_sha" "$target_sha")"
+
+if [[ "$remote_action" == push ]]; then
+  assert_followup_final_pr_gate
+followup_hook_parent=/home/teladi/.local/state/wirtelprimpf
+test -d "$followup_hook_parent" && test ! -L "$followup_hook_parent"
+test "$(stat -c '%u:%g' "$followup_hook_parent")" = 1000:1000
+followup_push_hooks="$(mktemp -d \
+  "$followup_hook_parent/generator-merge-push.XXXXXX")"
+chmod 0700 "$followup_push_hooks"
+cleanup_followup_push_hook() {
+  if [[ "$followup_push_hooks" != /dev/null ]]; then
+    if [[ -e "$followup_push_hooks/pre-push" ]]; then
+      rm -- "$followup_push_hooks/pre-push"
+    fi
+    rmdir -- "$followup_push_hooks"
+    followup_push_hooks=/dev/null
+  fi
+}
+trap cleanup_followup_push_hook EXIT
+install -m0700 /dev/stdin "$followup_push_hooks/pre-push" <<'FOLLOWUP_PRE_PUSH'
+#!/bin/bash
+set -Eeuo pipefail
+# BEGIN FOLLOWUP_EXACT_REMOTE_CAS
+test "$#" = 2
+test "$2" = "$FOLLOWUP_EXPECTED_ORIGIN"
+seen_main=0
+record_count=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  test -n "$local_ref"
+  record_count=$((record_count + 1))
+  if [[ "$remote_ref" == refs/heads/main && \
+        "$remote_sha" == "$FOLLOWUP_EXPECTED_FACTORY" && \
+        "$local_sha" == "$FOLLOWUP_EXPECTED_MERGE" ]]; then
+    test "$seen_main" = 0
+    seen_main=1
+  else
+    exit 1
+  fi
+done
+test "$record_count" = 1
+test "$seen_main" = 1
+# END FOLLOWUP_EXACT_REMOTE_CAS
+FOLLOWUP_PRE_PUSH
+
+FOLLOWUP_EXPECTED_ORIGIN=$canonical_origin
+FOLLOWUP_EXPECTED_FACTORY=$factory_sha
+FOLLOWUP_EXPECTED_MERGE=$merge_sha
+git_followup_remote push --atomic "$canonical_origin" \
+  "$merge_sha:refs/heads/main"
+cleanup_followup_push_hook
+trap - EXIT
+elif [[ "$remote_action" != reconcile ]]; then
+  exit 1
+fi
+
+git_followup_fetch_main_bounded() {
+  /usr/bin/timeout --foreground --signal=TERM --kill-after=10s 180s \
+    /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+      PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+      GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+      GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+      /usr/bin/git -c http.extraHeader= \
+        -c "http.$canonical_origin.extraHeader=" -c http.proxy= \
+        -c http.sslVerify=true -c http.curloptResolve= -c credential.helper= \
+        -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
+        -c core.fsmonitor=false -c core.sshCommand=/bin/false \
+        -c core.gitProxy=/bin/false -c protocol.allow=never \
+        -c protocol.https.allow=always -c protocol.ext.allow=never \
+        -C "$runtime" fetch "$canonical_origin" \
+        refs/heads/main:refs/remotes/origin/main
+}
+git_followup_fetch_main_bounded
+
+remote_main_sha="$(git_followup rev-parse refs/remotes/origin/main)"
+test "$merge_sha" = "$remote_main_sha"
+followup_pr_state=OPEN
+for _ in $(seq 1 15); do
+  merged_pr_json="$(followup_gh pr view "$followup_pr_number" \
+    --repo "$canonical_repository" --json state,headRefOid,mergeCommit)"
+  followup_pr_state="$(/usr/bin/jq -r '.state' <<<"$merged_pr_json")"
+  case "$followup_pr_state" in
+    MERGED)
+      /usr/bin/jq -e --arg target "$target_sha" --arg merge "$merge_sha" '
+        .headRefOid == $target and .mergeCommit.oid == $merge
+      ' <<<"$merged_pr_json" >/dev/null
+      break
+      ;;
+    OPEN) sleep 2 ;;
+    *) exit 1 ;;
+  esac
+done
+test "$followup_pr_state" = MERGED
+postmerge_remote_target_sha="$(followup_gh api \
+  "repos/$canonical_repository/git/ref/heads/agent/pr4-closed-merge-reconcile" \
+  --jq .object.sha)"
+test "$postmerge_remote_target_sha" = "$target_sha"
+merge_tree="$(git_followup rev-parse "$merge_sha^{tree}")"
+test "$merge_tree" = "$target_tree"
+mapfile -t merge_parents < <(git_followup show -s --format='%P' "$merge_sha" | tr ' ' '\n')
+test "${#merge_parents[@]}" = 2
+test "${merge_parents[0]}" = "$factory_sha"
+test "${merge_parents[1]}" = "$target_sha"
+# BEGIN FOLLOWUP_IDEMPOTENT_LOCAL_CAS
+test -z "$(git_followup status --porcelain)"
+local_main_commitpoint="$(git_followup rev-parse refs/heads/main)"
+case "$local_main_commitpoint" in
+  "$target_sha")
+    git_followup update-ref refs/heads/main "$merge_sha" "$target_sha"
+    ;;
+  "$merge_sha")
+    ;;
+  *) exit 1 ;;
+esac
+test "$(git_followup rev-parse refs/heads/main)" = "$merge_sha"
+# END FOLLOWUP_IDEMPOTENT_LOCAL_CAS
+expected_runtime_sha=$merge_sha
+expected_origin_sha=$merge_sha
+assert_followup_local_rollout
+unset FOLLOWUP_EXPECTED_ORIGIN FOLLOWUP_EXPECTED_FACTORY \
+  FOLLOWUP_EXPECTED_MERGE
+unset followup_ephemeral_token
+unset GH_TOKEN
+test -z "${GH_TOKEN+x}"
+```
+
+Expected: the branch is published only after both prior rollout gates, all
+checks and the exact-head CodeRabbit approval pass. A deterministic local
+two-parent merge is then built with the target tree and the ordered parents
+Factory, Target. Its private pre-push hook validates the server advertisement
+from the same push connection: remote Main must still be Factory and the local
+update must be the exact deterministic Merge. Git receive-pack then applies
+only this fast-forward Main update; the Target-Ref remains intentionally at the
+reviewed Target so GitHub can classify the PR as `MERGED` and a rerun can
+reconcile it safely. Any advertised Main drift rejects the write. The
+deterministic Merge-SHA is the remote commit point: Factory/Target selects the
+single push path, Merge/Target selects the no-push reconcile path, and every
+other pair fails closed. PR discovery accepts only absent-before-create, exact
+OPEN or exact MERGED state. The runtime's local `main` advances idempotently by
+compare-and-swap from Target to Merge only after the fetched remote proof and
+GitHub's exact PR convergence; an already reconciled local Merge is accepted
+without another ref write. No reinstall is performed; the package version and
+import source, all three exact unit states, applet, both ownership roots and
+all Git bindings are instead checked again after the same-tree CAS. No forced
+update is permitted, and neither token variable remains in the parent shell.
 
 ### Task 6: Hub Pages, public smoke, and additive plan closure
 
