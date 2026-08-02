@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
 import signal
@@ -964,11 +965,22 @@ set -Eeuo pipefail
             }
 
         approved_review = {
-            "databaseId": 8142270,
+            "databaseId": 4837973683,
             "state": "APPROVED",
-            "author": {"login": "coderabbitai[bot]"},
+            "author": {
+                "__typename": "Bot",
+                "login": "coderabbitai",
+                "databaseId": 136622811,
+                "id": "BOT_kgDOCCSy2w",
+                "url": "https://github.com/apps/coderabbitai",
+            },
             "commit": {"oid": head},
         }
+
+        self.assertIn("__typename", review_gate)
+        self.assertIn("databaseId", review_gate)
+        self.assertIn("BOT_kgDOCCSy2w", review_gate)
+        self.assertIn("https://github.com/apps/coderabbitai", review_gate)
 
         with tempfile.TemporaryDirectory(prefix="wirtelprimpf-review-gate-") as tmp:
             fixture_dir = Path(tmp)
@@ -1007,6 +1019,7 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
             def execute(
                 *,
                 overview: dict[str, object] | None = None,
+                actor_override: dict[str, object] | None = None,
                 threads: dict[str, object] | None = None,
                 reviews: dict[str, object] | None = None,
                 threads_second: dict[str, object] | None = None,
@@ -1014,7 +1027,7 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
             ) -> subprocess.CompletedProcess[str]:
                 payloads = {
                     "overview.json": overview or base_overview,
-                    "actor.json": actor,
+                    "actor.json": actor_override or actor,
                     "threads-root.json": threads or page([{"isResolved": True}]),
                     "threads-T1.json": threads_second or page([]),
                     "reviews-root.json": reviews or page([approved_review]),
@@ -1033,7 +1046,19 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
             accepted = execute(
                 threads=page([{"isResolved": True}], more=True, cursor="T1"),
                 reviews=page(
-                    [{"databaseId": 1, "state": "COMMENTED", "author": {"login": "human"}, "commit": {"oid": head}}],
+                    [
+                        {
+                            "databaseId": 1,
+                            "state": "COMMENTED",
+                            "author": {
+                                "__typename": "User",
+                                "login": "human",
+                                "id": "U_human",
+                                "url": "https://github.com/human",
+                            },
+                            "commit": {"oid": head},
+                        }
+                    ],
                     more=True,
                     cursor="R1",
                 ),
@@ -1042,13 +1067,23 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
             self.assertEqual(
                 accepted.stdout,
-                f"8142270:coderabbitai[bot]:136622811:{head}:APPROVED\n",
+                f"4837973683:coderabbitai[bot]:136622811:{head}:APPROVED\n",
             )
 
             drifted = dict(base_overview, headRefOid="3" * 40)
             changed = dict(base_overview, reviewDecision="CHANGES_REQUESTED")
             stale_review = dict(approved_review, commit={"oid": "3" * 40})
-            duplicate_reviews = page([approved_review, dict(approved_review, databaseId=8142271)])
+            duplicate_reviews = page(
+                [approved_review, dict(approved_review, databaseId=4837973684)]
+            )
+            foreign_bot = copy.deepcopy(approved_review)
+            foreign_bot["author"]["databaseId"] = 999999999
+            same_named_user = copy.deepcopy(approved_review)
+            same_named_user["author"]["__typename"] = "User"
+            wrong_node = copy.deepcopy(approved_review)
+            wrong_node["author"]["id"] = "BOT_foreign"
+            wrong_url = copy.deepcopy(approved_review)
+            wrong_url["author"]["url"] = "https://github.com/apps/foreign"
             rejected_cases = {
                 "head-drift": {"overview": drifted},
                 "changes-requested": {"overview": changed},
@@ -1058,6 +1093,22 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
                 "broken-pagination": {
                     "threads": page([{"isResolved": True}], more=True, cursor=None)
                 },
+                "foreign-rest-actor": {
+                    "actor_override": {
+                        "login": "coderabbitai[bot]",
+                        "id": 999999999,
+                    }
+                },
+                "foreign-rest-login": {
+                    "actor_override": {
+                        "login": "coderabbitai",
+                        "id": 136622811,
+                    }
+                },
+                "foreign-graphql-bot": {"reviews": page([foreign_bot])},
+                "same-named-user": {"reviews": page([same_named_user])},
+                "wrong-bot-node": {"reviews": page([wrong_node])},
+                "wrong-app-url": {"reviews": page([wrong_url])},
             }
             for name, kwargs in rejected_cases.items():
                 with self.subTest(name=name):

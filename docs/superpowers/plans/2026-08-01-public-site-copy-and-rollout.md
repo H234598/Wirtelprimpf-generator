@@ -1039,7 +1039,7 @@ fetch_task3_review_threads_page() {
 
 fetch_task3_reviews_page() {
   local cursor="${1:-}" query
-  query='query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviews(first:100,after:$cursor){nodes{databaseId state author{login}commit{oid}}pageInfo{hasNextPage endCursor}}}}}'
+  query='query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviews(first:100,after:$cursor){nodes{databaseId state author{__typename login id url ... on Bot{databaseId}}commit{oid}}pageInfo{hasNextPage endCursor}}}}}'
   if [[ -n "$cursor" ]]; then
     task3_gh api graphql -f query="$query" \
       -F owner=H234598 -F name=Wirtelprimpf-generator \
@@ -1055,7 +1055,7 @@ fetch_task3_reviews_page() {
 
 assert_task3_current_review() {
   local required_pr_state="${1:-OPEN}"
-  local overview actor page cursor next_cursor has_next
+  local overview actor actor_id page cursor next_cursor has_next
   local review_candidates='[]'
   local -A seen_thread_cursors=() seen_review_cursors=()
 
@@ -1072,6 +1072,8 @@ assert_task3_current_review() {
     .login == "coderabbitai[bot]"
     and .id == 136622811
   ' <<<"$actor" >/dev/null
+  actor_id="$(/usr/bin/jq -r '.id' <<<"$actor")"
+  test "$actor_id" = 136622811
 
   cursor=
   while :; do
@@ -1109,7 +1111,16 @@ assert_task3_current_review() {
         type == "object"
         and (.databaseId | type == "number" and . > 0 and floor == .)
         and (.state | type == "string")
+        and (.author | type == "object")
+        and (.author.__typename | type == "string")
         and (.author.login | type == "string")
+        and (.author.id | type == "string")
+        and (.author.url | type == "string")
+        and (
+          .author.__typename != "Bot"
+          or (.author.databaseId |
+            type == "number" and . > 0 and floor == .)
+        )
         and (.commit.oid | type == "string" and test("^[0-9a-f]{40}$"))
       )
     ' <<<"$page" >/dev/null
@@ -1117,10 +1128,16 @@ assert_task3_current_review() {
       /usr/bin/jq -cn \
         --argjson prior "$review_candidates" \
         --argjson current "$(
-          /usr/bin/jq -c --arg expected_head "$generator_expected_head" '
+          /usr/bin/jq -c \
+            --arg expected_head "$generator_expected_head" \
+            --argjson expected_actor_id "$actor_id" '
             [.nodes[] | select(
               .state == "APPROVED"
-              and .author.login == "coderabbitai[bot]"
+              and .author.__typename == "Bot"
+              and .author.login == "coderabbitai"
+              and .author.databaseId == $expected_actor_id
+              and .author.id == "BOT_kgDOCCSy2w"
+              and .author.url == "https://github.com/apps/coderabbitai"
               and .commit.oid == $expected_head
             )]
           ' <<<"$page"
@@ -1140,8 +1157,8 @@ assert_task3_current_review() {
 
   test "$(/usr/bin/jq 'length' <<<"$review_candidates")" = 1
   generator_review_id="$(/usr/bin/jq -r '.[0].databaseId' <<<"$review_candidates")"
-  generator_review_author_login="$(/usr/bin/jq -r '.[0].author.login' <<<"$review_candidates")"
-  generator_review_author_id="$(/usr/bin/jq -r '.id' <<<"$actor")"
+  generator_review_author_login="$(/usr/bin/jq -r '.login' <<<"$actor")"
+  generator_review_author_id="$actor_id"
   generator_review_commit="$(/usr/bin/jq -r '.[0].commit.oid' <<<"$review_candidates")"
   generator_review_state="$(/usr/bin/jq -r '.[0].state' <<<"$review_candidates")"
   [[ "$generator_review_id" =~ ^[1-9][0-9]*$ ]]
@@ -7208,3 +7225,54 @@ Completion requires all of the following:
   verblieben im gemeinsamen Gitdir und im Featureworktree jeweils null fremde
   Einträge; staged blieb 0, modified 20, untracked 0. Es gab kein `chown` auf
   Projekt-, Runtime-, Archiv- oder Nutzdaten und weiterhin keinen Push.
+
+### 2026-08-02 — Additive REST-/GraphQL-Botidentitätsbindung für Receipt v3
+
+- Diese Follow-up-Schicht basiert exakt auf
+  `d96ac7d40a2216ecc27596db328c78b54b011390`. Der normative Task-3-Step-5-
+  Lauf war vor Receipt-Erzeugung, Mergeable-Commit und jedem Remote-Write
+  geschlossen abgebrochen: Der REST-Abruf des CodeRabbit-Actors lieferte
+  `coderabbitai[bot]`, die GraphQL-Reviewkante für denselben Bot dagegen den
+  normalisierten Login `coderabbitai`. Das alte Candidate-Filter verlangte
+  fälschlich auch in GraphQL den REST-Login und erzeugte deshalb eine leere
+  Kandidatenliste.
+- Der read-only Livebeleg bindet beide API-Repräsentationen stabil. REST
+  `/users/coderabbitai%5Bbot%5D` liefert Login `coderabbitai[bot]` und
+  numerische ID `136622811`. GraphQL liefert für den Reviewauthor
+  `__typename=Bot`, Login `coderabbitai`, `databaseId=136622811`, Node-ID
+  `BOT_kgDOCCSy2w` und URL `https://github.com/apps/coderabbitai`. Die auf
+  Parent `d96ac7d` freigebende Review-ID ist `4837973683`.
+- Die paginierte Reviewquery fordert nun `__typename`, Actor-Login, Node-ID,
+  URL und für `Bot` zusätzlich `databaseId` an. Ein Approvalkandidat muss auf
+  dem unveränderten erwarteten Head liegen und gleichzeitig exakt Typ `Bot`,
+  GraphQL-Login `coderabbitai`, die mit REST übereinstimmende numerische ID
+  `136622811`, Node-ID `BOT_kgDOCCSy2w` und die feste App-URL besitzen. Der
+  separate REST-Gate verlangt weiterhin exakt `coderabbitai[bot]` und
+  `136622811`. Erst die Gleichheit der REST-ID mit GraphQL-`databaseId`
+  autorisiert den Kandidaten.
+- Receipt v3 bleibt schema- und konsumkompatibel: `review_author_login` wird
+  weiterhin aus dem exakt geprüften REST-Actor als `coderabbitai[bot]`
+  geschrieben, `review_author_id` bleibt `136622811`; Review-ID, Commit und
+  `APPROVED` werden unverändert gebunden. Es gibt keine schwache
+  Stringnormalisierung und keinen Fallback auf einen lediglich gleichnamigen
+  Actor.
+- TDD-Evidenz: Der neue Realitätsvertrag modellierte zuerst den echten
+  REST-/GraphQL-Unterschied und lief am alten Gate rot, weil `__typename` und
+  die stabile Botidentität fehlten. GREEN akzeptiert exakt den belegten Bot
+  und verwirft separat eine fremde REST-ID, einen falschen REST-Login, einen
+  gleichnamigen Bot mit fremder `databaseId`, einen gleichnamigen User, eine
+  fremde Bot-Node-ID und eine fremde App-URL. Der Fokuslauf bestand `1/1`; der
+  vollständige Rolloutvertrag entdeckte 56 Tests, führte 55 grün aus und
+  übersprang genau die bekannte reale Root-/`runuser`-Probe.
+- `make check` endete mit Exit 0: Applet-Runtime grün, Admin-UI `31/31`, SemVer
+  `8/8`, Git-Object-Fallback `3/3`, Release-Publication `3/3`,
+  Helper-Environment `7/7`, Applet-Sync `28/28`, Settings-Schema `15/15`,
+  Story-Directives `31/31` und Rolloutvertrag erneut 55 grün plus ein
+  erwarteter Skip. Ruff meldete „All checks passed“, Bandit High endete mit
+  Exit 0, und der geänderte normative Task-3-Step-5-Block bestand `bash -n`
+  sowie ShellCheck auf Error-Severity.
+- Dieser Follow-up führte keinen Receipt-, Fetch-, Push-, PR-, Merge-,
+  Installations-, Runtime-, Service-, Applet-, Archiv-, Pages-, DNS-,
+  Cloudflare- oder Upstream-Write aus. Der einzige externe Befund war die
+  ausdrücklich read-only erhobene API-Identität; sämtliche schreibenden
+  Testfixtures blieben lokal und disposable.
