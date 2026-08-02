@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import tempfile
@@ -113,6 +114,23 @@ def _quoted_heredoc(script: str, marker: str) -> tuple[str, str]:
     body_offset = script.index("\n", opener_offset) + 1
     body_end = script.index(f"\n{marker}", body_offset)
     return script[:body_offset], script[body_offset:body_end]
+
+
+def _ownership_test_owner_pairs(
+) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+    source = (os.geteuid(), os.getegid())
+    if source == (0, 0):
+        return source, (1000, 1000), (1, 1)
+    alternate_groups = sorted(set(os.getgroups()).difference({source[1]}))
+    if len(alternate_groups) < 2:
+        raise unittest.SkipTest(
+            "two supplementary groups are required for the ownership test"
+        )
+    return (
+        source,
+        (source[0], alternate_groups[0]),
+        (source[0], alternate_groups[1]),
+    )
 
 
 class RolloutPlanContractTests(unittest.TestCase):
@@ -3017,6 +3035,88 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
             self.document,
         )
 
+    def test_task4_ownership_program_uses_its_normative_isolated_interpreter(self) -> None:
+        prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_OWNERSHIP_BINDING_PY",
+        )
+        invocation_line = next(
+            line
+            for line in prefix.splitlines()
+            if line.startswith("/usr/bin/python3 ")
+        ).rstrip()
+        self.assertTrue(invocation_line.endswith("\\"))
+        invocation = shlex.split(invocation_line[:-1].rstrip())
+        self.assertEqual(invocation[-1], "$runtime")
+        interpreter = invocation[:-1]
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-hostile-cwd-") as tmp:
+            hostile_root = Path(tmp)
+            sentinel = hostile_root / "hostile-hashlib-imported"
+            (hostile_root / "hashlib.py").write_text(
+                "with open('hostile-hashlib-imported', 'w', encoding='utf-8') as f:\n"
+                "    f.write('unsafe import\\n')\n"
+                "raise RuntimeError('hostile hashlib imported')\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(  # nosec B603 -- plan-derived absolute interpreter argv
+                interpreter,
+                input=program,
+                text=True,
+                capture_output=True,
+                cwd=hostile_root,
+                env={
+                    "HOME": str(hostile_root),
+                    "PATH": "/usr/bin:/bin",
+                    "LANG": "C.UTF-8",
+                    "LC_ALL": "C.UTF-8",
+                },
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(
+                result.stderr,
+                "exact runtime/count/digest arguments required\n",
+            )
+            self.assertFalse(sentinel.exists())
+
+    def test_task4_ownership_program_self_rejects_unisolated_python_before_imports(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_OWNERSHIP_BINDING_PY",
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-unisolated-cwd-") as tmp:
+            hostile_root = Path(tmp)
+            sentinel = hostile_root / "hostile-hashlib-imported"
+            (hostile_root / "hashlib.py").write_text(
+                "with open('hostile-hashlib-imported', 'w', encoding='utf-8') as f:\n"
+                "    f.write('unsafe import\\n')\n"
+                "raise RuntimeError('hostile hashlib imported')\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(  # nosec B603 -- fixed absolute interpreter argv
+                ["/usr/bin/python3", "-"],
+                input=program,
+                text=True,
+                capture_output=True,
+                cwd=hostile_root,
+                env={
+                    "HOME": str(hostile_root),
+                    "PATH": "/usr/bin:/bin",
+                    "LANG": "C.UTF-8",
+                    "LC_ALL": "C.UTF-8",
+                },
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(
+                result.stderr,
+                "ownership gate requires isolated safe-path Python\n",
+            )
+            self.assertFalse(sentinel.exists())
+
     def test_task4_ownership_gate_binds_the_exact_current_allowlist(self) -> None:
         _prefix, program = _quoted_heredoc(
             self.ownership_gate,
@@ -3137,6 +3237,242 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
             with self.assertRaises(RuntimeError):
                 bind(str(root), tuple(submount_drift), uid, gid)
 
+    def test_task4_ownership_retry_completes_a_mixed_static_allowlist_targetward(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_OWNERSHIP_BINDING_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "ownership_contract_test"}
+        exec(compile(program, "<task4-ownership-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        self.assertIn("capture_allowlisted_runtime_inventory", namespace)
+        capture_allowlisted = namespace["capture_allowlisted_runtime_inventory"]
+        bind = namespace["bind_runtime_inventory_fds"]
+        apply_transaction = namespace["apply_runtime_ownership_transaction"]
+        close_bound = namespace["close_bound_inventory"]
+        source, target, _third = _ownership_test_owner_pairs()
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-mixed-retry-") as tmp:
+            root = Path(tmp).resolve()
+            first = root / "one"
+            second = root / "two"
+            first.write_text("one\n", encoding="utf-8")
+            second.write_text("two\n", encoding="utf-8")
+            expected_static = (
+                {"type": "f", "path": "one"},
+                {"type": "f", "path": "two"},
+            )
+            os.chown(first, *target)
+            records = capture_allowlisted(
+                str(root),
+                expected_static,
+                *source,
+                *target,
+            )
+            self.assertEqual(
+                {(int(item["uid"]), int(item["gid"])) for item in records},
+                {source, target},
+            )
+            bound = bind(str(root), records, *source)
+            try:
+                apply_transaction(bound, *source, *target)
+                self.assertEqual((first.stat().st_uid, first.stat().st_gid), target)
+                self.assertEqual((second.stat().st_uid, second.stat().st_gid), target)
+            finally:
+                close_bound(bound)
+
+    def test_task4_signal_after_real_fchown_rolls_back_each_entry_owner_and_is_nonzero(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_OWNERSHIP_BINDING_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "ownership_contract_test"}
+        exec(compile(program, "<task4-ownership-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        for symbol in (
+            "capture_allowlisted_runtime_inventory",
+            "OwnershipInterrupted",
+        ):
+            self.assertIn(symbol, namespace)
+        capture_allowlisted = namespace["capture_allowlisted_runtime_inventory"]
+        bind = namespace["bind_runtime_inventory_fds"]
+        apply_transaction = namespace["apply_runtime_ownership_transaction"]
+        close_bound = namespace["close_bound_inventory"]
+        interrupted_type = namespace["OwnershipInterrupted"]
+        contract_os = namespace["os"]
+        source, target, _third = _ownership_test_owner_pairs()
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-signal-rollback-") as tmp:
+            root = Path(tmp).resolve()
+            already_target = root / "already-target"
+            mutation_target = root / "mutation-target"
+            already_target.write_text("target\n", encoding="utf-8")
+            mutation_target.write_text("source\n", encoding="utf-8")
+            expected_static = (
+                {"type": "f", "path": "already-target"},
+                {"type": "f", "path": "mutation-target"},
+            )
+            os.chown(already_target, *target)
+            records = capture_allowlisted(
+                str(root),
+                expected_static,
+                *source,
+                *target,
+            )
+            bound = bind(str(root), records, *source)
+            original_fchown = contract_os.fchown
+            injected = False
+            prior_handlers = {
+                signum: signal.getsignal(signum)
+                for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+            }
+
+            def signal_after_real_fchown(
+                fd: int,
+                next_uid: int,
+                next_gid: int,
+            ) -> None:
+                nonlocal injected
+                original_fchown(fd, next_uid, next_gid)
+                if not injected and (next_uid, next_gid) == target:
+                    injected = True
+                    signal.raise_signal(signal.SIGTERM)
+
+            contract_os.fchown = signal_after_real_fchown
+            try:
+                with self.assertRaises(interrupted_type) as caught:
+                    apply_transaction(bound, *source, *target)
+                self.assertTrue(injected)
+                self.assertEqual(caught.exception.signum, signal.SIGTERM)
+                self.assertEqual(caught.exception.exit_code, 128 + signal.SIGTERM)
+                self.assertEqual(
+                    (already_target.stat().st_uid, already_target.stat().st_gid),
+                    target,
+                )
+                self.assertEqual(
+                    (mutation_target.stat().st_uid, mutation_target.stat().st_gid),
+                    source,
+                )
+                self.assertEqual(
+                    {
+                        signum: signal.getsignal(signum)
+                        for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+                    },
+                    prior_handlers,
+                )
+            finally:
+                contract_os.fchown = original_fchown
+                close_bound(bound)
+
+    def test_task4_commit_boundary_never_swallows_a_late_catchable_signal(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_OWNERSHIP_BINDING_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "ownership_contract_test"}
+        exec(compile(program, "<task4-ownership-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        capture_allowlisted = namespace["capture_allowlisted_runtime_inventory"]
+        bind = namespace["bind_runtime_inventory_fds"]
+        apply_transaction = namespace["apply_runtime_ownership_transaction"]
+        close_bound = namespace["close_bound_inventory"]
+        contract_signal = namespace["signal"]
+        source, target, _third = _ownership_test_owner_pairs()
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-late-signal-") as tmp:
+            root = Path(tmp).resolve()
+            candidate = root / "candidate"
+            candidate.write_text("candidate\n", encoding="utf-8")
+            records = capture_allowlisted(
+                str(root),
+                ({"type": "f", "path": "candidate"},),
+                *source,
+                *target,
+            )
+            bound = bind(str(root), records, *source)
+            original_sigpending = contract_signal.sigpending
+            original_handler = signal.getsignal(signal.SIGTERM)
+            observed: list[int] = []
+            injected = False
+
+            def prior_handler(signum: int, _frame: object) -> None:
+                observed.append(signum)
+
+            def queue_signal_after_pending_snapshot() -> set[signal.Signals]:
+                nonlocal injected
+                snapshot = original_sigpending()
+                if not injected:
+                    injected = True
+                    signal.raise_signal(signal.SIGTERM)
+                return snapshot
+
+            signal.signal(signal.SIGTERM, prior_handler)
+            contract_signal.sigpending = queue_signal_after_pending_snapshot
+            try:
+                apply_transaction(bound, *source, *target)
+                self.assertTrue(injected)
+                self.assertEqual(observed, [signal.SIGTERM])
+                self.assertEqual(
+                    (candidate.stat().st_uid, candidate.stat().st_gid),
+                    target,
+                )
+                self.assertIs(signal.getsignal(signal.SIGTERM), prior_handler)
+            finally:
+                contract_signal.sigpending = original_sigpending
+                signal.signal(signal.SIGTERM, original_handler)
+                if (candidate.stat().st_uid, candidate.stat().st_gid) != source:
+                    os.chown(candidate, *source)
+                close_bound(bound)
+
+    def test_task4_rollback_rejects_a_third_owner_without_overwriting_it(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_OWNERSHIP_BINDING_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "ownership_contract_test"}
+        exec(compile(program, "<task4-ownership-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        self.assertIn("capture_allowlisted_runtime_inventory", namespace)
+        capture_allowlisted = namespace["capture_allowlisted_runtime_inventory"]
+        bind = namespace["bind_runtime_inventory_fds"]
+        apply_transaction = namespace["apply_runtime_ownership_transaction"]
+        close_bound = namespace["close_bound_inventory"]
+        contract_os = namespace["os"]
+        source, target, third = _ownership_test_owner_pairs()
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-third-owner-") as tmp:
+            root = Path(tmp).resolve()
+            candidate = root / "candidate"
+            candidate.write_text("candidate\n", encoding="utf-8")
+            records = capture_allowlisted(
+                str(root),
+                ({"type": "f", "path": "candidate"},),
+                *source,
+                *target,
+            )
+            bound = bind(str(root), records, *source)
+            original_fchown = contract_os.fchown
+            injected = False
+
+            def inject_third_owner(
+                fd: int,
+                next_uid: int,
+                next_gid: int,
+            ) -> None:
+                nonlocal injected
+                original_fchown(fd, next_uid, next_gid)
+                if not injected and (next_uid, next_gid) == target:
+                    injected = True
+                    original_fchown(fd, *third)
+                    raise OSError("injected third-owner drift")
+
+            contract_os.fchown = inject_third_owner
+            try:
+                with self.assertRaisesRegex(RuntimeError, "rollback INCOMPLETE"):
+                    apply_transaction(bound, *source, *target)
+                self.assertTrue(injected)
+                self.assertEqual((candidate.stat().st_uid, candidate.stat().st_gid), third)
+            finally:
+                contract_os.fchown = original_fchown
+                original_fchown(int(bound[0]["fd"]), *source)
+                close_bound(bound)
+
     def test_task4_ownership_transaction_rolls_back_completed_fchowns(self) -> None:
         _prefix, program = _quoted_heredoc(
             self.ownership_gate,
@@ -3149,29 +3485,39 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
         close_bound = namespace["close_bound_inventory"]
         apply_transaction = namespace["apply_runtime_ownership_transaction"]
         contract_os = namespace["os"]
-        uid = os.geteuid()
-        gid = os.getegid()
+        source, target, _third = _ownership_test_owner_pairs()
 
         with tempfile.TemporaryDirectory(prefix="wirtelprimpf-ownership-rollback-") as tmp:
             root = Path(tmp).resolve()
-            (root / "one").write_text("one\n", encoding="utf-8")
-            (root / "two").write_text("two\n", encoding="utf-8")
-            expected = capture(str(root), uid + 100_000, gid + 100_000)
-            bound = bind(str(root), expected, uid, gid)
+            first = root / "one"
+            second = root / "two"
+            first.write_text("one\n", encoding="utf-8")
+            second.write_text("two\n", encoding="utf-8")
+            expected = capture(str(root), *target)
+            bound = bind(str(root), expected, *source)
             original_fchown = contract_os.fchown
             calls: list[tuple[int, int, int]] = []
 
             def injected_fchown(fd: int, next_uid: int, next_gid: int) -> None:
                 calls.append((fd, next_uid, next_gid))
-                if len(calls) == 2:
+                if len(calls) == 2 and (next_uid, next_gid) == target:
                     raise OSError("injected second-fchown failure")
+                original_fchown(fd, next_uid, next_gid)
 
             contract_os.fchown = injected_fchown
             try:
-                with self.assertRaisesRegex(Exception, "rollback complete"):
-                    apply_transaction(bound, uid, gid, uid, gid)
+                with self.assertRaisesRegex(RuntimeError, "rollback complete"):
+                    apply_transaction(bound, *source, *target)
                 self.assertEqual(len(calls), 3)
                 self.assertEqual(calls[0][0], calls[2][0])
+                self.assertEqual(
+                    (first.stat().st_uid, first.stat().st_gid),
+                    source,
+                )
+                self.assertEqual(
+                    (second.stat().st_uid, second.stat().st_gid),
+                    source,
+                )
             finally:
                 contract_os.fchown = original_fchown
                 close_bound(bound)

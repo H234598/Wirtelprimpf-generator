@@ -2306,23 +2306,44 @@ Ziel-SHA entsprechen. Jede frühere Gleichheit ist ein harter Abbruchgrund.
 #### Verbindliches Ownership-Gate vor jedem Runtime-Gitlauf
 
 Die frühere Zahl 450 war ein veralteter Snapshot und darf keine Besitzänderung
-mehr autorisieren. Der aktuelle read-only Befund umfasst exakt 84
+mehr autorisieren. Der aktuelle read-only Ausgangsbefund umfasst exakt 84
 `root:root`-Einträge. Ihre relativen Pfade und Typen sind unten als unveränderliche
 Allowlist plus SHA-256 gebunden; es gibt keinen Modus, der diese Allowlist bei
-Drift neu erzeugt. Root verwirft vor jedem Write Symlinks oder Special Files
-in der Fremdbesitzmenge, mehrfach verlinkte reguläre Allowlistdateien,
-Submounts, nichtkanonische Pfade, abweichende Besitzer und jede zusätzliche
-oder fehlende Allowlistposition. Bereits korrekt `teladi`-eigene venv-Symlinks
-werden weder verfolgt noch aufgezeichnet oder verändert.
+Drift neu erzeugt. Ein Erstlauf darf alle 84 Einträge als `root:root`, ein
+idempotenter Wiederholungslauf alle als `1000:1000` und ein Wiederanlauf nach
+SIGKILL oder Stromverlust eine beliebige Mischung genau dieser beiden
+Besitzpaare vorfinden. Eine solche Mischung wird ausschließlich zielwärts auf
+`1000:1000` vervollständigt; bereits zielrichtige Einträge werden nie auf Root
+zurückgesetzt. Jeder dritte Besitzer, jeder zusätzliche fremdbesessene Pfad,
+jede fehlende Allowlistposition, Symlinks oder Special Files in der
+Fremdbesitzmenge, mehrfach verlinkte reguläre Allowlistdateien, Submounts und
+nichtkanonische Pfade stoppen vor dem ersten Write. Bereits korrekt
+`teladi`-eigene Runtimeobjekte und venv-Symlinks werden weder in die statische
+Fremdbesitz-Allowlist aufgenommen noch verfolgt oder verändert.
 
 Danach öffnet Root jeden aufgezeichneten Pfad komponentenweise relativ zu einem
-kanonischen Runtime-Directory-FD mit `O_NOFOLLOW`, bindet den unmittelbar zuvor
-aufgezeichneten Device-/Inode-/Typ-/UID-/GID-/Link-Stand nochmals per `fstat`
-und hält alle FDs bis zum Transaktionsende offen. Unmittelbar vor **jedem**
-`fchown` wird derselbe Stand erneut geprüft. Scheitert eine Prüfung oder ein
-Write, werden alle bereits geänderten FDs in umgekehrter Reihenfolge auf
-`root:root` zurückgesetzt und verifiziert; ein unvollständiger Rollback ist ein
-eigener harter Fehler. Es gibt keine `safe.directory`-Ausnahme und keinen
+kanonischen Runtime-Directory-FD mit `O_NOFOLLOW`, bindet Device, Inode, Typ,
+Linkzahl, den individuellen Eintrittsbesitzer und den festen Zielbesitzer
+nochmals per `fstat` und hält alle FDs bis zum Transaktionsende offen.
+Unmittelbar vor **jedem** `fchown` wird derselbe Stand erneut geprüft. Bei
+Prüfungs-/Writefehlern sowie HUP, INT oder TERM klassifiziert der Rollback unter
+blockierten Transaktionssignalen **jeden** vorregistrierten FD: unveränderter
+Eintrittsbesitz bleibt unangetastet; nur ein vom individuellen
+`root:root`-Eintrittszustand bereits auf `1000:1000` gewechselter FD wird exakt
+auf seinen Eintrittsbesitzer zurückgesetzt und verifiziert. Jeder dritte Zustand
+macht den Rollback ausdrücklich `INCOMPLETE` und ist ein eigener harter Fehler.
+Ein signalbedingter, vollständiger Rollback endet mit `128 + Signalnummer` und
+druckt niemals die Erfolgsmeldung.
+
+Der finale Commitpunkt blockiert HUP, INT und TERM, konsumiert bereits
+anstehende Transaktionssignale und stellt die vorherigen Signalhandler noch vor
+dem Entsperren wieder her; ein spät eintreffendes Signal kann daher nicht als
+scheinbarer Erfolg verschluckt werden. SIGKILL ist nicht abfangbar: Ein dadurch
+zurückbleibender Mischzustand wird beim nächsten Lauf aus derselben statischen
+84-Pfad-Allowlist erkannt und zielwärts beendet, niemals aus einem neu erzeugten
+Inventar. Der Heredoc startet ausschließlich mit dem absoluten Interpreter und
+`-I`; das Programm selbst prüft `isolated` und `safe_path` vor jedem
+schattenbaren Import. Es gibt keine `safe.directory`-Ausnahme und keinen
 pfadbasierten rekursiven `chown`:
 
 ```bash
@@ -2332,18 +2353,25 @@ test -d "$runtime" && test ! -L "$runtime"
 test "$(realpath -e -- "$runtime")" = "$runtime"
 expected_runtime_inventory_count=84
 expected_runtime_inventory_sha256=713307aef872976278c81ef74dd7ddf635767e7e4bbb3441941db2e17b2dc368
-/usr/bin/python3 - "$runtime" \
+/usr/bin/python3 -I - "$runtime" \
   "$expected_runtime_inventory_count" \
   "$expected_runtime_inventory_sha256" <<'TASK4_OWNERSHIP_BINDING_PY'
 from __future__ import annotations
 
+import sys
+
+if __name__ == "__main__" and (
+    sys.flags.isolated != 1 or sys.flags.safe_path != 1
+):
+    raise SystemExit("ownership gate requires isolated safe-path Python")
+
 import hashlib
 import json
 import os
+import signal
 import stat
-import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 EXPECTED_RUNTIME_INVENTORY = (
@@ -2460,13 +2488,18 @@ def _canonical_root(root: str) -> str:
     return canonical
 
 
-def _lexical_relative(root: str, full_path: str) -> str:
+def _relative_components(root: str, full_path: str) -> str:
     relative = os.path.relpath(full_path, root)
     if relative in ("", ".") or os.path.isabs(relative):
         raise RuntimeError("invalid relative inventory path")
     components = relative.split(os.sep)
     if any(component in ("", ".", "..") for component in components):
         raise RuntimeError("non-lexical relative inventory path")
+    return relative
+
+
+def _lexical_relative(root: str, full_path: str) -> str:
+    relative = _relative_components(root, full_path)
     resolved = os.path.realpath(os.path.join(root, relative))
     if os.path.commonpath((root, resolved)) != root:
         raise RuntimeError("inventory path resolves outside runtime")
@@ -2528,6 +2561,83 @@ def capture_runtime_inventory(
     return tuple(records)
 
 
+def capture_allowlisted_runtime_inventory(
+    root: str,
+    expected_static: tuple[dict[str, Any], ...],
+    source_uid: int,
+    source_gid: int,
+    target_uid: int,
+    target_gid: int,
+) -> tuple[dict[str, Any], ...]:
+    canonical = _canonical_root(root)
+    if (source_uid, source_gid) == (target_uid, target_gid):
+        raise RuntimeError("source and target ownership must differ")
+    expected_by_path: dict[str, str] = {}
+    for item in expected_static:
+        if set(item) != {"path", "type"}:
+            raise RuntimeError("invalid static inventory record")
+        relative = str(item["path"])
+        kind = str(item["type"])
+        if (
+            os.path.isabs(relative)
+            or any(part in ("", ".", "..") for part in relative.split(os.sep))
+            or kind not in ("f", "d")
+            or relative in expected_by_path
+        ):
+            raise RuntimeError("invalid static inventory path or type")
+        expected_by_path[relative] = kind
+    if not expected_by_path:
+        raise RuntimeError("empty static ownership inventory rejected")
+
+    root_metadata = os.lstat(canonical)
+    root_device = root_metadata.st_dev
+    allowed_owners = {(source_uid, source_gid), (target_uid, target_gid)}
+    records_by_path: dict[str, dict[str, Any]] = {}
+    pending = [canonical]
+    while pending:
+        directory = pending.pop()
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                metadata = entry.stat(follow_symlinks=False)
+                if metadata.st_dev != root_device:
+                    raise RuntimeError("unexpected runtime submount")
+                if stat.S_ISLNK(metadata.st_mode):
+                    relative = _relative_components(canonical, entry.path)
+                    if relative in expected_by_path:
+                        raise RuntimeError("allowlisted runtime symlink rejected")
+                    if (metadata.st_uid, metadata.st_gid) == (target_uid, target_gid):
+                        continue
+                    raise RuntimeError("foreign runtime symlink rejected")
+                relative = _lexical_relative(canonical, entry.path)
+                kind = _type_code(metadata)
+                if kind == "d":
+                    pending.append(entry.path)
+                if relative in expected_by_path:
+                    if kind != expected_by_path[relative]:
+                        raise RuntimeError("static runtime object type drift")
+                    if (metadata.st_uid, metadata.st_gid) not in allowed_owners:
+                        raise RuntimeError("allowlisted runtime owner drift")
+                    records_by_path[relative] = {
+                        "path": relative,
+                        "type": kind,
+                        "uid": metadata.st_uid,
+                        "gid": metadata.st_gid,
+                        "dev": metadata.st_dev,
+                        "ino": metadata.st_ino,
+                        "nlink": metadata.st_nlink,
+                        "target_uid": target_uid,
+                        "target_gid": target_gid,
+                    }
+                elif (metadata.st_uid, metadata.st_gid) != (target_uid, target_gid):
+                    raise RuntimeError("unexpected foreign runtime path")
+    if set(records_by_path) != set(expected_by_path):
+        raise RuntimeError("static runtime inventory path drift")
+    return tuple(
+        records_by_path[path]
+        for path in sorted(records_by_path, key=os.fsencode)
+    )
+
+
 def validate_expected_inventory(
     root: str,
     expected: tuple[dict[str, Any], ...],
@@ -2541,7 +2651,21 @@ def validate_expected_inventory(
     }
     if len(target_pairs) != 1:
         raise RuntimeError("ambiguous target ownership")
+    target_uid, target_gid = next(iter(target_pairs))
+    allowed_owners = {(source_uid, source_gid), (target_uid, target_gid)}
     for item in expected:
+        if set(item) != {
+            "dev",
+            "gid",
+            "ino",
+            "nlink",
+            "path",
+            "target_gid",
+            "target_uid",
+            "type",
+            "uid",
+        }:
+            raise RuntimeError("invalid dynamic inventory record")
         relative = str(item["path"])
         if os.path.isabs(relative) or any(
             part in ("", ".", "..") for part in relative.split(os.sep)
@@ -2549,29 +2673,31 @@ def validate_expected_inventory(
             raise RuntimeError("invalid expected relative path")
         if item["type"] not in ("f", "d"):
             raise RuntimeError("invalid expected object type")
-        if int(item["uid"]) != source_uid or int(item["gid"]) != source_gid:
-            raise RuntimeError("unexpected source ownership")
+        if (int(item["uid"]), int(item["gid"])) not in allowed_owners:
+            raise RuntimeError("unexpected bound ownership")
         if item["type"] == "f" and int(item["nlink"]) != 1:
             raise RuntimeError("expected regular file is multiply linked")
-    target_uid, target_gid = next(iter(target_pairs))
-    current = capture_runtime_inventory(root, target_uid, target_gid)
+    static_inventory = tuple(
+        {"path": str(item["path"]), "type": str(item["type"])}
+        for item in expected
+    )
+    current = capture_allowlisted_runtime_inventory(
+        root,
+        static_inventory,
+        source_uid,
+        source_gid,
+        target_uid,
+        target_gid,
+    )
     if current != expected:
         raise RuntimeError("runtime ownership inventory drift")
     return current
 
 
-def _assert_fd_binding(fd: int, record: dict[str, Any], uid: int, gid: int) -> None:
+def _fd_snapshot(fd: int) -> tuple[int, int, str, int, int, int]:
     metadata = os.fstat(fd)
     kind = _type_code(metadata)
-    expected = (
-        int(record["dev"]),
-        int(record["ino"]),
-        str(record["type"]),
-        int(record["nlink"]),
-        uid,
-        gid,
-    )
-    current = (
+    return (
         metadata.st_dev,
         metadata.st_ino,
         kind,
@@ -2579,8 +2705,35 @@ def _assert_fd_binding(fd: int, record: dict[str, Any], uid: int, gid: int) -> N
         metadata.st_uid,
         metadata.st_gid,
     )
-    if current != expected:
+
+
+def _assert_fd_identity(fd: int, record: dict[str, Any]) -> None:
+    expected = (
+        int(record["dev"]),
+        int(record["ino"]),
+        str(record["type"]),
+        int(record["nlink"]),
+    )
+    if _fd_snapshot(fd)[:4] != expected:
         raise RuntimeError("open runtime object drift")
+
+
+def _fd_owner(fd: int, record: dict[str, Any]) -> tuple[int, int]:
+    snapshot = _fd_snapshot(fd)
+    expected_identity = (
+        int(record["dev"]),
+        int(record["ino"]),
+        str(record["type"]),
+        int(record["nlink"]),
+    )
+    if snapshot[:4] != expected_identity:
+        raise RuntimeError("open runtime object drift")
+    return snapshot[4], snapshot[5]
+
+
+def _assert_fd_binding(fd: int, record: dict[str, Any], uid: int, gid: int) -> None:
+    if _fd_owner(fd, record) != (uid, gid):
+        raise RuntimeError("open runtime ownership drift")
 
 
 def _open_beneath(root_fd: int, relative: str, kind: str) -> int:
@@ -2620,7 +2773,12 @@ def bind_runtime_inventory_fds(
         for record in expected:
             fd = _open_beneath(root_fd, str(record["path"]), str(record["type"]))
             try:
-                _assert_fd_binding(fd, record, source_uid, source_gid)
+                _assert_fd_binding(
+                    fd,
+                    record,
+                    int(record["uid"]),
+                    int(record["gid"]),
+                )
             except BaseException:
                 os.close(fd)
                 raise
@@ -2628,7 +2786,10 @@ def bind_runtime_inventory_fds(
         validate_expected_inventory(canonical, expected, source_uid, source_gid)
         for item in bound:
             _assert_fd_binding(
-                int(item["fd"]), item["record"], source_uid, source_gid
+                int(item["fd"]),
+                item["record"],
+                int(item["record"]["uid"]),
+                int(item["record"]["gid"]),
             )
         return bound
     except BaseException:
@@ -2644,68 +2805,193 @@ def close_bound_inventory(bound: list[dict[str, Any]]) -> None:
         os.close(int(item["fd"]))
 
 
-def apply_runtime_ownership_transaction(
+OWNERSHIP_SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+
+
+class OwnershipInterrupted(BaseException):
+    def __init__(self, signum: int) -> None:
+        super().__init__(f"ownership transaction interrupted by signal {signum}")
+        self.signum = signum
+        self.exit_code = 128 + signum
+
+
+def rollback_runtime_ownership_transaction(
     bound: list[dict[str, Any]],
     source_uid: int,
     source_gid: int,
     target_uid: int,
     target_gid: int,
 ) -> None:
-    changed: list[dict[str, Any]] = []
-    try:
-        for item in bound:
-            fd = int(item["fd"])
-            record = item["record"]
-            _assert_fd_binding(fd, record, source_uid, source_gid)
-            os.fchown(fd, target_uid, target_gid)
-            changed.append(item)
-            _assert_fd_binding(fd, record, target_uid, target_gid)
-    except BaseException as original_error:
-        rollback_errors: list[str] = []
-        for item in reversed(changed):
-            fd = int(item["fd"])
-            record = item["record"]
-            try:
-                _assert_fd_binding(fd, record, target_uid, target_gid)
-                os.fchown(fd, source_uid, source_gid)
-                _assert_fd_binding(fd, record, source_uid, source_gid)
-            except BaseException as rollback_error:
-                rollback_errors.append(
-                    f"{record['path']}: {type(rollback_error).__name__}: {rollback_error}"
-                )
-        if rollback_errors:
-            raise RuntimeError(
-                "ownership transaction failed; rollback INCOMPLETE: "
-                + "; ".join(rollback_errors)
-            ) from original_error
-        raise RuntimeError(
-            "ownership transaction failed; rollback complete"
-        ) from original_error
-
-
-def rollback_runtime_ownership_transaction(
-    changed: list[dict[str, Any]],
-    source_uid: int,
-    source_gid: int,
-    target_uid: int,
-    target_gid: int,
-) -> None:
     rollback_errors: list[str] = []
-    for item in reversed(changed):
+    for item in reversed(bound):
         fd = int(item["fd"])
         record = item["record"]
         try:
-            _assert_fd_binding(fd, record, target_uid, target_gid)
-            os.fchown(fd, source_uid, source_gid)
-            _assert_fd_binding(fd, record, source_uid, source_gid)
+            original_owner = (int(record["uid"]), int(record["gid"]))
+            recorded_target = (
+                int(record["target_uid"]),
+                int(record["target_gid"]),
+            )
+            if recorded_target != (target_uid, target_gid):
+                raise RuntimeError("recorded target ownership drift")
+            if original_owner not in {
+                (source_uid, source_gid),
+                (target_uid, target_gid),
+            }:
+                raise RuntimeError("recorded original owner is not allowed")
+            current_owner = _fd_owner(fd, record)
+            if current_owner == original_owner:
+                continue
+            if (
+                original_owner == (source_uid, source_gid)
+                and current_owner == (target_uid, target_gid)
+            ):
+                os.fchown(fd, *original_owner)
+                _assert_fd_binding(fd, record, *original_owner)
+                continue
+            raise RuntimeError(
+                f"third ownership state {current_owner[0]}:{current_owner[1]}"
+            )
         except BaseException as rollback_error:
             rollback_errors.append(
                 f"{record['path']}: {type(rollback_error).__name__}: {rollback_error}"
             )
     if rollback_errors:
         raise RuntimeError(
-            "postcondition failed; rollback INCOMPLETE: " + "; ".join(rollback_errors)
+            "rollback INCOMPLETE: " + "; ".join(rollback_errors)
         )
+
+
+def _rollback_with_signals_blocked(
+    bound: list[dict[str, Any]],
+    source_uid: int,
+    source_gid: int,
+    target_uid: int,
+    target_gid: int,
+) -> None:
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set(OWNERSHIP_SIGNALS))
+    try:
+        rollback_runtime_ownership_transaction(
+            bound,
+            source_uid,
+            source_gid,
+            target_uid,
+            target_gid,
+        )
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+
+
+def apply_runtime_ownership_transaction(
+    bound: list[dict[str, Any]],
+    source_uid: int,
+    source_gid: int,
+    target_uid: int,
+    target_gid: int,
+    postcondition: Callable[[], None] | None = None,
+) -> None:
+    if not bound:
+        raise RuntimeError("empty bound ownership inventory rejected")
+    if (source_uid, source_gid) == (target_uid, target_gid):
+        raise RuntimeError("source and target ownership must differ")
+    pending: dict[str, int | bool | None] = {"signum": None, "committed": False}
+    previous_handlers = {
+        signum: signal.getsignal(signum) for signum in OWNERSHIP_SIGNALS
+    }
+    handlers_restored = False
+
+    def record_signal(signum: int, _frame: Any) -> None:
+        if pending["committed"] is False and pending["signum"] is None:
+            pending["signum"] = signum
+
+    def raise_if_interrupted() -> None:
+        signum = pending["signum"]
+        if isinstance(signum, int):
+            raise OwnershipInterrupted(signum)
+
+    for signum in OWNERSHIP_SIGNALS:
+        signal.signal(signum, record_signal)
+    try:
+        try:
+            raise_if_interrupted()
+            for item in bound:
+                fd = int(item["fd"])
+                record = item["record"]
+                original_owner = (int(record["uid"]), int(record["gid"]))
+                recorded_target = (
+                    int(record["target_uid"]),
+                    int(record["target_gid"]),
+                )
+                if recorded_target != (target_uid, target_gid):
+                    raise RuntimeError("recorded target ownership drift")
+                if original_owner not in {
+                    (source_uid, source_gid),
+                    (target_uid, target_gid),
+                }:
+                    raise RuntimeError("recorded original owner is not allowed")
+                _assert_fd_binding(fd, record, *original_owner)
+                raise_if_interrupted()
+                if original_owner == (target_uid, target_gid):
+                    continue
+                os.fchown(fd, target_uid, target_gid)
+                raise_if_interrupted()
+                _assert_fd_binding(fd, record, target_uid, target_gid)
+            raise_if_interrupted()
+            if postcondition is not None:
+                postcondition()
+            raise_if_interrupted()
+
+            previous_mask = signal.pthread_sigmask(
+                signal.SIG_BLOCK,
+                set(OWNERSHIP_SIGNALS),
+            )
+            try:
+                blocked_pending = sorted(
+                    set(signal.sigpending()).intersection(OWNERSHIP_SIGNALS),
+                    key=int,
+                )
+                for signum in blocked_pending:
+                    signal.sigwait({signum})
+                    if pending["signum"] is None:
+                        pending["signum"] = int(signum)
+                raise_if_interrupted()
+                for signum, previous_handler in previous_handlers.items():
+                    signal.signal(signum, previous_handler)
+                handlers_restored = True
+                pending["committed"] = True
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+        except BaseException as original_error:
+            if pending["committed"] is True:
+                raise
+            rollback_error: BaseException | None = None
+            try:
+                _rollback_with_signals_blocked(
+                    bound,
+                    source_uid,
+                    source_gid,
+                    target_uid,
+                    target_gid,
+                )
+            except BaseException as caught_rollback_error:
+                rollback_error = caught_rollback_error
+            if rollback_error is not None:
+                raise RuntimeError(
+                    "ownership transaction failed; rollback INCOMPLETE: "
+                    f"{type(rollback_error).__name__}: {rollback_error}"
+                ) from original_error
+            signum = pending["signum"]
+            if isinstance(original_error, OwnershipInterrupted):
+                raise original_error
+            if isinstance(signum, int):
+                raise OwnershipInterrupted(signum) from original_error
+            raise RuntimeError(
+                "ownership transaction failed; rollback complete"
+            ) from original_error
+    finally:
+        if not handlers_restored:
+            for signum, previous_handler in previous_handlers.items():
+                signal.signal(signum, previous_handler)
 
 
 def main() -> None:
@@ -2725,7 +3011,14 @@ def main() -> None:
     if canonical_inventory_digest(EXPECTED_RUNTIME_INVENTORY) != expected_digest:
         raise SystemExit("embedded inventory digest mismatch")
 
-    current = capture_runtime_inventory(root, 1000, 1000)
+    current = capture_allowlisted_runtime_inventory(
+        root,
+        EXPECTED_RUNTIME_INVENTORY,
+        0,
+        0,
+        1000,
+        1000,
+    )
     current_allowlist = tuple(
         {"type": str(item["type"]), "path": str(item["path"])} for item in current
     )
@@ -2733,20 +3026,41 @@ def main() -> None:
         sorted(EXPECTED_RUNTIME_INVENTORY, key=lambda item: os.fsencode(item["path"]))
     ):
         raise SystemExit("runtime ownership allowlist drift")
-    if any(item["uid"] != 0 or item["gid"] != 0 for item in current):
-        raise SystemExit("runtime source ownership is not exactly root:root")
 
     bound = bind_runtime_inventory_fds(root, current, 0, 0)
+
+    def assert_committed_inventory() -> None:
+        committed = capture_allowlisted_runtime_inventory(
+            root,
+            EXPECTED_RUNTIME_INVENTORY,
+            0,
+            0,
+            1000,
+            1000,
+        )
+        if any(
+            (int(item["uid"]), int(item["gid"])) != (1000, 1000)
+            for item in committed
+        ):
+            raise RuntimeError("source ownership remains after transaction")
+
     try:
-        apply_runtime_ownership_transaction(bound, 0, 0, 1000, 1000)
         try:
-            if capture_runtime_inventory(root, 1000, 1000):
-                raise RuntimeError("foreign ownership remains after transaction")
-        except BaseException as postcondition_error:
-            rollback_runtime_ownership_transaction(bound, 0, 0, 1000, 1000)
-            raise RuntimeError(
-                "ownership postcondition failed; rollback complete"
-            ) from postcondition_error
+            apply_runtime_ownership_transaction(
+                bound,
+                0,
+                0,
+                1000,
+                1000,
+                assert_committed_inventory,
+            )
+        except OwnershipInterrupted as interruption:
+            print(
+                f"ownership transaction interrupted by signal "
+                f"{interruption.signum}; rollback complete",
+                file=sys.stderr,
+            )
+            raise SystemExit(interruption.exit_code) from interruption
     finally:
         close_bound_inventory(bound)
     print(
@@ -8457,3 +8771,69 @@ Completion requires all of the following:
   Task 3 Step 5 bestand `bash -n` und ShellCheck auf Warning-Level;
   `git diff --check`, JSON-Validierung, Ruff und Bandit High waren ebenfalls
   ohne Befund.
+
+### 2026-08-02 — Additive Interpreter-, Signal- und Wiederanlaufschließung des Ownership-Gates
+
+- Diese ausschließlich lokale Follow-up-Schicht basiert exakt auf
+  `b0edc6714deae6032707339da5284818fcac8cd5`. Sie ändert weder den
+  PR-4-Reconcilevertrag noch dessen Objektbindungen, sondern schließt zwei im
+  unabhängigen Rootaudit verbliebene Grenzen des Task-4-Ownership-Gates.
+- Der normative Heredoc wird nun ausschließlich als
+  `/usr/bin/python3 -I -` gestartet. Noch vor `hashlib`, `json`, `os`,
+  `signal`, `stat`, `pathlib` oder `typing` prüft das Programm selbst
+  `sys.flags.isolated == 1` und `sys.flags.safe_path == 1`. Ein realer
+  Hostile-CWD-Test mit einer schreibenden `hashlib.py` beweist sowohl für die
+  normative Invokation als auch für den absichtlich unisolierten Negativlauf,
+  dass das Fremdmodul niemals importiert wird; Invokation und Selbstprüfung
+  sind damit gemeinsam regressionsgebunden.
+- Die statische 84-Pfad-/Typ-Allowlist ist nun zugleich die einzige
+  Recoveryquelle. Jeder Allowlisteintrag muss bei Eintritt exakt entweder
+  `0:0` oder `1000:1000` gehören. Alle-Quelle ist der normale Erstlauf,
+  Alle-Ziel ein idempotenter Wiederholungslauf und eine Mischung der
+  definierte Wiederanlauf nach SIGKILL oder Stromverlust. Mischzustände werden
+  ausschließlich zielwärts vervollständigt; ein dritter Besitzer, Pfad-/Typ-
+  Drift oder zusätzlicher fremder Pfad stoppt fail-closed. Es gibt weiterhin
+  weder Rebuild-/Lernmodus noch rekursiven oder pfadbasierten `chown`.
+- Vor dem ersten `fchown` sind alle 84 offenen FDs samt Device, Inode, Typ,
+  Linkzahl, Eintritts- und Zielbesitzer registriert. Der Rollback untersucht
+  jeden dieser FDs in umgekehrter Reihenfolge: Eintrittsbesitz bleibt
+  unverändert, nur `Eintritt=Quelle` plus `aktuell=Ziel` wird exakt auf den
+  individuellen Eintrittsbesitzer restauriert; jeder dritte Zustand ergibt
+  `rollback INCOMPLETE`, wird gemeldet und nicht überschrieben. Bereits vor dem
+  Lauf zielrichtige Einträge werden daher auch bei einem Fehler nie auf Root
+  zurückgesetzt.
+- HUP, INT und TERM verwenden während der Transaktion einen minimalen
+  Flaghandler. Prüfungen vor und unmittelbar nach jedem echten `fchown`, nach
+  der Gesamtpostcondition und am unter blockierten Signalen liegenden
+  Commitpunkt erzwingen den Rollback. Während des Rollbacks bleiben diese
+  Signale blockiert. Ein vollständig behandeltes Signal endet mit
+  `128 + Signalnummer` ohne Erfolgsausgabe. Vor dem finalen Entsperren werden
+  die vorherigen Handler wiederhergestellt; eine gezielt direkt nach dem
+  Pending-Snapshot eingereihte späte TERM-Probe wird deshalb nicht
+  verschluckt. SIGKILL bleibt naturgemäß nicht abfangbar und wird durch den
+  statischen Mischzustands-Wiederanlauf geschlossen.
+- TDD startete mit fünf neuen Fokusverträgen `0/5`: Beide Hostile-CWD-Läufe
+  importierten am Parent tatsächlich das Fremdmodul; die drei
+  Ownershipverträge scheiterten am noch fehlenden statischen
+  Mischzustandscapture. Nach Implementierung und Anpassung der bestehenden
+  echten Rollbackprobe bestanden sechs relevante Verträge `6/6`. Der danach
+  ergänzte Late-Signal-Test lief zunächst gezielt rot (`0/1`, vorheriger
+  TERM-Handler nicht aufgerufen) und nach Schließung des Commitpunkts zusammen
+  mit allen Fokusverträgen `7/7` grün.
+- Die frische Abschlussmatrix unter UID/GID `1000:1000` bestand: Der
+  Rolloutvertrag entdeckte 70 Tests, führte 69 grün aus und übersprang genau
+  die bekannte reale Root-/`runuser`-Probe; Plattform `166/166`; vollständiges
+  `make check` Exit 0; Web `9/9`; Astro 22 Dateien mit null Fehlern, Warnungen
+  oder Hinweisen. Hub und Archiv validierten jeweils 823 Dateien, 818 HTML und
+  10.840 interne Links mit den unveränderten Baumhashes
+  `0acc6695654d3e82e450a3467d96995da89e59d954d00340d5a5028916ab1bb6`
+  und `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
+  Der Ownership-Block bestand `bash -n` sowie ShellCheck auf Error-Severity;
+  `git diff --check`, Ruff und Bandit High endeten ohne blockierenden Befund.
+- Eine erneute ausschließlich lesende Probe gegen die echte Runtime erfasste
+  exakt 84 statische Positionen, denselben Allowlistdigest, ausschließlich
+  Eintrittsbesitz `0:0` und 84 erfolgreich descriptorgebundene Objekte. Die
+  Writefunktion wurde nicht aufgerufen. Diese Follow-up-Schicht führte keinen
+  Push, Fetch, Receipt-, Runtime-, Ownership-, Installations-, Service-,
+  Applet-, Archiv-, Pages-, DNS-, Cloudflare- oder Upstream-Write aus und wird
+  als eigener lokaler Commit auf dem genannten Parent übergeben.
