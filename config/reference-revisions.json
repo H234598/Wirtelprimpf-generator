@@ -1,0 +1,120 @@
+{
+  "adr_ids": {
+    "current": [
+      "ADR-WEB-001",
+      "ADR-WEB-002",
+      "ADR-WEB-003",
+      "ADR-WEB-004",
+      "ADR-WEB-005",
+      "ADR-WEB-006",
+      "ADR-WEB-007",
+      "ADR-WEB-008",
+      "ADR-WEB-009",
+      "ADR-WEB-010",
+      "ADR-WEB-011",
+      "ADR-WEB-012",
+      "ADR-WEB-013",
+      "ADR-WEB-014",
+      "ADR-WEB-015"
+    ],
+    "historical": [
+      "ADR-WEB-001",
+      "ADR-WEB-002",
+      "ADR-WEB-003",
+      "ADR-WEB-004",
+      "ADR-WEB-005",
+      "ADR-WEB-006",
+      "ADR-WEB-007",
+      "ADR-WEB-008",
+      "ADR-WEB-009",
+      "ADR-WEB-010",
+      "ADR-WEB-011",
+      "ADR-WEB-012",
+      "ADR-WEB-013"
+    ]
+  },
+  "archive_factory_pin": {
+    "sha": "b00d824adee47341e3251bc18e09239fde1c5939",
+    "state": "frozen-rollout-drift"
+  },
+  "manual_verification_boundaries": [
+    "Pages source configuration",
+    "github-pages environment protection",
+    "rulesets, required checks, and branch protection",
+    "CodeRabbit organization configuration",
+    "custom-domain verification",
+    "DNS and aliases",
+    "HTTPS enforcement",
+    "secrets",
+    "Actions policy",
+    "live content of both domains"
+  ],
+  "phase_ids": [
+    "P00",
+    "P01",
+    "P02",
+    "P03",
+    "P04",
+    "P05",
+    "P06",
+    "P07",
+    "P08",
+    "P09",
+    "P10",
+    "P11",
+    "P12"
+  ],
+  "plan_sha256": "b4b3427e80cabff59e82f9aa9be52978de1d930ea63e06b2433045b8c0dc38fe",
+  "repositories": [
+    {
+      "branch": "main",
+      "commit_time": "2026-08-02 13:00:40 Europe/Berlin",
+      "drift_classification": "drift",
+      "frozen_sha": "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f",
+      "id": "H234598/Wirtelprimpf-generator",
+      "observed": {
+        "sha": "3a60129417659bed9939755baf56d649510454d1",
+        "source": "local-git",
+        "status": "checked"
+      },
+      "role": "Generator, Plattform, Applet, Admin, Seitenfabrik, Hub"
+    },
+    {
+      "branch": "main",
+      "commit_time": "2026-08-02 00:58:57 Europe/Berlin",
+      "drift_classification": "not-checked",
+      "frozen_sha": "79274c1fef77306eb9ee0e9bd2682f4b28b74849",
+      "id": "H234598/Wirtelprimpf-0001",
+      "observed": {"sha": null, "source": null, "status": "not-checked"},
+      "role": "Story-/Medienmanifest, Archivvertrag, dünner Pages-Aufrufer"
+    },
+    {
+      "branch": "main",
+      "commit_time": "2026-07-31 23:24:24 Europe/Berlin",
+      "drift_classification": "not-checked",
+      "frozen_sha": "3bed7ac358b861490727adce36a418db133f8daf",
+      "id": "H234598/desinfect",
+      "observed": {"sha": null, "source": null, "status": "not-checked"},
+      "role": "Governance-/Storage-/Statusreferenz"
+    },
+    {
+      "branch": "main",
+      "commit_time": "2026-08-01 06:10:04 Europe/Berlin",
+      "drift_classification": "not-checked",
+      "frozen_sha": "ee91741ec71a1232a4c3b90f42b805591a0d9359",
+      "id": "H234598/ADHS-Lernpfad",
+      "observed": {"sha": null, "source": null, "status": "not-checked"},
+      "role": "Browser-/Recovery-/Reviewreferenz"
+    },
+    {
+      "branch": "main",
+      "commit_time": "2026-07-28 16:11:05 Europe/Berlin",
+      "drift_classification": "not-checked",
+      "frozen_sha": "71bcad7a8ab183144e8ff007b85aea8bb6cff3b9",
+      "id": "H234598/Cheatsheets",
+      "observed": {"sha": null, "source": null, "status": "not-checked"},
+      "role": "Pages-/Artefakt-/IO-Referenz"
+    }
+  ],
+  "schema_version": 1
+}
