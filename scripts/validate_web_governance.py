@@ -111,7 +111,7 @@ def plan_packages(plan: str) -> dict[str, dict[str, object]]:
         command_block = re.search(r"\*\*Lokale Prüfkommandos:\*\*\n\n```bash\n(.*?)\n```", body, re.DOTALL)
         result[package] = {
             "requirements": re.findall(r"WEB-REQ-\d{3}", requirement_line.group(1)),
-            "verification": command_block.group(1).splitlines() if command_block else ["manuelle Checkliste plus HTTP-Smoke"],
+            "verification": command_block.group(1).splitlines() if command_block else [],
         }
     return result
 
@@ -293,8 +293,10 @@ def validate(root: Path) -> None:
         require(set(verification) <= valid_commands, "requirement verification")
     require(read_text(root, REQUIREMENTS_DOC_PATH) == render_requirements(requirements), "requirements doc differs from requirement register")
 
-    rows = re.findall(r"^\| (ADR-WEB-\d{3}) \| (.*?) \| (.*?) \| (.*?) \|$", plan, re.MULTILINE)
-    expected_rows = [(identifier, decision, status, trigger) for identifier, decision, status, trigger in rows if identifier in EXPECTED_CURRENT_ADRS][:15]
+    chapter = re.search(r"^## 20\. Aktive Architekturentscheidungen\n(.*?)(?=^## 21\.)", plan, re.MULTILINE | re.DOTALL)
+    require(chapter is not None, "current ADR chapter")
+    rows = re.findall(r"^\| (ADR-WEB-\d{3}) \| (.*?) \| (.*?) \| (.*?) \|$", chapter.group(1), re.MULTILINE)
+    expected_rows = [(identifier, decision, status, trigger) for identifier, decision, status, trigger in rows]
     require(set(decisions) == {"current_ids", "decisions", "historical_core_ids", "plan_sha256", "schema_version"}, "ADR register fields")
     require(type(decisions.get("schema_version")) is int and decisions["schema_version"] == 1 and decisions.get("plan_sha256") == digest, "ADR schema")
     exact_set(decisions.get("current_ids"), EXPECTED_CURRENT_ADRS, "current ADR IDs")

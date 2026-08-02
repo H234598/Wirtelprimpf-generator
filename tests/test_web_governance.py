@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -277,6 +278,52 @@ class WebGovernanceValidationTests(unittest.TestCase):
             result = self.validate(root)
         self.assert_rejected(result, "requirement packages")
         self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_manual_verification_not_derived_from_p11_04_source(self) -> None:
+        """Rejects P11-04 verification when plan no longer supplies its manual check."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            plan = root / PLAN
+            plan.write_text(plan.read_text(encoding="utf-8").replace("manuelle Checkliste plus HTTP-Smoke", "manuelle Domainprüfung"), encoding="utf-8")
+            digest = hashlib.sha256(plan.read_bytes()).hexdigest()
+            revisions = self.read_revisions(root)
+            revisions["plan_sha256"] = digest
+            self.write_revisions(root, revisions)
+            status = self.read_json(root, STATUS)
+            status["canonical_plan"]["sha256"] = digest
+            self.write_json(root, STATUS, status)
+            for path in (REQUIREMENTS, DECISIONS):
+                value = self.read_json(root, path)
+                value["plan_sha256"] = digest
+                self.write_json(root, path, value)
+            for path in (REQUIREMENTS_DOC, ADR_DOC):
+                document = root / path
+                document.write_text(document.read_text(encoding="utf-8").replace("b4b3427e80cabff59e82f9aa9be52978de1d930ea63e06b2433045b8c0dc38fe", digest), encoding="utf-8")
+            result = self.validate(root)
+        self.assert_rejected(result, "requirement verification")
+
+    def test_ignores_adr_looking_row_outside_current_chapter(self) -> None:
+        """Uses only chapter 20 rather than an ADR-looking historical row."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            plan = root / PLAN
+            plan.write_text(plan.read_text(encoding="utf-8").replace("## 20. Aktive Architekturentscheidungen", "| ADR-WEB-001 | forged | forged | forged |\n\n## 20. Aktive Architekturentscheidungen"), encoding="utf-8")
+            digest = hashlib.sha256(plan.read_bytes()).hexdigest()
+            revisions = self.read_revisions(root)
+            revisions["plan_sha256"] = digest
+            self.write_revisions(root, revisions)
+            status = self.read_json(root, STATUS)
+            status["canonical_plan"]["sha256"] = digest
+            self.write_json(root, STATUS, status)
+            for path in (REQUIREMENTS, DECISIONS):
+                value = self.read_json(root, path)
+                value["plan_sha256"] = digest
+                self.write_json(root, path, value)
+            for path in (REQUIREMENTS_DOC, ADR_DOC):
+                document = root / path
+                document.write_text(document.read_text(encoding="utf-8").replace("b4b3427e80cabff59e82f9aa9be52978de1d930ea63e06b2433045b8c0dc38fe", digest), encoding="utf-8")
+            result = self.validate(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
