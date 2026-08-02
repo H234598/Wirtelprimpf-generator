@@ -29,6 +29,9 @@ jobs:
             scripts
             tests
             docs
+            config
+            README.md
+            PROVENANCE.md
             wirtelprimpf_platform
             pyproject.toml
           sparse-checkout-cone-mode: true

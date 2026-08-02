@@ -129,6 +129,19 @@ npm --prefix web run check
 Reale API-Schlüssel, Cloudflare-Tokens, private Plattformzustände, lokale Ausgabepfade und gestagte
 Release-Assets gehören niemals in dieses Repository.
 
+## Web-Governance
+
+Verbindlich sind [kanonischer Webplan](docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md),
+[Revisionsbaseline](docs/REVISIONSBASELINE.md),
+[Anforderungen](docs/requirements/WIRTELPRIMPF-WEBSEITE.md),
+[ADR-Index](docs/adr/README.md) und [Provenienz](PROVENANCE.md).
+
+```bash
+make check
+python3 scripts/validate_web_plan.py --root .
+python3 scripts/validate_web_governance.py --root .
+```
+
 ## Verzeichnisübersicht
 
 - `Sourcecode/`: Generator, Promptvorlagen, private Environmentvorlage und systemd-User-Units;

@@ -9,6 +9,7 @@ check:
 	$(PYTHON) -m py_compile Sourcecode/wirtelprimpf_generator.py
 	$(PYTHON) -m py_compile files/$(UUID)/helper.py files/$(UUID)/SettingsLogo.py files/$(UUID)/settings_sync.py
 	$(PYTHON) -m py_compile files/$(UUID)/story_directives_core.py files/$(UUID)/StoryDirectives.py
+	$(PYTHON) -m py_compile scripts/validate_web_plan.py scripts/validate_web_governance.py
 	node --check files/$(UUID)/applet.js
 	node tests/test_applet_runtime.js
 	node --test tests/test_admin_ui.mjs
@@ -20,6 +21,10 @@ check:
 	$(PYTHON) -m unittest tests.test_settings_schema
 	$(PYTHON) -m unittest tests.test_story_directives
 	$(PYTHON) -m unittest tests.test_rollout_plan_contract
+	$(PYTHON) -m unittest tests.test_web_plan
+	$(PYTHON) tests/test_web_governance.py
+	$(PYTHON) scripts/validate_web_plan.py --root .
+	$(PYTHON) scripts/validate_web_governance.py --root .
 	@test -f files/$(UUID)/assets/settings-header-logo.png
 	@test -f files/$(UUID)/assets/settings-footer-logo.png
 	@test -f files/$(UUID)/assets/settings-generator-atelier.png
