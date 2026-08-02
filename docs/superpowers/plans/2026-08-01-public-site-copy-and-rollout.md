@@ -1473,10 +1473,16 @@ if [[ "$receipt_state" == absent ]]; then
   validate_task3_receipt_derivation
 else
   case "$generator_pr_state" in OPEN|MERGED) ;; *) exit 1 ;; esac
-  # Never trust content-derived fields from a persisted receipt. Reconstruct the
-  # reviewed tree and deterministic merge from current trusted Git/PR inputs on
-  # every retry, then compare every derived receipt field before remote reads.
-  assert_task3_current_review "$generator_pr_state"
+  # The exact v3 parser above already bound this persisted approval to the
+  # immutable reviewed head. Hydrate only those validated fields, reconstruct
+  # the deterministic merge, and compare the complete derivation before any
+  # remote-state classification. A live review gate remains mandatory in the
+  # push branch immediately before mutation, but never gates reconcile/observe.
+  generator_review_id="$receipt_review_id"
+  generator_review_author_login="$receipt_review_author_login"
+  generator_review_author_id="$receipt_review_author_id"
+  generator_review_commit="$receipt_review_commit"
+  generator_review_state="$receipt_review_state"
   derive_task3_merge
   validate_task3_receipt_derivation
 fi

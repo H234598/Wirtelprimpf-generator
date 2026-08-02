@@ -3178,3 +3178,55 @@ Do not start public deployment merely because Task 10 is green. First compare th
   PR-Write, Merge, Install, Reload, Runtime-, Archiv-, Service-, Pages-, DNS-,
   Cloudflare- oder Upstream-Write; schreibende Proben blieben lokal und
   disposable.
+
+### 2026-08-02 — Additive Receipt-Reconcile-Korrektur nach CodeRabbit-Major
+
+- Diese Ergänzung basiert exakt auf Parent
+  `dda1e1fa95f7151b6e6f4002743152074e7cc9f3` und lässt alle früheren
+  Ledgerpassagen unverändert. Sie schließt den einen von Root bestätigten
+  Major aus CodeRabbit-Review `4837392367` am geprüften Commit
+  `9b23708d4f77031a52acd48f7438a48e1163725e`; die zugehörige
+  Thread-Comment-ID ist `3698022642`.
+- Der Retrypfad hatte vor seiner Remote-Klassifikation erneut
+  `assert_task3_current_review "$generator_pr_state"` aufgerufen. Diese
+  Live-Grenze verlangt auch für einen bereits `MERGED`en PR weiterhin
+  `reviewDecision == APPROVED`. Nach einem bereits atomar geschriebenen
+  Remote-Main und gelöschtem Head konnte GitHub jedoch einen leeren oder
+  veränderten aktuellen Reviewzustand liefern; der Crash-Reconcile brach dann
+  ab, obwohl die unveränderliche Freigabe bereits im streng validierten
+  Receipt v3 gebunden war.
+- Bei vorhandenem Receipt hydriert der Plan deshalb ausschließlich dessen fünf
+  bereits exakt validierte `review_*`-Felder in die entsprechenden
+  `generator_review_*`-Felder. Anschließend werden der Merge deterministisch
+  neu abgeleitet und sämtliche Receiptfelder mit
+  `validate_task3_receipt_derivation` verglichen, noch bevor Remote-Refs
+  gelesen und klassifiziert werden. `reconcile` und `observe` benötigen damit
+  keine volatile Live-Reviewabfrage und können nur bei exakt passendem
+  `merge_sha` auf Remote-Main sowie fehlendem Head-Ref entstehen; unbekannte
+  Refkombinationen bleiben fail-closed.
+- Der einzige Mutationspfad bleibt strenger: Nur `planned` mit unverändertem
+  Base- und Head-Ref wird als `push` klassifiziert. Unmittelbar vor dem
+  atomaren Push folgen weiterhin der vollständige aktuelle OPEN-/Head-/
+  CodeRabbit-`APPROVED`-/Null-Threads-Gate und danach erneut die vollständige
+  Receiptvalidierung. Der Reconcile-/Observe-Pfad kann keinen zweiten Push
+  auslösen.
+- RED reproduzierte den Defekt ausführbar: Der tatsächliche Retryblock brach
+  für `MERGED` plus `reviewDecision = null` mit Returncode 97 an der als Falle
+  instrumentierten Live-Abfrage ab; der Strukturvertrag fand denselben
+  unerlaubten Aufruf. GREEN bestanden die fünf fokussierten Receipt-, Review-
+  und Remote-State-Verträge `5/5`. Der vollständige Rolloutvertrag bestand als
+  `teladi` `46/46` mit genau zwei erwarteten Root-Skips; beide Root-Probes
+  bestanden separat `2/2`. Der neue State-Machine-Harness bestätigt zusätzlich
+  `planned -> reconcile`, `remote_committed -> observe` bei inzwischen leerem
+  beziehungsweise geändertem Live-Reviewzustand sowie die Ablehnung unbekannter
+  Remote-Refs.
+- `make check` bestand frisch als UID/GID `teladi` unter `env -i`: Applet-
+  Runtime grün, Admin-UI `31/31`, SemVer `8/8`, Git-Object-Fallback `3/3`,
+  Release-Publication `3/3`, Helper-Environment `7/7`, Applet-Sync `28/28`,
+  Settings-Schema `15/15`, Story-Directives `31/31` und Rollout-Vertrag
+  `46/46` mit den zwei erwarteten Root-Skips.
+- Diese Korrekturrunde blieb vollständig lokal: kein Credentialzugriff, Fetch,
+  Push, PR-Write, Threadauflösung, Merge, Install, Reload, Deploy, Runtime-,
+  Service-, Applet-, Archiv-, Pages-, DNS-, Cloudflare- oder Upstream-Write.
+  Alle schreibenden Proben verwendeten ausschließlich disposable lokale
+  Fixtures; der lokale Commit wird in der Übergabe ausgewiesen.

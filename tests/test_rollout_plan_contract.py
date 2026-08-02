@@ -719,18 +719,42 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
 
     def test_task3_review_gate_precedes_receipt_and_atomic_push_and_receipt_is_v3(self) -> None:
         planned = self.task3_merge.index("write_task3_receipt planned")
+        retry = self.task3_merge.index(
+            'else\n  case "$generator_pr_state" in OPEN|MERGED)'
+        )
+        remote_classification = self.task3_merge.index("\nremote_main_sha=", retry)
+        retry_branch = self.task3_merge[retry:remote_classification]
+        push_case = self.task3_merge.index("\n  push)", remote_classification)
         push = self.task3_merge.index("git_remote push --atomic")
+        push_preamble = self.task3_merge[push_case:push]
         self.assertGreaterEqual(
             self.task3_merge[:planned].count("assert_task3_current_review"),
             1,
         )
-        self.assertGreaterEqual(
-            self.task3_merge[planned:push].count("assert_task3_current_review"),
-            1,
+        self.assertNotIn("assert_task3_current_review", retry_branch)
+        for field in (
+            "id",
+            "author_login",
+            "author_id",
+            "commit",
+            "state",
+        ):
+            hydration = (
+                f'generator_review_{field}="$receipt_review_{field}"'
+            )
+            self.assertIn(hydration, retry_branch)
+            self.assertLess(
+                retry_branch.index(hydration),
+                retry_branch.index("derive_task3_merge"),
+            )
+        self.assertLess(
+            retry_branch.index("derive_task3_merge"),
+            retry_branch.index("validate_task3_receipt_derivation"),
         )
-        self.assertIn(
-            'assert_task3_current_review "$generator_pr_state"',
-            self.task3_merge,
+        self.assertEqual(push_preamble.count("assert_task3_current_review"), 1)
+        self.assertLess(
+            push_preamble.index("assert_task3_current_review"),
+            push_preamble.index("validate_task3_receipt_derivation"),
         )
         self.assertIn(".version == 3", self.task3_merge)
         for field in (
@@ -1729,6 +1753,98 @@ write_task3_receipt planned
             )
             self.assertNotEqual(failed.returncode, 0)
             self.assertEqual(list(receipt_dir.glob(".generator-main-receipt.*")), [])
+
+    def test_existing_receipt_reconcile_and_observe_do_not_refetch_live_review(self) -> None:
+        derive_merge = _marked_block(self.task3_merge, "TASK3_DERIVE_MERGE")
+        validate_receipt = _marked_block(self.task3_merge, "TASK3_VALIDATE_RECEIPT")
+        classifier = _marked_block(self.task3_merge, "TASK3_REMOTE_STATE")
+        retry_start = self.task3_merge.index(
+            'else\n  case "$generator_pr_state" in OPEN|MERGED)'
+        ) + len("else\n")
+        retry_end = self.task3_merge.index("\nfi\n\nremote_main_sha=", retry_start)
+        retry_branch = self.task3_merge[retry_start:retry_end]
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-reconcile-contract-") as tmp:
+            fixture = self._make_merge_fixture(tmp)
+            script = f"""
+set -Eeuo pipefail
+{derive_merge}
+{validate_receipt}
+{classifier}
+receipt_file=$1
+task3_actor_login=H234598
+task3_actor_id=54270221
+canonical_repo_id=R_kgDOTpr2BA
+canonical_repository=H234598/Wirtelprimpf-generator
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+generator_head=feature/reviewed
+generator_expected_head=$2
+generator_pr_state=MERGED
+live_review_decision=$3
+remote_main=$4
+remote_head=$5
+assert_task3_current_review() {{
+  printf 'unexpected live review fetch: %s\n' "$live_review_decision" >&2
+  return 97
+}}
+load_task3_receipt
+generator_pr_number=$receipt_pr_number
+generator_base_before=$receipt_base_before
+{retry_branch}
+classify_task3_remote_action \
+  "$receipt_state" "$remote_main" "$remote_head" \
+  "$generator_base_before" "$generator_merge_sha" \
+  "$generator_expected_head"
+"""
+
+            def execute(
+                state: str,
+                live_review_decision: str,
+                remote_main: str,
+                remote_head: str,
+            ) -> subprocess.CompletedProcess[str]:
+                receipt = self._receipt_for_fixture(fixture)
+                receipt["state"] = state
+                receipt_path = Path(tmp) / f"receipt-{state}.json"
+                receipt_path.write_text(
+                    json.dumps(receipt, sort_keys=True),
+                    encoding="utf-8",
+                )
+                receipt_path.chmod(0o600)
+                return subprocess.run(
+                    [
+                        "bash",
+                        "-c",
+                        script,
+                        "receipt-reconcile-test",
+                        str(receipt_path),
+                        fixture["head"],
+                        live_review_decision,
+                        remote_main,
+                        remote_head,
+                    ],
+                    cwd=fixture["repo"],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+
+            reconcile = execute("planned", "null", fixture["expected_merge"], "")
+            self.assertEqual(reconcile.returncode, 0, reconcile.stderr)
+            self.assertEqual(reconcile.stdout, "reconcile\n")
+
+            observe = execute(
+                "remote_committed",
+                "CHANGES_REQUESTED",
+                fixture["expected_merge"],
+                "",
+            )
+            self.assertEqual(observe.returncode, 0, observe.stderr)
+            self.assertEqual(observe.stdout, "observe\n")
+
+            unknown = execute("planned", "null", fixture["base"], "")
+            self.assertNotEqual(unknown.returncode, 0)
+            self.assertNotIn("unexpected live review fetch", unknown.stderr)
 
     def test_normative_remote_state_classifier_never_repushes_a_committed_merge(self) -> None:
         self.assertIn("# BEGIN TASK3_REMOTE_STATE", self.task3_merge)
