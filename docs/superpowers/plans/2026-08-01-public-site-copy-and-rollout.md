@@ -404,8 +404,7 @@ assert_safe_local_git_config() {
       || :
   )"
   if [[ -n "$unsafe_keys" ]]; then
-    printf 'Unsafe local Git routing/execution configuration keys: %s\n' \
-      "$(tr '\n' ' ' <<<"$unsafe_keys")" >&2
+    printf 'Unsafe local Git configuration rejected.\n' >&2
     return 1
   fi
 }
@@ -864,8 +863,7 @@ assert_safe_local_git_config() {
       || :
   )"
   if [[ -n "$unsafe_keys" ]]; then
-    printf 'Unsafe local Git routing/execution configuration keys: %s\n' \
-      "$(tr '\n' ' ' <<<"$unsafe_keys")" >&2
+    printf 'Unsafe local Git configuration rejected.\n' >&2
     return 1
   fi
 }
@@ -1599,7 +1597,7 @@ Expected: GitHub main contains the deterministic two-parent merge after one atom
 
 Both persisted `gh` authentication contexts were invalid at the last local preflight; successful unauthenticated public reads are not write authorization. Steps 3–5 therefore require an externally supplied ephemeral `GH_TOKEN`, immediately disable xtrace before its first reference, unset its exported source, and relay its bytes only through private anonymous descriptors into a clean UID/GID-`teladi` shell. That long-lived shell retains only a non-exported variable and closes the relay descriptor immediately. Each `gh` or authenticated Git process receives the token through a fresh short-lived pipe; it never appears in argv, here-doc text, files, tests/builds, or merge hooks. `/user` must equal login `H234598` and numeric ID `54270221`. Authenticated Git clears credential helpers, installs only `gh auth git-credential`, disables hooks with `core.hooksPath=/dev/null`, and receives no persistent credential setup.
 
-The private atomic v2 receipt at `/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json` is owned by `teladi`, mode `0600`, uses an exact no-extra-field schema, and binds actor login/ID, repository ID/name, canonical URL, PR/ref/head/base, the reviewed head tree, deterministic date/message, and merge OID. Every run derives `expected_head^{tree}` from trusted Git state and reconstructs the deterministic commit from fixed identity plus trusted PR/head/base inputs before accepting receipt-derived values. Malformed, extra-field, stale, or forged receipts fail closed; failed atomic replacements remove their private temporary file. The state machine advances only `planned -> remote_committed -> verified`. A successful push is latched before any fallible observation; a push/receipt crash reconciles from the exact remote ref pair, while committed states classify only as `reconcile` or `observe` and can never re-enter `push`. API convergence failures report `REMOTE COMMIT COMPLETE; VERIFICATION PENDING`; every unknown combination fails closed. The runtime checkout remains untouched until Task 4.
+The private atomic v3 receipt at `/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json` supersedes the earlier v2 contract. It is owned by `teladi`, mode `0600`, uses an exact no-extra-field schema, and binds actor login/ID, repository ID/name, canonical URL, PR/ref/head/base, the reviewed head tree, deterministic date/message, merge OID, and the exact trusted review ID/author/commit/state. Every run derives `expected_head^{tree}` from trusted Git state and reconstructs the deterministic commit from fixed identity plus trusted PR/head/base inputs before accepting receipt-derived values. Malformed, extra-field, stale, or forged receipts fail closed; failed atomic replacements remove their private temporary file. The state machine advances only `planned -> remote_committed -> verified`. A successful push is latched before any fallible observation; a push/receipt crash reconciles from the exact remote ref pair, while committed states classify only as `reconcile` or `observe` and can never re-enter `push`. API convergence failures report `REMOTE COMMIT COMPLETE; VERIFICATION PENDING`; every unknown combination fails closed. The runtime checkout remains untouched until Task 4.
 
 #### Verbindliches Execution-Context-Erratum für Task 3 Step 5 und Task 4
 
@@ -4200,8 +4198,7 @@ assert_safe_local_git_config() {
       || :
   )"
   test -z "$unsafe_keys" || {
-    printf 'Unsafe local Git routing/execution configuration keys: %s\n' \
-      "$(tr '\n' ' ' <<<"$unsafe_keys")" >&2
+    printf 'Unsafe local Git configuration rejected.\n' >&2
     return 1
   }
 }
@@ -5010,7 +5007,7 @@ archive_repository_json="$(task5_gh repo view "$canonical_archive_repository" \
   '.id == $id and .nameWithOwner == $name' \
   <<<"$archive_repository_json" >/dev/null
 
-task5_premerge_facts="$(
+task5_step6_local_gate() {
   /usr/sbin/runuser -u teladi -- /usr/bin/env -i \
     HOME=/home/teladi \
     USER=teladi \
@@ -5027,6 +5024,36 @@ generator_checkout=/home/teladi/.local/share/wirtelprimpf-generator
 receipt_file=/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json
 canonical_generator_origin=https://github.com/H234598/Wirtelprimpf-generator.git
 canonical_archive_origin=https://github.com/H234598/Wirtelprimpf-0001.git
+
+# BEGIN TASK5_STEP6_ARCHIVE_CONTENT_GATE
+assert_task5_archive_candidate() {
+  local repository_path="$1" base_sha="$2" head_sha="$3" factory_sha="$4"
+  local workflow_text sha_lines
+  [[ "$base_sha" =~ ^[0-9a-f]{40}$ ]]
+  [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]]
+  [[ "$factory_sha" =~ ^[0-9a-f]{40}$ ]]
+  test "$(/usr/bin/git -C "$repository_path" diff --name-only \
+    "$base_sha...$head_sha")" = .github/workflows/pages.yml
+  test "$(/usr/bin/git -C "$repository_path" diff --numstat \
+    "$base_sha...$head_sha")" = $'2\t2\t.github/workflows/pages.yml'
+  workflow_text="$(/usr/bin/git -C "$repository_path" \
+    show "$head_sha:.github/workflows/pages.yml")"
+  test "$(/usr/bin/rg -c -- \
+    "^[[:space:]]*uses:[[:space:]]+H234598/Wirtelprimpf-generator/\\.github/workflows/archive-pages\\.yml@$factory_sha[[:space:]]*$" \
+    <<<"$workflow_text")" = 1
+  test "$(/usr/bin/rg -c -- \
+    "^[[:space:]]*factory_ref:[[:space:]]*\"$factory_sha\"[[:space:]]*$" \
+    <<<"$workflow_text")" = 1
+  sha_lines="$(/usr/bin/rg -o -- '[0-9a-f]{40}' <<<"$workflow_text")"
+  test "$sha_lines" = "$factory_sha"$'\n'"$factory_sha"
+  if /usr/bin/rg -q -- '^[[:space:]]*pull_request[[:space:]]*:' \
+    <<<"$workflow_text"; then
+    printf '1\n'
+  else
+    printf '0\n'
+  fi
+}
+# END TASK5_STEP6_ARCHIVE_CONTENT_GATE
 
 # BEGIN TASK5_FACTORY_RECEIPT
 load_verified_task3_factory_sha() {
@@ -5121,19 +5148,23 @@ archive_head_sha="$(/usr/bin/git -C "$archive_checkout" \
 [[ "$archive_head_sha" =~ ^[0-9a-f]{40}$ ]]
 test "$archive_head_sha" = \
   "$(/usr/bin/git -C "$archive_checkout" rev-parse chore/pin-transactional-site-factory)"
-test "$generator_factory_sha" = "$(/usr/bin/git -C "$archive_checkout" \
-  show "$archive_head_sha:.github/workflows/pages.yml" | \
-  /usr/bin/rg -o -- '[0-9a-f]{40}' | sort -u)"
-test "$(/usr/bin/git -C "$archive_checkout" diff --name-only \
-  "$archive_base_sha...$archive_head_sha")" = .github/workflows/pages.yml
-printf '%s\t%s\t%s\n' "$archive_head_sha" "$archive_base_sha" "$generator_factory_sha"
+archive_has_pr_trigger="$(assert_task5_archive_candidate \
+  "$archive_checkout" "$archive_base_sha" "$archive_head_sha" \
+  "$generator_factory_sha")"
+[[ "$archive_has_pr_trigger" =~ ^[01]$ ]]
+printf '%s\t%s\t%s\t%s\n' \
+  "$archive_head_sha" "$archive_base_sha" "$generator_factory_sha" \
+  "$archive_has_pr_trigger"
 TASK5_STEP6_TELADI
-)"
+}
+task5_premerge_facts="$(task5_step6_local_gate)"
 IFS=$'\t' read -r archive_head_sha archive_base_sha generator_factory_sha \
+  archive_has_pr_trigger \
   <<<"$task5_premerge_facts"
 [[ "$archive_head_sha" =~ ^[0-9a-f]{40}$ ]]
 [[ "$archive_base_sha" =~ ^[0-9a-f]{40}$ ]]
 [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ "$archive_has_pr_trigger" =~ ^[01]$ ]]
 
 archive_pr_list="$(task5_gh pr list \
   --repo "$canonical_archive_repository" \
@@ -5155,25 +5186,74 @@ archive_pr_number="$(/usr/bin/jq -r '.[0].number' <<<"$archive_pr_list")"
 test "$(task5_gh pr view "$archive_pr_number" \
   --repo "$canonical_archive_repository" --json files --jq '.files[].path')" = \
   .github/workflows/pages.yml
-task5_gh pr checks "$archive_pr_number" \
-  --repo "$canonical_archive_repository" --watch --fail-fast || {
-    test "$(task5_gh pr view "$archive_pr_number" \
-      --repo "$canonical_archive_repository" --json statusCheckRollup \
-      --jq '.statusCheckRollup | length')" = 0
-  }
+archive_check_count="$(task5_gh pr view "$archive_pr_number" \
+  --repo "$canonical_archive_repository" --json statusCheckRollup \
+  --jq '.statusCheckRollup | length')"
+[[ "$archive_check_count" =~ ^[0-9]+$ ]]
+if (( archive_check_count > 0 )); then
+  task5_gh pr checks "$archive_pr_number" \
+    --repo "$canonical_archive_repository" --watch --fail-fast
+else
+  # A zero-check fallback is valid only for this exact fetched head when its
+  # exact pages.yml still has no pull_request trigger.
+  test "$archive_has_pr_trigger" = 0
+fi
+
+# BEGIN TASK5_STEP6_FINAL_PREMERGE
+# Re-enter a new clean teladi process immediately before the merge. This
+# independently reloads receipt v3, rebinds generator local/origin/remote main,
+# refetches archive base/head, and reruns the exact diff/pin/trigger gate.
+task5_final_premerge_facts="$(task5_step6_local_gate)"
+IFS=$'\t' read -r final_archive_head_sha final_archive_base_sha \
+  final_generator_factory_sha final_archive_has_pr_trigger \
+  <<<"$task5_final_premerge_facts"
+test "$final_archive_head_sha" = "$archive_head_sha"
+test "$final_archive_base_sha" = "$archive_base_sha"
+test "$final_generator_factory_sha" = "$generator_factory_sha"
+test "$final_archive_has_pr_trigger" = "$archive_has_pr_trigger"
+
+archive_final_pr="$(task5_gh pr view "$archive_pr_number" \
+  --repo "$canonical_archive_repository" \
+  --json state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,files)"
+/usr/bin/jq -e --arg head "$archive_head_sha" \
+  --arg repo_id "$canonical_archive_repo_id" '
+    .state == "OPEN"
+    and .headRefName == "chore/pin-transactional-site-factory"
+    and .headRefOid == $head
+    and .baseRefName == "main"
+    and .isDraft == false
+    and .isCrossRepository == false
+    and .headRepository.id == $repo_id
+    and .headRepository.nameWithOwner == "H234598/Wirtelprimpf-0001"
+    and (.files | type == "array" and length == 1)
+    and .files[0].path == ".github/workflows/pages.yml"
+  ' <<<"$archive_final_pr" >/dev/null
 test "$(task5_gh api \
   "repos/$canonical_archive_repository/git/ref/heads/main" --jq .object.sha)" = \
   "$archive_base_sha"
 test "$(task5_gh api \
   "repos/$canonical_archive_repository/git/ref/heads/chore/pin-transactional-site-factory" \
   --jq .object.sha)" = "$archive_head_sha"
+# END TASK5_STEP6_FINAL_PREMERGE
 task5_gh pr merge "$archive_pr_number" \
   --repo "$canonical_archive_repository" --merge --delete-branch \
   --match-head-commit "$archive_head_sha"
-archive_sha="$(task5_gh pr view "$archive_pr_number" \
-  --repo "$canonical_archive_repository" --json state,mergeCommit \
-  --jq 'select(.state == "MERGED") | .mergeCommit.oid')"
+archive_merged_pr="$(task5_gh pr view "$archive_pr_number" \
+  --repo "$canonical_archive_repository" --json state,headRefOid,mergeCommit)"
+/usr/bin/jq -e --arg head "$archive_head_sha" '
+  .state == "MERGED"
+  and .headRefOid == $head
+  and (.mergeCommit.oid | type == "string" and test("^[0-9a-f]{40}$"))
+' <<<"$archive_merged_pr" >/dev/null
+archive_sha="$(/usr/bin/jq -r '.mergeCommit.oid' <<<"$archive_merged_pr")"
 [[ "$archive_sha" =~ ^[0-9a-f]{40}$ ]]
+test "$(task5_gh api \
+  "repos/$canonical_archive_repository/git/ref/heads/main" --jq .object.sha)" = \
+  "$archive_sha"
+archive_feature_refs="$(task5_gh api \
+  "repos/$canonical_archive_repository/git/matching-refs/heads/chore/pin-transactional-site-factory")"
+/usr/bin/jq -e 'type == "array" and length == 0' \
+  <<<"$archive_feature_refs" >/dev/null
 archive_run_id=""
 for attempt in $(seq 1 24); do
   archive_run_id="$(task5_gh run list \
@@ -5193,7 +5273,17 @@ task5_gh run watch "$archive_run_id" \
 unset task5_ephemeral_token
 ```
 
-Expected: archive build, artifact validation, upload, and deploy complete successfully.
+Expected: immediately before merge, a second clean `teladi` child independently
+reloads the verified receipt v3, rebinds generator local/tracking/remote main,
+refetches the exact archive base/head, and proves the candidate changes only
+`pages.yml` by exactly `2\t2`, contains exactly the two required factory pin
+fields and no other 40-hex value. Root then refetches the exact OPEN PR identity,
+head, immutable repository and one-file list and uses `--match-head-commit`.
+A zero-check fallback is accepted only when that exact head has no
+`pull_request` trigger. After merge, GitHub must report `MERGED` and a 40-hex
+merge commit, remote main must equal it, and the feature ref list must be empty
+before the exact Pages run may be selected. Only then do archive build, artifact
+validation, upload, and deploy complete successfully.
 
 ### Task 6: Hub Pages, public smoke, and additive plan closure
 
@@ -6009,3 +6099,35 @@ Completion requires all of the following:
   Upstream-Mutation. Der einzige externe Zugriff war die anonyme read-only
   Bestätigung der bereits existierenden Archiv-Node-ID; alle schreibenden
   Probes blieben in disposable lokalen Verzeichnissen.
+
+### 2026-08-02 — Additive Final-Gate- und Redaktionsnachbesserung
+
+- Basis ist exakt Parent `1d0b8cd1fdd28e6aea9b093aa966a422d2a46b88`;
+  frühere Ledgerpassagen bleiben unverändert erhalten. Sämtliche Git-Config-
+  Guards brechen weiterhin geschlossen ab, geben aber nur noch eine generische
+  Meldung oder gar nichts aus. Ein ausführbarer Test hinterlegt einen
+  credentialartig aufgebauten Config-Key und beweist für alle Task-3-/Task-5-
+  Varianten: Exit ungleich null, Sentinel weder auf stdout noch stderr.
+- Step 6 führt dasselbe lokale Gate zweimal in voneinander getrennten sauberen
+  `teladi`-Prozessen aus, zuletzt unmittelbar vor dem Merge. Es lädt Receipt v3
+  neu, bindet Generator-Head/Tracking/Remote-Main, refetcht Archive-Base/-Head
+  und verlangt ausschließlich `pages.yml`, exakt `2\t2`, exakt die beiden
+  Factory-Pinfelder, insgesamt genau zwei Receipt-SHA-Vorkommen und keinen
+  anderen 40-Hex-Wert. Der Null-Check-Fallback verlangt zusätzlich, dass
+  exakt dieser Head keinen `pull_request`-Trigger besitzt.
+- Direkt vor `--match-head-commit` werden OPEN-Zustand, Head, Base,
+  unveränderliche Repository-ID und genau eine Datei erneut über GitHub
+  gebunden. Erst nachdem der PR `MERGED` mit 40-Hex-Mergecommit meldet, Remote-
+  Main exakt diesem Commit entspricht und der Feature-Ref nicht mehr existiert,
+  darf die Pages-Run-Suche beginnen. Der unmittelbar normative Expected-Text
+  benennt Receipt v3 ausdrücklich als Supersession von v2; es verbleibt dort
+  keine v2-Anweisung.
+- TDD-Evidenz: vier fokussierte Tests liefen mit sechs erwarteten Fehlern rot
+  und danach `4/4` grün. Der vollständige Rolloutvertrag bestand mit `43/43`
+  und zwei erwarteten UID-0-Skips; die beiden Root-Probes separat `2/2`.
+  `make check` bestand vollständig als `teladi` unter `env -i`.
+- Es wurden ausschließlich Rolloutplan, Vertragstest und additive Repo-Ledger
+  verändert. Kein Credentialzugriff, Fetch, Push, PR-Write, Merge, Runtime-,
+  Archiv-, Install-, Reload-, Service-, Pages-, DNS-, Cloudflare- oder
+  Upstream-Write fand statt; alle schreibenden Tests nutzten disposable lokale
+  Repositories.

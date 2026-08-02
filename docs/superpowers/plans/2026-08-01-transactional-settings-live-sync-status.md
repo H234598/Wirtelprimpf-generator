@@ -3091,3 +3091,21 @@ Do not start public deployment merely because Task 10 is green. First compare th
   Archiv-, Service-, Pages-, DNS-, Cloudflare- oder Upstream-Write. Lokale
   Schreibprobes verwendeten ausschließlich temporäre Fixtures; die anonyme
   GitHub-Abfrage der unveränderlichen Archiv-Node-ID war read-only.
+
+### 2026-08-02 — Additive Final-Gate-Nachbesserung auf Parent `1d0b8cd`
+
+- Der transaktionale Konfigurationskern und alle Produktions-/Webpfade bleiben
+  unverändert. Im Rolloutvertrag sind Config-Guard-Fehler vollständig
+  redigiert; selbst ein credentialartiger URL-Key kann weder über stdout noch
+  stderr austreten.
+- Task-5-Step-6 wiederholt unmittelbar vor dem Merge in einem neuen sauberen
+  `teladi`-Kind Receipt-, Generator-, Archivdiff-, Zwei-Pin- und Triggergate
+  und bindet danach PR, Head, Base, unveränderliche Repository-ID und
+  Ein-Datei-Liste frisch. Nach dem Exact-Head-CAS müssen `MERGED`, 40-Hex-
+  Mergecommit, identisches Remote-Main und ein leerer Feature-Ref-Satz bewiesen
+  sein, bevor Pages beobachtet wird. Der normative Receipttext ist eindeutig
+  v3; v2 ist dort nur noch als ausdrücklich abgelöste Vorgängerversion genannt.
+- RED: vier Tests/sechs erwartete Fehler. GREEN: fokussiert `4/4`, vollständiger
+  Rolloutvertrag `43/43` mit zwei erwarteten Root-Skips, Root-Probes `2/2` und
+  `make check` Exit 0. Keine Live-, Remote-, Runtime-, Archiv-, DNS- oder
+  Upstream-Mutation wurde ausgeführt.

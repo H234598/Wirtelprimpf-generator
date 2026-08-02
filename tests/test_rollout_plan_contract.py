@@ -493,6 +493,57 @@ set -Eeuo pipefail
                     check=True,
                 )
 
+    def test_every_git_config_guard_redacts_secret_bearing_key_names(self) -> None:
+        sentinel = "guard_secret_sentinel_6fdb8a15"
+        cases = (
+            ("task3-step3", self.task3_step3, "TASK3_GIT_CONFIG_GUARD"),
+            ("task3-step5", self.task3_merge, "TASK3_GIT_CONFIG_GUARD"),
+            ("task5-step1", self.task5_step1, "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step2", self.task5_step2, "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step3", self.task5_step3, "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step4", self.task5_step4, "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step5", self.task5_step5, "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step6", self.task5_step6, "TASK5_GIT_CONFIG_GUARD"),
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-redacted-git-guard-") as tmp:
+            for name, plan_script, marker in cases:
+                repo = Path(tmp) / name
+                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
+                    ["/usr/bin/git", "init", "-q", str(repo)],
+                    check=True,
+                )
+                secret_key = f"url.https://{sentinel}@foreign.invalid/.insteadOf"
+                subprocess.run(  # nosec B603 -- fixed git argv and controlled config key
+                    [
+                        "/usr/bin/git",
+                        "-C",
+                        str(repo),
+                        "config",
+                        "--local",
+                        secret_key,
+                        "https://github.com/",
+                    ],
+                    check=True,
+                )
+                guard = _marked_block(plan_script, marker)
+                result = subprocess.run(  # nosec B603 -- fixed local shell argv
+                    [
+                        "/bin/bash",
+                        "-c",
+                        f"set -Eeuo pipefail\n{guard}\nassert_safe_local_git_config \"$1\"\n",
+                        "redacted-git-guard-test",
+                        str(repo),
+                    ],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                with self.subTest(name=name):
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn(sentinel, result.stdout)
+                    self.assertNotIn(sentinel, result.stderr)
+
     def test_task5_has_no_raw_network_git_and_uses_only_canonical_literal_urls(self) -> None:
         for name, script in (
             ("step1", self.task5_step1),
@@ -745,6 +796,144 @@ load_verified_task3_factory_sha
         self.assertIn('--match-head-commit "$archive_head_sha"', self.task5_step6)
         self.assertIn("TASK5_STEP6_TELADI", self.task5_step6)
         self.assertIn("task5_token_call", self.task5_step6)
+
+    def test_task5_step6_archive_candidate_gate_enforces_exact_diff_and_pins(self) -> None:
+        marker = "TASK5_STEP6_ARCHIVE_CONTENT_GATE"
+        self.assertIn(f"# BEGIN {marker}", self.task5_step6)
+        gate = _marked_block(self.task5_step6, marker)
+        old_sha = "1" * 40
+        factory_sha = "2" * 40
+
+        def exercise(
+            workflow: str,
+            *,
+            extra_file: bool = False,
+            base_has_pr_trigger: bool = False,
+        ) -> subprocess.CompletedProcess[str]:
+            with tempfile.TemporaryDirectory(prefix="wirtelprimpf-step6-candidate-") as tmp:
+                repo = Path(tmp) / "archive"
+                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
+                    ["/usr/bin/git", "init", "-q", str(repo)],
+                    check=True,
+                )
+                subprocess.run(
+                    ["/usr/bin/git", "-C", str(repo), "config", "user.name", "Contract Test"],
+                    check=True,
+                )
+                subprocess.run(
+                    ["/usr/bin/git", "-C", str(repo), "config", "user.email", "contract@example.invalid"],
+                    check=True,
+                )
+                workflow_path = repo / ".github" / "workflows" / "pages.yml"
+                workflow_path.parent.mkdir(parents=True)
+                workflow_path.write_text(
+                    "on:\n  push:\n"
+                    + ("  pull_request:\n" if base_has_pr_trigger else "")
+                    + "jobs:\n  publish:\n"
+                    "    uses: H234598/Wirtelprimpf-generator/.github/workflows/"
+                    f"archive-pages.yml@{old_sha}\n"
+                    "    with:\n"
+                    f'      factory_ref: "{old_sha}"\n',
+                    encoding="utf-8",
+                )
+                subprocess.run(["/usr/bin/git", "-C", str(repo), "add", "."], check=True)
+                subprocess.run(
+                    ["/usr/bin/git", "-C", str(repo), "commit", "-q", "-m", "base"],
+                    check=True,
+                )
+                base = subprocess.run(
+                    ["/usr/bin/git", "-C", str(repo), "rev-parse", "HEAD"],
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ).stdout.strip()
+                workflow_path.write_text(workflow, encoding="utf-8")
+                if extra_file:
+                    (repo / "unexpected").write_text("unexpected\n", encoding="utf-8")
+                subprocess.run(["/usr/bin/git", "-C", str(repo), "add", "."], check=True)
+                subprocess.run(
+                    ["/usr/bin/git", "-C", str(repo), "commit", "-q", "-m", "candidate"],
+                    check=True,
+                )
+                head = subprocess.run(
+                    ["/usr/bin/git", "-C", str(repo), "rev-parse", "HEAD"],
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ).stdout.strip()
+                script = f"set -Eeuo pipefail\n{gate}\nassert_task5_archive_candidate \"$1\" \"$2\" \"$3\" \"$4\"\n"
+                return subprocess.run(  # nosec B603 -- fixed local shell and fixture argv
+                    [
+                        "/bin/bash",
+                        "-c",
+                        script,
+                        "step6-candidate-test",
+                        str(repo),
+                        base,
+                        head,
+                        factory_sha,
+                    ],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+
+        valid = (
+            "on:\n  push:\n"
+            "jobs:\n  publish:\n"
+            "    uses: H234598/Wirtelprimpf-generator/.github/workflows/"
+            f"archive-pages.yml@{factory_sha}\n"
+            "    with:\n"
+            f'      factory_ref: "{factory_sha}"\n'
+        )
+        accepted = exercise(valid)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(accepted.stdout, "0\n")
+
+        with_pr_trigger = valid.replace("  push:\n", "  push:\n  pull_request:\n")
+        accepted_with_pr = exercise(with_pr_trigger, base_has_pr_trigger=True)
+        self.assertEqual(accepted_with_pr.returncode, 0, accepted_with_pr.stderr)
+        self.assertEqual(accepted_with_pr.stdout, "1\n")
+
+        wrong_pin = valid.replace(f'factory_ref: "{factory_sha}"', f'factory_ref: "{"3" * 40}"')
+        extra_sha = valid + f"# {'4' * 40}\n"
+        for name, workflow, extra_file in (
+            ("wrong-pin", wrong_pin, False),
+            ("extra-sha", extra_sha, False),
+            ("extra-file", valid, True),
+        ):
+            with self.subTest(name=name):
+                self.assertNotEqual(exercise(workflow, extra_file=extra_file).returncode, 0)
+
+    def test_task5_step6_revalidates_immediately_and_observes_remote_merge_before_pages(self) -> None:
+        merge_index = self.task5_step6.index("task5_gh pr merge")
+        pages_index = self.task5_step6.index('archive_run_id=""')
+        premerge = self.task5_step6[:merge_index]
+        postmerge = self.task5_step6[merge_index:pages_index]
+        self.assertGreaterEqual(premerge.count("load_verified_task3_factory_sha"), 2)
+        self.assertIn("TASK5_STEP6_FINAL_PREMERGE", premerge)
+        self.assertIn("assert_task5_archive_candidate", premerge)
+        self.assertIn("statusCheckRollup", premerge)
+        self.assertIn('test "$archive_has_pr_trigger" = 0', premerge)
+        self.assertIn("headRepository", premerge)
+        self.assertIn(".files[].path", premerge)
+        self.assertIn('.state == "MERGED"', postmerge)
+        self.assertIn("mergeCommit", postmerge)
+        self.assertIn("git/ref/heads/main", postmerge)
+        self.assertIn("git/matching-refs/heads/chore/pin-transactional-site-factory", postmerge)
+
+    def test_task3_expected_text_has_no_normative_v2_receipt(self) -> None:
+        task3_expected_start = self.document.index(
+            "Expected: GitHub main contains the deterministic two-parent merge",
+        )
+        task3_expected_end = self.document.index(
+            "#### Verbindliches Execution-Context-Erratum für Task 3 Step 5",
+            task3_expected_start,
+        )
+        task3_expected = self.document[task3_expected_start:task3_expected_end]
+        self.assertIn("private atomic v3 receipt", task3_expected)
+        self.assertNotIn("private atomic v2 receipt", task3_expected)
 
     def test_task3_runs_git_as_teladi_with_ephemeral_authenticated_credentials(self) -> None:
         normalized = " ".join(self.task3_merge.split())
