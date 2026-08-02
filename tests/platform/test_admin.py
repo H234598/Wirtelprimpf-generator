@@ -8,6 +8,10 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
+import urllib.request
+from contextlib import contextmanager
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -122,6 +126,33 @@ class AdminTests(unittest.TestCase):
         payload = b"" if body is None else json.dumps(body).encode("utf-8")
         return self.app.handle(method, path, request_headers, payload, client_host=client_host)
 
+    @contextmanager
+    def live_server(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        server.application = self.app
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            yield f"http://127.0.0.1:{server.server_port}"
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=2)
+
+    def raw_http_status(self, port: int, headers: list[str], body: bytes) -> int:
+        request = (
+            "POST /api/settings HTTP/1.1\r\n"
+            + "\r\n".join(headers)
+            + f"\r\nContent-Type: application/json\r\nContent-Length: {len(body)}"
+            + "\r\nConnection: close\r\n\r\n"
+        ).encode("ascii") + body
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as client:
+            client.sendall(request)
+            response = bytearray()
+            while chunk := client.recv(8_192):
+                response.extend(chunk)
+        return int(bytes(response).split(b"\r\n", 1)[0].split()[1])
+
     def test_only_loopback_bind_addresses_are_accepted(self) -> None:
         self.assertEqual(validate_bind_host("127.0.0.1"), "127.0.0.1")
         self.assertEqual(validate_bind_host("::1"), "::1")
@@ -172,6 +203,74 @@ class AdminTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(decoded["settings"]["operandi"], "both")
         self.assertNotEqual(decoded["revision"], base["revision"])
+
+    def test_real_urllib_post_accepts_case_normalized_security_headers(self) -> None:
+        with self.live_server() as base_url:
+            with urllib.request.urlopen(f"{base_url}/api/settings", timeout=2) as response:
+                initial = json.load(response)
+            payload = json.dumps(
+                {
+                    "base_revision": initial["revision"],
+                    "changes": {"output_resolution": "source"},
+                    "base_values": {
+                        "output_resolution": initial["settings"]["output_resolution"]
+                    },
+                    "secret_actions": {},
+                }
+            ).encode("utf-8")
+            request = urllib.request.Request(
+                f"{base_url}/api/settings",
+                data=payload,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "Origin": base_url,
+                    "X-Wirtelprimpf-CSRF": "csrf-token-for-tests",
+                },
+                method="POST",
+            )
+            try:
+                opened = urllib.request.urlopen(request, timeout=2)
+            except urllib.error.HTTPError as error:
+                with error:
+                    status = error.code
+                    decoded = json.load(error)
+            else:
+                with opened as response:
+                    status = response.status
+                    decoded = json.load(response)
+
+        self.assertEqual(status, 200, decoded)
+        self.assertEqual(decoded["settings"]["output_resolution"], "source")
+
+    def test_real_socket_rejects_case_variant_duplicate_security_headers(self) -> None:
+        before = self.env_file.read_bytes()
+        snapshot = self.manager.snapshot().to_public_dict()
+        body = json.dumps(
+            {
+                "base_revision": snapshot["revision"],
+                "changes": {},
+                "base_values": {},
+                "secret_actions": {},
+            }
+        ).encode("utf-8")
+        with self.live_server() as base_url:
+            port = int(base_url.rsplit(":", 1)[1])
+            host = f"127.0.0.1:{port}"
+            common = [
+                f"Host: {host}",
+                f"Origin: {base_url}",
+                "X-Wirtelprimpf-CSRF: csrf-token-for-tests",
+            ]
+            cases = (
+                [common[0], "hOsT: attacker.invalid", *common[1:]],
+                [common[0], common[1], "oRiGiN: https://attacker.invalid", common[2]],
+                [*common, "x-WIRTELPRIMPF-csrf: attacker-token"],
+            )
+            statuses = [self.raw_http_status(port, headers, body) for headers in cases]
+
+        self.assertEqual(statuses, [403, 403, 403])
+        self.assertEqual(self.env_file.read_bytes(), before)
 
     def test_same_field_conflict_is_409_and_returns_public_snapshot(self) -> None:
         base = json.loads(self.request("GET", "/api/settings").body)

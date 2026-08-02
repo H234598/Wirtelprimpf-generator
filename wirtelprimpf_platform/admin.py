@@ -8,6 +8,7 @@ import ipaddress
 import json
 import secrets
 import time
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
@@ -27,6 +28,7 @@ from .settings import (
 MAX_REQUEST_BYTES = 64 * 1024
 REQUEST_BODY_TIMEOUT_SECONDS = 2.0
 PUBLIC_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+SECURITY_REQUEST_HEADERS = frozenset({"host", "origin", "x-wirtelprimpf-csrf"})
 SECURITY_HEADERS: dict[str, str] = {
     "Cache-Control": "no-store",
     "Content-Security-Policy": (
@@ -68,16 +70,31 @@ def _host_and_port(host: str) -> tuple[str, int | None]:
         return "", None
 
 
-def _request_is_local(headers: dict[str, str], client_host: str, *, require_origin: bool) -> bool:
+def _normalize_request_headers(
+    headers: Mapping[str, str] | Iterable[tuple[str, str]],
+) -> dict[str, str] | None:
+    items = headers.items() if isinstance(headers, Mapping) else headers
+    normalized: dict[str, str] = {}
+    for name, value in items:
+        if not isinstance(name, str) or not isinstance(value, str):
+            return None
+        normalized_name = name.lower()
+        if normalized_name in SECURITY_REQUEST_HEADERS and normalized_name in normalized:
+            return None
+        normalized.setdefault(normalized_name, value)
+    return normalized
+
+
+def _request_is_local(headers: Mapping[str, str], client_host: str, *, require_origin: bool) -> bool:
     try:
         if not ipaddress.ip_address(client_host).is_loopback:
             return False
     except ValueError:
         return False
-    host, port = _host_and_port(headers.get("Host", ""))
+    host, port = _host_and_port(headers.get("host", ""))
     if host not in PUBLIC_HOSTS:
         return False
-    origin = headers.get("Origin")
+    origin = headers.get("origin")
     if require_origin and not origin:
         return False
     if origin:
@@ -182,7 +199,7 @@ class AdminApplication:
         self,
         method: str,
         path: str,
-        headers: dict[str, str],
+        headers: Mapping[str, str] | Iterable[tuple[str, str]],
         body: bytes,
         *,
         client_host: str,
@@ -190,7 +207,12 @@ class AdminApplication:
         verb = method.upper()
         effective_verb = "GET" if verb == "HEAD" else verb
         requires_origin = effective_verb != "GET"
-        if not _request_is_local(headers, client_host, require_origin=requires_origin):
+        normalized_headers = _normalize_request_headers(headers)
+        if normalized_headers is None or not _request_is_local(
+            normalized_headers,
+            client_host,
+            require_origin=requires_origin,
+        ):
             return _json_response(403, {"ok": False, "error": "local request required"})
         if len(body) > MAX_REQUEST_BYTES:
             return _json_response(413, {"ok": False, "error": "request too large"})
@@ -199,7 +221,7 @@ class AdminApplication:
         if path == "/api/status" and effective_verb == "GET":
             return self._get_status()
         if path == "/api/settings" and effective_verb == "POST":
-            supplied = headers.get("X-Wirtelprimpf-CSRF", "")
+            supplied = normalized_headers.get("x-wirtelprimpf-csrf", "")
             if not hmac.compare_digest(supplied, self.csrf_token):
                 return _json_response(403, {"ok": False, "error": "invalid CSRF token"})
             return self._post_settings(body)
@@ -315,7 +337,7 @@ class _Handler(BaseHTTPRequestHandler):
         response = application.handle(
             self.command,
             self.path.split("?", 1)[0],
-            {key: value for key, value in self.headers.items()},
+            tuple(self.headers.raw_items()),
             body,
             client_host=self.client_address[0],
         )
