@@ -4659,3 +4659,43 @@ Completion requires all of the following:
   DNS- oder Upstreamzugriff aus. Alle schreibenden Git-/HTTP-Proben blieben in
   disposable lokalen Repositories beziehungsweise auf Loopback begrenzt. Der
   lokale `teladi`-Commit wird in der Übergabe ausgewiesen.
+
+### 2026-08-02 — Additive Author-Evidenz zu den vier finalen CodeRabbit-Punkten
+
+- Diese additive Autorenschicht schließt vor dem Rollout genau vier aktuelle
+  Reviewpunkte: deterministische öffentliche Parentmodi, die explizite
+  Applet-Lock-API, konsistente Homepfadexpansion und echte
+  Admin-Pollrequest-Verhaltensabdeckung. Sie ändert weder die normative
+  Task-3-Vertrauenskette noch die Reihenfolge der späteren Runtime-, Merge- und
+  Deploymentaufgaben.
+- Neu erzeugte öffentliche Parents erhalten auch unter `umask 0077` exakt
+  `0755`; no-follow geöffnete Verzeichnisdeskriptoren bewahren die
+  Symlinkgrenze, während vorhandene öffentliche Zwischenparents unangetastet
+  bleiben. Private Parents, atomare Dateioperationen und Rollbackpfade bestehen
+  unverändert ihre Regressionen.
+- `SettingsOperationLockError` und `exclusive_settings_lock` gehören nun zum
+  öffentlichen Applet-Modulvertrag. Die Absolutpfadprüfung folgt der
+  `expanduser`-Normalisierung: gültiges `~/...` wird akzeptiert, ein echter
+  Relativpfad weiterhin vor jeder Dateianlage abgelehnt; Symlinkparents und
+  nichtreguläre Lockziele bleiben fail-closed.
+- Die Adminoberfläche ruft ihre fest gebundenen Ressourcen `/api/settings` und
+  `/api/status` über `fetchLivePoll(resource)` ab. Der Verhaltenstest beobachtet
+  für beide Requests `cache: "no-store"`, den 4000-ms-Abortsignalpfad und die
+  Wiederherstellung aller Stubs statt den JavaScript-Quelltext zu durchsuchen.
+  Die vorhandenen Epoch-, In-flight-, Save- und Fehlerverträge wurden nicht
+  umgebaut.
+- RED-Evidenz: je ein gezielter Fehlschlag für umask/0755, die zwei fehlenden
+  Exporte, den zunächst abgelehnten Homepfad und die fehlende Admin-Request-API;
+  der relative Pfad blieb schon im RED-Lauf geschlossen. GREEN: Settings-IO
+  `12/12`, Applet-Sync `28/28`, Admin-UI `24/24`, direkt betroffene Pythonmatrix
+  `107/107` und Ruff 0.15.16 ohne Befund.
+- `make check` lief frisch als `teladi` unter `env -i` mit Exit 0, einschließlich
+  Rollout-Vertrag `29/29`. Beide vollständigen Siteprofile bestanden Build und
+  Validator: jeweils 823 Dateien, 818 HTML und 10.840 interne Links; Hub-Hash
+  `0acc6695654d3e82e450a3467d96995da89e59d954d00340d5a5028916ab1bb6`,
+  Archiv-Hash
+  `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
+- Es gab keinen Fetch, Push, PR-Kommentar, Merge, Install, Reload, Deploy,
+  Runtime-/Ownership-/Service-/Pages-/DNS-/Cloudflare- oder Upstream-Write.
+  Der korrigierte lokale `teladi`-Commit wird vor jeder späteren Rolloutmutation
+  erneut durch die bereits normierten Head-/Tree-/Policy-Gates gebunden.

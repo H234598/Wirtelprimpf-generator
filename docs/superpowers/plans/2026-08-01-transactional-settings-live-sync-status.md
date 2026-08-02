@@ -2925,3 +2925,52 @@ Do not start public deployment merely because Task 10 is green. First compare th
   Cloudflare-, DNS- oder Upstreamzugriff. Schreibende Proben waren auf
   disposable lokale Repositories und Loopback beschränkt; der lokale
   `teladi`-Commit wird in der Übergabe ausgewiesen.
+
+### 2026-08-02 — Additive CodeRabbit-Schlussremediation des Konfigurationskerns
+
+- Dieser Abschnitt ist additiv und schließt genau die vier aktuellen
+  CodeRabbit-Hinweise am geprüften PR-Head. Frühere Rollout- und
+  Implementierungsevidenz bleibt als Auditspur erhalten. Es erfolgte weder
+  eine Qlty-Komplexitäts-Großrefaktorierung noch eine Unterdrückung durch
+  Suppressionskommentare.
+- `_prepare_parent()` erzwingt für jede von ihm selbst neu erzeugte öffentliche
+  Parent-Komponente einschließlich des finalen Parents deterministisch `0755`,
+  auch unter `umask 0077`. Die Modussetzung verwendet einen mit
+  `O_DIRECTORY | O_NOFOLLOW` geöffneten Deskriptor und `fchmod`; ein bereits
+  vorhandener öffentlicher Zwischenparent wird nicht umchmodded. Der bestehende
+  private `0700`-, Symlink- und Regular-file-Vertrag bleibt erhalten.
+- Der Applet-Bridge-Vertrag exportiert nun `SettingsOperationLockError` und
+  `exclusive_settings_lock` explizit über `__all__`. Die Lockpfadprüfung prüft
+  Absolutheit konsistent nach `expanduser`, akzeptiert damit gültige
+  `~/...`-Pfade und lehnt unverändert echte relative Pfade vor jeder Anlage ab.
+- Die Admin-Livepolls verwenden die kleinste gemeinsame, testbare
+  `fetchLivePoll(resource)`-Grenze. Die beiden internen Ressourcen bleiben fest
+  an `/api/settings` und `/api/status` gebunden; beide Requests verwenden
+  `cache: "no-store"` und je ein `AbortSignal.timeout(4000)`. Epoch-,
+  In-flight-, Save- und Fehlersemantik der umgebenden Pollfunktionen blieb
+  unverändert.
+- Test-first-Evidenz: Der öffentliche Parenttest lief unter restriktiver umask
+  zunächst mit `0700 != 0755` rot. Der Exportvertrag meldete die beiden
+  fehlenden Namen. Der expandierte Homepfad wurde zunächst abgelehnt, während
+  der relative Negativpfad bereits fail-closed blieb. Der neue Adminvertrag
+  lief wegen der noch fehlenden `fetchLivePoll`-API rot. GREEN sind
+  Settings-IO `12/12`, Applet-Sync `28/28` und Admin-UI `24/24`; die
+  fünf fokussierten Locktests bestätigen zusätzlich Export, Homepfad,
+  Relativpfad, Symlinkparent und nichtreguläres Ziel.
+- Die direkt betroffene Matrix bestand `107` Python-Tests und erneut `24/24`
+  Node-Tests. `make check` lief als UID/GID `teladi` unter `env -i` mit Exit 0:
+  Applet-Runtime grün, Admin-UI `24/24`, SemVer `8/8`,
+  Git-Object-Fallback `3/3`, Release-Publication `3/3`, Helper-Environment
+  `7/7`, Applet-Sync `28/28`, Settings-Schema `14/14`, Story-Directives
+  `31/31` und Rollout-Vertrag `29/29`. Ruff 0.15.16 prüfte die vier geänderten
+  Python-Dateien ohne Befund; `node --check` und `git diff --check` waren grün.
+- Beide vollständigen Profilbuilds und Validatoren liefen in derselben
+  geheimnisfreien `teladi`-/`env -i`-Grenze. Hub: 823 Dateien, 818 HTML,
+  10.840 interne Links, Baum-SHA-256
+  `0acc6695654d3e82e450a3467d96995da89e59d954d00340d5a5028916ab1bb6`.
+  Archiv: 823 Dateien, 818 HTML, 10.840 interne Links, Baum-SHA-256
+  `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
+- Die Runde blieb vollständig lokal: kein Fetch, Push, PR-Kommentar, Merge,
+  Install, Reload, Deploy, Runtime-/Ownership-/Service-/Pages-/DNS-/Cloudflare-
+  oder Upstream-Write. Testwerte enthielten keine produktiven Geheimnisse; der
+  lokale `teladi`-Commit wird in der Übergabe ausgewiesen.

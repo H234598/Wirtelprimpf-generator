@@ -341,6 +341,18 @@ export function statusLabels(status) {
   };
 }
 
+const LIVE_POLL_ENDPOINTS = Object.freeze({
+  settings: "/api/settings",
+  status: "/api/status",
+});
+
+export function fetchLivePoll(resource) {
+  return fetch(LIVE_POLL_ENDPOINTS[resource], {
+    cache: "no-store",
+    signal: AbortSignal.timeout(4000),
+  });
+}
+
 async function bootstrap() {
   const form = document.querySelector("#settings");
   const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
@@ -491,10 +503,7 @@ async function bootstrap() {
     if (requestEpoch === null) return;
     settingsInFlight = true;
     try {
-      const response = await fetch("/api/settings", {
-        cache: "no-store",
-        signal: AbortSignal.timeout(4000),
-      });
+      const response = await fetchLivePoll("settings");
       if (!response.ok) throw new Error("settings unavailable");
       const snapshot = await response.json();
       if (requestGate.acceptPoll(requestEpoch)) applySettingsSnapshot(snapshot);
@@ -509,10 +518,7 @@ async function bootstrap() {
     if (statusInFlight) return;
     statusInFlight = true;
     try {
-      const response = await fetch("/api/status", {
-        cache: "no-store",
-        signal: AbortSignal.timeout(4000),
-      });
+      const response = await fetchLivePoll("status");
       if (!response.ok) throw new Error("status unavailable");
       renderStatus(await response.json());
     } catch {

@@ -10,6 +10,7 @@ import threading
 import unittest
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
+from unittest import mock
 
 from wirtelprimpf_platform.settings_schema import (
     SETTING_SPECS,
@@ -218,6 +219,49 @@ def coordinator_for(
 
 
 class AppletSettingsSyncTests(unittest.TestCase):
+    def test_public_contract_exports_operation_lock_api(self) -> None:
+        self.assertTrue(
+            {"SettingsOperationLockError", "exclusive_settings_lock"}.issubset(
+                set(SYNC.__all__)
+            )
+        )
+
+    def test_operation_lock_accepts_expanduser_absolute_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / "home"
+            home.mkdir()
+            lock_path = home / ".config" / "wirtelprimpf" / "settings.lock"
+
+            with (
+                mock.patch.dict(os.environ, {"HOME": str(home)}),
+                SYNC.exclusive_settings_lock(
+                    "~/.config/wirtelprimpf/settings.lock", timeout_seconds=0
+                ),
+            ):
+                self.assertTrue(lock_path.is_file())
+
+            self.assertEqual(lock_path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(lock_path.parent.stat().st_mode & 0o777, 0o700)
+
+    def test_operation_lock_still_rejects_relative_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            previous_directory = os.getcwd()
+            os.chdir(temporary)
+            try:
+                with (
+                    self.assertRaisesRegex(
+                        SYNC.SettingsOperationLockError,
+                        "Einstellungen konnten nicht sicher gesperrt werden",
+                    ),
+                    SYNC.exclusive_settings_lock(
+                        "relative/settings.lock", timeout_seconds=0
+                    ),
+                ):
+                    self.fail("relative lock path unexpectedly accepted")
+                self.assertFalse(Path("relative/settings.lock").exists())
+            finally:
+                os.chdir(previous_directory)
+
     def test_operation_lock_rejects_a_symlinked_parent_without_leaking_its_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

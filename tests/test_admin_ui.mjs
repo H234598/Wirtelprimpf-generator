@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import * as AdminUI from "../wirtelprimpf_platform/static/admin.mjs";
@@ -426,10 +425,41 @@ test("a conflict snapshot is logically merged exactly once", () => {
   assert.deepEqual([...fake.conflicts], ["site_title"]);
 });
 
-test("both live polls use bounded request timeouts", () => {
-  const source = readFileSync(
-    new URL("../wirtelprimpf_platform/static/admin.mjs", import.meta.url),
-    "utf8",
-  );
-  assert.equal(source.match(/signal: AbortSignal\.timeout\(4000\)/g)?.length, 2);
+test("settings and status live poll requests are no-store and bounded", async () => {
+  assert.equal(typeof AdminUI.fetchLivePoll, "function");
+
+  const originalFetch = globalThis.fetch;
+  const originalTimeout = AbortSignal.timeout;
+  const requests = [];
+  const timeoutMilliseconds = [];
+  const signals = [];
+  globalThis.fetch = async (endpoint, options) => {
+    requests.push({ endpoint, options });
+    return { ok: true };
+  };
+  AbortSignal.timeout = (milliseconds) => {
+    timeoutMilliseconds.push(milliseconds);
+    const signal = AbortSignal.abort();
+    signals.push(signal);
+    return signal;
+  };
+
+  try {
+    await AdminUI.fetchLivePoll("settings");
+    await AdminUI.fetchLivePoll("status");
+  } finally {
+    globalThis.fetch = originalFetch;
+    AbortSignal.timeout = originalTimeout;
+  }
+
+  assert.equal(globalThis.fetch, originalFetch);
+  assert.equal(AbortSignal.timeout, originalTimeout);
+  assert.deepEqual(timeoutMilliseconds, [4000, 4000]);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].endpoint, "/api/settings");
+  assert.equal(requests[0].options.cache, "no-store");
+  assert.equal(requests[0].options.signal, signals[0]);
+  assert.equal(requests[1].endpoint, "/api/status");
+  assert.equal(requests[1].options.cache, "no-store");
+  assert.equal(requests[1].options.signal, signals[1]);
 });

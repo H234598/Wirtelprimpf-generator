@@ -68,6 +68,26 @@ class SettingsIOTests(unittest.TestCase):
 
             self.assertEqual(parent.stat().st_mode & 0o777, 0o700)
 
+    def test_new_public_parent_components_ignore_restrictive_umask(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            existing_parent = Path(temporary) / "existing"
+            existing_parent.mkdir(mode=0o700)
+            os.chmod(existing_parent, 0o700)
+            first = existing_parent / "first"
+            final_parent = first / "second"
+
+            previous_umask = os.umask(0o077)
+            try:
+                SecureFile(final_parent / "settings.env", private=False).replace_bytes(
+                    b"A=one\n"
+                )
+            finally:
+                os.umask(previous_umask)
+
+            self.assertEqual(existing_parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(first.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(final_parent.stat().st_mode & 0o777, 0o755)
+
     def test_restore_of_previously_absent_file_removes_only_the_regular_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "private" / "new.env"

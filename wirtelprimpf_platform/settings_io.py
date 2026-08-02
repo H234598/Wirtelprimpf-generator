@@ -103,6 +103,15 @@ def _reject_existing_parent_chain(parent: Path) -> None:
             raise SettingsIOError(f"parent path must contain directories only: {candidate}")
 
 
+def _set_directory_mode(candidate: Path, mode: int) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(candidate, flags)
+    try:
+        os.fchmod(descriptor, mode)
+    finally:
+        os.close(descriptor)
+
+
 def _prepare_parent(parent: Path, *, private: bool) -> None:
     _reject_existing_parent_chain(parent)
     mode = 0o700 if private else 0o755
@@ -119,10 +128,10 @@ def _prepare_parent(parent: Path, *, private: bool) -> None:
                 created = True
             except FileExistsError:
                 pass
-            if created and private:
-                os.chmod(candidate, mode)
+            if created:
+                _set_directory_mode(candidate, mode)
         if private:
-            os.chmod(parent, mode)
+            _set_directory_mode(parent, mode)
     except OSError as exc:
         raise SettingsIOError("cannot prepare configuration parent directory") from exc
     _reject_existing_parent_chain(parent)

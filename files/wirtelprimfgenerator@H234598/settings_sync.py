@@ -90,11 +90,12 @@ class SettingsOperationLockError(RuntimeError):
 
 
 def _open_settings_operation_lock(path: str) -> int:
-    candidate = Path(os.path.abspath(os.path.expanduser(path)))
-    if not os.path.isabs(path):
+    expanded = os.path.expanduser(path)
+    if not os.path.isabs(expanded):
         raise SettingsOperationLockError(
             "Einstellungen konnten nicht sicher gesperrt werden"
         )
+    candidate = Path(os.path.abspath(expanded))
     parent = candidate.parent
     try:
         for directory in (parent, *parent.parents):
@@ -742,7 +743,9 @@ __all__ = [
     "DirtySnapshotState",
     "SettingsCliClient",
     "SettingsCliError",
+    "SettingsOperationLockError",
     "SettingsSyncCoordinator",
     "catalog_options",
+    "exclusive_settings_lock",
     "trusted_executable",
 ]
