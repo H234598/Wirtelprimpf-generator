@@ -126,6 +126,39 @@ class WebPlanValidationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("frozen repository SHA", result.stderr)
 
+    def test_rejects_duplicate_plan_status_row(self) -> None:
+        """Rejects extra historical status row even after digest refresh."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            plan = root / PLAN
+            row = next(
+                line for line in plan.read_text(encoding="utf-8").splitlines()
+                if line.startswith("| `WEB-P00-01`")
+            )
+            plan.write_text(
+                plan.read_text(encoding="utf-8").replace(row, row + "\n" + row, 1),
+                encoding="utf-8",
+            )
+            status = self.read_json(root, STATUS)
+            status["canonical_plan"]["sha256"] = hashlib.sha256(plan.read_bytes()).hexdigest()
+            self.write_json(root, STATUS, status)
+            result = self.validate(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("plan status rows", result.stderr)
+
+    def test_rejects_duplicate_plan_requirement(self) -> None:
+        """Rejects extra historical requirement ID even after digest refresh."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            plan = root / PLAN
+            plan.write_text(plan.read_text(encoding="utf-8") + "\nWEB-REQ-001\n", encoding="utf-8")
+            status = self.read_json(root, STATUS)
+            status["canonical_plan"]["sha256"] = hashlib.sha256(plan.read_bytes()).hexdigest()
+            self.write_json(root, STATUS, status)
+            result = self.validate(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("plan requirement IDs", result.stderr)
+
     def test_rejects_implemented_old_p00_pr(self) -> None:
         """Rejects false implementation claim for superseded P00 PR #1."""
         with self.copied_root() as temporary:

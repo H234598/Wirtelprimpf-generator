@@ -89,8 +89,9 @@ def validate(root: Path) -> None:
     headings = PACKAGE_PATTERN.findall(plan)
     require(len(headings) == 48 and len(set(headings)) == 48, "historical package headings")
     expected_packages = set(headings)
-    rows = {package: (state, milestone) for package, state, milestone in STATUS_ROW_PATTERN.findall(current_plan)}
-    require(len(rows) == 48 and set(rows) == expected_packages, "plan status rows")
+    raw_rows = STATUS_ROW_PATTERN.findall(current_plan)
+    rows = {package: (state, milestone) for package, state, milestone in raw_rows}
+    require(len(raw_rows) == 48 and len(rows) == 48 and set(rows) == expected_packages, "plan status rows")
 
     packages = status.get("packages")
     require(isinstance(packages, list), "package register")
@@ -110,7 +111,12 @@ def validate(root: Path) -> None:
     require(isinstance(requirements, list), "requirement register")
     require(len(requirements) == 60 and len(set(requirements)) == 60 and set(requirements) == expected_requirements, "requirement IDs")
     plan_requirements = REQUIREMENT_PATTERN.findall(plan)
-    require(set(plan_requirements) == expected_requirements, "plan requirement IDs")
+    require(
+        len(plan_requirements) == 66
+        and len(set(plan_requirements)) == 60
+        and set(plan_requirements) == expected_requirements,
+        "plan requirement IDs",
+    )
 
     require(supersession.get("authority_order") == [
         "v2.0.0 chapters 0-28", "approved generator and rollout plans", "v1 historical appendix"
