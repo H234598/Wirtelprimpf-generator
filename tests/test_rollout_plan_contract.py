@@ -1810,9 +1810,9 @@ classify_task3_remote_action \
                     encoding="utf-8",
                 )
                 receipt_path.chmod(0o600)
-                return subprocess.run(
+                return subprocess.run(  # nosec B603 -- fixed shell and controlled local fixture argv
                     [
-                        "bash",
+                        "/bin/bash",
                         "-c",
                         script,
                         "receipt-reconcile-test",
