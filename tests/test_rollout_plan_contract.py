@@ -745,6 +745,23 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
     def test_task5_accepts_only_the_verified_task3_v3_receipt_sha(self) -> None:
         self.assertIn("# BEGIN TASK5_FACTORY_RECEIPT", self.task5_step2)
         receipt_guard = _marked_block(self.task5_step2, "TASK5_FACTORY_RECEIPT")
+        production_metadata_guard = (
+            'test "$(stat -c \'%u:%g:%a\' "$receipt_file")" = 1000:1000:600'
+        )
+        self.assertEqual(receipt_guard.count(production_metadata_guard), 1)
+        fixture_receipt_guard = receipt_guard
+        fixture_identity = (os.geteuid(), os.getegid())
+        if os.geteuid() != 0 and fixture_identity != (1000, 1000):
+            fixture_metadata_guard = production_metadata_guard.replace(
+                "1000:1000:600",
+                f"{fixture_identity[0]}:{fixture_identity[1]}:600",
+            )
+            fixture_receipt_guard = receipt_guard.replace(
+                production_metadata_guard,
+                fixture_metadata_guard,
+                1,
+            )
+            self.assertNotIn(production_metadata_guard, fixture_receipt_guard)
         head = "2" * 40
         merge = "3" * 40
         valid = {
@@ -773,7 +790,7 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
             receipt = Path(tmp) / "receipt.json"
             script = f"""
 set -Eeuo pipefail
-{receipt_guard}
+{fixture_receipt_guard}
 receipt_file=$1
 load_verified_task3_factory_sha
 """
@@ -822,6 +839,11 @@ load_verified_task3_factory_sha
         self.assertIn('--match-head-commit "$archive_head_sha"', self.task5_step6)
         self.assertIn("TASK5_STEP6_TELADI", self.task5_step6)
         self.assertIn("task5_token_call", self.task5_step6)
+
+    def test_task5_step6_content_gate_uses_ubuntu_runner_baseline_tools(self) -> None:
+        gate = _marked_block(self.task5_step6, "TASK5_STEP6_ARCHIVE_CONTENT_GATE")
+        self.assertNotIn("/usr/bin/rg", gate)
+        self.assertIn("/usr/bin/grep", gate)
 
     def test_task5_step6_archive_candidate_gate_enforces_exact_diff_and_pins(self) -> None:
         marker = "TASK5_STEP6_ARCHIVE_CONTENT_GATE"

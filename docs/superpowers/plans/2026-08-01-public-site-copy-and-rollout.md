@@ -5034,15 +5034,15 @@ assert_task5_archive_candidate() {
     "$base_sha...$head_sha")" = $'2\t2\t.github/workflows/pages.yml'
   workflow_text="$(/usr/bin/git -C "$repository_path" \
     show "$head_sha:.github/workflows/pages.yml")"
-  test "$(/usr/bin/rg -c -- \
+  test "$(/usr/bin/grep -Ec -- \
     "^[[:space:]]*uses:[[:space:]]+H234598/Wirtelprimpf-generator/\\.github/workflows/archive-pages\\.yml@$factory_sha[[:space:]]*$" \
     <<<"$workflow_text")" = 1
-  test "$(/usr/bin/rg -c -- \
+  test "$(/usr/bin/grep -Ec -- \
     "^[[:space:]]*factory_ref:[[:space:]]*\"$factory_sha\"[[:space:]]*$" \
     <<<"$workflow_text")" = 1
-  sha_lines="$(/usr/bin/rg -o -- '[0-9a-f]{40}' <<<"$workflow_text")"
+  sha_lines="$(/usr/bin/grep -Eo -- '[0-9a-f]{40}' <<<"$workflow_text")"
   test "$sha_lines" = "$factory_sha"$'\n'"$factory_sha"
-  if /usr/bin/rg -q -- '^[[:space:]]*pull_request[[:space:]]*:' \
+  if /usr/bin/grep -Eq -- '^[[:space:]]*pull_request[[:space:]]*:' \
     <<<"$workflow_text"; then
     printf '1\n'
   else
@@ -6159,3 +6159,40 @@ Completion requires all of the following:
   Cloudflare- oder Upstream-Write aus. Die abgebrochene autorisierte
   Vorphase ist ausschließlich als unveränderte historische Evidenz
   protokolliert; alle schreibenden Testproben blieben lokal und disposable.
+
+### 2026-08-02 — Additive GitHub-Runner-Portabilitätskorrektur
+
+- Diese Ergänzung basiert exakt auf Parent
+  `9b23708d4f77031a52acd48f7438a48e1163725e` und ersetzt oder kürzt keine
+  frühere Ledgerpassage. Die öffentlichen CI-Metadaten zeigen in Run
+  `30734454711` die Jobs `web` `91460584201` und `platform` `91460584216`
+  erfolgreich, während ausschließlich `applet` `91460584205` fehlschlug. In
+  Run `30734455745` waren `platform` `91460588663` und `web` `91460588664`
+  erfolgreich; ausschließlich `applet` `91460588635` schlug identisch fehl.
+- Die erste Ursache lag nur im Vertragstest: GitHub-hosted Runner laufen als
+  nichtprivilegierte UID/GID ungleich `1000:1000`, während der extrahierte
+  Produktionsguard korrekt `1000:1000:600` fordert. Der Test konnte seine
+  Fixture nur als Root auf 1000:1000 setzen. Der Produktionsliteral bleibt
+  unverändert und wird separat exakt gebunden. Ausschließlich bei nonroot und
+  einer effektiven Fixture-Identität ungleich `1000:1000` ersetzt der Harness
+  diesen einen Literal in seiner Testkopie einmal durch die tatsächliche
+  Fixture-UID/GID; Root und UID/GID 1000 führen weiter den echten Guard aus.
+- Die zweite Ursache war die im ausgeführten Step-6-Content-Gate hart
+  vorausgesetzte Datei `/usr/bin/rg`, die auf dem Ubuntu-Runner nicht
+  vorhanden war. Nur die vier Textprüfungen dieses Blocks verwenden nun
+  `/usr/bin/grep`: `-Ec` für je exakt eine Uses- und Factory-Pinzeile, `-Eo`
+  für genau die beiden identischen 40-Hex-Werte und `-Eq` für die
+  `pull_request`-Triggererkennung. Ein-Datei-Diff, exakt `2\t2`, Pin-, SHA-
+  und Triggersemantik bleiben unverändert; es wird kein CI-Paket installiert.
+- RED/GREEN-Evidenz: Der unveränderte Receipt-Test reproduzierte unter
+  UID/GID `65534:65534` zunächst Returncode 1 mit leerem stderr. Der neue
+  Werkzeugvertrag lief an den vier `rg`-Referenzen rot. Danach bestanden
+  Receipt-, Werkzeug- und vollständiger Content-Gate-Vertrag lokal `3/3` und
+  unter derselben synthetischen Runner-UID/GID erneut `3/3`. Der vollständige
+  Rolloutvertrag bestand `45/45` mit zwei erwarteten Root-Skips; die beiden
+  rootgebundenen Runuser-Probes bestanden separat `2/2`.
+- Außer einem anonymen read-only Abruf der öffentlichen Run-/Jobmetadaten gab
+  es keinen Netzwerkzugriff. Es erfolgten kein Credentialzugriff, Push,
+  PR-Write, Merge, Install, Reload, Runtime-, Archiv-, Service-, Pages-, DNS-,
+  Cloudflare- oder Upstream-Write; schreibende Proben blieben lokal und
+  disposable.
