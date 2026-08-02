@@ -11,7 +11,6 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_PLAN = ROOT / "docs/superpowers/plans/2026-08-01-public-site-copy-and-rollout.md"
 
@@ -80,7 +79,7 @@ class RolloutPlanContractTests(unittest.TestCase):
         )
         cls.deployment = _code_block_after(
             cls.document,
-            "**Step 9: Execute Steps 1–8 through one guarded deployment transaction**",
+            "**Step 9: Execute Steps 1\u20138 through one guarded deployment transaction**",
         )
         cls.harness = _code_block_after(
             cls.document,
@@ -2152,6 +2151,237 @@ classify_task3_remote_action "$1" "$2" "$3" "$4" "$5" "$6"
         self.assertIn("planned-remote-committed-reconciled", self.harness)
         self.assertIn("remote-committed-api-failure", self.harness)
         self.assertIn("verified-without-second-push", self.harness)
+
+    def test_normative_quiesce_handles_auto_restart_without_stopping_a_running_job(self) -> None:
+        self.assertIn("# BEGIN TASK4_GENERATOR_QUIESCE", self.deployment)
+        quiesce = _marked_block(self.deployment, "TASK4_GENERATOR_QUIESCE")
+        self.assertIn("deadline=$((SECONDS + 300))", quiesce)
+
+        script = f"""
+set -Eeuo pipefail
+{quiesce}
+case_name=$1
+events=$2
+state_counter=$3
+mask_state=$4
+state_spec=$5
+printf '0\n' >"$state_counter"
+if [[ "$case_name" == unexpected-unit-state ]]; then
+  printf 'enabled\n' >"$mask_state"
+else
+  printf 'static\n' >"$mask_state"
+fi
+
+next_generator_state() {{
+  local index state active sub
+  index="$(<"$state_counter")"
+  IFS=',' read -r -a states <<<"$state_spec"
+  if (( index >= ${{#states[@]}} )); then
+    index=$((${{#states[@]}} - 1))
+  fi
+  state="${{states[$index]}}"
+  printf '%s\n' "$(( $(<"$state_counter") + 1 ))" >"$state_counter"
+  active="${{state%%:*}}"
+  sub="${{state#*:}}"
+  printf 'observe:%s/%s\n' "$active" "$sub" >>"$events"
+  printf 'ActiveState=%s\nSubState=%s\n' "$active" "$sub"
+}}
+
+systemctl() {{
+  case "$*" in
+    '--user stop wirtelprimpf.timer')
+      printf 'timer-stop\n' >>"$events"
+      ;;
+    '--user show wirtelprimpf.service -p ActiveState -p SubState --no-pager')
+      next_generator_state
+      ;;
+    '--user stop wirtelprimpf.service')
+      printf 'service-stop\n' >>"$events"
+      ;;
+    '--user is-enabled wirtelprimpf.service')
+      cat "$mask_state"
+      ;;
+    '--user mask --runtime wirtelprimpf.service')
+      printf 'service-mask\n' >>"$events"
+      printf 'masked-runtime\n' >"$mask_state"
+      ;;
+    *)
+      printf 'unexpected-systemctl:%s\n' "$*" >>"$events"
+      return 97
+      ;;
+  esac
+}}
+
+sleep() {{
+  printf 'natural-wait\n' >>"$events"
+  if [[ "$case_name" == timeout ]]; then
+    SECONDS=301
+  fi
+}}
+
+runtime_service_masked=0
+SECONDS=0
+set +e
+quiesce_generator
+status=$?
+set -e
+printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
+"""
+
+        cases = {
+            "current-auto-restart": {
+                "states": "activating:auto-restart,activating:auto-restart,inactive:dead,inactive:dead,inactive:dead",
+                "success": True,
+                "service_stop": True,
+            },
+            "running-start-pre-success": {
+                "states": "activating:start-pre,inactive:dead,inactive:dead,inactive:dead",
+                "success": True,
+                "service_stop": False,
+            },
+            "running-success": {
+                "states": "activating:start,inactive:dead,inactive:dead,inactive:dead",
+                "success": True,
+                "service_stop": False,
+            },
+            "running-auto-restart": {
+                "states": (
+                    "activating:start,activating:auto-restart,activating:auto-restart,"
+                    "inactive:dead,inactive:dead,inactive:dead"
+                ),
+                "success": True,
+                "service_stop": True,
+            },
+            "auto-restart-race": {
+                "states": "activating:auto-restart,activating:start",
+                "success": False,
+                "service_stop": False,
+            },
+            "after-mask-race": {
+                "states": "inactive:dead,activating:start",
+                "success": False,
+                "service_stop": False,
+                "fail_closed_mask": True,
+            },
+            "unexpected": {
+                "states": "active:running",
+                "success": False,
+                "service_stop": False,
+            },
+            "unexpected-unit-state": {
+                "states": "inactive:dead",
+                "success": False,
+                "service_stop": False,
+            },
+            "timeout": {
+                "states": "activating:start",
+                "success": False,
+                "service_stop": False,
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-quiesce-contract-") as tmp:
+            for case_name, expected in cases.items():
+                with self.subTest(case=case_name):
+                    events = Path(tmp) / f"{case_name}.events"
+                    counter = Path(tmp) / f"{case_name}.counter"
+                    mask_state = Path(tmp) / f"{case_name}.mask"
+                    result = subprocess.run(  # nosec B603 -- fixed Bash argv and local stub
+                        [
+                            "/bin/bash",
+                            "-c",
+                            script,
+                            "quiesce-test",
+                            case_name,
+                            str(events),
+                            str(counter),
+                            str(mask_state),
+                            str(expected["states"]),
+                        ],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        timeout=5,
+                        env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                    )
+                    event_lines = events.read_text(encoding="utf-8").splitlines()
+                    self.assertEqual(event_lines[0], "timer-stop", result.stderr)
+                    self.assertFalse(
+                        any(line.startswith("unexpected-systemctl:") for line in event_lines),
+                        event_lines,
+                    )
+                    status_line = next(
+                        line for line in result.stdout.splitlines() if line.startswith("status:")
+                    )
+                    status = int(status_line.removeprefix("status:"))
+                    if expected["success"]:
+                        self.assertEqual(status, 0, (result.stderr, event_lines))
+                        self.assertIn("service-mask", event_lines)
+                        mask_index = event_lines.index("service-mask")
+                        inactive_indexes = [
+                            index
+                            for index, line in enumerate(event_lines)
+                            if line == "observe:inactive/dead"
+                        ]
+                        self.assertTrue(inactive_indexes, event_lines)
+                        self.assertLess(inactive_indexes[0], mask_index, event_lines)
+                        self.assertTrue(
+                            any(index > mask_index for index in inactive_indexes),
+                            event_lines,
+                        )
+                        self.assertIn("runtime-mask-flag:1", result.stdout)
+                    else:
+                        self.assertNotEqual(status, 0, (result.stderr, event_lines))
+                        if expected.get("fail_closed_mask"):
+                            self.assertIn("service-mask", event_lines)
+                            self.assertIn("runtime-mask-flag:1", result.stdout)
+                            self.assertGreater(
+                                event_lines.index("observe:activating/start"),
+                                event_lines.index("service-mask"),
+                                event_lines,
+                            )
+                        else:
+                            self.assertNotIn("service-mask", event_lines)
+                            self.assertIn("runtime-mask-flag:0", result.stdout)
+                    if expected["service_stop"]:
+                        self.assertIn("service-stop", event_lines)
+                        self.assertLess(
+                            event_lines.index("observe:activating/auto-restart"),
+                            event_lines.index("service-stop"),
+                            event_lines,
+                        )
+                    else:
+                        self.assertNotIn("service-stop", event_lines)
+                    if case_name == "current-auto-restart":
+                        self.assertNotIn("natural-wait", event_lines)
+                    if case_name in {
+                        "running-start-pre-success",
+                        "running-success",
+                        "running-auto-restart",
+                        "timeout",
+                    }:
+                        self.assertIn("natural-wait", event_lines)
+
+    def test_restore_unmasks_an_inactive_generator_without_starting_it(self) -> None:
+        unmask = _shell_function(self.deployment, "unmask_generator_runtime")
+        first_inactive_proof = unmask.index("assert_generator_inactive")
+        unmask_call = unmask.index(
+            "systemctl --user unmask --runtime wirtelprimpf.service"
+        )
+        final_inactive_proof = unmask.rindex("assert_generator_inactive")
+        self.assertLess(first_inactive_proof, unmask_call)
+        self.assertLess(unmask_call, final_inactive_proof)
+        self.assertNotIn("start wirtelprimpf.service", unmask)
+        self.assertNotIn("restart wirtelprimpf.service", unmask)
+
+        rollback = _marked_block(self.deployment, "TASK4_ROLLBACK_DEPLOYMENT")
+        self.assertLess(rollback.index("quiesce_generator"), rollback.index("restore_targets"))
+        self.assertLess(
+            rollback.index("unmask_generator_runtime"),
+            rollback.index("restore_timer_activity"),
+        )
+        self.assertIn("service-auto-restart-stop", self.harness)
+        self.assertIn("auto-restart-race", self.harness)
+        self.assertIn("after-mask-reactivation", self.harness)
 
     def test_normative_step9_rollback_prolog_masks_signals_before_recovery(self) -> None:
         rollback = _marked_block(self.deployment, "TASK4_ROLLBACK_DEPLOYMENT")

@@ -2416,38 +2416,97 @@ verify_config_preserved() {
   return 0
 }
 
+# BEGIN TASK4_GENERATOR_QUIESCE
+snapshot_generator_state() {
+  local snapshot line active_seen=0 sub_seen=0
+  generator_active_state=
+  generator_sub_state=
+  if ! snapshot="$(systemctl --user show wirtelprimpf.service \
+    -p ActiveState -p SubState --no-pager)"; then
+    return 1
+  fi
+  while IFS= read -r line; do
+    case "$line" in
+      ActiveState=*)
+        (( active_seen == 0 )) || return 1
+        generator_active_state="${line#ActiveState=}"
+        [[ -n "$generator_active_state" ]] || return 1
+        active_seen=1
+        ;;
+      SubState=*)
+        (( sub_seen == 0 )) || return 1
+        generator_sub_state="${line#SubState=}"
+        [[ -n "$generator_sub_state" ]] || return 1
+        sub_seen=1
+        ;;
+      *) return 1 ;;
+    esac
+  done <<<"$snapshot"
+  (( active_seen == 1 && sub_seen == 1 ))
+}
+
+assert_generator_inactive() {
+  snapshot_generator_state || return 1
+  [[ "$generator_active_state" == inactive && "$generator_sub_state" == dead ]]
+}
+
 wait_generator_inactive() {
   local deadline
   deadline=$((SECONDS + 300))
-  while [[ "$(systemctl --user show wirtelprimpf.service \
-    -p ActiveState --value)" != inactive ]]; do
-    (( SECONDS < deadline )) || return 1
-    sleep 1
+  while :; do
+    snapshot_generator_state || return 1
+    case "$generator_active_state/$generator_sub_state" in
+      inactive/dead)
+        return 0
+        ;;
+      activating/start-pre|activating/start)
+        (( SECONDS < deadline )) || return 1
+        sleep 1 || return 1
+        ;;
+      activating/auto-restart)
+        (( SECONDS < deadline )) || return 1
+        # A second atomic property snapshot is the fail-closed race gate. If
+        # the queued retry has already become a running start, do not stop it.
+        snapshot_generator_state || return 1
+        [[ "$generator_active_state" == activating && \
+          "$generator_sub_state" == auto-restart ]] || return 1
+        systemctl --user stop wirtelprimpf.service || return 1
+        assert_generator_inactive
+        return
+        ;;
+      *)
+        # No other service state is safe to reinterpret as either a naturally
+        # running oneshot or an idle retry delay.
+        return 1
+        ;;
+    esac
   done
-  test "$(systemctl --user show wirtelprimpf.service \
-    -p ActiveState --value)" = inactive
 }
 
 mask_generator_runtime() {
   local current
   current="$(systemctl --user is-enabled wirtelprimpf.service || true)"
   if [[ "$current" != masked-runtime ]]; then
-    test "$current" = static
+    test "$current" = static || return 1
     systemctl --user mask --runtime wirtelprimpf.service || return 1
   fi
-  test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = masked-runtime
+  test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = \
+    masked-runtime || return 1
   runtime_service_masked=1
 }
 
 quiesce_generator() {
   systemctl --user stop wirtelprimpf.timer || return 1
-  # Waiting once before the mask lets an already-running oneshot finish
-  # naturally. The runtime mask then closes every new activation path; the
-  # second wait closes the narrow inactive-to-mask race before code mutation.
+  # A start-pre/start oneshot finishes naturally. Only a twice-observed idle
+  # auto-restart delay is cancelled with a targeted service stop. Every other
+  # state fails closed without stopping a potentially running generator.
   wait_generator_inactive || return 1
   mask_generator_runtime || return 1
-  wait_generator_inactive
+  # The strict post-mask snapshot closes the inactive-to-mask race. A process
+  # appearing here is not waited out or stopped and no code mutation follows.
+  assert_generator_inactive
 }
+# END TASK4_GENERATOR_QUIESCE
 
 mask_timer_runtime_stopped() {
   systemctl --user stop wirtelprimpf.timer || return 1
@@ -2467,6 +2526,10 @@ unmask_timer_runtime_stopped() {
 
 unmask_generator_runtime() {
   [[ "$runtime_service_masked" == 1 ]] || return 1
+  # Restore symmetry never starts or restarts the oneshot directly. It may be
+  # unmasked only while the same strict inactive/dead state is still proven;
+  # timer activity is restored separately and last.
+  assert_generator_inactive || return 1
   systemctl --user unmask --runtime wirtelprimpf.service || return 1
   runtime_service_masked=0
   systemctl --user daemon-reload || return 1
@@ -2474,7 +2537,7 @@ unmask_generator_runtime() {
     "$service_unit_state_before"
   test "$(systemctl --user show wirtelprimpf.service -p LoadState --value)" = \
     "$service_load_state_before"
-  test "$(systemctl --user show wirtelprimpf.service -p ActiveState --value)" = inactive
+  assert_generator_inactive
 }
 
 fail_closed_runtime() {
@@ -3236,7 +3299,11 @@ classifications: backup-byte-equal is preserved, a semantically restored
 smoke-owned revision is preserved without copying old bytes, and a later
 competitor is preserved with an attention-required result. Finally, it proves
 that an existing allowlisted parent changed from `0755` to `0700` by the
-installer returns to `0755` only on rollback. The checked-in structural runner
+installer returns to `0755` only on rollback. Its generator state stub mirrors
+Step 9: timer-first ordering, natural `start-pre`/`start` completion, confirmed
+`auto-restart` cancellation, strict inactive-before/after-mask proof, and
+fail-closed timeout, unexpected-state, confirmation-race, and post-mask-race
+paths. The checked-in structural runner
 `python -m unittest tests.test_rollout_plan_contract -v` additionally extracts
 the exact Step-9/Step-10 blocks, syntax-checks both, requires the complete
 audited Step-5/Step-6 bodies byte-for-byte inside Step 9, proves marker-producer
@@ -3261,7 +3328,8 @@ printf 'lock-sentinel\n' >"$sandbox/settings.lock"
 printf 'active\n' >"$sandbox/timer-state"
 printf 'enabled\n' >"$sandbox/timer-enablement"
 printf 'enabled\n' >"$sandbox/timer-persistent-enablement"
-printf 'active\n' >"$sandbox/generator-state"
+printf 'activating\n' >"$sandbox/generator-active-state"
+printf 'start\n' >"$sandbox/generator-sub-state"
 printf 'static\n' >"$sandbox/service-enablement"
 printf 'active\n' >"$sandbox/admin-state"
 printf 'running\n' >"$sandbox/applet-state"
@@ -3282,7 +3350,8 @@ assert_recovery_lock_held() {
 }
 
 restore_install_targets() {
-  test "$(<"$sandbox/generator-state")" = inactive
+  test "$(<"$sandbox/generator-active-state")" = inactive
+  test "$(<"$sandbox/generator-sub-state")" = dead
   test "$(<"$sandbox/service-enablement")" = masked-runtime
   assert_recovery_lock_held
   printf 'install-restore\n' >>"$sandbox/recovery-events"
@@ -3301,27 +3370,48 @@ quiesce_generator_harness() {
   local transition="$1" attempts=0 max_attempts=3
   printf 'timer-stop\n' >>"$sandbox/recovery-events"
   printf 'inactive\n' >"$sandbox/timer-state"
-  while [[ "$(<"$sandbox/generator-state")" != inactive ]]; do
-    attempts=$((attempts + 1))
-    if [[ "$transition" == after-first-wait && "$attempts" == 1 ]]; then
-      printf 'inactive\n' >"$sandbox/generator-state"
-    fi
-    (( attempts < max_attempts )) || return 1
+  while :; do
+    case "$(<"$sandbox/generator-active-state")/$(<"$sandbox/generator-sub-state")" in
+      inactive/dead)
+        break
+        ;;
+      activating/start-pre|activating/start)
+        attempts=$((attempts + 1))
+        if [[ "$transition" == after-first-wait && "$attempts" == 1 ]]; then
+          printf 'inactive\n' >"$sandbox/generator-active-state"
+          printf 'dead\n' >"$sandbox/generator-sub-state"
+        elif [[ "$transition" == running-auto-restart && "$attempts" == 1 ]]; then
+          printf 'activating\n' >"$sandbox/generator-active-state"
+          printf 'auto-restart\n' >"$sandbox/generator-sub-state"
+        fi
+        (( attempts < max_attempts )) || return 1
+        ;;
+      activating/auto-restart)
+        if [[ "$transition" == auto-restart-race ]]; then
+          printf 'activating\n' >"$sandbox/generator-active-state"
+          printf 'start\n' >"$sandbox/generator-sub-state"
+        fi
+        test "$(<"$sandbox/generator-active-state")" = activating || return 1
+        test "$(<"$sandbox/generator-sub-state")" = auto-restart || return 1
+        printf 'service-auto-restart-stop\n' >>"$sandbox/recovery-events"
+        printf 'inactive\n' >"$sandbox/generator-active-state"
+        printf 'dead\n' >"$sandbox/generator-sub-state"
+        test "$(<"$sandbox/generator-active-state")" = inactive || return 1
+        test "$(<"$sandbox/generator-sub-state")" = dead || return 1
+        break
+        ;;
+      *) return 1 ;;
+    esac
   done
   printf 'generator-inactive-before-mask\n' >>"$sandbox/recovery-events"
   printf 'masked-runtime\n' >"$sandbox/service-enablement"
   printf 'service-runtime-mask\n' >>"$sandbox/recovery-events"
   if [[ "$transition" == after-mask-reactivation ]]; then
-    printf 'active\n' >"$sandbox/generator-state"
+    printf 'activating\n' >"$sandbox/generator-active-state"
+    printf 'start\n' >"$sandbox/generator-sub-state"
   fi
-  attempts=0
-  while [[ "$(<"$sandbox/generator-state")" != inactive ]]; do
-    attempts=$((attempts + 1))
-    if [[ "$transition" == after-mask-reactivation && "$attempts" == 1 ]]; then
-      printf 'inactive\n' >"$sandbox/generator-state"
-    fi
-    (( attempts < max_attempts )) || return 1
-  done
+  test "$(<"$sandbox/generator-active-state")" = inactive || return 1
+  test "$(<"$sandbox/generator-sub-state")" = dead || return 1
   printf 'generator-inactive-after-mask\n' >>"$sandbox/recovery-events"
 }
 
@@ -3341,7 +3431,8 @@ rollback_harness() {
   printf 'config-classify\n' >>"$sandbox/recovery-events"
   assert_recovery_lock_held
   printf 'checkout-restore\n' >>"$sandbox/recovery-events"
-  test "$(<"$sandbox/generator-state")" = inactive
+  test "$(<"$sandbox/generator-active-state")" = inactive
+  test "$(<"$sandbox/generator-sub-state")" = dead
   assert_recovery_lock_held
   printf 'venv-restore\n' >>"$sandbox/recovery-events"
   assert_recovery_lock_held
@@ -3417,7 +3508,8 @@ test "$(<"$sandbox/admin-state")" = active
 # A generator that never becomes inactive exhausts its finite bound and no
 # install/checkout/venv restoration is attempted beneath it.
 : >"$sandbox/recovery-events"
-printf 'active\n' >"$sandbox/generator-state"
+printf 'activating\n' >"$sandbox/generator-active-state"
+printf 'start\n' >"$sandbox/generator-sub-state"
 printf 'static\n' >"$sandbox/service-enablement"
 set +e
 rollback_harness never 0.2
@@ -3426,10 +3518,67 @@ set -e
 test "$quiesce_status" -ne 0
 test "$(paste -sd, "$sandbox/recovery-events")" = timer-stop
 
+# The observed production preflight state is an idle RestartSec delay, not a
+# running generator. Two matching snapshots permit exactly one targeted stop,
+# followed by inactive proof and the runtime mask without a polling delay.
+: >"$sandbox/recovery-events"
+printf 'activating\n' >"$sandbox/generator-active-state"
+printf 'auto-restart\n' >"$sandbox/generator-sub-state"
+printf 'static\n' >"$sandbox/service-enablement"
+quiesce_generator_harness current-auto-restart
+test "$(<"$sandbox/generator-active-state")" = inactive
+test "$(<"$sandbox/generator-sub-state")" = dead
+test "$(<"$sandbox/service-enablement")" = masked-runtime
+test "$(paste -sd, "$sandbox/recovery-events")" = \
+  timer-stop,service-auto-restart-stop,generator-inactive-before-mask,service-runtime-mask,generator-inactive-after-mask
+
+# A real start is never stopped. If it later enters the idle auto-restart
+# delay, only that twice-confirmed delay is cancelled before masking.
+: >"$sandbox/recovery-events"
+printf 'activating\n' >"$sandbox/generator-active-state"
+printf 'start\n' >"$sandbox/generator-sub-state"
+printf 'static\n' >"$sandbox/service-enablement"
+quiesce_generator_harness running-auto-restart
+test "$(<"$sandbox/generator-active-state")" = inactive
+test "$(<"$sandbox/generator-sub-state")" = dead
+test "$(<"$sandbox/service-enablement")" = masked-runtime
+test "$(paste -sd, "$sandbox/recovery-events")" = \
+  timer-stop,service-auto-restart-stop,generator-inactive-before-mask,service-runtime-mask,generator-inactive-after-mask
+
+# A change between the first and confirming auto-restart snapshots fails
+# closed before both the targeted stop and the mask.
+: >"$sandbox/recovery-events"
+printf 'activating\n' >"$sandbox/generator-active-state"
+printf 'auto-restart\n' >"$sandbox/generator-sub-state"
+printf 'static\n' >"$sandbox/service-enablement"
+set +e
+quiesce_generator_harness auto-restart-race
+auto_restart_race_status=$?
+set -e
+test "$auto_restart_race_status" -ne 0
+test "$(<"$sandbox/generator-active-state")" = activating
+test "$(<"$sandbox/generator-sub-state")" = start
+test "$(<"$sandbox/service-enablement")" = static
+test "$(paste -sd, "$sandbox/recovery-events")" = timer-stop
+
+# An unclassified state is not waited out, stopped, or masked.
+: >"$sandbox/recovery-events"
+printf 'active\n' >"$sandbox/generator-active-state"
+printf 'running\n' >"$sandbox/generator-sub-state"
+printf 'static\n' >"$sandbox/service-enablement"
+set +e
+quiesce_generator_harness unexpected
+unexpected_state_status=$?
+set -e
+test "$unexpected_state_status" -ne 0
+test "$(<"$sandbox/service-enablement")" = static
+test "$(paste -sd, "$sandbox/recovery-events")" = timer-stop
+
 # Lock contention is also bounded and fail-closed: after quiescence/admin-stop,
 # no install, directory-mode, config, checkout, venv, or unit restore occurs.
 : >"$sandbox/recovery-events"
-printf 'inactive\n' >"$sandbox/generator-state"
+printf 'inactive\n' >"$sandbox/generator-active-state"
+printf 'dead\n' >"$sandbox/generator-sub-state"
 printf 'static\n' >"$sandbox/service-enablement"
 printf 'enabled\n' >"$sandbox/timer-enablement"
 printf 'enabled\n' >"$sandbox/timer-persistent-enablement"
@@ -3525,16 +3674,23 @@ test "$(<"$sandbox/service-enablement")" = masked-runtime
 test "$(<"$sandbox/timer-persistent-enablement")" = enabled
 flock -n "$sandbox/settings.lock" true
 
-# Even a synthetic activation in the first inactive-to-mask boundary is caught
-# by the mandatory second wait; no recovery mutation can precede it.
+# A synthetic activation in the inactive-to-mask boundary is caught by the
+# strict post-mask proof. It is neither waited out nor stopped, and no recovery
+# mutation can follow; the already-applied mask remains fail-closed.
 : >"$sandbox/recovery-events"
-printf 'inactive\n' >"$sandbox/generator-state"
+printf 'inactive\n' >"$sandbox/generator-active-state"
+printf 'dead\n' >"$sandbox/generator-sub-state"
 printf 'static\n' >"$sandbox/service-enablement"
+set +e
 quiesce_generator_harness after-mask-reactivation
-test "$(<"$sandbox/generator-state")" = inactive
+after_mask_race_status=$?
+set -e
+test "$after_mask_race_status" -ne 0
+test "$(<"$sandbox/generator-active-state")" = activating
+test "$(<"$sandbox/generator-sub-state")" = start
 test "$(<"$sandbox/service-enablement")" = masked-runtime
 test "$(paste -sd, "$sandbox/recovery-events")" = \
-  timer-stop,generator-inactive-before-mask,service-runtime-mask,generator-inactive-after-mask
+  timer-stop,generator-inactive-before-mask,service-runtime-mask
 
 # The lock opens read/write without truncation. It remains held over the exact
 # deployment phases that can otherwise overlap an applet CLI transaction.

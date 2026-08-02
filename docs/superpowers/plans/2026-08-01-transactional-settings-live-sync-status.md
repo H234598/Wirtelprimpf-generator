@@ -3275,3 +3275,72 @@ Do not start public deployment merely because Task 10 is green. First compare th
   Cloudflare- oder Upstream-Write aus. Der gh-Vertrag wurde ausschließlich
   durch lokale Hilfe und einen kontrollierten ausführbaren Stub geprüft; alle
   schreibenden Proben blieben disposable und lokal.
+
+### 2026-08-02 — Additive Task-4-Quiesce-Korrektur für `activating/auto-restart`
+
+- Diese Ergänzung basiert exakt auf Parent
+  `a84af58bb939951fa2a7e3c3c94de282760e0c03` und ersetzt oder kürzt keine
+  frühere Ledgerpassage. Der ausschließlich lesende reale Task-4-Preflight
+  zeigte für `wirtelprimpf.service` `Type=oneshot`, `Restart=on-failure`,
+  `RestartSec=5min`, `ActiveState=activating`, `SubState=auto-restart` und
+  `NRestarts=54`. Das Journal ordnete die Fehlerschleife zuerst einem
+  GitHub-Authentifizierungsfehler mit HTTP 401 und danach einem OpenAI-Limit
+  mit HTTP 429 zu. Es wurde keine Unit verändert.
+- Die bisherige normative Step-9-Funktion wartete ausschließlich auf
+  `ActiveState=inactive`. Ein systemd-Dienst in der wartenden RestartSec-Phase
+  bleibt jedoch `activating/auto-restart`; deshalb konnte der vorhandene
+  300-Sekunden-Budgetpfad nie zum nachfolgenden Runtime-Mask gelangen. Das ist
+  die vollständige Ursache des beobachteten Task-4-Timeouts; weder Restore noch
+  Checkout-/Installmutation waren dafür erforderlich.
+- Step 9 stoppt weiterhin zuerst ausschließlich den Generator-Timer. Danach
+  werden `ActiveState` und `SubState` gemeinsam gelesen und streng
+  klassifiziert: `activating/start-pre` und `activating/start` dürfen innerhalb
+  des unveränderten 300-Sekunden-Budgets natürlich auslaufen;
+  `activating/auto-restart` muss in einer unmittelbar zweiten vollständigen
+  Property-Aufnahme bestätigt werden, bevor genau
+  `wirtelprimpf.service` gezielt gestoppt wird. Dieser Stop hebt nur die
+  bestätigte wartende Wiederholung auf. Danach müssen `inactive/dead`, die
+  Runtime-Maske und erneut `inactive/dead` bewiesen sein. Jeder unbekannte,
+  fehlgeformte oder zwischen den Aufnahmen gewechselte Zustand bricht vor dem
+  Stop geschlossen ab; eine Aktivierung an der Inactive-to-Mask-Grenze lässt
+  die bereits gesetzte Maske fail-closed stehen und verhindert jede
+  Codeänderung.
+- Der Maskenpfad prüft den erwarteten Ausgangszustand `static` und das Ergebnis
+  `masked-runtime` nun mit expliziten Rückgaben. Das ist notwendig, weil die
+  Funktion selbst als linke Seite einer `|| return`-Liste läuft und Bash dort
+  `errexit` für ihren gesamten Funktionskörper unterdrückt. Das interne
+  Maskenflag wird erst nach dem bestätigten Resultat gesetzt.
+- Restore und Step 10 sind symmetrisch angeglichen: Der EXIT-Trap quiesziert
+  weiterhin vor jeder Backup-, Checkout-, Venv-, Unit- oder Applet-Restore-
+  Mutation. Das Runtime-Unmask verlangt sowohl davor als auch danach
+  `inactive/dead`, startet oder restartet den Generator nie selbst und stellt
+  die Timeraktivität weiterhin separat und zuletzt wieder her. Der disposable
+  Step-10-Harness modelliert natürliche Starts, den aktuellen direkten
+  Auto-Restart-Fall, `running -> auto-restart`, Bestätigungsrace,
+  unbekannten Zustand, endliches Timeout und Post-Mask-Race.
+- TDD-Evidenz: Der erste ausführbare RED-Vertrag scheiterte am noch fehlenden
+  normativen Quiesce-Marker. Ein zweiter RED-Unterfall reproduzierte, dass ein
+  unerwartetes `is-enabled=enabled` wegen der beschriebenen `errexit`-Semantik
+  trotzdem bis zum Maskenaufruf gelangte. Nach der Korrektur bestehen die
+  fokussierten Zustandsmaschinen-, Restore-Symmetrie-, Step-10-Ausführungs- und
+  Bash-Syntaxverträge `4/4`. Der Stub weist jeden nicht allowlisteten
+  `systemctl`-Aufruf zurück und kann daher keine reale User-Unit erreichen.
+- Die frische Abschlussmatrix lief vollständig als UID/GID `1000:1000`:
+  Rolloutvertrag `50/50` mit genau den zwei erwarteten, explizit
+  rootgebundenen Task-5-Skips; `make check` grün einschließlich Applet-Runtime,
+  Admin-UI `31/31`, SemVer `8/8`, Git-Object-Fallback `3/3`,
+  Release-Publication `3/3`, Helper-Environment `7/7`, Applet-Sync `28/28`,
+  Settings-Schema `15/15` und Story-Directives `31/31`. Step 9 und Step 10
+  bestanden separat `bash -n` und ShellCheck; Ruff bestand für den geänderten
+  Pythonvertrag. Der neue Prozess-Stub verwendet den absoluten Interpreter
+  `/bin/bash` und eine eng auf B603 begrenzte, begründete `nosec`-Ausnahme.
+  Bandits High-Severity-Gate über den vollständigen Produktionscode bestand;
+  der ungekürzte Scan enthält unverändert `0` hohe, `5` mittlere und `85`
+  niedrige Bestandsmeldungen. Die beiden Root-Probes wurden wegen der
+  ausdrücklichen Vorgabe, sämtliche Test- und Git-Schritte als UID/GID 1000
+  auszuführen, in dieser Runde nicht privilegiert gestartet.
+- Diese Runde führt keinen Credentialzugriff, Fetch, Push, PR-Write, Merge,
+  Install, Reload, Deploy, Runtime-, Service-, Applet-, Archiv-, Pages-, DNS-,
+  Cloudflare- oder Upstream-Write aus. Sämtliche schreibenden Testaktionen
+  bleiben auf temporäre lokale Dateien begrenzt; insbesondere wird kein reales
+  `systemctl` ausgeführt.
