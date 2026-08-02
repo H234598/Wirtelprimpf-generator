@@ -256,6 +256,24 @@ class AdminTests(unittest.TestCase):
         self.assertEqual(foreign_origin.status, 403)
         self.assertEqual(foreign_client.status, 403)
 
+    def test_origin_port_must_exactly_match_even_when_host_omits_a_port(self) -> None:
+        response = self.request(
+            "POST",
+            "/api/settings",
+            headers={
+                "Host": "localhost",
+                "Origin": "http://localhost:8765",
+                "X-Wirtelprimpf-CSRF": "csrf-token-for-tests",
+            },
+            body={
+                "base_revision": "a" * 64,
+                "changes": {},
+                "base_values": {},
+                "secret_actions": {},
+            },
+        )
+        self.assertEqual(response.status, 403)
+
     def test_missing_csrf_keeps_previous_configuration_byte_identical(self) -> None:
         before = self.env_file.read_bytes()
         response = self.request(
@@ -313,6 +331,47 @@ class AdminTests(unittest.TestCase):
                 handler._dispatch()
 
                 self.assertEqual(statuses, [expected_status])
+
+    def test_oversized_content_length_closes_the_connection_without_reading(self) -> None:
+        class UnreadableBody:
+            def read(self, _size: int) -> bytes:
+                raise AssertionError("request body must not be read")
+
+        handler = object.__new__(_Handler)
+        handler.command = "POST"
+        handler.path = "/api/settings"
+        handler.headers = {"Content-Length": str(64 * 1024 + 1)}
+        handler.rfile = UnreadableBody()
+        handler.wfile = io.BytesIO()
+        handler.client_address = ("127.0.0.1", 1)
+        handler.close_connection = False
+        handler.server = SimpleNamespace(
+            application=SimpleNamespace(
+                handle=lambda *_args, **_kwargs: self.fail("application must not run")
+            )
+        )
+        statuses: list[int] = []
+        handler.send_response = statuses.append
+        handler.send_header = lambda *_args: None
+        handler.end_headers = lambda: None
+
+        handler._dispatch()
+
+        self.assertEqual(statuses, [413])
+        self.assertTrue(handler.close_connection)
+
+    def test_inherited_request_line_limit_rejects_before_dispatch(self) -> None:
+        handler = object.__new__(_Handler)
+        handler.rfile = io.BytesIO(b"GET /" + b"x" * (64 * 1024) + b" HTTP/1.1\r\n")
+        handler.wfile = io.BytesIO()
+        handler.close_connection = False
+        statuses: list[int] = []
+        handler.send_error = lambda status, *_args, **_kwargs: statuses.append(status)
+
+        handler.handle_one_request()
+
+        self.assertEqual(statuses, [414])
+        self.assertEqual(handler.rfile.tell(), 64 * 1024 + 1)
 
     def test_get_and_head_reject_nonempty_request_bodies_without_reading(self) -> None:
         class UnreadableBody:
@@ -430,7 +489,7 @@ class AdminTests(unittest.TestCase):
         dripper = threading.Thread(target=drip, daemon=True)
         worker.start()
         dripper.start()
-        worker.join(timeout=0.25)
+        worker.join(timeout=0.8)
         completed_with_dripping_peer = not worker.is_alive()
         restored_timeout = server_socket.gettimeout()
         stop_drip.set()
@@ -494,6 +553,76 @@ class AdminTests(unittest.TestCase):
         self.assertEqual(SECURITY_HEADERS["X-Frame-Options"], "DENY")
         self.assertEqual(SECURITY_HEADERS["X-Content-Type-Options"], "nosniff")
         self.assertEqual(SECURITY_HEADERS["Referrer-Policy"], "no-referrer")
+
+    def test_http_handler_emits_every_security_header(self) -> None:
+        handler = object.__new__(_Handler)
+        handler.command = "GET"
+        handler.wfile = io.BytesIO()
+        statuses: list[int] = []
+        headers: list[tuple[str, str]] = []
+        handler.send_response = statuses.append
+        handler.send_header = lambda name, value: headers.append((name, value))
+        handler.end_headers = lambda: None
+
+        handler._write_admin_response(AdminResponse(200, "{}"))
+
+        self.assertEqual(statuses, [200])
+        for item in SECURITY_HEADERS.items():
+            self.assertIn(item, headers)
+
+    def test_snapshot_status_and_apply_internal_errors_are_redacted(self) -> None:
+        secret = "CLOUDFLARE_API_TOKEN=must-never-escape"
+
+        class RaisingStatus:
+            def collect(self):
+                raise RuntimeError(secret)
+
+        application = AdminApplication(
+            SimpleNamespace(
+                snapshot=lambda: (_ for _ in ()).throw(RuntimeError(secret)),
+                apply=lambda _request: (_ for _ in ()).throw(RuntimeError(secret)),
+            ),
+            RaisingStatus(),
+            csrf_token="csrf-token-for-tests",
+        )
+        settings_response = application.handle(
+            "GET",
+            "/api/settings",
+            {"Host": "127.0.0.1:8765"},
+            b"",
+            client_host="127.0.0.1",
+        )
+        status_response = application.handle(
+            "GET",
+            "/api/status",
+            {"Host": "127.0.0.1:8765"},
+            b"",
+            client_host="127.0.0.1",
+        )
+        apply_response = application.handle(
+            "POST",
+            "/api/settings",
+            {
+                "Host": "127.0.0.1:8765",
+                "Origin": "http://127.0.0.1:8765",
+                "X-Wirtelprimpf-CSRF": "csrf-token-for-tests",
+            },
+            json.dumps(
+                {
+                    "base_revision": "a" * 64,
+                    "changes": {},
+                    "base_values": {},
+                    "secret_actions": {},
+                }
+            ).encode("utf-8"),
+            client_host="127.0.0.1",
+        )
+
+        self.assertEqual(settings_response.status, 500)
+        self.assertEqual(status_response.status, 500)
+        self.assertEqual(apply_response.status, 503)
+        for response in (settings_response, status_response, apply_response):
+            self.assertNotIn(secret, response.body)
 
 
 if __name__ == "__main__":

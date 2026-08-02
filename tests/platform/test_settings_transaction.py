@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -16,8 +17,10 @@ from wirtelprimpf_platform.settings import (
     SettingsManager,
     SettingsPaths,
     SettingsValidationFailure,
+    validate_generator_environment,
 )
 from wirtelprimpf_platform.settings_io import SettingsIOError
+from wirtelprimpf_platform.settings_schema import SETTING_SPECS
 from wirtelprimpf_platform.systemd_user import TimerConfiguration, TimerObservation
 
 
@@ -110,7 +113,7 @@ class SettingsTransactionTests(unittest.TestCase):
         base = self.manager.snapshot()
         before = self.paths.env_file.read_bytes()
         self.paths.env_file.write_text(
-            before.decode().replace("Original", "Andere Oberfläche"), encoding="utf-8"
+            before.decode().replace("Original", "'Andere Oberfläche'"), encoding="utf-8"
         )
         external = self.paths.env_file.read_bytes()
         with self.assertRaises(SettingsConflict) as caught:
@@ -333,6 +336,36 @@ class SettingsTransactionTests(unittest.TestCase):
         second = self.manager.snapshot()
         self.assertEqual(second.revision, first.revision)
 
+    def test_process_github_auth_presence_is_payload_only_not_revision_state(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            without_token = self.manager.snapshot()
+        with patch.dict(os.environ, {"GH_TOKEN": "ephemeral-test-token"}, clear=True):
+            with_token = self.manager.snapshot()
+
+        self.assertFalse(without_token.secrets["github_auth_present"])
+        self.assertTrue(with_token.secrets["github_auth_present"])
+        self.assertEqual(with_token.revision, without_token.revision)
+
+    def test_out_of_range_persisted_integer_falls_back_with_a_warning(self) -> None:
+        self.paths.env_file.write_text(
+            self.paths.env_file.read_text(encoding="utf-8").replace(
+                "WIRTELPRIMPF_GENERATION_INTERVAL_MINUTES=120",
+                "WIRTELPRIMPF_GENERATION_INTERVAL_MINUTES=5",
+            ),
+            encoding="utf-8",
+        )
+
+        snapshot = self.manager.snapshot()
+
+        self.assertEqual(
+            snapshot.settings["generation_interval_minutes"],
+            SETTING_SPECS["generation_interval_minutes"].default,
+        )
+        self.assertIn(
+            "invalid_persisted_setting:generation_interval_minutes",
+            snapshot.warnings,
+        )
+
     def test_failed_non_timer_change_rolls_back_files_without_touching_systemd(self) -> None:
         before = self.paths.env_file.read_bytes()
         manager = SettingsManager(
@@ -408,15 +441,16 @@ class SettingsTransactionTests(unittest.TestCase):
 
     def test_settings_path_cannot_redirect_transaction_writes(self) -> None:
         base = self.manager.snapshot()
+        attacker_path = self.paths.env_file.parent / "attacker.env"
         with self.assertRaisesRegex(SettingsValidationFailure, "settings_path"):
             self.manager.apply(
                 self.request(
                     base.revision,
-                    {"settings_path": "/tmp/attacker.env"},
+                    {"settings_path": str(attacker_path)},
                     {"settings_path": "~/.config/wirtelprimpf/openai.env"},
                 )
             )
-        self.assertFalse(Path("/tmp/attacker.env").exists())
+        self.assertFalse(attacker_path.exists())
 
     def test_busy_lock_times_out_without_touching_configuration(self) -> None:
         import fcntl
@@ -434,6 +468,42 @@ class SettingsTransactionTests(unittest.TestCase):
             with self.assertRaises(SettingsLockBusy):
                 manager.snapshot()
         self.assertEqual(self.paths.env_file.read_bytes(), before)
+
+    def test_unexpected_flock_error_is_redacted_and_does_not_attempt_unlock(self) -> None:
+        calls: list[int] = []
+        secret = "CLOUDFLARE_API_TOKEN=must-never-escape"
+
+        def fail_flock(_descriptor: int, operation: int) -> None:
+            calls.append(operation)
+            raise OSError(secret)
+
+        with (
+            patch("wirtelprimpf_platform.settings.fcntl.flock", side_effect=fail_flock),
+            self.assertRaisesRegex(SettingsError, "cannot acquire settings lock") as caught,
+        ):
+            self.manager.snapshot()
+
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn(secret, str(caught.exception))
+
+    def test_generator_validator_stops_at_the_stdout_limit(self) -> None:
+        executable = self.paths.generator_root / ".venv/bin/wirtelprimpf-generator"
+        executable.parent.mkdir(parents=True)
+        executable.write_text(
+            "#!/usr/bin/python3\n"
+            "import sys, time\n"
+            "sys.stdout.buffer.write(b'x' * 65537)\n"
+            "sys.stdout.buffer.flush()\n"
+            "time.sleep(3)\n",
+            encoding="utf-8",
+        )
+        executable.chmod(0o700)
+
+        started = time.monotonic()
+        with self.assertRaisesRegex(RuntimeError, "generator configuration validation failed"):
+            validate_generator_environment(self.paths.generator_root, {"PATH": "/usr/bin:/bin"})
+
+        self.assertLess(time.monotonic() - started, 1.5)
 
     def test_request_envelope_and_secret_actions_are_strict(self) -> None:
         invalid = (

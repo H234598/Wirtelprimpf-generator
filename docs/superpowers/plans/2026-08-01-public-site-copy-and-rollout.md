@@ -140,8 +140,24 @@ Expected: all Node tests pass and Astro reports zero errors.
 - [x] **Step 5: Commit the independently reviewable copy change**
 
 ```bash
-git add web/tests/copy-contract.test.ts web/src/layouts/BaseLayout.astro web/src/pages/index.astro web/src/components/MediaCard.astro web/src/pages/projekt/status.astro
+expected_task1_paths=(
+  web/tests/copy-contract.test.ts
+  web/src/layouts/BaseLayout.astro
+  web/src/pages/index.astro
+  web/src/components/MediaCard.astro
+  web/src/pages/projekt/status.astro
+)
+git diff --cached --quiet
+git add -- "${expected_task1_paths[@]}"
+expected_task1_index="$(mktemp)"
+actual_task1_index="$(mktemp)"
+trap 'rm -f -- "$expected_task1_index" "$actual_task1_index"' EXIT
+printf '%s\n' "${expected_task1_paths[@]}" | LC_ALL=C sort >"$expected_task1_index"
+git diff --cached --name-only --diff-filter=ACMRTUXB | LC_ALL=C sort >"$actual_task1_index"
+cmp --silent "$expected_task1_index" "$actual_task1_index"
 git commit -m "feat(web): apply approved public story copy"
+trap - EXIT
+rm -f -- "$expected_task1_index" "$actual_task1_index"
 ```
 
 ### Task 2: Build and validate both immutable site profiles
@@ -2197,6 +2213,7 @@ set -Eeuo pipefail
 
 target_sha="${GENERATOR_MERGE_SHA:?recorded Task-3 merge SHA required}"
 runtime=/home/teladi/.local/share/wirtelprimpf-generator
+runtime_canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
 backup_root=/home/teladi/.local/state/wirtelprimpf/deploy-backups
 [[ "$target_sha" =~ ^[0-9a-f]{40}$ ]]
 
@@ -2205,16 +2222,111 @@ assert_runtime_owned() {
   test "$(realpath -e -- "$runtime")" = "$runtime"
   test -z "$(find "$runtime" -xdev \( ! -user teladi -o ! -group teladi \) -print -quit)"
 }
+# BEGIN TASK4_RUNTIME_GIT_GUARD
+assert_safe_runtime_git_config() {
+  local key value
+  runtime_local_config() {
+    /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/usr/local/bin:/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+    /usr/bin/git -C "$runtime" config --local --no-includes "$@"
+  }
+  while IFS= read -r key; do
+    case "$key" in
+      core.repositoryformatversion|core.filemode|core.bare|core.logallrefupdates|\
+      remote.origin.url|remote.origin.fetch|remote.origin.promisor|\
+      remote.origin.partialclonefilter|branch.*.remote|branch.*.merge)
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  done < <(runtime_local_config --name-only --get-regexp '.*')
+  case "$(runtime_local_config --get-all core.repositoryformatversion)" in 0|1) ;; *) return 1 ;; esac
+  case "$(runtime_local_config --get-all core.filemode)" in true|false) ;; *) return 1 ;; esac
+  test "$(runtime_local_config --get-all core.bare)" = false
+  test "$(runtime_local_config --get-all core.logallrefupdates)" = true
+  test "$(runtime_local_config --get-all remote.origin.url)" = "$runtime_canonical_origin"
+  test "$(runtime_local_config --get-all remote.origin.fetch)" = \
+    '+refs/heads/main:refs/remotes/origin/main'
+  value="$(runtime_local_config --get-all remote.origin.promisor || :)"
+  case "$value" in ""|true) ;; *) return 1 ;; esac
+  value="$(runtime_local_config --get-all remote.origin.partialclonefilter || :)"
+  case "$value" in ""|blob:none) ;; *) return 1 ;; esac
+  test "$(runtime_local_config --get-all branch.main.remote)" = origin
+  test "$(runtime_local_config --get-all branch.main.merge)" = refs/heads/main
+  while IFS= read -r key; do
+    case "$key" in
+      branch.*.remote)
+        value="${key#branch.}"
+        value="${value%.remote}"
+        /usr/bin/git check-ref-format "refs/heads/$value" >/dev/null || return 1
+        test "$(runtime_local_config --get-all "$key")" = origin || return 1
+        ;;
+      branch.*.merge)
+        value="${key#branch.}"
+        value="${value%.merge}"
+        /usr/bin/git check-ref-format "refs/heads/$value" >/dev/null || return 1
+        test "$(runtime_local_config --get-all "$key")" = "refs/heads/$value" || return 1
+        ;;
+    esac
+  done < <(runtime_local_config --name-only --get-regexp '^branch\..*\.(remote|merge)$')
+}
 git_runtime() {
+  local operation="${1:-}"
+  case "$operation" in
+    status|branch|rev-parse|merge-base|update-ref) ;;
+    remote)
+      [[ "$*" == "remote get-url origin" ]] || return 1
+      ;;
+    switch)
+      if [[ "$*" == "switch main" ]]; then
+        :
+      elif [[ "${2:-}" == --detach && "${3:-}" =~ ^[0-9a-f]{40}$ && $# == 3 ]]; then
+        :
+      else
+        return 1
+      fi
+      ;;
+    *) return 1 ;;
+  esac
   assert_runtime_owned
-  git -C "$runtime" "$@"
+  assert_safe_runtime_git_config
+  /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/usr/local/bin:/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+    /usr/bin/git -c http.extraHeader= \
+      -c "http.$runtime_canonical_origin.extraHeader=" -c http.proxy= \
+      -c http.sslVerify=true -c http.curloptResolve= -c credential.helper= \
+      -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false -c core.sshCommand=/bin/false \
+      -c core.gitProxy=/bin/false -c protocol.allow=never \
+      -c protocol.https.allow=always -c protocol.ext.allow=never \
+      -C "$runtime" "$@"
 }
 git_runtime_fetch_bounded() {
   assert_runtime_owned
+  assert_safe_runtime_git_config
+  test "$(git_runtime remote get-url origin)" = "$runtime_canonical_origin"
   timeout --foreground --signal=TERM --kill-after=10s 180s \
-    git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 \
-    -C "$runtime" fetch origin main
+    /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+      PATH=/usr/local/bin:/usr/bin:/bin \
+      GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+      GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+      /usr/bin/git -c http.extraHeader= \
+        -c "http.$runtime_canonical_origin.extraHeader=" -c http.proxy= \
+        -c http.sslVerify=true -c http.curloptResolve= -c credential.helper= \
+        -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
+        -c core.fsmonitor=false -c core.sshCommand=/bin/false \
+        -c core.gitProxy=/bin/false -c protocol.allow=never \
+        -c protocol.https.allow=always -c protocol.ext.allow=never \
+        -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 \
+        -C "$runtime" fetch "$runtime_canonical_origin" \
+        refs/heads/main:refs/remotes/origin/main
 }
+# END TASK4_RUNTIME_GIT_GUARD
 
 command -v timeout >/dev/null
 test -z "$(git_runtime status --porcelain)"
@@ -2459,18 +2571,19 @@ wait_generator_inactive() {
       inactive/dead)
         return 0
         ;;
-      activating/start-pre|activating/start)
+      activating/start-pre|activating/start|activating/auto-restart-queued)
         (( SECONDS < deadline )) || return 1
         sleep 1 || return 1
         ;;
       activating/auto-restart)
         (( SECONDS < deadline )) || return 1
-        # A second atomic property snapshot is the fail-closed race gate. If
-        # the queued retry has already become a running start, do not stop it.
+        # The second property snapshot is only an early semantic filter. The
+        # fail-mode stop below is the manager-side race gate: a concurrently
+        # queued/running start must make it fail instead of being replaced.
         snapshot_generator_state || return 1
         [[ "$generator_active_state" == activating && \
           "$generator_sub_state" == auto-restart ]] || return 1
-        systemctl --user stop wirtelprimpf.service || return 1
+        systemctl --user --job-mode=fail stop wirtelprimpf.service || return 1
         assert_generator_inactive
         return
         ;;
@@ -2485,13 +2598,23 @@ wait_generator_inactive() {
 
 mask_generator_runtime() {
   local current
+  assert_generator_inactive || return 1
   current="$(systemctl --user is-enabled wirtelprimpf.service || true)"
-  if [[ "$current" != masked-runtime ]]; then
-    test "$current" = static || return 1
-    systemctl --user mask --runtime wirtelprimpf.service || return 1
-  fi
+  case "$current" in
+    static)
+      systemctl --user mask --runtime wirtelprimpf.service || return 1
+      ;;
+    masked-runtime)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  systemctl --user daemon-reload || return 1
   test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = \
     masked-runtime || return 1
+  test "$(systemctl --user show wirtelprimpf.service -p LoadState --value)" = \
+    masked || return 1
   runtime_service_masked=1
 }
 
@@ -2511,8 +2634,10 @@ quiesce_generator() {
 mask_timer_runtime_stopped() {
   systemctl --user stop wirtelprimpf.timer || return 1
   systemctl --user mask --runtime wirtelprimpf.timer || return 1
-  test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = masked-runtime
-  test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive
+  test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = \
+    masked-runtime || return 1
+  test "$(systemctl --user is-active wirtelprimpf.timer || true)" = \
+    inactive || return 1
   runtime_timer_masked=1
 }
 
@@ -2543,17 +2668,20 @@ unmask_generator_runtime() {
 fail_closed_runtime() {
   local failed=0
   systemctl --user stop wirtelprimpf-admin.service || failed=1
-  systemctl --user stop wirtelprimpf.timer || failed=1
-  systemctl --user mask --runtime wirtelprimpf.timer || failed=1
-  systemctl --user mask --runtime wirtelprimpf.service || failed=1
-  systemctl --user daemon-reload || failed=1
-  runtime_timer_masked=1
-  runtime_service_masked=1
-  wait_generator_inactive || failed=1
+  mask_timer_runtime_stopped || failed=1
+  if wait_generator_inactive; then
+    mask_generator_runtime || failed=1
+  else
+    failed=1
+  fi
   test "$(systemctl --user is-active wirtelprimpf-admin.service || true)" = inactive || failed=1
   test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive || failed=1
   test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = masked-runtime || failed=1
-  test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = masked-runtime || failed=1
+  [[ "$runtime_service_masked" == 1 ]] || failed=1
+  test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = \
+    masked-runtime || failed=1
+  test "$(systemctl --user show wirtelprimpf.service -p LoadState --value)" = \
+    masked || failed=1
   return "$failed"
 }
 
@@ -4674,48 +4802,132 @@ workflow = Path(sys.argv[1])
 new_sha = sys.argv[2]
 if not re.fullmatch(r"[0-9a-f]{40}", new_sha):
     raise SystemExit("invalid immutable generator SHA")
-st = workflow.lstat()
-if not stat.S_ISREG(st.st_mode) or not (st.st_uid == 1000 and st.st_gid == 1000):
-    raise SystemExit("archive workflow must be a teladi-owned regular file")
-if stat.S_IMODE(st.st_mode) != 0o644:
-    raise SystemExit("archive workflow mode must be 0644")
-original = workflow.read_text(encoding="utf-8")
-patterns = (
-    re.compile(
-        r"(?m)^(\s*uses:\s+H234598/Wirtelprimpf-generator/"
-        r"\.github/workflows/archive-pages\.yml@)([0-9a-f]{40})(\s*)$"
-    ),
-    re.compile(r'(?m)^(\s*factory_ref:\s*")([0-9a-f]{40})("\s*)$'),
+parent = workflow.parent
+archive_root = workflow.parents[2]
+if workflow != archive_root / ".github" / "workflows" / "pages.yml":
+    raise SystemExit("archive workflow path is outside the trusted layout")
+workflow_name = workflow.name
+part_name = f".{workflow_name}.{os.getpid()}.part"
+root_fd = os.open(
+    archive_root,
+    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
 )
-matches = [list(pattern.finditer(original)) for pattern in patterns]
-old_count = sum(len(group) for group in matches)
-if old_count != 2 or any(len(group) != 1 for group in matches):
-    raise SystemExit("archive workflow does not contain exactly the two pin fields")
-old_values = [group[0].group(2) for group in matches]
-if old_values == [new_sha, new_sha]:
-    raise SystemExit("archive workflow is already pinned to the requested SHA")
-updated = original
-for pattern in patterns:
-    updated = pattern.sub(lambda match: f"{match.group(1)}{new_sha}{match.group(3)}", updated)
-new_count = len(re.findall(re.escape(new_sha), updated))
-if new_count != 2 or re.findall(r"[0-9a-f]{40}", updated) != [new_sha, new_sha]:
-    raise SystemExit("archive workflow pin replacement was not exact")
-part = workflow.with_name(f".{workflow.name}.{os.getpid()}.part")
+github_fd = None
+parent_fd = None
 try:
-    descriptor = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    root_st = os.fstat(root_fd)
+    if not stat.S_ISDIR(root_st.st_mode) or not (root_st.st_uid == 1000 and root_st.st_gid == 1000):
+        raise SystemExit("archive root must be a teladi-owned directory")
+    root_identity = (root_st.st_dev, root_st.st_ino)
+    github_fd = os.open(
+        ".github",
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+        dir_fd=root_fd,
+    )
+    github_st = os.fstat(github_fd)
+    if not stat.S_ISDIR(github_st.st_mode) or not (
+        github_st.st_uid == 1000 and github_st.st_gid == 1000
+    ):
+        raise SystemExit("archive .github must be a teladi-owned directory")
+    github_identity = (github_st.st_dev, github_st.st_ino)
+    parent_fd = os.open(
+        "workflows",
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+        dir_fd=github_fd,
+    )
+    parent_st = os.fstat(parent_fd)
+    if not stat.S_ISDIR(parent_st.st_mode) or not (
+        parent_st.st_uid == 1000 and parent_st.st_gid == 1000
+    ):
+        raise SystemExit("archive workflow parent must be a teladi-owned directory")
+    parent_identity = (parent_st.st_dev, parent_st.st_ino)
+    source_fd = os.open(
+        workflow_name,
+        os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+        dir_fd=parent_fd,
+    )
+    with os.fdopen(source_fd, "r", encoding="utf-8", newline="") as source:
+        st = os.fstat(source.fileno())
+        if not stat.S_ISREG(st.st_mode) or not (st.st_uid == 1000 and st.st_gid == 1000):
+            raise SystemExit("archive workflow must be a teladi-owned regular file")
+        if stat.S_IMODE(st.st_mode) != 0o644:
+            raise SystemExit("archive workflow mode must be 0644")
+        target_identity = (
+            st.st_dev,
+            st.st_ino,
+            st.st_uid,
+            st.st_gid,
+            st.st_mode,
+            st.st_size,
+            st.st_mtime_ns,
+            st.st_ctime_ns,
+        )
+        original = source.read()
+    patterns = (
+        re.compile(
+            r"(?m)^(\s*uses:\s+H234598/Wirtelprimpf-generator/"
+            r"\.github/workflows/archive-pages\.yml@)([0-9a-f]{40})(\s*)$"
+        ),
+        re.compile(r'(?m)^(\s*factory_ref:\s*")([0-9a-f]{40})("\s*)$'),
+    )
+    matches = [list(pattern.finditer(original)) for pattern in patterns]
+    old_count = sum(len(group) for group in matches)
+    if old_count != 2 or any(len(group) != 1 for group in matches):
+        raise SystemExit("archive workflow does not contain exactly the two pin fields")
+    old_values = [group[0].group(2) for group in matches]
+    if old_values == [new_sha, new_sha]:
+        raise SystemExit("archive workflow is already pinned to the requested SHA")
+    updated = original
+    for pattern in patterns:
+        updated = pattern.sub(lambda match: f"{match.group(1)}{new_sha}{match.group(3)}", updated)
+    new_count = len(re.findall(re.escape(new_sha), updated))
+    if new_count != 2 or re.findall(r"[0-9a-f]{40}", updated) != [new_sha, new_sha]:
+        raise SystemExit("archive workflow pin replacement was not exact")
+    descriptor = os.open(
+        part_name,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        0o600,
+        dir_fd=parent_fd,
+    )
     with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
         handle.write(updated)
         handle.flush()
         os.fsync(handle.fileno())
         os.fchmod(handle.fileno(), 0o644)
-    os.replace(part, workflow)
-    directory_fd = os.open(workflow.parent, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(directory_fd)
-    finally:
-        os.close(directory_fd)
+    current_root = os.stat(archive_root, follow_symlinks=False)
+    if (current_root.st_dev, current_root.st_ino) != root_identity:
+        raise SystemExit("archive root identity changed")
+    current_github = os.stat(".github", dir_fd=root_fd, follow_symlinks=False)
+    if (current_github.st_dev, current_github.st_ino) != github_identity:
+        raise SystemExit("archive .github identity changed")
+    current_parent = os.stat(parent, follow_symlinks=False)
+    if (current_parent.st_dev, current_parent.st_ino) != parent_identity:
+        raise SystemExit("archive workflow parent identity changed")
+    current_target = os.stat(workflow_name, dir_fd=parent_fd, follow_symlinks=False)
+    current_target_identity = (
+        current_target.st_dev,
+        current_target.st_ino,
+        current_target.st_uid,
+        current_target.st_gid,
+        current_target.st_mode,
+        current_target.st_size,
+        current_target.st_mtime_ns,
+        current_target.st_ctime_ns,
+    )
+    if current_target_identity != target_identity:
+        raise SystemExit("archive workflow target identity changed")
+    os.replace(part_name, workflow_name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+    os.fsync(parent_fd)
 finally:
-    part.unlink(missing_ok=True)
+    if parent_fd is not None:
+        try:
+            os.unlink(part_name, dir_fd=parent_fd)
+        except FileNotFoundError:
+            pass
+        os.close(parent_fd)
+    if github_fd is not None:
+        os.close(github_fd)
+    os.close(root_fd)
 TASK5_REWRITE_PY
 TASK5_STEP3_TELADI
 ```
@@ -5423,6 +5635,148 @@ archive_feature_refs="$(task5_gh api \
   "repos/$canonical_archive_repository/git/matching-refs/heads/chore/pin-transactional-site-factory")"
 /usr/bin/jq -e 'type == "array" and length == 0' \
   <<<"$archive_feature_refs" >/dev/null
+
+# Materialize the observed remote merge into the unprivileged archive checkout.
+# Task 6 consumes these named main refs exclusively; it never reads feature HEAD.
+task5_postmerge_local_main() {
+  local merged_sha="$1"
+  [[ "$merged_sha" =~ ^[0-9a-f]{40}$ ]]
+  /usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+    HOME=/home/teladi \
+    USER=teladi \
+    LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    GIT_CONFIG_NOSYSTEM=1 \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_TERMINAL_PROMPT=0 \
+    GIT_ASKPASS=/bin/false \
+    SSH_ASKPASS=/bin/false \
+    /bin/bash -se -- "$merged_sha" <<'TASK5_POSTMERGE_TELADI'
+set -Eeuo pipefail
+set +x
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
+merged_sha="$1"
+[[ "$merged_sha" =~ ^[0-9a-f]{40}$ ]]
+archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
+canonical_origin=https://github.com/H234598/Wirtelprimpf-0001.git
+test -d "$archive_checkout" && test ! -L "$archive_checkout"
+test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
+test -z "$(find "$archive_checkout" -xdev \
+  \( ! -uid 1000 -o ! -gid 1000 \) -print -quit)"
+
+task5_postmerge_git() {
+  /usr/bin/timeout --foreground --signal=TERM --kill-after=10s 180s \
+    /usr/bin/git \
+      -c http.extraHeader= \
+      -c "http.$canonical_origin.extraHeader=" \
+      -c http.proxy= \
+      -c http.sslVerify=true \
+      -c http.curloptResolve= \
+      -c credential.helper= \
+      -c core.askPass=/bin/false \
+      -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false \
+      -c core.sshCommand=/bin/false \
+      -c core.gitProxy=/bin/false \
+      -c protocol.allow=never \
+      -c protocol.https.allow=always \
+      -c protocol.ext.allow=never \
+      -C "$archive_checkout" "$@"
+}
+
+# BEGIN TASK5_POSTMERGE_GIT_GUARD
+task5_postmerge_local_config() {
+  /usr/bin/git -C "$archive_checkout" config --local --no-includes "$@"
+}
+
+assert_safe_task5_postmerge_config() {
+  local key value branch_name
+  while IFS= read -r key; do
+    case "$key" in
+      core.repositoryformatversion|core.filemode|core.bare|core.logallrefupdates|\
+      remote.origin.url|remote.origin.fetch|remote.origin.promisor|\
+      remote.origin.partialclonefilter|branch.*.remote|branch.*.merge)
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  done < <(task5_postmerge_local_config --name-only --get-regexp '.*')
+  case "$(task5_postmerge_local_config --get-all \
+    core.repositoryformatversion)" in 0|1) ;; *) return 1 ;; esac
+  case "$(task5_postmerge_local_config --get-all core.filemode)" in
+    true|false) ;;
+    *) return 1 ;;
+  esac
+  test "$(task5_postmerge_local_config --get-all core.bare)" = false
+  test "$(task5_postmerge_local_config --get-all core.logallrefupdates)" = true
+  test "$(task5_postmerge_local_config --get-all remote.origin.url)" = \
+    "$canonical_origin"
+  test "$(task5_postmerge_local_config --get-all remote.origin.fetch)" = \
+    '+refs/heads/main:refs/remotes/origin/main'
+  value="$(task5_postmerge_local_config --get-all \
+    remote.origin.promisor || :)"
+  case "$value" in ""|true) ;; *) return 1 ;; esac
+  value="$(task5_postmerge_local_config --get-all \
+    remote.origin.partialclonefilter || :)"
+  case "$value" in ""|blob:none) ;; *) return 1 ;; esac
+  test "$(task5_postmerge_local_config --get-all branch.main.remote)" = origin
+  test "$(task5_postmerge_local_config --get-all branch.main.merge)" = \
+    refs/heads/main
+  while IFS= read -r key; do
+    case "$key" in
+      branch.*.remote)
+        branch_name="${key#branch.}"
+        branch_name="${branch_name%.remote}"
+        /usr/bin/git check-ref-format "refs/heads/$branch_name" >/dev/null || \
+          return 1
+        test "$(task5_postmerge_local_config --get-all "$key")" = origin || \
+          return 1
+        ;;
+      branch.*.merge)
+        branch_name="${key#branch.}"
+        branch_name="${branch_name%.merge}"
+        /usr/bin/git check-ref-format "refs/heads/$branch_name" >/dev/null || \
+          return 1
+        test "$(task5_postmerge_local_config --get-all "$key")" = \
+          "refs/heads/$branch_name" || return 1
+        ;;
+    esac
+  done < <(task5_postmerge_local_config --name-only \
+    --get-regexp '^branch\..*\.(remote|merge)$')
+}
+# END TASK5_POSTMERGE_GIT_GUARD
+
+assert_safe_task5_postmerge_config
+test -z "$(task5_postmerge_git status --porcelain)"
+local_main="$(task5_postmerge_git rev-parse --verify \
+  'refs/heads/main^{commit}')"
+[[ "$local_main" =~ ^[0-9a-f]{40}$ ]]
+task5_postmerge_git fetch "$canonical_origin" \
+  '+refs/heads/main:refs/remotes/origin/main'
+remote_main="$(task5_postmerge_git rev-parse --verify \
+  'refs/remotes/origin/main^{commit}')"
+test "$remote_main" = "$merged_sha"
+task5_postmerge_git merge-base --is-ancestor "$local_main" "$remote_main"
+task5_postmerge_git switch main
+task5_postmerge_git merge --ff-only refs/remotes/origin/main
+local_main="$(task5_postmerge_git rev-parse --verify \
+  'refs/heads/main^{commit}')"
+remote_main="$(task5_postmerge_git rev-parse --verify \
+  'refs/remotes/origin/main^{commit}')"
+test "$local_main" = "$merged_sha"
+test "$remote_main" = "$merged_sha"
+test "$(task5_postmerge_git branch --show-current)" = main
+test -z "$(task5_postmerge_git status --porcelain)"
+test -z "$(find "$archive_checkout" -xdev \
+  \( ! -uid 1000 -o ! -gid 1000 \) -print -quit)"
+printf '%s\n' "$local_main"
+TASK5_POSTMERGE_TELADI
+}
+test "$(task5_postmerge_local_main "$archive_sha")" = "$archive_sha"
 archive_run_id=""
 for attempt in $(seq 1 24); do
   archive_run_id="$(task5_gh run list \
@@ -5469,38 +5823,347 @@ validation, upload, and deploy complete successfully.
 Run:
 
 ```bash
+set -Eeuo pipefail
+set +x
+test "$(id -u)" = 0
+test "$(id -g)" = 0
+
+canonical_generator_repository=H234598/Wirtelprimpf-generator
+canonical_generator_repo_id=R_kgDOTpr2BA
+canonical_archive_repository=H234598/Wirtelprimpf-0001
+canonical_archive_repo_id=R_kgDOSg7oRg
+
+# The root shell receives only five already-validated, non-secret literals.
+# The complete state and local-ref probe runs unprivileged, without inherited
+# authentication variables, but with the desktop session environment available.
+task6_probe_output="$(
+  /usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+    HOME=/home/teladi \
+    USER=teladi \
+    LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    DISPLAY=:0 \
+    XAUTHORITY=/home/teladi/.Xauthority \
+    XDG_RUNTIME_DIR=/run/user/1000 \
+    DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \
+    /bin/bash --noprofile --norc <<'TASK6_LOCAL_PROBE'
+set -Eeuo pipefail
+set +x
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
+
 platform_state=/home/teladi/.local/state/wirtelprimpf/platform-state.json
-current_volume="$(python -c 'import json,sys; print(int(json.load(open(sys.argv[1], encoding="utf-8"))["current_volume"]))' "$platform_state")"
-active_archive_index="$(python -c 'import json,sys; print(int(json.load(open(sys.argv[1], encoding="utf-8"))["active_archive_index"]))' "$platform_state")"
-active_repository="$(printf 'Wirtelprimpf-%04d' "$active_archive_index")"
+generator_checkout=/home/teladi/.local/share/wirtelprimpf-generator
+archive_parent=/home/teladi/.local/share/wirtelprimpf/archives
+
+state_fields="$(
+  /usr/bin/python3 - "$platform_state" <<'TASK6_STATE'
+import json
+import os
+import stat
+import sys
+
+path = sys.argv[1]
+fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+try:
+    metadata = os.fstat(fd)
+    if not stat.S_ISREG(metadata.st_mode):
+        raise SystemExit("platform state is not a regular file")
+    if (metadata.st_uid, metadata.st_gid) != (1000, 1000):
+        raise SystemExit("platform state ownership mismatch")
+    if metadata.st_size < 2 or metadata.st_size > 65_536:
+        raise SystemExit("platform state size outside the accepted bound")
+    raw = os.read(fd, 65_537)
+finally:
+    os.close(fd)
+if len(raw) > 65_536:
+    raise SystemExit("platform state exceeds the accepted bound")
+payload = json.loads(raw.decode("utf-8"))
+current_volume = payload.get("current_volume")
+archive_index = payload.get("active_archive_index")
+if type(current_volume) is not int or not 1 <= current_volume <= 499_950:
+    raise SystemExit("invalid current volume")
+if type(archive_index) is not int or not 1 <= archive_index <= 9_999:
+    raise SystemExit("invalid active archive index")
+expected_index = ((current_volume - 1) // 50) + 1
+if archive_index != expected_index:
+    raise SystemExit("active archive index does not match current volume")
+print(f"{current_volume}\t{archive_index}\tWirtelprimpf-{archive_index:04d}")
+TASK6_STATE
+)"
+IFS=$'\t' read -r current_volume active_archive_index active_repository \
+  unexpected_state_field <<<"$state_fields"
+test -z "${unexpected_state_field:-}"
+[[ "$current_volume" =~ ^[1-9][0-9]{0,5}$ ]]
+[[ "$active_archive_index" =~ ^[1-9][0-9]{0,3}$ ]]
+[[ "$active_repository" =~ ^Wirtelprimpf-[0-9]{4}$ ]]
+test "$active_repository" = \
+  "$(printf 'Wirtelprimpf-%04d' "$active_archive_index")"
 test "$active_repository" = Wirtelprimpf-0001
-active_archive_sha="$(git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 rev-parse HEAD)"
-dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-gh workflow run hub-pages.yml \
-  --repo H234598/Wirtelprimpf-generator \
-  --ref main \
-  -f active_repository="$active_repository" \
-  -f archive_ref="$active_archive_sha" \
-  -f current_volume="$current_volume"
-hub_run_id=""
-for attempt in $(seq 1 24); do
-  hub_run_id="$(gh run list \
-    --repo H234598/Wirtelprimpf-generator \
-    --workflow hub-pages.yml \
-    --branch main \
-    --event workflow_dispatch \
-    --created ">=$dispatch_started_at" \
-    --limit 1 \
-    --json databaseId \
-    --jq '.[0].databaseId')"
-  if [[ -n "$hub_run_id" ]]; then break; fi
-  sleep 5
+
+archive_checkout="$archive_parent/$active_repository"
+for checkout in "$generator_checkout" "$archive_checkout"; do
+  test -d "$checkout"
+  test ! -L "$checkout"
+  test "$(realpath -e -- "$checkout")" = "$checkout"
+  test -z "$(find "$checkout" -xdev \
+    \( ! -uid 1000 -o ! -gid 1000 \) -print -quit)"
 done
-test -n "$hub_run_id"
-gh run watch "$hub_run_id" --repo H234598/Wirtelprimpf-generator --exit-status
+
+task6_local_git() {
+  local checkout="$1" operation="${2:-}"
+  shift 2
+  case "$operation" in config|rev-parse) ;; *) return 1 ;; esac
+  /usr/bin/timeout --foreground --signal=TERM --kill-after=2s 15s \
+    /usr/bin/env -i \
+      HOME=/home/teladi USER=teladi LOGNAME=teladi \
+      PATH=/usr/local/bin:/usr/bin:/bin \
+      GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+      GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+      /usr/bin/git \
+        -c core.askPass=/bin/false \
+        -c core.hooksPath=/dev/null \
+        -c core.fsmonitor=false \
+        -c core.sshCommand=/bin/false \
+        -c core.gitProxy=/bin/false \
+        -c core.attributesFile=/dev/null \
+        -c credential.helper= \
+        -c http.extraHeader= \
+        -c http.proxy= \
+        -c protocol.allow=never \
+        -c protocol.ext.allow=never \
+        -C "$checkout" "$operation" "$@"
+}
+
+assert_task6_checkout() {
+  local checkout="$1" canonical_origin="$2" top_level fetch_url push_url
+  top_level="$(task6_local_git "$checkout" rev-parse --show-toplevel)"
+  test "$top_level" = "$checkout"
+  fetch_url="$(task6_local_git "$checkout" config --local --no-includes \
+    --get-all remote.origin.url)"
+  push_url="$(task6_local_git "$checkout" config --local --no-includes \
+    --get-all remote.origin.pushurl || :)"
+  test "$fetch_url" = "$canonical_origin"
+  test -z "$push_url"
+}
+
+resolve_task6_main() {
+  local checkout="$1" local_main remote_main
+  local_main="$(task6_local_git "$checkout" rev-parse --verify \
+    'refs/heads/main^{commit}')"
+  remote_main="$(task6_local_git "$checkout" rev-parse --verify \
+    'refs/remotes/origin/main^{commit}')"
+  [[ "$local_main" =~ ^[0-9a-f]{40}$ ]]
+  test "$local_main" = "$remote_main"
+  printf '%s\n' "$local_main"
+}
+
+assert_task6_checkout "$generator_checkout" \
+  https://github.com/H234598/Wirtelprimpf-generator.git
+assert_task6_checkout "$archive_checkout" \
+  https://github.com/H234598/Wirtelprimpf-0001.git
+generator_main_sha="$(resolve_task6_main "$generator_checkout")"
+archive_main_sha="$(resolve_task6_main "$archive_checkout")"
+printf '%s\t%s\t%s\t%s\t%s\n' \
+  "$current_volume" "$active_archive_index" "$active_repository" \
+  "$archive_main_sha" "$generator_main_sha"
+TASK6_LOCAL_PROBE
+)"
+
+[[ "$task6_probe_output" != *$'\n'* ]]
+IFS=$'\t' read -r current_volume active_archive_index active_repository \
+  archive_main_sha generator_main_sha unexpected_probe_field \
+  <<<"$task6_probe_output"
+test -z "${unexpected_probe_field:-}"
+[[ "$current_volume" =~ ^[1-9][0-9]{0,5}$ ]]
+[[ "$active_archive_index" =~ ^[1-9][0-9]{0,3}$ ]]
+[[ "$active_repository" =~ ^Wirtelprimpf-[0-9]{4}$ ]]
+test "$active_repository" = Wirtelprimpf-0001
+[[ "$archive_main_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ "$generator_main_sha" =~ ^[0-9a-f]{40}$ ]]
+
+# Accept exactly one inherited ephemeral credential, remove both conventional
+# names immediately, and relay the value through a private descriptor. Stdin
+# stays untouched so the exact dispatch JSON can be supplied with --input -.
+if [[ -n "${GH_TOKEN:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
+  printf 'Refusing ambiguous GitHub authentication.\n' >&2
+  exit 1
+fi
+task6_ephemeral_token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+unset GH_TOKEN GITHUB_TOKEN
+test -n "$task6_ephemeral_token"
+
+task6_cleanup() {
+  set +x
+  unset task6_ephemeral_token
+}
+trap 'task6_status=$?; trap - EXIT; task6_cleanup; exit "$task6_status"' EXIT
+
+task6_token_call() {
+  set +x
+  local task6_token_status=0
+  /usr/bin/env -i \
+    HOME=/root \
+    USER=root \
+    LOGNAME=root \
+    PATH=/usr/local/bin:/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_TERMINAL_PROMPT=0 \
+    GIT_ASKPASS=/bin/false \
+    SSH_ASKPASS=/bin/false \
+    /bin/bash -c '
+      set -Eeuo pipefail
+      set +x
+      task6_call_token=
+      IFS= read -r -d "" task6_call_token <&9
+      exec 9<&-
+      GH_TOKEN="$task6_call_token" exec "$@"
+    ' task6-token-call "$@" 9< <(
+      printf '%s\0' "$task6_ephemeral_token"
+    ) || task6_token_status=$?
+  return "$task6_token_status"
+}
+
+task6_gh() {
+  task6_token_call /usr/bin/gh "$@"
+}
+
+task6_actor_json="$(task6_gh api /user)"
+/usr/bin/jq -e \
+  '.login == "H234598" and .id == 54270221' \
+  <<<"$task6_actor_json" >/dev/null
+
+task6_generator_repository_json="$(
+  task6_gh repo view "$canonical_generator_repository" --json id,nameWithOwner
+)"
+/usr/bin/jq -e \
+  '.id == "R_kgDOTpr2BA" and
+   .nameWithOwner == "H234598/Wirtelprimpf-generator"' \
+  <<<"$task6_generator_repository_json" >/dev/null
+
+task6_archive_repository_json="$(
+  task6_gh repo view "$canonical_archive_repository" --json id,nameWithOwner
+)"
+/usr/bin/jq -e \
+  --arg id "$canonical_archive_repo_id" \
+  --arg name "$canonical_archive_repository" \
+  '.id == $id and .nameWithOwner == $name' \
+  <<<"$task6_archive_repository_json" >/dev/null
+
+test "$(task6_gh api \
+  "repos/$canonical_generator_repository/git/ref/heads/main" \
+  --jq .object.sha)" = "$generator_main_sha"
+test "$(task6_gh api \
+  "repos/$canonical_archive_repository/git/ref/heads/main" \
+  --jq .object.sha)" = "$archive_main_sha"
+
+task6_workflow_json="$(task6_gh api \
+  "repos/$canonical_generator_repository/actions/workflows/hub-pages.yml")"
+task6_workflow_id="$(/usr/bin/jq -er \
+  '.id | select(type == "number" and . > 0 and floor == .) | tostring' \
+  <<<"$task6_workflow_json")"
+expected_workflow_url="https://api.github.com/repos/$canonical_generator_repository/actions/workflows/$task6_workflow_id"
+/usr/bin/jq -e \
+  --argjson workflow_id "$task6_workflow_id" \
+  --arg workflow_url "$expected_workflow_url" '
+    .id == $workflow_id
+    and .name == "Publish Wirtelprimpf hub Pages"
+    and .path == ".github/workflows/hub-pages.yml"
+    and .state == "active"
+    and .url == $workflow_url
+  ' <<<"$task6_workflow_json" >/dev/null
+
+expected_display_title="Wirtelprimpf hub · ${active_repository}@${archive_main_sha}"
+task6_dispatch_endpoint=repos/H234598/Wirtelprimpf-generator/actions/workflows/hub-pages.yml/dispatches
+task6_dispatch_payload="$(/usr/bin/jq -n \
+  --arg active_repository "$active_repository" \
+  --arg archive_main_sha "$archive_main_sha" \
+  --arg current_volume "$current_volume" '
+    {
+      "ref": "main",
+      "inputs": {
+        "active_repository": $active_repository,
+        "archive_ref": $archive_main_sha,
+        "current_volume": $current_volume
+      },
+      "return_run_details": true
+    }
+  ')"
+task6_dispatch_response="$(
+  printf '%s\n' "$task6_dispatch_payload" |
+    task6_gh api -X POST \
+      -H 'Accept: application/vnd.github+json' \
+      -H 'X-GitHub-Api-Version: 2026-03-10' \
+      "$task6_dispatch_endpoint" \
+      --input -
+)"
+
+hub_run_id="$(/usr/bin/jq -er \
+  '.workflow_run_id |
+   select(type == "number" and . > 0 and floor == .) | tostring' \
+  <<<"$task6_dispatch_response")"
+[[ "$hub_run_id" =~ ^[1-9][0-9]{0,19}$ ]]
+expected_run_url="https://api.github.com/repos/$canonical_generator_repository/actions/runs/$hub_run_id"
+expected_run_html_url="https://github.com/$canonical_generator_repository/actions/runs/$hub_run_id"
+/usr/bin/jq -e \
+  --argjson run_id "$hub_run_id" \
+  --arg run_url "$expected_run_url" \
+  --arg html_url "$expected_run_html_url" '
+    .workflow_run_id == $run_id
+    and .run_url == $run_url
+    and .html_url == $html_url
+  ' <<<"$task6_dispatch_response" >/dev/null
+
+verify_hub_run_identity() {
+  local attempt task6_run_json
+  for attempt in $(seq 1 24); do
+    if task6_run_json="$(task6_gh api \
+      "repos/$canonical_generator_repository/actions/runs/$hub_run_id")"; then
+      /usr/bin/jq -e \
+        --argjson run_id "$hub_run_id" \
+        --arg generator_main_sha "$generator_main_sha" \
+        --arg display_title "$expected_display_title" \
+        --arg repo_id "$canonical_generator_repo_id" \
+        --arg repository "$canonical_generator_repository" \
+        --arg workflow_url "$expected_workflow_url" '
+          .id == $run_id
+          and .event == "workflow_dispatch"
+          and .head_branch == "main"
+          and .head_sha == $generator_main_sha
+          and .display_title == $display_title
+          and .name == "Publish Wirtelprimpf hub Pages"
+          and .path == ".github/workflows/hub-pages.yml"
+          and .workflow_url == $workflow_url
+          and .repository.node_id == $repo_id
+          and .repository.full_name == $repository
+        ' <<<"$task6_run_json" >/dev/null
+      return
+    fi
+    sleep 5
+  done
+  return 1
+}
+
+verify_hub_run_identity
+task6_gh run watch "$hub_run_id" \
+  --repo "$canonical_generator_repository" --exit-status
+task6_cleanup
+trap - EXIT
 ```
 
-Expected: the dispatch uses the live persisted current story and archive index, and source resolution, exact archive checkout, build, validation, upload, and deploy succeed. If the active archive is no longer `0001`, stop and revise Task 5 for that already-existing active repository; never create a repository here.
+Expected: an unprivileged, token-free local probe derives the live persisted
+current story and archive index, proves both local `refs/heads/main` values equal
+their respective `refs/remotes/origin/main`, and returns only bounded literals.
+Root independently binds those SHAs to GitHub's exact repositories and remote
+`main` refs. The API-versioned dispatch returns its own run ID atomically; that
+exact run must match the requested generator SHA, archive SHA, repository,
+workflow, event, branch, and display title before it may be watched. Source
+resolution, exact archive checkout, build, validation, upload, and deploy then
+succeed. If the active archive is no longer `0001`, stop and revise Task 5 for
+that already-existing active repository; never create a repository here.
 
 - [ ] **Step 2: Verify the public hub's six copy requirements and current-story order**
 
@@ -5626,8 +6289,8 @@ Completion requires all of the following:
   Validator mit `--expected-domain wirtelprimpf-0001.telacore.org`. Ergebnis:
   823 Dateien, 818 HTML, 10.840 interne Links, 4.395.867 Byte, Baum-SHA-256
   `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
-  Required-Treffer: `Publikationsarchiv 0001` 1, `Im Release` 6,
-  ` archiviert.` 6 und Statussatz 1. Alle sieben ausgeführten Forbidden-Scans,
+  Required-Treffer: `Publikationsarchiv 0001` 1, `Im Release` 6, das Suffix
+  `archiviert.` 6 und Statussatz 1. Alle sieben ausgeführten Forbidden-Scans,
   der zusätzliche `Telacores:`-Ausschluss im Archivheader und der robuste
   `Möhren`-Scan waren leer. Alle 818 HTML-Dateien besaßen eine Canonical unter
   `https://wirtelprimpf-0001.telacore.org/`; fehlend 0, fremde Domain 0.
@@ -6414,3 +7077,134 @@ Completion requires all of the following:
   Cloudflare- oder Upstream-Write aus. Der gh-Vertrag wurde ausschließlich
   durch lokale Hilfe und einen kontrollierten ausführbaren Stub geprüft; alle
   schreibenden Proben blieben disposable und lokal.
+
+### 2026-08-02 — Additive d4-Vollreview-Schließung und Dispatchbindung
+
+- Diese Schicht basiert exakt auf Parent
+  `d4a2938672d27a35a3b20dbf16e4c6bdbf4283f0`. Sie ersetzt, kürzt oder
+  korrigiert keinen älteren Ledgerabschnitt. Der Arbeitsumfang folgte zunächst
+  einer vorläufigen technischen Arbeitsliste mit 19 Maßnahmen und zwölf
+  Nacharbeiten; die verbindliche Reviewtaxonomie und Endbilanz stehen weiter
+  unten.
+- Vorläufige technische Arbeitsliste (19): A01 bindet Origin-Scheme, Host und den effektiven
+  Port exakt; A02 schließt die Verbindung nach `413`; A03 begrenzt bereits die
+  geerbte HTTP-Requestline; A04 redigiert unerwartete `500`-/`503`-Antworten;
+  A05 akzeptiert Environmentwerte nur als null oder genau ein Shellwort; A06
+  entfernt fehlgeschlagene atomare `.part`-Dateien; A07 hält ausschließlich
+  die aus der Umgebung abgeleitete GitHub-Auth-Anwesenheit aus der Revision;
+  A08 begrenzt Validator-stdout streamend auf 64 KiB und beendet den Prozess
+  bei Überschreitung; A09 behandelt unerwartete `flock`-Fehler redigiert und
+  entsperrt keinen nie erworbenen Lock; A10 begrenzt und dekodiert CLI-stdin
+  bytegenau; A11 trennt unerwartete Settingsfehler mit Exit 7 von
+  Rollbackfehlern mit Exit 6; A12 leitet alle Statuspfade aus denselben
+  `SettingsPaths` ab und hält Story-, Archiv-, Hub- und Katalogzugriffe in der
+  redigierenden Quellgrenze; A13 validiert Archiv-Releasetags strikt und
+  erkennt finalen Zustandsdrift; A14 erlaubt im Runtime-Checkout nur die exakt
+  bekannte lokale Git-Konfiguration und den kanonischen Main-Refspec; A15
+  schließt die systemd-Auto-Restart-Race mit `--job-mode=fail` sowie
+  nachgewiesenem Runtime-Maskenzustand; A16 ersetzt den Archivworkflow nur über
+  verankerte, eigentums- und identitätsgeprüfte Verzeichnisdeskriptoren; A17
+  bindet den Hub-Dispatch atomar über GitHub API `2026-03-10` und
+  `return_run_details:true` an genau den zurückgegebenen Run; A18 beginnt den
+  Copy-Commit mit leerem Index und staged exakt fünf deklarierte Pfade; A19
+  wurde als bereits korrekt behandelter Hinweis klassifiziert und durch den
+  Regressionstest belegt: ein persistierter Integer außerhalb des Bereichs
+  fällt schon auf Default plus Warnung zurück und benötigt keine
+  Produktionsänderung.
+- Vorläufige technische Nacharbeitsliste (12): N01 ergänzt den Slow-Drip-Join-Test; N02 prüft
+  tatsächlich emittierte Security-Header; N03 macht Bild- und Storymodelle
+  schemaweit zu offenen Dropdown-Auswahlen; N04 dokumentiert Secrets als
+  write-only Ersetzen/Löschen ohne Klartext-Readback; N05 ruft der lokale
+  Installer den Settings-Wrapper aus exakt der Ziel-Venv auf; N06 verwendet
+  die gemeinsame `STORIES_PER_BOOK`-Konstante; N07 beweist der Statuscollector
+  die exakten Managerpfade; N08 liegt die Angreiferfixture ausschließlich im
+  temporären Testverzeichnis; N09 laufen alle Git-Fixtures des Rolloutvertrags
+  über einen gemeinsamen absoluten, `env -i`-äquivalent isolierten und auf 15
+  Sekunden begrenzten Helper; N10 besitzt der echte Rollback-Signaltest je eine
+  frische Armierungs- und Recovery-Deadline sowie garantierte Kill-/Wait-
+  Bereinigung im `finally`; N11 ist der verbleibende MD038-Leerraum im
+  Inline-Code entfernt; N12 erläutert die additive `open_choices`-Semantik in
+  der Spezifikation, ohne historische Aufzählungen zu streichen.
+- Zusätzlich materialisiert Task 5 den bestätigten Archiv-Merge vor der
+  Pages-Auswahl in einem sauberen, tokenfreien `teladi`-Kind: kanonischer
+  HTTPS-Fetch, Fast-forward auf lokalen `main`, danach müssen
+  `refs/heads/main` und `refs/remotes/origin/main` beide exakt dem beobachteten
+  Merge-SHA entsprechen. Task 6 verwendet ausschließlich diese benannten
+  Main-Refs und niemals den Feature-`HEAD`; fehlende lokale Synchronität bricht
+  deshalb bewusst fail-closed ab.
+- Die fokussierten Task-6- und Task-5-Verträge wurden vor der jeweiligen
+  Planänderung rot ausgeführt. Der Task-6-Vertrag bestand danach `1/1`; die
+  vollständige Verifikationsbilanz wird nach dem frischen Gesamtlauf additiv
+  unterhalb dieses Abschnitts ergänzt.
+- Bis zu diesem Ledgerstand wurden keine Rolloutanweisungen ausgeführt: kein
+  Credentialzugriff, Fetch, Push, PR-/Merge-Write, Install, Reload, Deploy,
+  Runtime-, Service-, Applet-, Archiv-, Pages-, DNS-, Cloudflare- oder
+  Upstream-Write. Schreibende Proben blieben in temporären lokalen Dateien und
+  Repositories.
+- Frische Vertragsverifikation nach Schließung des Task-5-Main-Gates: Der
+  vollständige Rolloutvertrag entdeckte 55 Tests und endete in 5,495 Sekunden
+  mit `OK`; 54 wurden grün ausgeführt, genau die eine erwartete reale
+  Root-/`runuser`-Probe wurde im `teladi`-Gesamtlauf übersprungen. Es gab null
+  Failures und null Errors.
+
+#### Finale Reviewklassifikation und Verifikationsbilanz
+
+- Die verbindliche Taxonomie aus Review `4837716445` umfasst zwölf originale
+  Inline-Befunde der Stufe Major/Critical, zehn Minor und 19 Nitpicks, insgesamt
+  41 Punkte. Dieses Ledger erfindet dafür bewusst keine neuen `MAJ-*`- oder
+  `MIN-*`-Zuordnungen: maßgeblich bleiben die ursprünglichen Reviewerpositionen.
+  Endstatus über alle 41 Punkte: 39 umgesetzt, ein durch Regressionstest
+  belegtes False Positive, ein Reviewvorschlag wegen einer höherrangigen
+  exakten Nutzervorgabe bewusst verworfen, null unbeabsichtigt offen und null
+  technisch zurückgestellt.
+- Das False Positive ist der numerische Admin-/Persistenzhinweis: Ein
+  persistierter Integer außerhalb seines erlaubten Bereichs fiel bereits vor
+  dieser Runde auf den Defaultwert zurück und erzeugte eine Warnung. Der neue
+  Test hält genau dieses bestehende Verhalten fest; eine zusätzliche
+  Produktionsänderung wäre redundant gewesen.
+- Bewusst nicht umgesetzt wurde ausschließlich die vorgeschlagene Entfernung
+  des Kommas aus dem Statussatz. Der vom Nutzer wörtlich vorgegebene Vertrag
+  lautet `Dass er unbedeutend ist, und nichts weiß.` und behält deshalb das
+  Komma. Das ist weder ein vergessenes Finding noch ein technischer Deferred,
+  sondern die dokumentierte Auflösung eines Konflikts zugunsten der
+  höherrangigen exakten Nutzervorgabe.
+- Die SemVer-Prämisse des betreffenden Reviewerhinweises traf den realen
+  Releasevertrag nicht zu. Unabhängig davon wurde der tatsächlich verwendete
+  Archivtagparser numerisch, bereichsgebunden und auf das exakte reale
+  Tagformat gehärtet. Diese Härtung bestätigt nicht nachträglich die falsche
+  Prämisse, sondern schließt den realen Robustheitspfad.
+- Die 39 umgesetzten Punkte decken nach ihren ursprünglichen Reviewerpositionen
+  insbesondere HTTP-Grenzen und Redaktion, transaktionale Settingsrevisionen,
+  Locking, Validator-Prozessgrenzen, CLI/Applet-Fehlersemantik, Statusquellen,
+  schemaweite Modelldropdowns, systemd-Race-Gates, Runtime- und Archiv-Git-
+  Allowlisten, descriptorverankerte Workflow-Ersetzung, atomare
+  Dispatch-Run-Bindung, Testprozessbereinigung, Dokumentation und
+  Verpackungspfade ab. Diese technische Zusammenfassung ist keine
+  Umklassifizierung der zwölf originalen Inline-Befunde.
+- Die Exit-7-Regressionsprobe lief vor der Appletänderung gezielt rot und danach
+  `1/1` grün; die vollständige Applet-Synchronisation bestand `28/28`. Die
+  gemeinsame Matrix der geänderten Plattformkomponenten entdeckte 152 Tests:
+  151 wurden grün ausgeführt, genau eine reale Root-Probe erwartungsgemäß
+  übersprungen. Der abschließende
+  `make check` endete mit Exit 0: Applet-Runtime grün, Admin-UI `31/31`, SemVer
+  `8/8`, Git-Object-Fallback `3/3`, Release-Publication `3/3`, Helper-Environment
+  `7/7`, Applet-Sync `28/28`, Settings-Schema `15/15`, Story-Directives `31/31`
+  und Rolloutvertrag 56 entdeckt, 55 grün ausgeführt, ein erwarteter
+  Root-/`runuser`-Skip, null Failures und null Errors.
+- Alle sechs geänderten ausführbaren Planblöcke bestanden separat `bash -n`
+  und ShellCheck auf Error-Severity. Ruff meldete für sämtliche geänderten
+  Pythonpfade „All checks passed“; Bandit High endete mit Exit 0. Auch diese
+  Abschlussrunde blieb ohne Credentialzugriff und ohne Netzwerk-, System-,
+  Runtime-, Installations-, Deployment-, DNS-, Cloudflare- oder Upstream-Write.
+- Der erste strikt als `teladi` ausgeführte Commitversuch stoppte noch vor
+  einem Indexupdate, weil das gemeinsame Git-Objektverzeichnis das Einfügen
+  eines Objekts verweigerte. Der Read-only-Befund zeigte den Worktree weiterhin
+  vollständig als `1000:1000`, Index 0, 20 geplante Modifikationen und null
+  ungetrackte Pfade; fremd waren ausschließlich Einträge unter dem gemeinsamen
+  Git-Metadatenpfad. Die anschließende begrenzte Infrastrukturreparatur prüfte
+  dort exakt 45/45 Einträge als `root:root` und null Symlinks und änderte nur
+  diese vorab aufgelisteten Pfade, nichtrekursiv, ohne Dereferenzierung und nur
+  bei weiterhin passendem Ausgangseigentümer `0:0`, auf `1000:1000`. Danach
+  verblieben im gemeinsamen Gitdir und im Featureworktree jeweils null fremde
+  Einträge; staged blieb 0, modified 20, untracked 0. Es gab kein `chown` auf
+  Projekt-, Runtime-, Archiv- oder Nutzdaten und weiterhin keinen Push.

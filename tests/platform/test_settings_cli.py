@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import io
 import json
+import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -17,6 +19,7 @@ from wirtelprimpf_platform.settings import (
     SettingsApplyFailure,
     SettingsConflict,
     SettingsLockBusy,
+    SettingsPaths,
     SettingsSnapshot,
     SettingsValidationFailure,
 )
@@ -109,6 +112,28 @@ class SettingsCLITests(unittest.TestCase):
             self.assertEqual(cli.settings_main(["apply"]), 4)
         self.assertEqual(json.loads(output.getvalue())["error"], "settings request exceeds 65536 bytes")
 
+    def test_byte_stdin_rejects_oversize_and_invalid_utf8(self) -> None:
+        class BinaryStdin:
+            def __init__(self, payload: bytes) -> None:
+                self.buffer = io.BytesIO(payload)
+
+        manager = FakeManager(snapshot_for_test(revision="a" * 64, settings={}))
+        cases = (
+            (b"x" * (64 * 1024 + 1), "settings request exceeds 65536 bytes"),
+            (b"{\xff}", "settings request must be UTF-8"),
+        )
+        for payload, expected_error in cases:
+            with self.subTest(expected_error=expected_error):
+                output = io.StringIO()
+                with (
+                    patch.object(cli, "build_settings_manager", return_value=manager),
+                    patch("sys.stdin", BinaryStdin(payload)),
+                    patch("sys.stdout", output),
+                ):
+                    code = cli.settings_main(["apply"])
+                self.assertEqual(code, cli.VALIDATION_ERROR_EXIT_CODE)
+                self.assertEqual(json.loads(output.getvalue())["error"], expected_error)
+
     def test_exception_exit_codes_are_stable_and_redacted(self) -> None:
         snapshot = snapshot_for_test(revision="a" * 64, settings={"operandi": "story"})
         cases = (
@@ -163,12 +188,42 @@ class SettingsCLITests(unittest.TestCase):
                     patch("sys.stdout", output),
                 ):
                     code = cli._run_settings_command(command, manager)
-                self.assertEqual(code, 6)
+                self.assertEqual(code, cli.UNAVAILABLE_ERROR_EXIT_CODE)
                 self.assertEqual(
                     json.loads(output.getvalue()),
                     {"ok": False, "error": "settings operation unavailable"},
                 )
                 self.assertNotIn(secret, output.getvalue())
+
+    def test_status_collector_uses_the_managers_exact_validated_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = replace(
+                SettingsPaths.for_home(root),
+                platform_state=root / "custom/platform.json",
+                state_file=root / "custom/settings.json",
+                hub_outbox=root / "custom/hub.json",
+                publication_catalog=root / "custom/catalog.json",
+                cloudflare_token_file=root / "custom/cloudflare.env",
+                generator_root=root / "custom/generator",
+            )
+            manager = SimpleNamespace(
+                paths=paths,
+                snapshot=lambda: None,
+                systemd=SimpleNamespace(observe_timer=lambda: None),
+            )
+
+            collector = cli.build_status_collector(manager)
+
+        self.assertEqual(collector.paths.platform_state, paths.platform_state)
+        self.assertEqual(collector.paths.settings_state, paths.state_file)
+        self.assertEqual(collector.paths.hub_outbox, paths.hub_outbox)
+        self.assertEqual(collector.paths.publication_catalog, paths.publication_catalog)
+        self.assertEqual(collector.paths.cloudflare_token, paths.cloudflare_token_file)
+        self.assertEqual(
+            collector.paths.media_manifest,
+            paths.generator_root / "data/media-manifest.json",
+        )
 
 
 if __name__ == "__main__":

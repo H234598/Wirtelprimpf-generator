@@ -73,12 +73,10 @@ veröffentlicht. Die effektive Timerkonfiguration wird über
 `~/.config/systemd/user/wirtelprimpf.timer.d/override.conf` angewendet; schlägt Validierung oder systemd fehl,
 werden Dateibytes, Drop-in, Enabled-Zustand und Active-Zustand auf den beobachteten Vorzustand zurückgerollt.
 
-Die beiden Modellfelder sind Dropdowns aus einem gemeinsamen Snapshot. Der Bildkatalog lautet
-`gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`. Der Storykatalog lautet `gpt-5.5`,
-`gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.4-pro`, `gpt-5.2`, `gpt-5.2-pro`,
-`gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5-pro`, `gpt-4.1`, `gpt-4.1-mini`,
-`gpt-4.1-nano`, `gpt-4o`, `gpt-4o-mini`. Ein bereits konfiguriertes älteres Modell bleibt beschriftet
-sichtbar, wird dadurch aber nicht zu einer neuen Katalogauswahl.
+Die beiden Modellfelder sind Dropdowns aus den im gemeinsamen Schema als `open_choices` markierten Katalogen.
+Der Snapshot liefert den versionierten, datengetriebenen Katalog; Webadmin und Applet führen keine hart codierten Modelllisten.
+Ein bereits konfiguriertes älteres Modell bleibt beschriftet sichtbar, wird dadurch aber nicht zu einer neuen
+Katalogauswahl.
 
 Der Webadmin aktualisiert Einstellungen alle 2 Sekunden und den unabhängigen Betriebsstatus alle 5 Sekunden.
 Dirty-Felder werden dabei nie überschrieben; während eines Save sind die Controls gesperrt. Das Applet
@@ -98,8 +96,9 @@ wirtelprimpf-settings snapshot
 printf '%s' '<sparse-json-envelope>' | wirtelprimpf-settings apply
 ```
 
-`wirtelprimpf-settings apply` liest JSON über stdin; Secrets gehören nie in Argumente. Beide Befehle geben nur
-den öffentlichen Snapshot beziehungsweise eine redigierte Fehlermeldung aus.
+`wirtelprimpf-settings apply` liest JSON über stdin; Secrets gehören nie in Argumente. Secretwerte werden niemals
+im Klartext ausgegeben oder zurückgelesen: Oberflächen dürfen sie ausschließlich write-only ersetzen oder löschen.
+Beide Befehle geben nur den öffentlichen Snapshot beziehungsweise eine redigierte Fehlermeldung aus.
 
 ## Backup und Wiederherstellung
 

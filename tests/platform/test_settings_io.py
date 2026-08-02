@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from wirtelprimpf_platform.settings_io import (
     EnvironmentDocument,
@@ -36,6 +37,15 @@ class SettingsIOTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(SettingsIOError):
                 EnvironmentDocument.parse(text)
 
+    def test_environment_values_are_exactly_zero_or_one_shell_word(self) -> None:
+        document = EnvironmentDocument.parse("EMPTY=\nSPACED='one  two   three'\n")
+        self.assertEqual(document.values, {"EMPTY": "", "SPACED": "one  two   three"})
+        for text in ("A=one two\n", "A='one' 'two'\n"):
+            with self.subTest(text=text), self.assertRaisesRegex(
+                SettingsIOError, "exactly one shell word"
+            ):
+                EnvironmentDocument.parse(text)
+
     def test_atomic_private_replace_and_byte_restore_are_exact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "private" / "openai.env"
@@ -47,6 +57,21 @@ class SettingsIOTests(unittest.TestCase):
             self.assertEqual(target.read_bytes(), b"A=one\n")
             self.assertEqual(target.stat().st_mode & 0o777, 0o600)
             self.assertEqual(target.parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(list(target.parent.glob(".*.part")), [])
+
+    def test_failed_atomic_replace_removes_its_private_part_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "private" / "openai.env"
+            store = SecureFile(target, private=True)
+            with (
+                patch(
+                    "wirtelprimpf_platform.settings_io.os.replace",
+                    side_effect=OSError("injected replace failure"),
+                ),
+                self.assertRaisesRegex(SettingsIOError, "cannot atomically replace"),
+            ):
+                store.replace_bytes(b"A=one\n")
+            self.assertFalse(target.exists())
             self.assertEqual(list(target.parent.glob(".*.part")), [])
 
     def test_every_new_private_parent_component_has_private_mode(self) -> None:

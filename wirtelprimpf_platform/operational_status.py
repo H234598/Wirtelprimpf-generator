@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -12,10 +13,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .catalog import CatalogStore
-from .naming import book_target_for_story
+from .naming import STORIES_PER_BOOK, book_target_for_story
 from .settings import SettingsPaths, SettingsSnapshot
 from .state import StateStore
 from .systemd_user import TimerObservation
+
+_RELEASE_TAG_RE = re.compile(r"archive-([0-9]{4})-media-([0-9]{4})")
+_ARCHIVE_REPOSITORY_RE = re.compile(r"Wirtelprimpf-([0-9]{4})")
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,18 +35,21 @@ class StatusPaths:
 
     @classmethod
     def for_home(cls, home: Path) -> StatusPaths:
-        settings_paths = SettingsPaths.for_home(home)
+        return cls.from_settings_paths(SettingsPaths.for_home(home))
+
+    @classmethod
+    def from_settings_paths(cls, settings_paths: SettingsPaths) -> StatusPaths:
         generator = settings_paths.generator_root
-        state = settings_paths.platform_state.parent
+        home = settings_paths.env_file.parents[2]
         return cls(
             platform_state=settings_paths.platform_state,
             settings_state=settings_paths.state_file,
-            hub_outbox=state / "hub-dispatch.json",
+            hub_outbox=settings_paths.hub_outbox,
             hub_source=generator / "data/hub-source.json",
             media_manifest=generator / "data/media-manifest.json",
-            publication_catalog=generator / "data/publication-catalog.json",
-            github_hosts=Path(home) / ".config/gh/hosts.yml",
-            cloudflare_token=Path(home) / ".config/cloudflare/api-token.env",
+            publication_catalog=settings_paths.publication_catalog,
+            github_hosts=home / ".config/gh/hosts.yml",
+            cloudflare_token=settings_paths.cloudflare_token_file,
         )
 
     @classmethod
@@ -180,7 +187,7 @@ class OperationalStatusCollector:
                 "current_volume": None,
                 "book": None,
                 "story_in_book": None,
-                "stories_per_book": 10,
+                "stories_per_book": STORIES_PER_BOOK,
             },
             "archive": {"index": None, "repository": None},
             "rotation": {"blocked": None, "target": None, "phase": None},
@@ -219,6 +226,9 @@ class OperationalStatusCollector:
             OSError,
             RuntimeError,
             ValueError,
+            TypeError,
+            AttributeError,
+            KeyError,
             json.JSONDecodeError,
             subprocess.SubprocessError,
         ):
@@ -232,11 +242,11 @@ class OperationalStatusCollector:
                 self._source_error(status, "configuration")
             return None
         drift = list(snapshot.warnings)
-        configuration = {
+        configuration: dict[str, object] = {
             "revision": snapshot.revision,
-            "valid": not any(warning.startswith("invalid_persisted_setting:") for warning in drift),
-            "drift": drift,
-            "state": "drift" if drift else "valid",
+            "valid": None,
+            "drift": [],
+            "state": "unknown",
             "observed_at": None,
         }
         if self.paths.settings_state.exists():
@@ -249,8 +259,12 @@ class OperationalStatusCollector:
                 signal_revision = signal.get("revision")
                 if signal_revision != snapshot.revision:
                     drift.append("revision_signal_mismatch")
-                    configuration["state"] = "drift"
                 configuration["observed_at"] = _mtime(self.paths.settings_state)
+        configuration["valid"] = not any(
+            warning.startswith("invalid_persisted_setting:") for warning in drift
+        )
+        configuration["drift"] = list(drift)
+        configuration["state"] = "drift" if drift else "valid"
         status["configuration"] = configuration
         status["auth"] = {
             "openai_present": bool(snapshot.secrets.get("openai_api_key_present")),
@@ -295,41 +309,45 @@ class OperationalStatusCollector:
             self._source_error(status, "platform_state")
             return
 
-        def read_story_state() -> tuple[object, object]:
+        def read_story_state() -> dict[str, dict[str, object]]:
             state = StateStore(self.paths.platform_state).load()
             try:
                 target = book_target_for_story(state.current_volume)
-            except TypeError as exc:
+                rotation = state.rotation
+                return {
+                    "story": {
+                        "state": "blocked" if state.generation_blocked else "active",
+                        "completed_volumes": state.completed_volumes,
+                        "current_volume": state.current_volume,
+                        "book": target.global_book,
+                        "story_in_book": target.story_in_book,
+                        "stories_per_book": STORIES_PER_BOOK,
+                    },
+                    "archive": {
+                        "index": state.active_archive_index,
+                        "repository": state.active_repository,
+                    },
+                    "rotation": {
+                        "blocked": state.generation_blocked,
+                        "target": rotation.target_repository if rotation else None,
+                        "phase": rotation.phase.value if rotation else None,
+                    },
+                }
+            except (AttributeError, TypeError) as exc:
                 raise ValueError("platform story position is invalid") from exc
-            return state, target
 
         story_source = self._collect_source(
             status,
             "platform_state",
             read_story_state,
         )
-        if not isinstance(story_source, tuple) or len(story_source) != 2:
+        if not isinstance(story_source, dict):
             if story_source is not None:
                 self._source_error(status, "platform_state")
             return
-        state, target = story_source
-        status["story"] = {
-            "state": "blocked" if state.generation_blocked else "active",
-            "completed_volumes": state.completed_volumes,
-            "current_volume": state.current_volume,
-            "book": target.global_book,
-            "story_in_book": target.story_in_book,
-            "stories_per_book": 10,
-        }
-        status["archive"] = {
-            "index": state.active_archive_index,
-            "repository": state.active_repository,
-        }
-        status["rotation"] = {
-            "blocked": state.generation_blocked,
-            "target": state.rotation.target_repository if state.rotation else None,
-            "phase": state.rotation.phase.value if state.rotation else None,
-        }
+        status["story"] = story_source["story"]
+        status["archive"] = story_source["archive"]
+        status["rotation"] = story_source["rotation"]
 
     def _collect_git(self, status: dict[str, object], snapshot: SettingsSnapshot | None) -> None:
         if snapshot is None:
@@ -364,28 +382,37 @@ class OperationalStatusCollector:
     def _collect_release(self, status: dict[str, object]) -> None:
         if not self.paths.media_manifest.exists():
             return
-        manifest = self._collect_source(
+
+        def read_latest_release() -> str | None:
+            manifest = _read_json_object(self.paths.media_manifest)
+            media = manifest.get("media")
+            if not isinstance(media, list):
+                raise ValueError("media manifest list is invalid")
+            parsed_tags: list[tuple[int, int, str]] = []
+            for item in media:
+                if not isinstance(item, dict):
+                    continue
+                tag = item.get("release_tag")
+                if not isinstance(tag, str):
+                    continue
+                matched = _RELEASE_TAG_RE.fullmatch(tag)
+                if matched is None:
+                    raise ValueError("media release tag is invalid")
+                archive_index, shard_index = (int(value) for value in matched.groups())
+                if not 1 <= archive_index <= 9_999 or not 1 <= shard_index <= 9_999:
+                    raise ValueError("media release tag index is invalid")
+                parsed_tags.append((archive_index, shard_index, tag))
+            return max(parsed_tags)[2] if parsed_tags else None
+
+        release_tag = self._collect_source(
             status,
             "media_manifest",
-            lambda: _read_json_object(self.paths.media_manifest),
+            read_latest_release,
         )
-        if not isinstance(manifest, dict):
-            return
-        media = manifest.get("media")
-        if not isinstance(media, list):
-            self._source_error(status, "media_manifest")
-            return
-        tags = sorted(
-            {
-                item.get("release_tag")
-                for item in media
-                if isinstance(item, dict) and isinstance(item.get("release_tag"), str)
-            }
-        )
-        if tags:
+        if isinstance(release_tag, str):
             status["publication"]["release"] = {
                 "state": "observed",
-                "value": tags[-1],
+                "value": release_tag,
                 "observed_at": _mtime(self.paths.media_manifest),
                 "source": "media-manifest.json",
             }
@@ -401,19 +428,34 @@ class OperationalStatusCollector:
             state = "observed"
         if source_path is None:
             return
-        payload = self._collect_source(
+
+        def read_hub_source() -> tuple[str, str]:
+            payload = _read_json_object(source_path)
+            repository = payload.get("archive_repository", payload.get("repository"))
+            revision = payload.get("archive_revision", payload.get("revision"))
+            if not isinstance(repository, str):
+                raise ValueError("hub repository is invalid")
+            repository_match = _ARCHIVE_REPOSITORY_RE.fullmatch(repository)
+            if repository_match is None or not 1 <= int(repository_match.group(1)) <= 9_999:
+                raise ValueError("hub repository is invalid")
+            if revision is None:
+                return repository, repository
+            if (
+                not isinstance(revision, str)
+                or len(revision) != 40
+                or any(character not in "0123456789abcdef" for character in revision)
+            ):
+                raise ValueError("hub revision is invalid")
+            return repository, f"{repository}@{revision}"
+
+        hub_source = self._collect_source(
             status,
             "hub",
-            lambda: _read_json_object(source_path),
+            read_hub_source,
         )
-        if not isinstance(payload, dict):
+        if not isinstance(hub_source, tuple) or len(hub_source) != 2:
             return
-        repository = payload.get("archive_repository", payload.get("repository"))
-        revision = payload.get("archive_revision", payload.get("revision"))
-        if not isinstance(repository, str):
-            self._source_error(status, "hub")
-            return
-        value = repository if not isinstance(revision, str) else f"{repository}@{revision}"
+        repository, value = hub_source
         status["publication"]["hub"] = {
             "state": state,
             "value": value,
@@ -427,26 +469,44 @@ class OperationalStatusCollector:
     def _collect_catalog(self, status: dict[str, object]) -> None:
         if not self.paths.publication_catalog.exists():
             return
-        catalog = self._collect_source(
+
+        def read_verified_catalog() -> tuple[str, str] | None:
+            catalog = CatalogStore(self.paths.publication_catalog).load()
+            entry = catalog.entry(catalog.active_archive_index)
+            if entry is None or not entry.verified:
+                return None
+            pages_url = entry.pages_url
+            parsed = urlsplit(pages_url)
+            if (
+                parsed.scheme != "https"
+                or parsed.hostname is None
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+                or parsed.path not in {"", "/"}
+            ):
+                raise ValueError("catalog Pages URL is invalid")
+            return pages_url, parsed.hostname
+
+        catalog_source = self._collect_source(
             status,
             "publication_catalog",
-            lambda: CatalogStore(self.paths.publication_catalog).load(),
+            read_verified_catalog,
         )
-        if catalog is None:
+        if not isinstance(catalog_source, tuple) or len(catalog_source) != 2:
             return
-        entry = catalog.entry(catalog.active_archive_index)
-        if entry is None or not entry.verified:
-            return
+        pages_url, hostname = catalog_source
         observed_at = _mtime(self.paths.publication_catalog)
         status["publication"]["pages"] = {
             "state": "verified",
-            "value": entry.pages_url,
+            "value": pages_url,
             "observed_at": observed_at,
             "source": "publication-catalog.json",
         }
         status["publication"]["dns"] = {
             "state": "verified",
-            "value": urlsplit(entry.pages_url).hostname,
+            "value": hostname,
             "observed_at": observed_at,
             "source": "publication-catalog.json",
         }

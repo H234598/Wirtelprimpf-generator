@@ -166,6 +166,15 @@ Der initiale gemeinsame, für den verwendeten Responses-API-Pfad kuratierte Stor
 
 Die Liste ist versioniert und wird nicht bei jedem Menüaufruf über eine externe API neu geladen. Ein bereits konfigurierter Wert außerhalb des aktuellen Katalogs bleibt sichtbar und wird als `konfiguriert · nicht mehr im empfohlenen Katalog` gekennzeichnet. Er darf unverändert mitgeführt werden, aber eine bewusste Modelländerung muss einen Katalogwert auswählen. Dadurch kann eine Katalogaktualisierung keine produktive Konfiguration stillschweigend ersetzen.
 
+### 6.4 Additive normative Präzisierung: `open_choices`
+
+Die konkreten Modellnamen in 6.2 und 6.3 dokumentieren ausschließlich den historischen initialen Katalogstand.
+Sie bilden keine geschlossene, normative Modellmenge. Maßgeblich sind für `image_model` und `story_model` die
+im gemeinsamen `SettingSpec` als `open_choices` markierten, versionierten Kataloge des Settings-Snapshots. Beide Oberflächen rendern daraus weiterhin ein
+Dropdown ohne Freitexteingabe und dürfen keine eigene Modellliste führen. Ein zentral katalogisierter neuer Wert
+wird dadurch in beiden Oberflächen auswählbar; ein bereits persistierter Legacy-Wert bleibt nur als klar markierter
+Bestandswert sichtbar und wird nicht automatisch zu einer neuen Auswahloption.
+
 ## 7. Revision und Konfliktvertrag
 
 ### 7.1 Revisionskennung

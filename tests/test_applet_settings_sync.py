@@ -439,6 +439,12 @@ class AppletSettingsSyncTests(unittest.TestCase):
                 ),
                 "Konflikt",
             ),
+            (
+                subprocess.CompletedProcess(
+                    ["cli"], 7, json.dumps({"ok": False, "error": "unavailable"}), ""
+                ),
+                "nicht verfügbar",
+            ),
             (subprocess.CompletedProcess(["cli"], 0, "not-json", ""), "gültiges JSON"),
             (subprocess.CompletedProcess(["cli"], 0, "[]", ""), "JSON-Objekt"),
             (

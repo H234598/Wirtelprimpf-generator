@@ -14,7 +14,6 @@ from pathlib import Path
 
 from wirtelprimpf_platform import __version__ as platform_version
 
-
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR_PATH = ROOT / "Sourcecode" / "wirtelprimpf_generator.py"
 
@@ -103,6 +102,10 @@ class PackagingVersionTests(unittest.TestCase):
         self.assertEqual(platform_version, "1.1.0")
         self.assertEqual(metadata["version"], "0.9.0")
         self.assertEqual(metadata["comments"], "Version: 0.9.0")
+        self.assertIn(
+            'SETTINGS_CLI="${ROOT}/.venv/bin/wirtelprimpf-settings"',
+            installer,
+        )
         gate_source = (
             'if [[ ! -f "${SETTINGS_CLI}" || ! -x "${SETTINGS_CLI}" || '
             '-L "${SETTINGS_CLI}" ]]'
@@ -150,8 +153,7 @@ class PackagingVersionTests(unittest.TestCase):
             "wirtelprimpf-settings snapshot",
             "wirtelprimpf-settings apply",
             "~/.config/cloudflare/api-token.env",
-            "gpt-image-2",
-            "gpt-5.5",
+            "open_choices",
             "/api/status",
             "2 Sekunden",
             "5 Sekunden",

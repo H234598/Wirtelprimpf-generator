@@ -13,6 +13,71 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_PLAN = ROOT / "docs/superpowers/plans/2026-08-01-public-site-copy-and-rollout.md"
+_FIXTURE_GIT_ENV = {
+    "HOME": "/home/teladi",
+    "USER": "teladi",
+    "LOGNAME": "teladi",
+    "PATH": "/usr/bin:/bin",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_ASKPASS": "/bin/false",
+    "SSH_ASKPASS": "/bin/false",
+}
+_FIXTURE_GIT_CONFIG = (
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "credential.helper=",
+    "-c",
+    "commit.gpgSign=false",
+    "-c",
+    "tag.gpgSign=false",
+    "-c",
+    "protocol.ext.allow=never",
+    "-c",
+    "protocol.file.allow=always",
+)
+_FIXTURE_IDENTITY_ENV = frozenset(
+    {
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_AUTHOR_DATE",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "GIT_COMMITTER_DATE",
+    }
+)
+
+
+def _fixture_git(
+    arguments: list[str],
+    *,
+    extra_env: dict[str, str] | None = None,
+    timeout: float = 15,
+    **kwargs: object,
+) -> subprocess.CompletedProcess[str]:
+    forbidden = {"env", "executable", "shell"}.intersection(kwargs)
+    if forbidden:
+        raise TypeError(f"fixture Git controls {', '.join(sorted(forbidden))}")
+    if timeout <= 0 or timeout > 15:
+        raise ValueError("fixture Git timeout must be in (0, 15] seconds")
+    environment = dict(_FIXTURE_GIT_ENV)
+    if extra_env:
+        unexpected = set(extra_env).difference(_FIXTURE_IDENTITY_ENV)
+        if unexpected:
+            raise ValueError("fixture Git received a non-identity environment key")
+        environment.update(extra_env)
+    return subprocess.run(  # nosec B603 -- fixed Git binary and isolated argv/env
+        ["/usr/bin/git", *_FIXTURE_GIT_CONFIG, *arguments],
+        env=environment,
+        timeout=timeout,
+        **kwargs,
+    )  # type: ignore[return-value]
 
 
 def _code_block_after(document: str, marker: str) -> str:
@@ -69,6 +134,10 @@ class RolloutPlanContractTests(unittest.TestCase):
             cls.document,
             "**Step 5: Merge through GitHub and record the immutable generator SHA**",
         )
+        cls.task1_commit = _code_block_after(
+            cls.document,
+            "**Step 5: Commit the independently reviewable copy change**",
+        )
         cls.smoke_api = _code_block_after(
             cls.document,
             "**Step 5: Verify APIs, security headers, model choices, and local status**",
@@ -110,77 +179,95 @@ class RolloutPlanContractTests(unittest.TestCase):
             cls.document[task5_offset:],
             "**Step 6: Merge and watch the exact archive Pages run**",
         )
+        task6_offset = cls.document.index("### Task 6:")
+        cls.task6_step1 = _code_block_after(
+            cls.document[task6_offset:],
+            "**Step 1: Dispatch the hub with the exact active archive commit**",
+        )
+
+    def test_task1_commit_starts_clean_and_stages_exactly_the_declared_paths(self) -> None:
+        expected_paths = (
+            "web/tests/copy-contract.test.ts",
+            "web/src/layouts/BaseLayout.astro",
+            "web/src/pages/index.astro",
+            "web/src/components/MediaCard.astro",
+            "web/src/pages/projekt/status.astro",
+        )
+        self.assertIn("git diff --cached --quiet", self.task1_commit)
+        self.assertIn("expected_task1_paths=(", self.task1_commit)
+        self.assertIn("git diff --cached --name-only", self.task1_commit)
+        self.assertIn("cmp --silent", self.task1_commit)
+        self.assertIn('git add -- "${expected_task1_paths[@]}"', self.task1_commit)
+        for path in expected_paths:
+            self.assertEqual(self.task1_commit.count(path), 1, path)
 
     def _make_merge_fixture(self, tmp: str) -> dict[str, str]:
         repo = Path(tmp) / "merge-source"
-        subprocess.run(["git", "init", "-q", str(repo)], check=True)
-        subprocess.run(["git", "-C", str(repo), "config", "user.name", "Fixture"], check=True)
-        subprocess.run(
-            ["git", "-C", str(repo), "config", "user.email", "fixture@example.invalid"],
+        _fixture_git(["init", "-q", str(repo)], check=True)
+        _fixture_git(["-C", str(repo), "config", "user.name", "Fixture"], check=True)
+        _fixture_git(
+            ["-C", str(repo), "config", "user.email", "fixture@example.invalid"],
             check=True,
         )
         (repo / "story").write_text("base\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(repo), "add", "story"], check=True)
-        subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "base"], check=True)
-        base = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        _fixture_git(["-C", str(repo), "add", "story"], check=True)
+        _fixture_git(["-C", str(repo), "commit", "-q", "-m", "base"], check=True)
+        base = _fixture_git(
+            ["-C", str(repo), "rev-parse", "HEAD"],
             text=True,
             capture_output=True,
             check=True,
         ).stdout.strip()
         (repo / "story").write_text("reviewed head\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(repo), "commit", "-q", "-am", "reviewed"], check=True)
-        head = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        _fixture_git(["-C", str(repo), "commit", "-q", "-am", "reviewed"], check=True)
+        head = _fixture_git(
+            ["-C", str(repo), "rev-parse", "HEAD"],
             text=True,
             capture_output=True,
             check=True,
         ).stdout.strip()
-        head_tree = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", f"{head}^{{tree}}"],
+        head_tree = _fixture_git(
+            ["-C", str(repo), "rev-parse", f"{head}^{{tree}}"],
             text=True,
             capture_output=True,
             check=True,
         ).stdout.strip()
-        merge_date = subprocess.run(
-            ["git", "-C", str(repo), "show", "-s", "--format=%cI", head],
+        merge_date = _fixture_git(
+            ["-C", str(repo), "show", "-s", "--format=%cI", head],
             text=True,
             capture_output=True,
             check=True,
         ).stdout.strip()
         message = "Merge pull request #17 from feature/reviewed"
-        merge_env = os.environ.copy()
-        merge_env.update(
-            {
-                "GIT_AUTHOR_NAME": "H234598",
-                "GIT_AUTHOR_EMAIL": "54270221+H234598@users.noreply.github.com",
-                "GIT_AUTHOR_DATE": merge_date,
-                "GIT_COMMITTER_NAME": "H234598",
-                "GIT_COMMITTER_EMAIL": "54270221+H234598@users.noreply.github.com",
-                "GIT_COMMITTER_DATE": merge_date,
-            }
-        )
+        merge_env = {
+            "GIT_AUTHOR_NAME": "H234598",
+            "GIT_AUTHOR_EMAIL": "54270221+H234598@users.noreply.github.com",
+            "GIT_AUTHOR_DATE": merge_date,
+            "GIT_COMMITTER_NAME": "H234598",
+            "GIT_COMMITTER_EMAIL": "54270221+H234598@users.noreply.github.com",
+            "GIT_COMMITTER_DATE": merge_date,
+        }
 
         def commit_tree(tree: str) -> str:
-            return subprocess.run(
-                ["git", "-C", str(repo), "commit-tree", tree, "-p", base, "-p", head],
+            return _fixture_git(
+                ["-C", str(repo), "commit-tree", tree, "-p", base, "-p", head],
                 input=f"{message}\n",
                 text=True,
                 capture_output=True,
                 check=True,
-                env=merge_env,
+                extra_env=merge_env,
             ).stdout.strip()
 
         expected_merge = commit_tree(head_tree)
-        malicious_blob = subprocess.run(
-            ["git", "-C", str(repo), "hash-object", "-w", "--stdin"],
+        malicious_blob = _fixture_git(
+            ["-C", str(repo), "hash-object", "-w", "--stdin"],
             input="unreviewed payload\n",
             text=True,
             capture_output=True,
             check=True,
         ).stdout.strip()
-        malicious_tree = subprocess.run(
-            ["git", "-C", str(repo), "mktree"],
+        malicious_tree = _fixture_git(
+            ["-C", str(repo), "mktree"],
             input=f"100644 blob {malicious_blob}\tunreviewed\n",
             text=True,
             capture_output=True,
@@ -269,8 +356,18 @@ class RolloutPlanContractTests(unittest.TestCase):
                 self.assertNotIn(archive_path, root_shell)
                 self.assertNotIn("$archive_checkout", root_shell)
 
-        self.assertIn("os.replace(part, workflow)", self.task5_step3)
-        self.assertIn("workflow.lstat()", self.task5_step3)
+        self.assertIn(
+            "os.replace(part_name, workflow_name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)",
+            self.task5_step3,
+        )
+        self.assertIn("parent_fd = os.open(", self.task5_step3)
+        self.assertIn("root_fd = os.open(", self.task5_step3)
+        self.assertIn('github_fd = os.open(', self.task5_step3)
+        self.assertIn('".github"', self.task5_step3)
+        self.assertIn("dir_fd=parent_fd", self.task5_step3)
+        self.assertIn("follow_symlinks=False", self.task5_step3)
+        self.assertIn("parent_identity", self.task5_step3)
+        self.assertIn("target_identity", self.task5_step3)
         self.assertIn("st.st_uid == 1000 and st.st_gid == 1000", self.task5_step3)
         self.assertIn("if old_count != 2", self.task5_step3)
         self.assertIn("if new_count != 2", self.task5_step3)
@@ -319,27 +416,30 @@ class RolloutPlanContractTests(unittest.TestCase):
         self.assertNotIn("ROOT_MUST_NOT_EXPAND_THIS", result.stdout + result.stderr)
 
     def test_task5_workflow_rewriter_executes_as_teladi_and_changes_only_two_pins(self) -> None:
-        if os.geteuid() != 0 or not Path("/usr/sbin/runuser").is_file():
-            self.skipTest("the real Task-5 workflow rewrite probe requires root and runuser")
-        try:
-            teladi_uid = int(
-                subprocess.run(  # nosec B603 -- fixed root probe argv
-                    ["/usr/bin/id", "-u", "teladi"],
-                    text=True,
-                    capture_output=True,
-                    check=True,
-                ).stdout
-            )
-            teladi_gid = int(
-                subprocess.run(  # nosec B603 -- fixed root probe argv
-                    ["/usr/bin/id", "-g", "teladi"],
-                    text=True,
-                    capture_output=True,
-                    check=True,
-                ).stdout
-            )
-        except subprocess.CalledProcessError:
-            self.skipTest("the real Task-5 workflow rewrite probe requires the teladi account")
+        teladi_uid = 1000
+        teladi_gid = 1000
+        if os.geteuid() == teladi_uid and os.getegid() == teladi_gid:
+            command_prefix = [
+                "/usr/bin/env",
+                "-i",
+                "HOME=/home/teladi",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "/usr/bin/python3",
+            ]
+        elif os.geteuid() == 0 and Path("/usr/sbin/runuser").is_file():
+            command_prefix = [
+                "/usr/sbin/runuser",
+                "-u",
+                "teladi",
+                "--",
+                "/usr/bin/env",
+                "-i",
+                "HOME=/home/teladi",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "/usr/bin/python3",
+            ]
+        else:
+            self.skipTest("the Task-5 workflow rewrite probe requires teladi or root/runuser")
         if (teladi_uid, teladi_gid) != (1000, 1000):
             self.skipTest("the Task-5 contract pins teladi to UID/GID 1000")
 
@@ -356,27 +456,17 @@ class RolloutPlanContractTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory(prefix="wirtelprimpf-task5-rewrite-") as tmp:
             root = Path(tmp)
-            os.chown(root, teladi_uid, teladi_gid)
             root.chmod(0o700)
-            workflow = root / "pages.yml"
+            archive = root / "archive"
+            workflow = archive / ".github/workflows/pages.yml"
+            workflow.parent.mkdir(parents=True, mode=0o700)
             workflow.write_text(original, encoding="utf-8")
-            os.chown(workflow, teladi_uid, teladi_gid)
+            if os.geteuid() == 0:
+                for path in (root, archive, archive / ".github", workflow.parent, workflow):
+                    os.chown(path, teladi_uid, teladi_gid)
             workflow.chmod(0o644)
             result = subprocess.run(  # nosec B603 -- fixed runuser/python argv
-                [
-                    "/usr/sbin/runuser",
-                    "-u",
-                    "teladi",
-                    "--",
-                    "/usr/bin/env",
-                    "-i",
-                    "HOME=/home/teladi",
-                    "PATH=/usr/local/bin:/usr/bin:/bin",
-                    "/usr/bin/python3",
-                    "-",
-                    str(workflow),
-                    new_sha,
-                ],
+                [*command_prefix, "-", str(workflow), new_sha],
                 input=rewrite,
                 text=True,
                 capture_output=True,
@@ -391,6 +481,264 @@ class RolloutPlanContractTests(unittest.TestCase):
         self.assertEqual(metadata.st_uid, teladi_uid)
         self.assertEqual(metadata.st_gid, teladi_gid)
         self.assertEqual(metadata.st_mode & 0o777, 0o644)
+
+    def test_task5_workflow_rewriter_rejects_github_symlink_and_parent_swap(self) -> None:
+        if (os.geteuid(), os.getegid()) != (1000, 1000):
+            self.skipTest("the attack probe runs directly as teladi")
+        _prefix, rewrite = _quoted_heredoc(self.task5_step3, "TASK5_REWRITE_PY")
+        old_sha = "1" * 40
+        new_sha = "2" * 40
+        original = (
+            "jobs:\n"
+            "  publish:\n"
+            "    uses: H234598/Wirtelprimpf-generator/.github/workflows/"
+            f"archive-pages.yml@{old_sha}\n"
+            "    with:\n"
+            f'      factory_ref: "{old_sha}"\n'
+        )
+
+        def execute(script: str, workflow: Path) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [
+                    "/usr/bin/env",
+                    "-i",
+                    "HOME=/home/teladi",
+                    "PATH=/usr/local/bin:/usr/bin:/bin",
+                    "/usr/bin/python3",
+                    "-",
+                    str(workflow),
+                    new_sha,
+                ],
+                input=script,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-task5-symlink-") as tmp:
+            root = Path(tmp)
+            archive = root / "archive"
+            archive.mkdir()
+            external = root / "external-github/workflows"
+            external.mkdir(parents=True)
+            workflow = external / "pages.yml"
+            workflow.write_text(original, encoding="utf-8")
+            workflow.chmod(0o644)
+            (archive / ".github").symlink_to(external.parent, target_is_directory=True)
+
+            result = execute(rewrite, archive / ".github/workflows/pages.yml")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(workflow.read_text(encoding="utf-8"), original)
+            self.assertEqual(list(external.glob(".*.part")), [])
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-task5-parent-swap-") as tmp:
+            archive = Path(tmp) / "archive"
+            original_parent = archive / ".github/workflows"
+            replacement_parent = archive / ".github-replacement/workflows"
+            original_parent.mkdir(parents=True)
+            replacement_parent.mkdir(parents=True)
+            workflow = original_parent / "pages.yml"
+            replacement = replacement_parent / "pages.yml"
+            workflow.write_text(original, encoding="utf-8")
+            replacement.write_text(original, encoding="utf-8")
+            workflow.chmod(0o644)
+            replacement.chmod(0o644)
+            needle = "    current_root = os.stat(archive_root, follow_symlinks=False)\n"
+            self.assertIn(needle, rewrite)
+            injected = rewrite.replace(
+                needle,
+                "    os.rename(archive_root / '.github', archive_root / '.github-original')\n"
+                "    os.rename(archive_root / '.github-replacement', archive_root / '.github')\n"
+                + needle,
+                1,
+            )
+
+            result = execute(injected, workflow)
+
+            self.assertNotEqual(result.returncode, 0)
+            moved_original = archive / ".github-original/workflows/pages.yml"
+            self.assertEqual(moved_original.read_text(encoding="utf-8"), original)
+            self.assertEqual(
+                (archive / ".github/workflows/pages.yml").read_text(encoding="utf-8"),
+                original,
+            )
+            self.assertEqual(list(moved_original.parent.glob(".*.part")), [])
+
+    def test_runtime_git_fetch_and_switch_share_the_hardened_local_config_boundary(self) -> None:
+        guard = _marked_block(self.deployment, "TASK4_RUNTIME_GIT_GUARD")
+        runtime_git = _shell_function(self.deployment, "git_runtime")
+        runtime_fetch = _shell_function(self.deployment, "git_runtime_fetch_bounded")
+        for script in (guard, runtime_git, runtime_fetch):
+            self.assertIn("GIT_CONFIG_NOSYSTEM=1", script)
+            self.assertIn("GIT_CONFIG_GLOBAL=/dev/null", script)
+        self.assertIn("assert_safe_runtime_git_config", runtime_git)
+        self.assertIn("switch)", runtime_git)
+        self.assertIn("core.hooksPath=/dev/null", runtime_git)
+        self.assertIn("core.fsmonitor=false", runtime_git)
+        self.assertIn("protocol.ext.allow=never", runtime_git)
+        self.assertIn('fetch "$runtime_canonical_origin"', runtime_fetch)
+        self.assertIn("refs/heads/main:refs/remotes/origin/main", runtime_fetch)
+        self.assertNotIn("fetch origin main", runtime_fetch)
+
+    def test_runtime_git_local_config_is_exactly_allowlisted_for_checkout(self) -> None:
+        guard = _marked_block(self.deployment, "TASK4_RUNTIME_GIT_GUARD")
+        hostile_entries = (
+            ("filter.attack.smudge", "/bin/false"),
+            ("core.attributesFile", "/tmp/hostile-attributes"),  # nosec B108
+            ("core.worktree", "/tmp/hostile-worktree"),  # nosec B108
+            ("diff.attack.command", "/bin/false"),
+            ("merge.attack.driver", "/bin/false"),
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-runtime-config-") as tmp:
+            repository = Path(tmp) / "runtime"
+            _fixture_git(
+                ["init", "-q", "-b", "main", str(repository)],
+                check=True,
+                timeout=10,
+            )
+            _fixture_git(
+                [
+                    "-C",
+                    str(repository),
+                    "remote",
+                    "add",
+                    "origin",
+                    "https://github.com/H234598/Wirtelprimpf-generator.git",
+                ],
+                check=True,
+                timeout=10,
+            )
+            _fixture_git(
+                [
+                    "-C",
+                    str(repository),
+                    "config",
+                    "--local",
+                    "core.repositoryformatversion",
+                    "1",
+                ],
+                check=True,
+                timeout=10,
+            )
+            _fixture_git(
+                [
+                    "-C",
+                    str(repository),
+                    "config",
+                    "--local",
+                    "remote.origin.fetch",
+                    "+refs/heads/main:refs/remotes/origin/main",
+                ],
+                check=True,
+                timeout=10,
+            )
+            for key, value in (
+                ("branch.main.remote", "origin"),
+                ("branch.main.merge", "refs/heads/main"),
+                ("branch.agent/transactional-settings-live-sync-status.remote", "origin"),
+                (
+                    "branch.agent/transactional-settings-live-sync-status.merge",
+                    "refs/heads/agent/transactional-settings-live-sync-status",
+                ),
+            ):
+                _fixture_git(
+                    ["-C", str(repository), "config", "--local", key, value],
+                    check=True,
+                    timeout=10,
+                )
+            script = (
+                "set -Eeuo pipefail\n"
+                f"runtime={repository!s}\n"
+                "runtime_canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git\n"
+                f"{guard}\n"
+                "assert_safe_runtime_git_config\n"
+            )
+            accepted = subprocess.run(
+                ["/bin/bash", "-c", script],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            for key, value in hostile_entries:
+                _fixture_git(
+                    ["-C", str(repository), "config", "--local", key, value],
+                    check=True,
+                    timeout=10,
+                )
+                rejected = subprocess.run(
+                    ["/bin/bash", "-c", script],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                    env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                )
+                with self.subTest(key=key):
+                    self.assertNotEqual(rejected.returncode, 0)
+                _fixture_git(
+                    [
+                        "-C",
+                        str(repository),
+                        "config",
+                        "--local",
+                        "--unset-all",
+                        key,
+                    ],
+                    check=True,
+                    timeout=10,
+                )
+
+    def test_task6_binds_probe_dispatch_selection_and_watch_to_exact_inputs(self) -> None:
+        step = self.task6_step1
+        normalized = " ".join(step.split())
+        self.assertIn("set -Eeuo pipefail", step)
+        self.assertIn("test \"$(id -u)\" = 0", step)
+        self.assertIn("/usr/sbin/runuser -u teladi -- /usr/bin/env -i", normalized)
+        self.assertIn("DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus", normalized)
+        self.assertIn("XDG_RUNTIME_DIR=/run/user/1000", normalized)
+        local_prefix, local_probe = _quoted_heredoc(step, "TASK6_LOCAL_PROBE")
+        del local_prefix
+        self.assertNotIn("GH_TOKEN", local_probe)
+        self.assertNotIn("GITHUB_TOKEN", local_probe)
+        self.assertIn("refs/heads/main", local_probe)
+        self.assertIn("refs/remotes/origin/main", local_probe)
+        self.assertIn("task6_token_call", step)
+        self.assertIn("set +x", step)
+        self.assertIn(".login == \"H234598\"", step)
+        self.assertIn(".id == 54270221", step)
+        self.assertIn(".id == \"R_kgDOTpr2BA\"", step)
+        self.assertIn(
+            "repos/H234598/Wirtelprimpf-generator/actions/workflows/"
+            "hub-pages.yml/dispatches",
+            step,
+        )
+        self.assertIn("X-GitHub-Api-Version: 2026-03-10", step)
+        self.assertIn('"return_run_details": true', step)
+        self.assertIn('"ref": "main"', step)
+        self.assertIn('"active_repository": $active_repository', step)
+        self.assertIn('"archive_ref": $archive_main_sha', step)
+        self.assertIn('"current_volume": $current_volume', step)
+        self.assertNotIn("workflow run hub-pages.yml", step)
+        self.assertNotIn("run list", step)
+        self.assertNotIn("dispatch_started_at", step)
+        self.assertIn("workflow_run_id", step)
+        for field in (
+            "head_sha",
+            "head_branch",
+            "event",
+            "display_title",
+            "repository",
+            "workflow_url",
+        ):
+            self.assertIn(field, step)
+        self.assertIn("expected_display_title", step)
+        self.assertIn("verify_hub_run_identity", step)
+        self.assertLess(step.rindex("verify_hub_run_identity"), step.index("run watch"))
 
     def test_token_children_isolate_system_and_global_git_configuration(self) -> None:
         task5_child = _quoted_heredoc(self.task5_step5, "TASK5_STEP5_TELADI")[1]
@@ -460,8 +808,8 @@ set -Eeuo pipefail
         )
         with tempfile.TemporaryDirectory(prefix="wirtelprimpf-local-config-guard-") as tmp:
             repo = Path(tmp) / "repo"
-            subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
-                ["/usr/bin/git", "init", "-q", str(repo)],
+            _fixture_git(
+                ["init", "-q", str(repo)],
                 check=True,
             )
             script = f"set -Eeuo pipefail\n{guard}\nassert_safe_local_git_config \"$1\"\n"
@@ -474,8 +822,8 @@ set -Eeuo pipefail
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
             for key, value in hostile_entries:
-                subprocess.run(  # nosec B603 -- fixed git argv and controlled config key
-                    ["/usr/bin/git", "-C", str(repo), "config", "--local", key, value],
+                _fixture_git(
+                    ["-C", str(repo), "config", "--local", key, value],
                     check=True,
                 )
                 rejected = subprocess.run(  # nosec B603 -- fixed local shell argv
@@ -487,8 +835,8 @@ set -Eeuo pipefail
                 )
                 with self.subTest(key=key):
                     self.assertNotEqual(rejected.returncode, 0)
-                subprocess.run(  # nosec B603 -- fixed git argv and controlled config key
-                    ["/usr/bin/git", "-C", str(repo), "config", "--local", "--unset-all", key],
+                _fixture_git(
+                    ["-C", str(repo), "config", "--local", "--unset-all", key],
                     check=True,
                 )
 
@@ -507,14 +855,13 @@ set -Eeuo pipefail
         with tempfile.TemporaryDirectory(prefix="wirtelprimpf-redacted-git-guard-") as tmp:
             for name, plan_script, marker in cases:
                 repo = Path(tmp) / name
-                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
-                    ["/usr/bin/git", "init", "-q", str(repo)],
+                _fixture_git(
+                    ["init", "-q", str(repo)],
                     check=True,
                 )
                 secret_key = f"url.https://{sentinel}@foreign.invalid/.insteadOf"
-                subprocess.run(  # nosec B603 -- fixed git argv and controlled config key
+                _fixture_git(
                     [
-                        "/usr/bin/git",
                         "-C",
                         str(repo),
                         "config",
@@ -1042,16 +1389,16 @@ load_verified_task3_factory_sha
         ) -> subprocess.CompletedProcess[str]:
             with tempfile.TemporaryDirectory(prefix="wirtelprimpf-step6-candidate-") as tmp:
                 repo = Path(tmp) / "archive"
-                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
-                    ["/usr/bin/git", "init", "-q", str(repo)],
+                _fixture_git(
+                    ["init", "-q", str(repo)],
                     check=True,
                 )
-                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
-                    ["/usr/bin/git", "-C", str(repo), "config", "user.name", "Contract Test"],
+                _fixture_git(
+                    ["-C", str(repo), "config", "user.name", "Contract Test"],
                     check=True,
                 )
-                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
-                    ["/usr/bin/git", "-C", str(repo), "config", "user.email", "contract@example.invalid"],
+                _fixture_git(
+                    ["-C", str(repo), "config", "user.email", "contract@example.invalid"],
                     check=True,
                 )
                 workflow_path = repo / ".github" / "workflows" / "pages.yml"
@@ -1066,15 +1413,13 @@ load_verified_task3_factory_sha
                     f'      factory_ref: "{old_sha}"\n',
                     encoding="utf-8",
                 )
-                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
-                    ["/usr/bin/git", "-C", str(repo), "add", "."], check=True
-                )
-                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
-                    ["/usr/bin/git", "-C", str(repo), "commit", "-q", "-m", "base"],
+                _fixture_git(["-C", str(repo), "add", "."], check=True)
+                _fixture_git(
+                    ["-C", str(repo), "commit", "-q", "-m", "base"],
                     check=True,
                 )
-                base = subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
-                    ["/usr/bin/git", "-C", str(repo), "rev-parse", "HEAD"],
+                base = _fixture_git(
+                    ["-C", str(repo), "rev-parse", "HEAD"],
                     text=True,
                     capture_output=True,
                     check=True,
@@ -1082,15 +1427,13 @@ load_verified_task3_factory_sha
                 workflow_path.write_text(workflow, encoding="utf-8")
                 if extra_file:
                     (repo / "unexpected").write_text("unexpected\n", encoding="utf-8")
-                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
-                    ["/usr/bin/git", "-C", str(repo), "add", "."], check=True
-                )
-                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
-                    ["/usr/bin/git", "-C", str(repo), "commit", "-q", "-m", "candidate"],
+                _fixture_git(["-C", str(repo), "add", "."], check=True)
+                _fixture_git(
+                    ["-C", str(repo), "commit", "-q", "-m", "candidate"],
                     check=True,
                 )
-                head = subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
-                    ["/usr/bin/git", "-C", str(repo), "rev-parse", "HEAD"],
+                head = _fixture_git(
+                    ["-C", str(repo), "rev-parse", "HEAD"],
                     text=True,
                     capture_output=True,
                     check=True,
@@ -1156,6 +1499,88 @@ load_verified_task3_factory_sha
         self.assertIn("mergeCommit", postmerge)
         self.assertIn("git/ref/heads/main", postmerge)
         self.assertIn("git/matching-refs/heads/chore/pin-transactional-site-factory", postmerge)
+        self.assertIn("task5_postmerge_local_main", postmerge)
+        self.assertIn("refs/heads/main:refs/remotes/origin/main", postmerge)
+        self.assertIn("'refs/heads/main^{commit}'", postmerge)
+        self.assertIn("'refs/remotes/origin/main^{commit}'", postmerge)
+        self.assertIn('test "$local_main" = "$merged_sha"', postmerge)
+        self.assertIn('test "$remote_main" = "$merged_sha"', postmerge)
+        self.assertIn("switch main", postmerge)
+
+    def test_task5_postmerge_git_config_is_exactly_allowlisted(self) -> None:
+        postmerge_child = _quoted_heredoc(
+            self.task5_step6, "TASK5_POSTMERGE_TELADI"
+        )[1]
+        guard = _marked_block(postmerge_child, "TASK5_POSTMERGE_GIT_GUARD")
+        hostile_entries = (
+            ("filter.attack.smudge", "/bin/false"),
+            ("core.attributesFile", "/tmp/hostile-attributes"),  # nosec B108
+            ("core.worktree", "/tmp/hostile-worktree"),  # nosec B108
+            ("diff.attack.command", "/bin/false"),
+            ("merge.attack.driver", "/bin/false"),
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-postmerge-config-") as tmp:
+            repository = Path(tmp) / "archive"
+            canonical = "https://github.com/H234598/Wirtelprimpf-0001.git"
+            _fixture_git(["init", "-q", "-b", "main", str(repository)], check=True)
+            _fixture_git(
+                ["-C", str(repository), "remote", "add", "origin", canonical],
+                check=True,
+            )
+            _fixture_git(
+                [
+                    "-C",
+                    str(repository),
+                    "config",
+                    "--local",
+                    "remote.origin.fetch",
+                    "+refs/heads/main:refs/remotes/origin/main",
+                ],
+                check=True,
+            )
+            for key, value in (
+                ("branch.main.remote", "origin"),
+                ("branch.main.merge", "refs/heads/main"),
+            ):
+                _fixture_git(
+                    ["-C", str(repository), "config", "--local", key, value],
+                    check=True,
+                )
+            script = (
+                "set -Eeuo pipefail\n"
+                f"archive_checkout={repository!s}\n"
+                f"canonical_origin={canonical}\n"
+                f"{guard}\n"
+                "assert_safe_task5_postmerge_config\n"
+            )
+            accepted = subprocess.run(
+                ["/bin/bash", "-c", script],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            for key, value in hostile_entries:
+                _fixture_git(
+                    ["-C", str(repository), "config", "--local", key, value],
+                    check=True,
+                )
+                rejected = subprocess.run(
+                    ["/bin/bash", "-c", script],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                    env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                )
+                with self.subTest(key=key):
+                    self.assertNotEqual(rejected.returncode, 0)
+                _fixture_git(
+                    ["-C", str(repository), "config", "--local", "--unset-all", key],
+                    check=True,
+                )
 
     def test_task3_expected_text_has_no_normative_v2_receipt(self) -> None:
         task3_expected_start = self.document.index(
@@ -1505,8 +1930,8 @@ task3_token_call "$1"
         canonical = "https://github.com/H234598/Wirtelprimpf-generator.git"
         with tempfile.TemporaryDirectory(prefix="wirtelprimpf-origin-contract-") as tmp:
             repo = Path(tmp) / "repo"
-            subprocess.run(["git", "init", "-q", str(repo)], check=True)
-            subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", canonical], check=True)
+            _fixture_git(["init", "-q", str(repo)], check=True)
+            _fixture_git(["-C", str(repo), "remote", "add", "origin", canonical], check=True)
             check_script = f"set -Eeuo pipefail\n{predicate}\ncanonical_origin=$1\nassert_canonical_origin origin\n"
             accepted = subprocess.run(
                 ["bash", "-c", check_script, "origin-test", canonical],
@@ -1518,13 +1943,12 @@ task3_token_call "$1"
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
 
-            subprocess.run(
-                ["git", "-C", str(repo), "remote", "set-url", "--add", "--push", "origin", canonical],
+            _fixture_git(
+                ["-C", str(repo), "remote", "set-url", "--add", "--push", "origin", canonical],
                 check=True,
             )
-            subprocess.run(
+            _fixture_git(
                 [
-                    "git",
                     "-C",
                     str(repo),
                     "remote",
@@ -1555,24 +1979,26 @@ task3_token_call "$1"
             source = Path(tmp) / "source"
             remote = Path(tmp) / "remote.git"
             leak = Path(tmp) / "hook-leak"
-            subprocess.run(["git", "init", "-q", str(source)], check=True)
-            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
-            subprocess.run(["git", "-C", str(source), "config", "user.name", "Contract Test"], check=True)
-            subprocess.run(["git", "-C", str(source), "config", "user.email", "contract@example.invalid"], check=True)
+            _fixture_git(["init", "-q", str(source)], check=True)
+            _fixture_git(["init", "-q", "--bare", str(remote)], check=True)
+            _fixture_git(["-C", str(source), "config", "user.name", "Contract Test"], check=True)
+            _fixture_git(
+                ["-C", str(source), "config", "user.email", "contract@example.invalid"],
+                check=True,
+            )
             (source / "tracked").write_text("reviewed\n", encoding="utf-8")
-            subprocess.run(["git", "-C", str(source), "add", "tracked"], check=True)
-            subprocess.run(["git", "-C", str(source), "commit", "-q", "-m", "reviewed"], check=True)
+            _fixture_git(["-C", str(source), "add", "tracked"], check=True)
+            _fixture_git(
+                ["-C", str(source), "commit", "-q", "-m", "reviewed"], check=True
+            )
             hook = source / ".git/hooks/pre-push"
             hook.write_text(
                 f"#!/bin/sh\nprintf '%s' \"${{GH_TOKEN:-missing}}\" >'{leak}'\nexit 91\n",
                 encoding="utf-8",
             )
             hook.chmod(0o700)
-            result = subprocess.run(  # nosec B603 -- fixed git argv and disposable remote
+            result = _fixture_git(
                 [
-                    "/usr/bin/git",
-                    "-c",
-                    "core.hooksPath=/dev/null",
                     "-C",
                     str(source),
                     "push",
@@ -1583,18 +2009,17 @@ task3_token_call "$1"
                 capture_output=True,
                 check=False,
                 timeout=10,
-                env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(leak.exists(), "the real pre-push hook observed the tokenized Git process")
-            remote_head = subprocess.run(
-                ["git", "-C", str(remote), "rev-parse", "refs/heads/main"],
+            remote_head = _fixture_git(
+                ["-C", str(remote), "rev-parse", "refs/heads/main"],
                 text=True,
                 capture_output=True,
                 check=True,
             ).stdout.strip()
-            local_head = subprocess.run(
-                ["git", "-C", str(source), "rev-parse", "HEAD"],
+            local_head = _fixture_git(
+                ["-C", str(source), "rev-parse", "HEAD"],
                 text=True,
                 capture_output=True,
                 check=True,
@@ -1628,10 +2053,9 @@ task3_token_call "$1"
                     ("step5", self.task3_merge),
                 ):
                     repo = Path(tmp) / name
-                    subprocess.run(["git", "init", "-q", str(repo)], check=True)
-                    subprocess.run(
+                    _fixture_git(["init", "-q", str(repo)], check=True)
+                    _fixture_git(
                         [
-                            "git",
                             "-C",
                             str(repo),
                             "config",
@@ -1701,9 +2125,9 @@ fi
             ):
                 repo = root / f"repo-{name}"
                 leak = root / f"askpass-leak-{name}"
-                subprocess.run(["git", "init", "-q", str(repo)], check=True)
-                subprocess.run(
-                    ["git", "-C", str(repo), "config", "core.askPass", str(askpass)],
+                _fixture_git(["init", "-q", str(repo)], check=True)
+                _fixture_git(
+                    ["-C", str(repo), "config", "core.askPass", str(askpass)],
                     check=True,
                 )
                 git_remote = _shell_function(plan_script, "git_remote")
@@ -2156,6 +2580,22 @@ classify_task3_remote_action "$1" "$2" "$3" "$4" "$5" "$6"
         self.assertIn("# BEGIN TASK4_GENERATOR_QUIESCE", self.deployment)
         quiesce = _marked_block(self.deployment, "TASK4_GENERATOR_QUIESCE")
         self.assertIn("deadline=$((SECONDS + 300))", quiesce)
+        self.assertIn(
+            "systemctl --user --job-mode=fail stop wirtelprimpf.service",
+            quiesce,
+        )
+        self.assertNotIn("systemctl --user stop wirtelprimpf.service", quiesce)
+        self.assertIn(
+            "systemctl --user show wirtelprimpf.service -p LoadState --value",
+            quiesce,
+        )
+
+        fail_closed = _shell_function(self.deployment, "fail_closed_runtime")
+        self.assertLess(
+            fail_closed.index("wait_generator_inactive"),
+            fail_closed.index("mask_generator_runtime"),
+        )
+        self.assertNotIn("mask --runtime wirtelprimpf.service", fail_closed)
 
         script = f"""
 set -Eeuo pipefail
@@ -2165,12 +2605,13 @@ events=$2
 state_counter=$3
 mask_state=$4
 state_spec=$5
+load_state=$6
 printf '0\n' >"$state_counter"
-if [[ "$case_name" == unexpected-unit-state ]]; then
-  printf 'enabled\n' >"$mask_state"
-else
-  printf 'static\n' >"$mask_state"
-fi
+case "$case_name" in
+  unexpected-unit-state) printf 'enabled\n' >"$mask_state" ;;
+  partial-mask-state) printf 'masked-runtime\n' >"$mask_state" ;;
+  *) printf 'static\n' >"$mask_state" ;;
+esac
 
 next_generator_state() {{
   local index state active sub
@@ -2195,8 +2636,15 @@ systemctl() {{
     '--user show wirtelprimpf.service -p ActiveState -p SubState --no-pager')
       next_generator_state
       ;;
-    '--user stop wirtelprimpf.service')
+    '--user --job-mode=fail stop wirtelprimpf.service')
+      if [[ "$case_name" == post-snapshot-stop-race ]]; then
+        printf 'service-stop-job-rejected\n' >>"$events"
+        return 1
+      fi
       printf 'service-stop\n' >>"$events"
+      ;;
+    '--user stop wirtelprimpf.service')
+      printf 'destructive-default-service-stop\n' >>"$events"
       ;;
     '--user is-enabled wirtelprimpf.service')
       cat "$mask_state"
@@ -2204,6 +2652,13 @@ systemctl() {{
     '--user mask --runtime wirtelprimpf.service')
       printf 'service-mask\n' >>"$events"
       printf 'masked-runtime\n' >"$mask_state"
+      load_state=masked
+      ;;
+    '--user daemon-reload')
+      printf 'daemon-reload\n' >>"$events"
+      ;;
+    '--user show wirtelprimpf.service -p LoadState --value')
+      printf '%s\n' "$load_state"
       ;;
     *)
       printf 'unexpected-systemctl:%s\n' "$*" >>"$events"
@@ -2252,8 +2707,21 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
                 "success": True,
                 "service_stop": True,
             },
+            "queued-auto-restart": {
+                "states": "activating:auto-restart-queued,inactive:dead,inactive:dead,inactive:dead",
+                "success": True,
+                "service_stop": False,
+            },
             "auto-restart-race": {
                 "states": "activating:auto-restart,activating:start",
+                "success": False,
+                "service_stop": False,
+            },
+            "post-snapshot-stop-race": {
+                "states": (
+                    "activating:auto-restart,activating:auto-restart,"
+                    "inactive:dead,inactive:dead"
+                ),
                 "success": False,
                 "service_stop": False,
             },
@@ -2261,7 +2729,6 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
                 "states": "inactive:dead,activating:start",
                 "success": False,
                 "service_stop": False,
-                "fail_closed_mask": True,
             },
             "unexpected": {
                 "states": "active:running",
@@ -2270,6 +2737,11 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
             },
             "unexpected-unit-state": {
                 "states": "inactive:dead",
+                "success": False,
+                "service_stop": False,
+            },
+            "partial-mask-state": {
+                "states": "inactive:dead,inactive:dead",
                 "success": False,
                 "service_stop": False,
             },
@@ -2296,6 +2768,7 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
                             str(counter),
                             str(mask_state),
                             str(expected["states"]),
+                            "loaded",
                         ],
                         text=True,
                         capture_output=True,
@@ -2357,9 +2830,11 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
                         "running-start-pre-success",
                         "running-success",
                         "running-auto-restart",
+                        "queued-auto-restart",
                         "timeout",
                     }:
                         self.assertIn("natural-wait", event_lines)
+                    self.assertNotIn("destructive-default-service-stop", event_lines)
 
     def test_restore_unmasks_an_inactive_generator_without_starting_it(self) -> None:
         unmask = _shell_function(self.deployment, "unmask_generator_runtime")
@@ -2489,22 +2964,39 @@ while :; do sleep 0.01; done
                 stderr=subprocess.PIPE,
                 env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
             )
-            deadline = time.monotonic() + 5
-            while not armed.exists() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertTrue(armed.exists(), "normative rollback probe did not arm")
-            process.send_signal(signal.SIGTERM)
-            while not recovery_ready.exists() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertTrue(recovery_ready.exists(), "normative rollback did not enter recovery")
-            process.send_signal(signal.SIGHUP)
-            time.sleep(0.05)
-            self.assertIsNone(process.poll(), "second signal interrupted normative recovery")
-            recovery_release.touch()
-            stdout, stderr = process.communicate(timeout=10)
-            self.assertEqual(process.returncode, 143, stderr)
-            self.assertEqual(stdout, "")
-            self.assertTrue(release_proof.exists(), "normative rollback did not release its lock")
+            communicated = False
+            try:
+                armed_deadline = time.monotonic() + 5
+                while not armed.exists() and time.monotonic() < armed_deadline:
+                    time.sleep(0.01)
+                self.assertTrue(armed.exists(), "normative rollback probe did not arm")
+                process.send_signal(signal.SIGTERM)
+                recovery_deadline = time.monotonic() + 5
+                while not recovery_ready.exists() and time.monotonic() < recovery_deadline:
+                    time.sleep(0.01)
+                self.assertTrue(
+                    recovery_ready.exists(), "normative rollback did not enter recovery"
+                )
+                process.send_signal(signal.SIGHUP)
+                time.sleep(0.05)
+                self.assertIsNone(process.poll(), "second signal interrupted normative recovery")
+                recovery_release.touch()
+                stdout, stderr = process.communicate(timeout=10)
+                communicated = True
+                self.assertEqual(process.returncode, 143, stderr)
+                self.assertEqual(stdout, "")
+                self.assertTrue(
+                    release_proof.exists(), "normative rollback did not release its lock"
+                )
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                if not communicated:
+                    try:
+                        process.communicate(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.communicate(timeout=2)
 
     def test_normative_deployment_and_harness_are_valid_bash(self) -> None:
         for name, script in (

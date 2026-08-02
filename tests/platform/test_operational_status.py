@@ -16,6 +16,7 @@ else:
     from _settings_fixtures import snapshot_for_test
 
 from wirtelprimpf_platform.catalog import CatalogEntry, CatalogStore, PublicationCatalog
+from wirtelprimpf_platform.naming import STORIES_PER_BOOK
 from wirtelprimpf_platform.operational_status import OperationalStatusCollector, StatusPaths
 from wirtelprimpf_platform.settings import SettingsPaths
 from wirtelprimpf_platform.state import PlatformState, StateStore
@@ -155,6 +156,7 @@ class OperationalStatusTests(unittest.TestCase):
         self.assertEqual(status["story"]["current_volume"], 2)
         self.assertEqual(status["story"]["book"], 1)
         self.assertEqual(status["story"]["story_in_book"], 2)
+        self.assertEqual(status["story"]["stories_per_book"], STORIES_PER_BOOK)
         self.assertEqual(status["archive"]["repository"], "Wirtelprimpf-0001")
         self.assertEqual(status["timer"]["interval_minutes"], 120)
 
@@ -230,6 +232,152 @@ class OperationalStatusTests(unittest.TestCase):
             ).collect()
         self.assertEqual(status["configuration"]["observed_at"], "2026-08-01T11:58:00Z")
         self.assertEqual(status["configuration"]["state"], "valid")
+
+    def test_revision_signal_mismatch_is_copied_into_final_configuration_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = StatusPaths.for_root(Path(temporary))
+            StateStore(paths.platform_state).save(PlatformState())
+            paths.settings_state.parent.mkdir(parents=True, exist_ok=True)
+            paths.settings_state.write_text(
+                json.dumps({"schema_version": "2.0.0", "revision": "c" * 64}) + "\n",
+                encoding="utf-8",
+            )
+            snapshot = snapshot_for_test(revision="b" * 64, settings={})
+            status = OperationalStatusCollector(
+                paths=paths,
+                snapshot_reader=lambda: snapshot,
+                timer_reader=active_timer,
+                service_reader=lambda: {"active_state": "inactive"},
+            ).collect()
+
+        self.assertEqual(status["configuration"]["state"], "drift")
+        self.assertIn("revision_signal_mismatch", status["configuration"]["drift"])
+        self.assertIn("revision_signal_mismatch", status["warnings"])
+
+    def test_story_property_failure_is_redacted_inside_the_source_boundary(self) -> None:
+        class InvalidState:
+            current_volume = 1
+
+            @property
+            def generation_blocked(self):
+                raise RuntimeError("OPENAI_API_KEY=must-never-escape")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = StatusPaths.for_root(Path(temporary))
+            paths.platform_state.parent.mkdir(parents=True, exist_ok=True)
+            paths.platform_state.touch(mode=0o600)
+            snapshot = snapshot_for_test(revision="b" * 64, settings={})
+            collector = OperationalStatusCollector(
+                paths=paths,
+                snapshot_reader=lambda: snapshot,
+                timer_reader=active_timer,
+                service_reader=lambda: {"active_state": "inactive"},
+            )
+            with patch(
+                "wirtelprimpf_platform.operational_status.StateStore",
+                return_value=SimpleNamespace(load=lambda: InvalidState()),
+            ):
+                status = collector.collect()
+
+        self.assertEqual(status["story"]["state"], "unknown")
+        self.assertIn(
+            {"source": "platform_state", "message": "local source unavailable"},
+            status["errors"],
+        )
+        self.assertNotIn("must-never-escape", json.dumps(status))
+
+    def test_malformed_release_tag_degrades_instead_of_winning_lexically(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = StatusPaths.for_root(Path(temporary))
+            StateStore(paths.platform_state).save(PlatformState())
+            paths.media_manifest.parent.mkdir(parents=True, exist_ok=True)
+            paths.media_manifest.write_text(
+                json.dumps(
+                    {
+                        "media": [
+                            {"release_tag": "archive-0001-media-0002"},
+                            {"release_tag": "zzz-not-a-release"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            snapshot = snapshot_for_test(revision="b" * 64, settings={})
+            status = OperationalStatusCollector(
+                paths=paths,
+                snapshot_reader=lambda: snapshot,
+                timer_reader=active_timer,
+                service_reader=lambda: {"active_state": "inactive"},
+            ).collect()
+
+        self.assertEqual(status["publication"]["release"]["state"], "unknown")
+        self.assertIn(
+            {"source": "media_manifest", "message": "local source unavailable"},
+            status["errors"],
+        )
+
+    def test_hub_derived_value_failure_is_redacted_inside_the_source_boundary(self) -> None:
+        class InvalidHub(dict):
+            def get(self, *_args, **_kwargs):
+                raise RuntimeError("GH_TOKEN=must-never-escape")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = StatusPaths.for_root(Path(temporary))
+            StateStore(paths.platform_state).save(PlatformState())
+            paths.hub_source.parent.mkdir(parents=True, exist_ok=True)
+            paths.hub_source.touch()
+            snapshot = snapshot_for_test(revision="b" * 64, settings={})
+            collector = OperationalStatusCollector(
+                paths=paths,
+                snapshot_reader=lambda: snapshot,
+                timer_reader=active_timer,
+                service_reader=lambda: {"active_state": "inactive"},
+            )
+            with patch(
+                "wirtelprimpf_platform.operational_status._read_json_object",
+                return_value=InvalidHub(),
+            ):
+                status = collector.collect()
+
+        self.assertEqual(status["publication"]["hub"]["state"], "unknown")
+        self.assertIn(
+            {"source": "hub", "message": "local source unavailable"},
+            status["errors"],
+        )
+        self.assertNotIn("must-never-escape", json.dumps(status))
+
+    def test_catalog_derived_value_failure_is_redacted_inside_the_source_boundary(self) -> None:
+        class InvalidCatalog:
+            active_archive_index = 1
+
+            def entry(self, _archive_index: int):
+                raise RuntimeError("CLOUDFLARE_API_TOKEN=must-never-escape")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = StatusPaths.for_root(Path(temporary))
+            StateStore(paths.platform_state).save(PlatformState())
+            paths.publication_catalog.parent.mkdir(parents=True, exist_ok=True)
+            paths.publication_catalog.touch()
+            snapshot = snapshot_for_test(revision="b" * 64, settings={})
+            collector = OperationalStatusCollector(
+                paths=paths,
+                snapshot_reader=lambda: snapshot,
+                timer_reader=active_timer,
+                service_reader=lambda: {"active_state": "inactive"},
+            )
+            with patch(
+                "wirtelprimpf_platform.operational_status.CatalogStore",
+                return_value=SimpleNamespace(load=lambda: InvalidCatalog()),
+            ):
+                status = collector.collect()
+
+        self.assertEqual(status["publication"]["pages"]["state"], "unknown")
+        self.assertEqual(status["publication"]["dns"]["state"], "unknown")
+        self.assertIn(
+            {"source": "publication_catalog", "message": "local source unavailable"},
+            status["errors"],
+        )
+        self.assertNotIn("must-never-escape", json.dumps(status))
 
     def test_collector_never_invokes_network_clients(self) -> None:
         forbidden = {"curl", "wget", "gh", "wrangler"}

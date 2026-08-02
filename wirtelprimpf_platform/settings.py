@@ -7,11 +7,12 @@ import hashlib
 import json
 import os
 import re
+import selectors
 import stat
 import subprocess
 import time
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -30,6 +31,8 @@ from .systemd_user import SystemdUserManager, TimerConfiguration, TimerObservati
 Validator = Callable[[Mapping[str, str]], None]
 _REVISION_RE = re.compile(r"[0-9a-f]{64}")
 _SECRET_NAMES = frozenset({"openai_api_key", "cloudflare_api_token"})
+_VALIDATOR_STDOUT_LIMIT = 64 * 1024
+_VALIDATOR_TIMEOUT_SECONDS = 30.0
 _TIMER_KEYS = frozenset(
     {
         "generation_interval_minutes",
@@ -246,21 +249,50 @@ def _close_quietly(descriptor: int) -> None:
 
 def validate_generator_environment(generator_root: Path, environment: Mapping[str, str]) -> None:
     executable = Path(generator_root) / ".venv/bin/wirtelprimpf-generator"
+    process: subprocess.Popen[bytes] | None = None
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             [str(executable), "--check-config", "--json"],
             cwd=generator_root,
             env=dict(environment),
-            text=True,
-            capture_output=True,
-            timeout=30,
-            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
         )
-        payload = json.loads(result.stdout)
-    except (OSError, subprocess.SubprocessError, UnicodeError, json.JSONDecodeError) as exc:
+        assert process.stdout is not None
+        output = bytearray()
+        deadline = time.monotonic() + _VALIDATOR_TIMEOUT_SECONDS
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(process.args, _VALIDATOR_TIMEOUT_SECONDS)
+                if not selector.select(remaining):
+                    raise subprocess.TimeoutExpired(process.args, _VALIDATOR_TIMEOUT_SECONDS)
+                chunk = os.read(
+                    process.stdout.fileno(),
+                    min(8_192, _VALIDATOR_STDOUT_LIMIT + 1 - len(output)),
+                )
+                if not chunk:
+                    break
+                output.extend(chunk)
+                if len(output) > _VALIDATOR_STDOUT_LIMIT:
+                    raise ValueError("validator stdout exceeds limit")
+        returncode = process.wait(timeout=max(0.0, deadline - time.monotonic()))
+        payload = json.loads(bytes(output).decode("utf-8"))
+    except (OSError, subprocess.SubprocessError, UnicodeError, ValueError) as exc:
+        if process is not None and process.poll() is None:
+            with suppress(OSError):
+                process.kill()
+            with suppress(OSError, subprocess.SubprocessError):
+                process.wait(timeout=5)
         raise RuntimeError("generator configuration validation failed") from exc
+    finally:
+        if process is not None and process.stdout is not None:
+            process.stdout.close()
     if (
-        result.returncode != 0
+        returncode != 0
         or not isinstance(payload, dict)
         or payload.get("ok") is not True
         or payload.get("mode") != "check_config"
@@ -318,21 +350,35 @@ class SettingsManager:
             raise
         operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
         deadline = time.monotonic() + self.lock_timeout_seconds
+        acquired = False
         try:
             while True:
                 try:
                     fcntl.flock(descriptor, operation | fcntl.LOCK_NB)
+                    acquired = True
                     break
                 except BlockingIOError:
                     if time.monotonic() >= deadline:
                         raise SettingsLockBusy("settings lock is busy") from None
                     time.sleep(min(0.02, max(0.0, deadline - time.monotonic())))
+                except OSError as exc:
+                    raise SettingsError("cannot acquire settings lock") from exc
             yield
         finally:
+            release_error: OSError | None = None
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
+                if acquired:
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_UN)
+                    except OSError as exc:
+                        release_error = exc
             finally:
-                os.close(descriptor)
+                try:
+                    os.close(descriptor)
+                except OSError as exc:
+                    release_error = release_error or exc
+            if release_error is not None:
+                raise SettingsError("cannot release settings lock") from release_error
 
     def snapshot(self) -> SettingsSnapshot:
         try:
@@ -384,7 +430,7 @@ class SettingsManager:
                         raise ValueError("string too long")
                     if parsed and spec.pattern is not None and spec.pattern.fullmatch(parsed) is None:
                         raise ValueError("invalid string format")
-                    if spec.choices and key not in {"image_model", "story_model"} and parsed not in spec.choices:
+                    if spec.choices and not spec.open_choices and parsed not in spec.choices:
                         raise ValueError("invalid choice")
                     normalized[key] = parsed
             except ValueError:
@@ -412,9 +458,12 @@ class SettingsManager:
         normalized, warnings = self._normalized_settings(values, timer)
         if "CLOUDFLARE_API_TOKEN" in values:
             warnings.append("legacy_cloudflare_token_in_wirtel_env")
-        secret_presence = {
+        persisted_secret_presence = {
             "openai_api_key_present": bool(values.get("OPENAI_API_KEY")),
             "cloudflare_api_token_present": self._cloudflare_store.present(),
+        }
+        secret_presence = {
+            **persisted_secret_presence,
             "github_auth_present": bool(
                 os.environ.get("GH_TOKEN")
                 or os.environ.get("GITHUB_TOKEN")
@@ -429,7 +478,7 @@ class SettingsManager:
         fingerprints = {name: _fingerprint(path) for name, path in paths.items()}
         revision_source = {
             "settings": normalized,
-            "secret_presence": secret_presence,
+            "secret_presence": persisted_secret_presence,
             "files": {
                 name: {
                     "exists": fingerprint.exists,

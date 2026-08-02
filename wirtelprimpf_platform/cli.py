@@ -39,6 +39,7 @@ from .systemd_user import SystemdUserManager
 from .target_switch import GeneratorTargetSwitcher, GitCatalogPublisher
 
 VALIDATION_ERROR_EXIT_CODE = 4
+UNAVAILABLE_ERROR_EXIT_CODE = 7
 
 
 def _json(payload: object) -> None:
@@ -83,7 +84,7 @@ def build_settings_manager() -> SettingsManager:
 
 def build_status_collector(manager: SettingsManager) -> OperationalStatusCollector:
     return OperationalStatusCollector(
-        paths=StatusPaths.for_home(Path.home()),
+        paths=StatusPaths.from_settings_paths(manager.paths),
         snapshot_reader=manager.snapshot,
         timer_reader=manager.systemd.observe_timer,
     )
@@ -141,7 +142,7 @@ def _run_settings_command(command: str, manager: SettingsManager) -> int:
         return 6
     except Exception:
         _json({"ok": False, "error": "settings operation unavailable"})
-        return 6
+        return UNAVAILABLE_ERROR_EXIT_CODE
 
 
 def settings_main(argv: list[str] | None = None) -> int:

@@ -49,6 +49,7 @@ class SettingSpec:
     maximum: int | None = None
     max_length: int | None = None
     allow_empty: bool = False
+    open_choices: bool = False
     pattern: re.Pattern[str] | None = None
     web_visible: bool = False
     applet_visible: bool = False
@@ -61,6 +62,7 @@ def _string(
     choices: tuple[str, ...] = (),
     max_length: int,
     allow_empty: bool = False,
+    open_choices: bool = False,
     pattern: re.Pattern[str] | None = None,
     web: bool = False,
     applet: bool = False,
@@ -72,6 +74,7 @@ def _string(
         choices=choices,
         max_length=max_length,
         allow_empty=allow_empty,
+        open_choices=open_choices,
         pattern=pattern,
         web_visible=web,
         applet_visible=applet,
@@ -121,6 +124,7 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         "WIRTELPRIMPF_IMAGE_MODEL",
         "gpt-image-2",
         choices=IMAGE_MODEL_CHOICES,
+        open_choices=True,
         max_length=80,
         web=True,
         applet=True,
@@ -129,6 +133,7 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         "WIRTELPRIMPF_STORY_MODEL",
         "gpt-5-mini",
         choices=STORY_MODEL_CHOICES,
+        open_choices=True,
         max_length=80,
         web=True,
         applet=True,

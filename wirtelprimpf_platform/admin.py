@@ -94,7 +94,7 @@ def _request_is_local(headers: dict[str, str], client_host: str, *, require_orig
             or parsed.query
             or parsed.fragment
             or parsed.path not in {"", "/"}
-            or (port is not None and origin_port != port)
+            or origin_port != port
         ):
             return False
     return True
@@ -264,6 +264,7 @@ class _Handler(BaseHTTPRequestHandler):
                 )
                 return
         if length > MAX_REQUEST_BYTES:
+            self.close_connection = True
             self._write_admin_response(
                 _json_response(413, {"ok": False, "error": "request too large"})
             )

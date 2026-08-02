@@ -25,6 +25,9 @@ class SettingsSchemaTests(unittest.TestCase):
         )
         self.assertTrue(SETTING_SPECS["image_model"].web_visible)
         self.assertTrue(SETTING_SPECS["image_model"].applet_visible)
+        self.assertTrue(SETTING_SPECS["image_model"].open_choices)
+        self.assertTrue(SETTING_SPECS["story_model"].open_choices)
+        self.assertFalse(SETTING_SPECS["operandi"].open_choices)
         self.assertFalse(SETTING_SPECS["site_title"].applet_visible)
         self.assertEqual(choices_payload()["story_model"], list(STORY_MODEL_CHOICES))
 

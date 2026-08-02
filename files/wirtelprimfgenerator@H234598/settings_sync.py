@@ -250,6 +250,7 @@ class SettingsCliClient:
                 4: "Einstellungsanfrage ist ungültig",
                 5: "Einstellungen sind vorübergehend gesperrt",
                 6: "Einstellungstransaktion ist fehlgeschlagen",
+                7: "Einstellungsdienst ist nicht verfügbar",
             }.get(result.returncode, "Einstellungsantwort wurde abgelehnt")
             raise SettingsCliError(message, payload=payload)
         if not _is_complete_public_snapshot(payload):
