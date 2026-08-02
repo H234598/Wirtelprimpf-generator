@@ -725,7 +725,7 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
         remote_classification = self.task3_merge.index("\nremote_main_sha=", retry)
         retry_branch = self.task3_merge[retry:remote_classification]
         push_case = self.task3_merge.index("\n  push)", remote_classification)
-        push = self.task3_merge.index("git_remote push --atomic")
+        push = self.task3_merge.index("git_remote push --atomic", push_case)
         push_preamble = self.task3_merge[push_case:push]
         self.assertGreaterEqual(
             self.task3_merge[:planned].count("assert_task3_current_review"),
@@ -780,11 +780,9 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
         list_call = discovery.index("task3_gh pr list")
         numbered_view = discovery.index(
             'task3_gh pr view "$generator_pr_number"',
-            list_call,
         )
         identity_gate = discovery.index(
             'assert_pr_identity "$generator_merge_gate"',
-            numbered_view,
         )
         self.assertIn(
             '--state open --base main --head "$generator_head" --limit 2',
@@ -1944,7 +1942,7 @@ live_review_decision=$3
 remote_main=$4
 remote_head=$5
 assert_task3_current_review() {{
-  printf 'unexpected live review fetch: %s\n' "$live_review_decision" >&2
+  printf 'unexpected live review fetch: %s\\n' "$live_review_decision" >&2
   return 97
 }}
 load_task3_receipt
@@ -1956,6 +1954,10 @@ classify_task3_remote_action \
   "$generator_base_before" "$generator_merge_sha" \
   "$generator_expected_head"
 """
+            self.assertIn(
+                "printf 'unexpected live review fetch: %s\\n'",
+                script,
+            )
 
             def execute(
                 state: str,
