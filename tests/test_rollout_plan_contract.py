@@ -5,8 +5,10 @@ import os
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
@@ -27,6 +29,13 @@ def _marked_block(script: str, marker: str) -> str:
     start = script.index(start_marker) + len(start_marker)
     end = script.index(end_marker, start)
     return script[start:end].strip()
+
+
+def _shell_function(script: str, name: str) -> str:
+    start_marker = f"{name}() {{\n"
+    start = script.index(start_marker)
+    end = script.index("\n}\n", start) + len("\n}")
+    return script[start:end]
 
 
 class RolloutPlanContractTests(unittest.TestCase):
@@ -165,7 +174,7 @@ class RolloutPlanContractTests(unittest.TestCase):
             "state": "planned",
             "actor_login": "H234598",
             "actor_id": 54270221,
-            "repository_id": "R_TEST_CANONICAL",
+            "repository_id": "R_kgDOTpr2BA",
             "repository": "H234598/Wirtelprimpf-generator",
             "canonical_origin": "https://github.com/H234598/Wirtelprimpf-generator.git",
             "pr_number": 17,
@@ -213,10 +222,6 @@ class RolloutPlanContractTests(unittest.TestCase):
         self.assertIn("core.hooksPath=/dev/null", self.task3_merge)
         self.assertNotIn("gh auth setup-git", self.task3_merge)
         self.assertNotIn("safe.directory", self.task3_merge)
-        self.assertLess(
-            self.task3_merge.index('"/user"'),
-            self.task3_merge.index("commit-tree"),
-        )
 
     def test_task3_steps_one_through_three_enter_clean_teladi_context(self) -> None:
         for name, script in (
@@ -230,17 +235,221 @@ class RolloutPlanContractTests(unittest.TestCase):
                 self.assertIn('test "$(id -u)" = 1000', script)
                 self.assertIn('test "$(id -g)" = 1000', script)
 
-    def test_step3_exact_actor_gate_precedes_fetch_merge_and_push(self) -> None:
+    def test_step1_profile_builds_and_validators_stay_inside_teladi_fence(self) -> None:
+        section_start = self.document.index(
+            "**Step 1: Run the complete local matrix from a clean branch**",
+        )
+        section_end = self.document.index(
+            "**Step 2: Perform a fresh spec and security diff review**",
+            section_start,
+        )
+        step1_section = self.document[section_start:section_end]
+        normalized = " ".join(self.task3_step1.replace("\\\n", "").split())
+        hub_build = (
+            'WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" '
+            'WIRTELPRIMPF_MEDIA_MANIFEST="$PWD/data/media-manifest.json" '
+            "WIRTELPRIMPF_SITE_PROFILE=hub "
+            "WIRTELPRIMPF_SITE_URL=https://wirtelprimpf.telacore.org "
+            "npm --prefix web run build"
+        )
+        hub_validate = (
+            "python3 scripts/validate_pages_artifact.py web/dist "
+            "--expected-domain wirtelprimpf.telacore.org"
+        )
+        archive_build = (
+            'WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" '
+            'WIRTELPRIMPF_MEDIA_MANIFEST="$PWD/data/media-manifest.json" '
+            "WIRTELPRIMPF_SITE_PROFILE=archive "
+            "WIRTELPRIMPF_SITE_URL=https://wirtelprimpf-0001.telacore.org "
+            "npm --prefix web run build"
+        )
+        archive_validate = (
+            "python3 scripts/validate_pages_artifact.py web/dist "
+            "--expected-domain wirtelprimpf-0001.telacore.org"
+        )
+        for command in (hub_build, hub_validate, archive_build, archive_validate):
+            self.assertIn(command, normalized)
+        ordered = (
+            normalized.index("/usr/sbin/runuser -u teladi -- /usr/bin/env -i"),
+            normalized.index('test "$(id -u)" = 1000'),
+            normalized.index('test "$(id -g)" = 1000'),
+            normalized.index(hub_build),
+            normalized.index(hub_validate),
+            normalized.index(archive_build),
+            normalized.index(archive_validate),
+            normalized.rindex("TASK3_STEP1_TELADI"),
+        )
+        self.assertEqual(ordered, tuple(sorted(ordered)))
+        self.assertEqual(normalized.count("npm --prefix web run build"), 2)
+        self.assertNotIn("Then repeat the two profile builds", step1_section)
+
+    def test_step3_actual_prewrite_gate_precedes_the_first_fetch(self) -> None:
         script = self.task3_step3
-        self.assertIn('.login == "H234598" and .id == 54270221', script)
-        auth_gate = script.index("require_task3_auth")
+        self.assertIn("# BEGIN TASK3_STEP3_PREWRITE_GATE", script)
+        gate = _marked_block(script, "TASK3_STEP3_PREWRITE_GATE")
+        required_calls = (
+            'generator_head="$(/usr/bin/git branch --show-current)"',
+            'assert_task3_feature_branch "$generator_head"',
+            "assert_canonical_origin",
+            "require_task3_auth",
+            "require_canonical_repository",
+        )
+        for call in required_calls:
+            self.assertIn(call, gate)
+        positions = tuple(gate.index(call) for call in required_calls)
+        self.assertEqual(positions, tuple(sorted(positions)))
+        gate_end = script.index("# END TASK3_STEP3_PREWRITE_GATE")
         fetch = script.index('git_remote fetch "$canonical_origin"')
         merge = script.index("core.hooksPath=/dev/null merge")
         push = script.index('git_remote push "$canonical_origin"')
-        self.assertLess(auth_gate, fetch)
+        self.assertLess(gate_end, fetch)
         self.assertLess(fetch, merge)
         self.assertLess(merge, push)
         self.assertLess(script.index("set +x"), script.index("${GH_TOKEN"))
+
+    def test_step3_branch_predicate_rejects_main_and_accepts_a_feature(self) -> None:
+        self.assertIn("# BEGIN TASK3_FEATURE_BRANCH_PREDICATE", self.task3_step3)
+        predicate = _marked_block(self.task3_step3, "TASK3_FEATURE_BRANCH_PREDICATE")
+        script = f"set -Eeuo pipefail\n{predicate}\nassert_task3_feature_branch \"$1\"\n"
+        accepted = subprocess.run(
+            ["bash", "-c", script, "branch-test", "feature/reviewed"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        rejected = subprocess.run(
+            ["bash", "-c", script, "branch-test", "main"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertNotEqual(rejected.returncode, 0)
+
+    def test_task3_identity_predicates_pin_actor_and_repository(self) -> None:
+        valid_actor = json.dumps({"login": "H234598", "id": 54270221})
+        valid_repository = json.dumps(
+            {
+                "id": "R_kgDOTpr2BA",
+                "nameWithOwner": "H234598/Wirtelprimpf-generator",
+            },
+        )
+        invalid_pairs = (
+            (json.dumps({"login": "H234598", "id": 1}), valid_repository),
+            (json.dumps({"id": 54270221}), valid_repository),
+            (
+                valid_actor,
+                json.dumps(
+                    {
+                        "id": "R_DYNAMIC_REPLACEMENT",
+                        "nameWithOwner": "H234598/Wirtelprimpf-generator",
+                    },
+                ),
+            ),
+            (
+                valid_actor,
+                json.dumps({"nameWithOwner": "H234598/Wirtelprimpf-generator"}),
+            ),
+            (
+                valid_actor,
+                json.dumps(
+                    {
+                        "id": "R_kgDOTpr2BA",
+                        "nameWithOwner": "H234598/replacement",
+                    },
+                ),
+            ),
+        )
+        for name, plan_script in (
+            ("step3", self.task3_step3),
+            ("step4", self.task3_step4),
+            ("step5", self.task3_merge),
+        ):
+            has_marker = "# BEGIN TASK3_IDENTITY_PREDICATES" in plan_script
+            with self.subTest(name=name, case="marker"):
+                self.assertTrue(has_marker)
+            if not has_marker:
+                continue
+            predicates = _marked_block(plan_script, "TASK3_IDENTITY_PREDICATES")
+            actor_gate = _shell_function(plan_script, "require_task3_auth")
+            repository_gate = _shell_function(
+                plan_script,
+                "require_canonical_repository",
+            )
+            script = (
+                f"set -Eeuo pipefail\n{predicates}\n{actor_gate}\n{repository_gate}\n"
+                'actor_json=$1\nrepository_json=$2\n'
+                "task3_gh() {\n"
+                '  if [[ "$1" == api && "$2" == /user ]]; then\n'
+                '    printf \'%s\\n\' "$actor_json"\n'
+                '  elif [[ "$1" == repo && "$2" == view ]]; then\n'
+                '    test "$3" = H234598/Wirtelprimpf-generator\n'
+                '    test "$4" = --json\n'
+                '    test "$5" = id,nameWithOwner\n'
+                '    printf \'%s\\n\' "$repository_json"\n'
+                "  else\n"
+                "    return 90\n"
+                "  fi\n"
+                "}\n"
+                "require_task3_auth\n"
+                "require_canonical_repository\n"
+            )
+            accepted = subprocess.run(
+                ["bash", "-c", script, "identity-test", valid_actor, valid_repository],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            with self.subTest(name=name, case="valid"):
+                self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            for case, (actor_json, repository_json) in enumerate(invalid_pairs):
+                rejected = subprocess.run(
+                    [
+                        "bash",
+                        "-c",
+                        script,
+                        "identity-test",
+                        actor_json,
+                        repository_json,
+                    ],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                with self.subTest(name=name, case=case):
+                    self.assertNotEqual(rejected.returncode, 0)
+        placeholder_id = "R_" + "TEST_CANONICAL"
+        self.assertNotIn(placeholder_id, self.document)
+        self.assertNotIn(placeholder_id, Path(__file__).read_text(encoding="utf-8"))
+
+    def test_steps_four_and_five_execute_the_fixed_repository_gate(self) -> None:
+        for name, script, marker, first_post_gate_operation in (
+            (
+                "step4",
+                self.task3_step4,
+                "TASK3_STEP4_IDENTITY_GATE",
+                'generator_head="$(/usr/bin/git branch --show-current)"',
+            ),
+            (
+                "step5",
+                self.task3_merge,
+                "TASK3_STEP5_IDENTITY_GATE",
+                "receipt_state=absent",
+            ),
+        ):
+            with self.subTest(name=name):
+                self.assertIn(f"# BEGIN {marker}", script)
+                gate = _marked_block(script, marker)
+                self.assertIn("require_task3_auth", gate)
+                self.assertIn("require_canonical_repository", gate)
+                self.assertLess(
+                    script.index(f"# END {marker}"),
+                    script.index(first_post_gate_operation),
+                )
 
     def test_normative_fd_relay_keeps_token_out_of_argv_and_long_environment(self) -> None:
         self.assertIn("# BEGIN TASK3_FD_TOKEN_CALL", self.task3_merge)
@@ -292,6 +501,42 @@ task3_token_call "$2"
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, "probe-ok\n")
             self.assertNotIn("FD_RELAY_SENTINEL_NOT_A_SECRET", result.stderr)
+
+    def test_short_token_children_disable_every_askpass_environment(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-token-env-") as tmp:
+            probe = Path(tmp) / "probe"
+            probe.write_text(
+                "#!/bin/bash\n"
+                "set -Eeuo pipefail\n"
+                'test "$GIT_TERMINAL_PROMPT" = 0\n'
+                'test "$GIT_ASKPASS" = /bin/false\n'
+                'test "$SSH_ASKPASS" = /bin/false\n'
+                'test "$GH_TOKEN" = SHORT_CHILD_SENTINEL_NOT_A_SECRET\n',
+                encoding="utf-8",
+            )
+            probe.chmod(0o700)
+            for name, plan_script in (
+                ("step3", self.task3_step3),
+                ("step4", self.task3_step4),
+                ("step5", self.task3_merge),
+            ):
+                token_call = _shell_function(plan_script, "task3_token_call")
+                script = f"""
+set -Eeuo pipefail
+{token_call}
+task3_ephemeral_token=SHORT_CHILD_SENTINEL_NOT_A_SECRET
+task3_token_call "$1"
+"""
+                result = subprocess.run(
+                    ["bash", "-c", script, "token-env-test", str(probe)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                    env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                )
+                with self.subTest(name=name):
+                    self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_normative_origin_predicate_rejects_every_extra_url(self) -> None:
         self.assertIn("# BEGIN TASK3_CANONICAL_ORIGIN", self.task3_merge)
@@ -371,6 +616,7 @@ task3_token_call "$2"
 set -Eeuo pipefail
 {token_call}
 {git_remote}
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
 relay_fd=$1
 task3_ephemeral_token=
 IFS= read -r -d '' task3_ephemeral_token <&"$relay_fd"
@@ -405,6 +651,140 @@ git_remote -C "$2" push "$3" HEAD:refs/heads/main
                 check=True,
             ).stdout.strip()
             self.assertEqual(remote_head, local_head)
+
+    def test_git_remote_clears_url_specific_authorization_extraheader(self) -> None:
+        received_paths: list[str] = []
+        received_authorizations: list[str] = []
+
+        class HeaderProbeHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                received_paths.append(self.path)
+                received_authorizations.extend(self.headers.get_all("Authorization") or [])
+                self.send_response(403)
+                self.end_headers()
+
+            def log_message(self, format: str, *args: object) -> None:
+                del format, args
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), HeaderProbeHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address
+        remote_url = f"http://{host}:{port}/repository.git"
+        sentinel = "EXTRAHEADER_SENTINEL_NOT_A_SECRET"
+        try:
+            with tempfile.TemporaryDirectory(prefix="wirtelprimpf-extraheader-") as tmp:
+                for name, plan_script in (
+                    ("step3", self.task3_step3),
+                    ("step5", self.task3_merge),
+                ):
+                    repo = Path(tmp) / name
+                    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+                    subprocess.run(
+                        [
+                            "git",
+                            "-C",
+                            str(repo),
+                            "config",
+                            f"http.{remote_url}.extraHeader",
+                            f"Authorization: Basic {sentinel}",
+                        ],
+                        check=True,
+                    )
+                    git_remote = _shell_function(plan_script, "git_remote")
+                    script = f"""
+set -Eeuo pipefail
+{git_remote}
+canonical_origin=$2
+task3_token_call() {{
+  /usr/bin/env -i \
+    HOME=/home/teladi \
+    PATH=/usr/bin:/bin \
+    GH_TOKEN=EXTRAHEADER_CHILD_TOKEN_NOT_A_SECRET \
+    GIT_TERMINAL_PROMPT=0 \
+    "$@"
+}}
+if git_remote -C "$1" ls-remote "$2"; then
+  exit 91
+fi
+"""
+                    result = subprocess.run(
+                        ["bash", "-c", script, "extraheader-test", str(repo), remote_url],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        timeout=10,
+                        env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                    )
+                    with self.subTest(name=name):
+                        self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertGreaterEqual(len(received_paths), 2)
+            self.assertFalse(
+                any(sentinel in value for value in received_authorizations),
+                received_authorizations,
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_git_remote_neutralizes_configured_askpass_after_helper_failure(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-askpass-") as tmp:
+            root = Path(tmp)
+            askpass = root / "askpass"
+            askpass.write_text(
+                "#!/bin/bash\n"
+                "set -Eeuo pipefail\n"
+                'printf "%s" "${GH_TOKEN:-missing}" >"$ASKPASS_LEAK_PATH"\n'
+                "printf 'credential-from-forbidden-askpass\\n'\n",
+                encoding="utf-8",
+            )
+            askpass.chmod(0o700)
+            for name, plan_script in (
+                ("step3", self.task3_step3),
+                ("step5", self.task3_merge),
+            ):
+                repo = root / f"repo-{name}"
+                leak = root / f"askpass-leak-{name}"
+                subprocess.run(["git", "init", "-q", str(repo)], check=True)
+                subprocess.run(
+                    ["git", "-C", str(repo), "config", "core.askPass", str(askpass)],
+                    check=True,
+                )
+                git_remote = _shell_function(plan_script, "git_remote")
+                script = f"""
+set -Eeuo pipefail
+{git_remote}
+askpass_leak_path=$2
+task3_token_call() {{
+  /usr/bin/env -i \
+    HOME=/home/teladi \
+    PATH=/usr/bin:/bin \
+    GH_TOKEN=ASKPASS_CHILD_TOKEN_NOT_A_SECRET \
+    GIT_TERMINAL_PROMPT=0 \
+    ASKPASS_LEAK_PATH="$askpass_leak_path" \
+    "$@"
+}}
+if printf 'protocol=https\\nhost=example.invalid\\n\\n' | \
+  git_remote -C "$1" \
+    -c credential.helper= \
+    -c 'credential.helper=!/bin/false' \
+    credential fill >/dev/null 2>&1; then
+  exit 92
+fi
+test ! -e "$2"
+"""
+                result = subprocess.run(
+                    ["bash", "-c", script, "askpass-test", str(repo), str(leak)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                    env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                )
+                with self.subTest(name=name):
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(leak.exists())
 
     def test_normative_merge_derivation_matches_the_reviewed_tree_and_exact_oid(self) -> None:
         self.assertIn("# BEGIN TASK3_DERIVE_MERGE", self.task3_merge)
@@ -456,7 +836,7 @@ set -Eeuo pipefail
 receipt_file=$1
 task3_actor_login=H234598
 task3_actor_id=54270221
-canonical_repo_id=R_TEST_CANONICAL
+canonical_repo_id=R_kgDOTpr2BA
 canonical_repository=H234598/Wirtelprimpf-generator
 canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
 generator_head=feature/reviewed
@@ -491,11 +871,17 @@ validate_task3_receipt_derivation
             forged = dict(valid_receipt)
             forged["head_tree"] = fixture["malicious_tree"]
             forged["merge_sha"] = fixture["malicious_merge"]
+            replacement_repository = dict(valid_receipt)
+            replacement_repository["repository_id"] = "R_DYNAMIC_REPLACEMENT"
             rejected_cases = {
                 "extra": json.dumps(extra, sort_keys=True),
                 "malformed": "{",
                 "stale": json.dumps(stale, sort_keys=True),
                 "forged": json.dumps(forged, sort_keys=True),
+                "replacement_repository": json.dumps(
+                    replacement_repository,
+                    sort_keys=True,
+                ),
             }
             for name, content in rejected_cases.items():
                 with self.subTest(name=name):
@@ -524,7 +910,7 @@ receipt_file=$3
 receipt_state=absent
 task3_actor_login=H234598
 task3_actor_id=54270221
-canonical_repo_id=R_TEST_CANONICAL
+canonical_repo_id=R_kgDOTpr2BA
 canonical_repository=H234598/Wirtelprimpf-generator
 canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
 generator_pr_number=17

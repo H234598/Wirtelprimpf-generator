@@ -2879,3 +2879,49 @@ Do not start public deployment merely because Task 10 is green. First compare th
   DNS oder Upstream. Schreibende Gitproben blieben auf disposable lokale
   Repositories begrenzt; der lokale Doku-/Test-Commit wird in der Übergabe
   ausgewiesen.
+
+### 2026-08-02 — Parallele additive NO-GO-Schließung für Task 3
+
+- Dieser parallele Ledger-Eintrag ist additiv und korrigiert die vorherige
+  Task-3-Vertrauenskette ausschließlich hinsichtlich des entwichenen
+  Step-1-Buildkontexts, eines möglichen direkten Step-3-`main`-Pushes, der
+  dynamisch akzeptierten Repository-ID sowie nicht neutralisierter
+  Git-HTTP-/AskPass-Konfiguration. Der transaktionale Konfigurationskern und
+  seine Produktionsoberflächen wurden dabei nicht verändert.
+- Beide vollständigen Hub-/Archiv-Buildprofile und Validatoren liegen nun im
+  selben UID/GID-1000-`teladi`-/`env -i`-Heredoc wie die übrige Step-1-Matrix.
+  Step 3 bindet den Branch vor Authentisierung und erstem Fetch; sein real
+  ausgeführter Predicate akzeptiert einen Feature-Branch und lehnt `main`
+  zwingend ab. Der tatsächliche, markierte Prewrite-Callblock ordnet Branch,
+  exakte Origin-URL, Actor und feste Repository-Identität vor dem Fetch.
+- Steps 3, 4 und 5 prüfen `H234598/Wirtelprimpf-generator` jeweils zusammen
+  mit der unveränderlichen Node-ID `R_kgDOTpr2BA`. Fehlende, falsche oder aus
+  einem gleichnamigen Ersatzrepo dynamisch übernommene IDs brechen in den
+  ausführbaren JSON-Prädikaten ab. Receipt v2 und PR-Prädikate sind damit an
+  die feste Node-ID statt nur an eine laufintern selbstkonsistente Antwort
+  gebunden.
+- Die kurzen Tokenprozesse setzen `GIT_TERMINAL_PROMPT=0`,
+  `GIT_ASKPASS=/bin/false` und `SSH_ASKPASS=/bin/false`. Jeder Remote-Gitaufruf
+  leert globale und exakt URL-spezifische `http.extraHeader`, leert danach die
+  Helperliste, ergänzt nur `gh auth git-credential`, setzt
+  `core.askPass=/bin/false` und neutralisiert Hooks. So können persistente
+  Repository-/Userwerte weder einen alternativen Authorization-Header senden
+  noch ein tokenerbendes AskPass starten.
+- Test-first lief die unveränderte Basis `22/22` grün und die neue
+  29-Test-Suite danach mit `14` gezielten Failures und null Errors rot. GREEN
+  sind `29/29`. Reale disposable Tests decken den `main`-Negativpfad,
+  Actor-/Repository-Falschwerte, einen URL-spezifischen Authorization-Header
+  über echte Loopback-HTTP-Requests sowie ein ausführbares AskPass nach
+  absichtlich fehlschlagender Helperkette ab. Definition-basierte vakuöse
+  Reihenfolgechecks wurden durch markierte tatsächliche Callgates ersetzt.
+- Task-3-Steps 3/4/5 sowie die Deployment-Steps 9/10 bestehen je `bash -n`
+  und ShellCheck 0.11.0 ohne Befund. `make check` lief frisch als `teladi`
+  unter `env -i` mit Exit 0: Applet-Runtime grün, Admin-UI `24/24`, SemVer
+  `8/8`, Git-Object-Fallback `3/3`, Release-Publication `3/3`,
+  Helper-Environment `7/7`, Applet-Sync `25/25`, Settings-Schema `14/14`,
+  Story-Directives `31/31` und Rollout-Vertrag `29/29`.
+- Auch diese Korrekturrunde blieb lokal: kein Fetch, Push, PR-Write, Merge,
+  Install, Reload, Deploy, Runtime-, Service-, `systemctl`-, `gdbus`-,
+  Cloudflare-, DNS- oder Upstreamzugriff. Schreibende Proben waren auf
+  disposable lokale Repositories und Loopback beschränkt; der lokale
+  `teladi`-Commit wird in der Übergabe ausgewiesen.

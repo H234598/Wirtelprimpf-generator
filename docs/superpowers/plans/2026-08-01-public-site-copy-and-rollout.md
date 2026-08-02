@@ -265,11 +265,25 @@ python3 -m compileall -q Sourcecode wirtelprimpf_platform scripts
 npm --prefix web test
 WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" \
   WIRTELPRIMPF_SITE_PROFILE=hub npm --prefix web run check
+WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" \
+  WIRTELPRIMPF_MEDIA_MANIFEST="$PWD/data/media-manifest.json" \
+  WIRTELPRIMPF_SITE_PROFILE=hub \
+  WIRTELPRIMPF_SITE_URL=https://wirtelprimpf.telacore.org \
+  npm --prefix web run build
+python3 scripts/validate_pages_artifact.py \
+  web/dist --expected-domain wirtelprimpf.telacore.org
+WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" \
+  WIRTELPRIMPF_MEDIA_MANIFEST="$PWD/data/media-manifest.json" \
+  WIRTELPRIMPF_SITE_PROFILE=archive \
+  WIRTELPRIMPF_SITE_URL=https://wirtelprimpf-0001.telacore.org \
+  npm --prefix web run build
+python3 scripts/validate_pages_artifact.py \
+  web/dist --expected-domain wirtelprimpf-0001.telacore.org
 /usr/bin/git diff --check
 TASK3_STEP1_TELADI
 ```
 
-Then repeat the two profile builds and validators from Task 2. Expected: every command exits 0.
+Expected: every command, including both complete profile builds and their validators, exits 0 inside the same clean `teladi` execution context.
 
 - [ ] **Step 2: Perform a fresh spec and security diff review**
 
@@ -349,6 +363,7 @@ test -z "${GH_TOKEN+x}"
 
 canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
 
+# BEGIN TASK3_FD_TOKEN_CALL
 task3_token_call() {
   set +x
   local task3_token_status=0
@@ -359,6 +374,8 @@ task3_token_call() {
       LOGNAME=teladi \
       PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
       GIT_TERMINAL_PROMPT=0 \
+      GIT_ASKPASS=/bin/false \
+      SSH_ASKPASS=/bin/false \
       /bin/bash -c '
         set -Eeuo pipefail
         set +x
@@ -369,27 +386,74 @@ task3_token_call() {
       ' task3-token-call "$@" || task3_token_status=$?
   return "$task3_token_status"
 }
+# END TASK3_FD_TOKEN_CALL
 
 task3_gh() {
   task3_token_call /usr/bin/gh "$@"
 }
 
+# BEGIN TASK3_GIT_REMOTE
 git_remote() {
   task3_token_call \
     /usr/bin/git \
+    -c http.extraHeader= \
+    -c "http.$canonical_origin.extraHeader=" \
     -c credential.helper= \
     -c 'credential.helper=!/usr/bin/gh auth git-credential' \
+    -c core.askPass=/bin/false \
     -c core.hooksPath=/dev/null \
     "$@"
 }
+# END TASK3_GIT_REMOTE
+
+# BEGIN TASK3_IDENTITY_PREDICATES
+canonical_repository=H234598/Wirtelprimpf-generator
+canonical_repo_id=R_kgDOTpr2BA
+task3_actor_login=H234598
+task3_actor_id=54270221
+
+assert_task3_actor_json() {
+  local actor_json="$1"
+  /usr/bin/jq -e \
+    --arg login "$task3_actor_login" \
+    --argjson actor_id "$task3_actor_id" \
+    '.login == $login and .id == $actor_id' \
+    <<<"$actor_json" >/dev/null
+}
+
+assert_canonical_repository_json() {
+  local repository_json="$1"
+  /usr/bin/jq -e \
+    --arg repository_id "$canonical_repo_id" \
+    --arg repository "$canonical_repository" \
+    '.id == $repository_id and .nameWithOwner == $repository' \
+    <<<"$repository_json" >/dev/null
+}
+# END TASK3_IDENTITY_PREDICATES
 
 require_task3_auth() {
   local authenticated_user
   authenticated_user="$(task3_gh api "/user")"
-  /usr/bin/jq -e \
-    '.login == "H234598" and .id == 54270221' \
-    <<<"$authenticated_user" >/dev/null
+  assert_task3_actor_json "$authenticated_user"
 }
+
+require_canonical_repository() {
+  local canonical_repo_json
+  canonical_repo_json="$(
+    task3_gh repo view "$canonical_repository" --json id,nameWithOwner
+  )"
+  assert_canonical_repository_json "$canonical_repo_json"
+}
+
+# BEGIN TASK3_FEATURE_BRANCH_PREDICATE
+assert_task3_feature_branch() {
+  local branch_name="$1"
+  test -n "$branch_name"
+  /usr/bin/git check-ref-format --branch "$branch_name" >/dev/null
+  [[ "$branch_name" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]
+  test "$branch_name" != main
+}
+# END TASK3_FEATURE_BRANCH_PREDICATE
 
 assert_canonical_origin() {
   local -a task3_fetch_urls=() task3_push_urls=()
@@ -401,10 +465,13 @@ assert_canonical_origin() {
   test "${task3_push_urls[0]}" = "$canonical_origin"
 }
 
-# Authentication and the exact single-URL remote contract both precede fetch,
-# which is the first local Git-object/ref write in this step.
-require_task3_auth
+# BEGIN TASK3_STEP3_PREWRITE_GATE
+generator_head="$(/usr/bin/git branch --show-current)"
+assert_task3_feature_branch "$generator_head"
 assert_canonical_origin
+require_task3_auth
+require_canonical_repository
+# END TASK3_STEP3_PREWRITE_GATE
 git_remote fetch "$canonical_origin" \
   '+refs/heads/main:refs/remotes/origin/main'
 if ! /usr/bin/git merge-base --is-ancestor origin/main HEAD; then
@@ -440,10 +507,11 @@ if ! /usr/bin/git merge-base --is-ancestor origin/main HEAD; then
   /usr/bin/git diff --check
 fi
 /usr/bin/git merge-base --is-ancestor origin/main HEAD
-generator_head=$(/usr/bin/git branch --show-current)
-/usr/bin/git check-ref-format --branch "$generator_head" >/dev/null
+test "$(/usr/bin/git branch --show-current)" = "$generator_head"
+assert_task3_feature_branch "$generator_head"
 assert_canonical_origin
 require_task3_auth
+require_canonical_repository
 git_remote push "$canonical_origin" "HEAD:refs/heads/$generator_head"
 unset task3_ephemeral_token
 TASK3_STEP3_TELADI
@@ -494,9 +562,9 @@ exec {task3_token_relay_fd}<&-
 test -n "$task3_ephemeral_token"
 test -z "${GH_TOKEN+x}"
 
-canonical_repository=H234598/Wirtelprimpf-generator
 canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
 
+# BEGIN TASK3_FD_TOKEN_CALL
 task3_token_call() {
   set +x
   local task3_token_status=0
@@ -507,6 +575,8 @@ task3_token_call() {
       LOGNAME=teladi \
       PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
       GIT_TERMINAL_PROMPT=0 \
+      GIT_ASKPASS=/bin/false \
+      SSH_ASKPASS=/bin/false \
       /bin/bash -c '
         set -Eeuo pipefail
         set +x
@@ -517,17 +587,49 @@ task3_token_call() {
       ' task3-token-call "$@" || task3_token_status=$?
   return "$task3_token_status"
 }
+# END TASK3_FD_TOKEN_CALL
 
 task3_gh() {
   task3_token_call /usr/bin/gh "$@"
 }
 
+# BEGIN TASK3_IDENTITY_PREDICATES
+canonical_repository=H234598/Wirtelprimpf-generator
+canonical_repo_id=R_kgDOTpr2BA
+task3_actor_login=H234598
+task3_actor_id=54270221
+
+assert_task3_actor_json() {
+  local actor_json="$1"
+  /usr/bin/jq -e \
+    --arg login "$task3_actor_login" \
+    --argjson actor_id "$task3_actor_id" \
+    '.login == $login and .id == $actor_id' \
+    <<<"$actor_json" >/dev/null
+}
+
+assert_canonical_repository_json() {
+  local repository_json="$1"
+  /usr/bin/jq -e \
+    --arg repository_id "$canonical_repo_id" \
+    --arg repository "$canonical_repository" \
+    '.id == $repository_id and .nameWithOwner == $repository' \
+    <<<"$repository_json" >/dev/null
+}
+# END TASK3_IDENTITY_PREDICATES
+
 require_task3_auth() {
   local authenticated_user
   authenticated_user="$(task3_gh api "/user")"
-  /usr/bin/jq -e \
-    '.login == "H234598" and .id == 54270221' \
-    <<<"$authenticated_user" >/dev/null
+  assert_task3_actor_json "$authenticated_user"
+}
+
+require_canonical_repository() {
+  local canonical_repo_json
+  canonical_repo_json="$(
+    task3_gh repo view "$canonical_repository" --json id,nameWithOwner
+  )"
+  assert_canonical_repository_json "$canonical_repo_json"
 }
 
 assert_canonical_origin() {
@@ -540,14 +642,11 @@ assert_canonical_origin() {
   test "${task3_push_urls[0]}" = "$canonical_origin"
 }
 
+# BEGIN TASK3_STEP4_IDENTITY_GATE
 require_task3_auth
 assert_canonical_origin
-canonical_repo_json="$(
-  task3_gh repo view "$canonical_repository" --json id,nameWithOwner
-)"
-canonical_repo_id="$(/usr/bin/jq -er '.id' <<<"$canonical_repo_json")"
-test "$(/usr/bin/jq -r '.nameWithOwner' <<<"$canonical_repo_json")" = \
-  "$canonical_repository"
+require_canonical_repository
+# END TASK3_STEP4_IDENTITY_GATE
 generator_head="$(/usr/bin/git branch --show-current)"
 generator_head_sha="$(/usr/bin/git rev-parse HEAD)"
 [[ -n "$generator_head" && "$generator_head_sha" =~ ^[0-9a-f]{40}$ ]]
@@ -675,10 +774,7 @@ exec {task3_token_relay_fd}<&-
 test -n "$task3_ephemeral_token"
 test -z "${GH_TOKEN+x}"
 
-canonical_repository=H234598/Wirtelprimpf-generator
 canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
-task3_actor_login=H234598
-task3_actor_id=54270221
 receipt_parent=/home/teladi/.local/state/wirtelprimpf
 receipt_dir=/home/teladi/.local/state/wirtelprimpf/task3-merge
 receipt_file="$receipt_dir/generator-main-receipt.json"
@@ -698,6 +794,8 @@ task3_token_call() {
       LOGNAME=teladi \
       PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
       GIT_TERMINAL_PROMPT=0 \
+      GIT_ASKPASS=/bin/false \
+      SSH_ASKPASS=/bin/false \
       /bin/bash -c '
         set -Eeuo pipefail
         set +x
@@ -718,8 +816,11 @@ task3_gh() {
 git_remote() {
   task3_token_call \
     /usr/bin/git \
+    -c http.extraHeader= \
+    -c "http.$canonical_origin.extraHeader=" \
     -c credential.helper= \
     -c 'credential.helper=!/usr/bin/gh auth git-credential' \
+    -c core.askPass=/bin/false \
     -c core.hooksPath=/dev/null \
     "$@"
 }
@@ -764,14 +865,43 @@ task3_exit() {
 }
 trap 'task3_exit $?' EXIT
 
-require_task3_auth() {
-  local authenticated_user
-  authenticated_user="$(task3_gh api "/user")"
+# BEGIN TASK3_IDENTITY_PREDICATES
+canonical_repository=H234598/Wirtelprimpf-generator
+canonical_repo_id=R_kgDOTpr2BA
+task3_actor_login=H234598
+task3_actor_id=54270221
+
+assert_task3_actor_json() {
+  local actor_json="$1"
   /usr/bin/jq -e \
     --arg login "$task3_actor_login" \
     --argjson actor_id "$task3_actor_id" \
     '.login == $login and .id == $actor_id' \
-    <<<"$authenticated_user" >/dev/null
+    <<<"$actor_json" >/dev/null
+}
+
+assert_canonical_repository_json() {
+  local repository_json="$1"
+  /usr/bin/jq -e \
+    --arg repository_id "$canonical_repo_id" \
+    --arg repository "$canonical_repository" \
+    '.id == $repository_id and .nameWithOwner == $repository' \
+    <<<"$repository_json" >/dev/null
+}
+# END TASK3_IDENTITY_PREDICATES
+
+require_task3_auth() {
+  local authenticated_user
+  authenticated_user="$(task3_gh api "/user")"
+  assert_task3_actor_json "$authenticated_user"
+}
+
+require_canonical_repository() {
+  local canonical_repo_json
+  canonical_repo_json="$(
+    task3_gh repo view "$canonical_repository" --json id,nameWithOwner
+  )"
+  assert_canonical_repository_json "$canonical_repo_json"
 }
 
 assert_pr_identity() {
@@ -1027,15 +1157,9 @@ classify_task3_remote_action() {
 }
 # END TASK3_REMOTE_STATE
 
+# BEGIN TASK3_STEP5_IDENTITY_GATE
 require_task3_auth
-canonical_repo_json="$(
-  task3_gh repo view "$canonical_repository" --json id,nameWithOwner
-)"
-canonical_repo_id="$(/usr/bin/jq -er '.id' <<<"$canonical_repo_json")"
-test -n "$canonical_repo_id"
-test "$(/usr/bin/jq -r '.nameWithOwner' <<<"$canonical_repo_json")" = \
-  "$canonical_repository"
-
+require_canonical_repository
 generator_head="$(/usr/bin/git branch --show-current)"
 test -n "$generator_head"
 /usr/bin/git check-ref-format --branch "$generator_head" >/dev/null
@@ -1044,6 +1168,7 @@ test "$generator_head" != main
 generator_expected_head="$(/usr/bin/git rev-parse HEAD)"
 [[ "$generator_expected_head" =~ ^[0-9a-f]{40}$ ]]
 assert_canonical_origin
+# END TASK3_STEP5_IDENTITY_GATE
 
 receipt_state=absent
 if [[ -e "$receipt_file" ]]; then
@@ -2756,7 +2881,7 @@ git_runtime merge-base --is-ancestor "$runtime_sha_before" "$target_sha"
 test "$(git_runtime rev-parse HEAD)" = "$target_sha"
 test "$(git_runtime rev-parse refs/heads/main)" = "$runtime_sha_before"
 target_tree="$(git_runtime rev-parse "$target_sha^{tree}")"
-test "$(git_runtime rev-parse HEAD^{tree})" = "$target_tree"
+test "$(git_runtime rev-parse 'HEAD^{tree}')" = "$target_tree"
 git_runtime update-ref refs/heads/main "$target_sha" "$runtime_sha_before"
 software_commit_complete=1
 test "$(git_runtime rev-parse refs/heads/main)" = "$target_sha"
@@ -2764,7 +2889,7 @@ test "$(git_runtime rev-parse HEAD)" = "$target_sha"
 git_runtime switch "$runtime_branch_before"
 test "$(git_runtime branch --show-current)" = "$runtime_branch_before"
 test "$(git_runtime rev-parse HEAD)" = "$target_sha"
-test "$(git_runtime rev-parse HEAD^{tree})" = "$target_tree"
+test "$(git_runtime rev-parse 'HEAD^{tree}')" = "$target_tree"
 test -z "$(git_runtime status --porcelain)"
 
 # Restore every execution surface beneath the still-held settings lock. Any
@@ -3069,6 +3194,7 @@ exec {competitor_lock}>&-
 # blocked and owns the settings lock. The first TERM latches status 143 and
 # enters EXIT recovery; a second HUP must not interrupt restore/fail-close.
 signal_recovery_probe() {
+  # shellcheck disable=SC2329  # invoked by the EXIT trap below
   signal_recovery() {
     local original_status="$1"
     trap - EXIT
@@ -3221,7 +3347,7 @@ assert_final_lock_held
 test "$(git -C "$runtime_harness" rev-parse HEAD)" = "$target_sha"
 test "$(git -C "$runtime_harness" rev-parse refs/heads/main)" = \
   "$runtime_sha_before"
-test "$(git -C "$runtime_harness" rev-parse HEAD^{tree})" = "$target_tree"
+test "$(git -C "$runtime_harness" rev-parse 'HEAD^{tree}')" = "$target_tree"
 git -C "$runtime_harness" update-ref refs/heads/main \
   "$target_sha" "$runtime_sha_before"
 software_commit_complete=1
@@ -3232,7 +3358,7 @@ test "$(git -C "$runtime_harness" rev-parse HEAD)" = "$target_sha"
 test "$(<"$runtime_harness/application.txt")" = target-tree
 git -C "$runtime_harness" switch -q main
 test "$(git -C "$runtime_harness" branch --show-current)" = main
-test "$(git -C "$runtime_harness" rev-parse HEAD^{tree})" = "$target_tree"
+test "$(git -C "$runtime_harness" rev-parse 'HEAD^{tree}')" = "$target_tree"
 test "$(<"$runtime_harness/application.txt")" = target-tree
 test -z "$(git -C "$runtime_harness" status --porcelain)"
 printf 'attach-main-same-tree\n' >>"$sandbox/success-events"
@@ -3266,6 +3392,7 @@ flock -u "$final_lock"
 exec {final_lock}>&-
 printf 'settings-unlock\n' >>"$sandbox/success-events"
 deployment_complete=1
+test "$deployment_complete" = 1
 printf 'deployment-complete\nexit-trap-cleared\nsignals-restored\n' \
   >>"$sandbox/success-events"
 flock -n "$sandbox/settings.lock" true
@@ -3369,7 +3496,9 @@ owned_before="$(fingerprint_live_config)"
 classify_config_without_restore
 test "$(fingerprint_live_config)" = "$owned_before"
 test "$(jq -r '.revision' "$sandbox/live/settings-state.json")" = new-owned
-! cmp --silent "$sandbox/backup/openai.env" "$sandbox/live/openai.env"
+if cmp --silent "$sandbox/backup/openai.env" "$sandbox/live/openai.env"; then
+  exit 1
+fi
 
 # A later competitor produces attention-required (2), is left byte-for-byte
 # untouched, and selects the explicit fail-closed end state. The persistent
@@ -3469,8 +3598,8 @@ git -C "$merge_source" push -q origin \
 
 atomic_lease_push() {
   git -C "$merge_source" push --atomic \
-    --force-with-lease=refs/heads/main:$lease_base \
-    --force-with-lease=refs/heads/reviewed-head:$lease_head \
+    "--force-with-lease=refs/heads/main:$lease_base" \
+    "--force-with-lease=refs/heads/reviewed-head:$lease_head" \
     origin \
     "$lease_merge:refs/heads/main" \
     ':refs/heads/reviewed-head'
@@ -3503,7 +3632,7 @@ printf 'base-lease-race-rejected\n' >>"$sandbox/merge-events"
 git -C "$merge_remote" update-ref refs/heads/main "$lease_base" "$lease_head"
 atomic_lease_push >"$sandbox/exact-lease.output" 2>&1
 test "$(git -C "$merge_remote" rev-parse refs/heads/main)" = "$lease_merge"
-test "$(git -C "$merge_remote" rev-parse refs/heads/main^{tree})" = "$lease_tree"
+test "$(git -C "$merge_remote" rev-parse 'refs/heads/main^{tree}')" = "$lease_tree"
 test "$(git -C "$merge_remote" rev-list --parents -n1 refs/heads/main)" = \
   "$lease_merge $lease_base $lease_head"
 if git -C "$merge_remote" show-ref --verify --quiet refs/heads/reviewed-head; then
@@ -3554,8 +3683,8 @@ receipt_commitpoint_harness() {
         pushes="$(( $(<"$receipt_push_count") + 1 ))"
         printf '%s\n' "$pushes" >"$receipt_push_count"
         git -C "$merge_source" push --atomic \
-          --force-with-lease=refs/heads/main:$lease_base \
-          --force-with-lease=refs/heads/reviewed-head:$lease_head \
+          "--force-with-lease=refs/heads/main:$lease_base" \
+          "--force-with-lease=refs/heads/reviewed-head:$lease_head" \
           receipt-origin \
           "$lease_merge:refs/heads/main" \
           ':refs/heads/reviewed-head' >/dev/null
@@ -4474,3 +4603,59 @@ Completion requires all of the following:
   DNS- oder Upstreamzugriff aus. Alle schreibenden Gitproben nutzten
   ausschließlich disposable lokale Repositories. Der lokale
   Doku-/Test-Commit wird in der Übergabe ausgewiesen.
+
+### 2026-08-02 — Additive NO-GO-Schließung: Ausführungskontext und feste Identität
+
+- Dieser Abschnitt ist additiv und korrigiert die unmittelbar vorherige
+  Gegenreview-Evidenz dort, wo sie den `teladi`-Kontext pauschal für Steps 1
+  bis 5 behauptete, die Repository-ID nur receipt-intern selbstkonsistent
+  band oder persistente Git-HTTP-/AskPass-Konfiguration nicht betrachtete.
+  Historische Aussagen bleiben als Auditspur erhalten; für Task 3 gilt diese
+  spätere, strengere Fassung.
+- Step 1 enthält nun beide vollständigen Hub-/Archiv-Profilbuilds und beide
+  `validate_pages_artifact.py`-Aufrufe ausdrücklich vor dem schließenden
+  `TASK3_STEP1_TELADI`-Marker. Außerhalb des `runuser -u teladi -- env -i`-
+  Heredocs bleibt keine Prosa-Anweisung zur Ausführung von Buildcode zurück.
+- Step 3 liest und validiert den Branch im markierten prämutativen Callgate.
+  Der ausführbare Branch-Predicate lehnt `main` hart ab, bevor Origin-, Actor-
+  und Repository-Gates sowie der erste Fetch erreicht werden. Derselbe einmal
+  gebundene Feature-Branch wird vor dem Push erneut gegen den aktuellen
+  Checkout geprüft; ein direkter `HEAD:refs/heads/main`-Pfad existiert nicht.
+- Steps 3, 4 und 5 pinnen sowohl `H234598/Wirtelprimpf-generator` als auch die
+  unveränderliche GitHub-Node-ID `R_kgDOTpr2BA`. Die jeweiligen ausführbaren
+  JSON-Prädikate lehnen falsche, fehlende und dynamisch aus einem Ersatzrepo
+  übernommene IDs ab. Receipt v2 und sämtliche PR-Identitätsvergleiche
+  konsumieren nur diese feste ID, niemals eine aus der Antwort übernommene
+  Zuweisung.
+- Jeder tokenisierte Kurzprozess ist nichtinteraktiv und setzt
+  `GIT_ASKPASS=/bin/false`, `SSH_ASKPASS=/bin/false` sowie
+  `GIT_TERMINAL_PROMPT=0`. `git_remote` leert weiterhin die Helperliste,
+  ergänzt ausschließlich `gh auth git-credential`, deaktiviert Hooks und
+  neutralisiert `core.askPass`. HTTP-Zusatzheader werden zuerst global und
+  danach für die exakte kanonische Remote-URL geleert; die zweite, spezifische
+  Rücksetzung gewinnt damit auch gegen persistente URL-spezifische
+  `http.<url>.extraHeader`-Werte.
+- Test-first-Evidenz: Die unveränderte Basis bestand `22/22`. Die erweiterte
+  Suite lief anschließend mit `29` Tests und `14` gezielten Fehlern bei null
+  Errors rot. Die Fehler belegten fehlende Profilkommandos, den akzeptierten
+  `main`-Pfad, fehlende reale Callgates/feste Identity-Prädikate, drei
+  ungeschützte Tokenkinder, zwei gesendete URL-spezifische Authorization-
+  Header und ausgeführtes AskPass in Steps 3/5. GREEN sind `29/29`.
+- Die Suite führt Feature-/`main`- und Actor-/Repository-Prädikate real aus.
+  Zwei disposable Git-Repositories senden echte HTTP-Requests an einen
+  Loopback-Server; kein konfigurierter Authorization-Header erreicht ihn.
+  Eine absichtlich fehlschlagende Helperkette führt das ausführbare,
+  tokenlesende AskPass-Programm weder in Step 3 noch Step 5 aus. Die alten
+  vakuösen Definition-vor-Sink-Indexchecks wurden durch markierte tatsächliche
+  Callgates und ausführbare Negativtests ersetzt.
+- Step 3, Step 4, Step 5, Step 9 und Step 10 bestehen jeweils `bash -n` und
+  ShellCheck 0.11.0 ohne Befund. Die frische vollständige `make check`-Matrix
+  lief als `teladi` unter `env -i` mit Exit 0: Applet-Runtime grün, Admin-UI
+  `24/24`, SemVer `8/8`, Git-Object-Fallback `3/3`, Release-Publication `3/3`,
+  Helper-Environment `7/7`, Applet-Sync `25/25`, Settings-Schema `14/14`,
+  Story-Directives `31/31` und Rollout-Vertrag `29/29`.
+- Diese NO-GO-Schließung führte keinen Fetch, Push, PR-Write, Merge, Install,
+  Reload, Deploy, Runtime-, Service-, `systemctl`-, `gdbus`-, Cloudflare-,
+  DNS- oder Upstreamzugriff aus. Alle schreibenden Git-/HTTP-Proben blieben in
+  disposable lokalen Repositories beziehungsweise auf Loopback begrenzt. Der
+  lokale `teladi`-Commit wird in der Übergabe ausgewiesen.
