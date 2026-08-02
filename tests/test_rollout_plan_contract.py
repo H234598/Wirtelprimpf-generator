@@ -766,6 +766,167 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
         ):
             self.assertIn(field, self.task3_merge)
 
+    def test_all_normative_pr_views_have_an_explicit_pr_argument(self) -> None:
+        self.assertNotRegex(
+            self.document,
+            r"\btask[35]_gh pr view(?:[ \t]+|[ \t]*\\\n[ \t]*)--repo\b",
+        )
+        discovery_start = self.task3_merge.index("receipt_state=absent")
+        discovery_end = self.task3_merge.index(
+            '\nif [[ "$receipt_state" == absent ]]; then',
+            discovery_start,
+        )
+        discovery = self.task3_merge[discovery_start:discovery_end]
+        list_call = discovery.index("task3_gh pr list")
+        numbered_view = discovery.index(
+            'task3_gh pr view "$generator_pr_number"',
+            list_call,
+        )
+        identity_gate = discovery.index(
+            'assert_pr_identity "$generator_merge_gate"',
+            numbered_view,
+        )
+        self.assertIn(
+            '--state open --base main --head "$generator_head" --limit 2',
+            discovery,
+        )
+        self.assertLess(list_call, numbered_view)
+        self.assertLess(numbered_view, identity_gate)
+
+    def test_absent_receipt_discovers_one_exact_open_pr_before_numbered_view(self) -> None:
+        assert_pr_identity = _shell_function(self.task3_merge, "assert_pr_identity")
+        discovery_start = self.task3_merge.index("receipt_state=absent")
+        discovery_end = self.task3_merge.index(
+            '\nif [[ "$receipt_state" == absent ]]; then',
+            discovery_start,
+        )
+        discovery = self.task3_merge[discovery_start:discovery_end]
+        script = (
+            "set -Eeuo pipefail\n"
+            + assert_pr_identity
+            + r'''
+
+candidate_json() {
+  /usr/bin/jq -cn --arg oid "$1" '{
+    number: 17,
+    state: "OPEN",
+    headRefName: "feature/reviewed",
+    headRefOid: $oid,
+    baseRefName: "main",
+    isDraft: false,
+    isCrossRepository: false,
+    headRepository: {
+      id: "R_kgDOTpr2BA",
+      nameWithOwner: "H234598/Wirtelprimpf-generator"
+    },
+    headRepositoryOwner: {login: "H234598"},
+    mergeCommit: null
+  }'
+}
+
+task3_gh() {
+  test "$1" = pr
+  local operation="$2"
+  shift 2
+  case "$operation" in
+    list)
+      local list_fields=number,state,headRefName,headRefOid,baseRefName,isDraft
+      list_fields+=,isCrossRepository,headRepository,headRepositoryOwner
+      local -a expected_list=(
+        --repo "$canonical_repository"
+        --state open --base main --head "$generator_head" --limit 2
+        --json "$list_fields"
+      )
+      local -a actual_list=("$@")
+      test "${#actual_list[@]}" = "${#expected_list[@]}"
+      local index
+      for index in "${!expected_list[@]}"; do
+        test "${actual_list[$index]}" = "${expected_list[$index]}"
+      done
+      local candidate
+      case "$scenario" in
+        exact)
+          candidate="$(candidate_json "$generator_expected_head")"
+          printf '[%s]\n' "$candidate"
+          ;;
+        zero)
+          printf '[]\n'
+          ;;
+        multiple)
+          candidate="$(candidate_json "$generator_expected_head")"
+          printf '[%s,%s]\n' "$candidate" "$candidate"
+          ;;
+        wrong-head)
+          candidate="$(candidate_json '3333333333333333333333333333333333333333')"
+          printf '[%s]\n' "$candidate"
+          ;;
+        *) return 90 ;;
+      esac
+      ;;
+    view)
+      if (( $# == 0 )) || [[ "$1" == --* ]]; then
+        printf 'argument required when using the --repo flag\n' >&2
+        return 2
+      fi
+      test "$1" = 17
+      shift
+      local view_fields=state,headRefName,headRefOid,baseRefName,isDraft
+      view_fields+=,isCrossRepository,headRepository,headRepositoryOwner,mergeCommit
+      local -a expected_view=(
+        --repo "$canonical_repository"
+        --json "$view_fields"
+      )
+      local -a actual_view=("$@")
+      test "${#actual_view[@]}" = "${#expected_view[@]}"
+      for index in "${!expected_view[@]}"; do
+        test "${actual_view[$index]}" = "${expected_view[$index]}"
+      done
+      candidate_json "$generator_expected_head"
+      ;;
+    *) return 91 ;;
+  esac
+}
+
+receipt_file=$1
+receipt_dir=$2
+scenario=$3
+canonical_repository=H234598/Wirtelprimpf-generator
+canonical_repo_id=R_kgDOTpr2BA
+generator_head=feature/reviewed
+generator_expected_head=2222222222222222222222222222222222222222
+'''
+            + discovery
+            + r'''
+printf '%s:%s\n' "$generator_pr_number" "$generator_pr_state"
+'''
+        )
+
+        def execute(scenario: str) -> subprocess.CompletedProcess[str]:
+            with tempfile.TemporaryDirectory(prefix="wirtelprimpf-pr-discovery-") as tmp:
+                receipt = Path(tmp) / "absent.json"
+                result = subprocess.run(  # nosec B603 -- fixed shell and controlled local fixture argv
+                    ["/bin/bash", "-c", script, "pr-discovery-test", str(receipt), tmp, scenario],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                self.assertFalse(receipt.exists())
+                return result
+
+        exact = execute("exact")
+        self.assertEqual(exact.returncode, 0, exact.stderr)
+        self.assertEqual(exact.stdout, "17:OPEN\n")
+        for scenario in ("zero", "multiple", "wrong-head"):
+            with self.subTest(scenario=scenario):
+                rejected = execute(scenario)
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertNotIn(
+                    "argument required when using the --repo flag",
+                    rejected.stderr,
+                )
+
     def test_task5_accepts_only_the_verified_task3_v3_receipt_sha(self) -> None:
         self.assertIn("# BEGIN TASK5_FACTORY_RECEIPT", self.task5_step2)
         receipt_guard = _marked_block(self.task5_step2, "TASK5_FACTORY_RECEIPT")

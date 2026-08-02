@@ -3230,3 +3230,48 @@ Do not start public deployment merely because Task 10 is green. First compare th
   Service-, Applet-, Archiv-, Pages-, DNS-, Cloudflare- oder Upstream-Write.
   Alle schreibenden Proben verwendeten ausschließlich disposable lokale
   Fixtures; der lokale Commit wird in der Übergabe ausgewiesen.
+
+### 2026-08-02 — Additive gh-2.92-PR-Ermittlungskorrektur nach sicherem Step-5-Abbruch
+
+- Diese Ergänzung basiert exakt auf Parent
+  `beb3371ea2f8766125138c6b8d547952f15e0472` und lässt sämtliche früheren
+  Plan- und Evidenzabschnitte unverändert. Der reale normative Task-3-Step-5-
+  Lauf endete bei sauberem Worktree, Remote-Main
+  `b00d824adee47341e3251bc18e09239fde1c5939`, Remote-Feature
+  `beb3371ea2f8766125138c6b8d547952f15e0472` sowie fehlendem Receipt und
+  Receiptverzeichnis vor Receipt-Erzeugung, `commit-tree` und jedem
+  Remote-Write.
+- Ursache war ausschließlich die implizite PR-Auflösung: GitHub CLI 2.92.0
+  akzeptiert bei explizitem `--repo` keinen argumentlosen `pr view`-Aufruf
+  und brach mit `argument required when using the --repo flag` ab. Der Audit
+  aller normativen Task-3-/Task-5-Views fand genau diese eine argumentlose
+  Stelle; alle übrigen Views waren bereits an eine explizite PR-Nummer
+  gebunden.
+- Bei absentem Receipt ermittelt Step 5 den PR nun generisch mit
+  `pr list --state open --base main --head "$generator_head" --limit 2`.
+  Der Rückgabewert muss ein Array mit exakt einem Kandidaten und einer
+  positiven ganzzahligen Nummer sein. Das bestehende
+  `assert_pr_identity` bindet diesen Kandidaten zusätzlich an den erwarteten
+  Head-SHA, `main`, Non-Draft, Same-Repository, die feste Repository-ID
+  `R_kgDOTpr2BA`, den kanonischen Repositorynamen und Owner `H234598`.
+  Erst danach folgt der weiterhin nummerierte View samt erneuter
+  Identity-Prüfung. Keine PR-Nummer ist hart codiert; null, mehrere,
+  fehlgeformte oder identityfremde Kandidaten brechen geschlossen ab.
+- RED reproduzierte den echten CLI-Vertrag zweifach: Der Strukturtest fand die
+  argumentlose Form, und der ausgeführte unveränderte Step-5-Ausschnitt endete
+  im strikten gh-Stub mit Returncode 2 und exakt derselben Fehlermeldung.
+  GREEN bestanden beide fokussierten Verträge `2/2`; der Stub akzeptiert nur
+  den exakten List- und nummerierten View-Aufruf und weist null Kandidaten,
+  zwei Kandidaten sowie einen Kandidaten mit falschem Head zurück.
+- Der vollständige Rolloutvertrag bestand als `teladi` `48/48` mit genau
+  zwei erwarteten Root-Skips. `make check` bestand frisch unter
+  `teladi`/`env -i`: Applet-Runtime grün, Admin-UI `31/31`, SemVer
+  `8/8`, Git-Object-Fallback `3/3`, Release-Publication `3/3`,
+  Helper-Environment `7/7`, Applet-Sync `28/28`, Settings-Schema
+  `15/15`, Story-Directives `31/31` und Rolloutvertrag `48/48` mit den
+  zwei erwarteten Root-Skips.
+- Diese Runde führte keinen Credentialzugriff, Fetch, Push, PR-Write, Merge,
+  Install, Reload, Deploy, Runtime-, Service-, Applet-, Archiv-, Pages-, DNS-,
+  Cloudflare- oder Upstream-Write aus. Der gh-Vertrag wurde ausschließlich
+  durch lokale Hilfe und einen kontrollierten ausführbaren Stub geprüft; alle
+  schreibenden Proben blieben disposable und lokal.
