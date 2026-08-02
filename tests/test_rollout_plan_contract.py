@@ -1,0 +1,3207 @@
+from __future__ import annotations
+
+import copy
+import json
+import os
+import re
+import signal
+import subprocess
+import tempfile
+import threading
+import time
+import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+PUBLIC_PLAN = ROOT / "docs/superpowers/plans/2026-08-01-public-site-copy-and-rollout.md"
+_FIXTURE_GIT_ENV = {
+    "HOME": "/home/teladi",
+    "USER": "teladi",
+    "LOGNAME": "teladi",
+    "PATH": "/usr/bin:/bin",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_ASKPASS": "/bin/false",
+    "SSH_ASKPASS": "/bin/false",
+}
+_FIXTURE_GIT_CONFIG = (
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "credential.helper=",
+    "-c",
+    "commit.gpgSign=false",
+    "-c",
+    "tag.gpgSign=false",
+    "-c",
+    "protocol.ext.allow=never",
+    "-c",
+    "protocol.file.allow=always",
+)
+_FIXTURE_IDENTITY_ENV = frozenset(
+    {
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_AUTHOR_DATE",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "GIT_COMMITTER_DATE",
+    }
+)
+
+
+def _fixture_git(
+    arguments: list[str],
+    *,
+    extra_env: dict[str, str] | None = None,
+    timeout: float = 15,
+    **kwargs: object,
+) -> subprocess.CompletedProcess[str]:
+    forbidden = {"env", "executable", "shell"}.intersection(kwargs)
+    if forbidden:
+        raise TypeError(f"fixture Git controls {', '.join(sorted(forbidden))}")
+    if timeout <= 0 or timeout > 15:
+        raise ValueError("fixture Git timeout must be in (0, 15] seconds")
+    environment = dict(_FIXTURE_GIT_ENV)
+    if extra_env:
+        unexpected = set(extra_env).difference(_FIXTURE_IDENTITY_ENV)
+        if unexpected:
+            raise ValueError("fixture Git received a non-identity environment key")
+        environment.update(extra_env)
+    return subprocess.run(  # nosec B603 -- fixed Git binary and isolated argv/env
+        ["/usr/bin/git", *_FIXTURE_GIT_CONFIG, *arguments],
+        env=environment,
+        timeout=timeout,
+        **kwargs,
+    )  # type: ignore[return-value]
+
+
+def _code_block_after(document: str, marker: str) -> str:
+    marker_offset = document.index(marker)
+    fence_offset = document.index("```bash\n", marker_offset) + len("```bash\n")
+    fence_end = document.index("\n```", fence_offset)
+    return document[fence_offset:fence_end]
+
+
+def _marked_block(script: str, marker: str) -> str:
+    start_marker = f"# BEGIN {marker}"
+    end_marker = f"# END {marker}"
+    start = script.index(start_marker) + len(start_marker)
+    end = script.index(end_marker, start)
+    return script[start:end].strip()
+
+
+def _shell_function(script: str, name: str) -> str:
+    start_marker = f"{name}() {{\n"
+    start = script.index(start_marker)
+    end = script.index("\n}\n", start) + len("\n}")
+    return script[start:end]
+
+
+def _quoted_heredoc(script: str, marker: str) -> tuple[str, str]:
+    opener = f"<<'{marker}'"
+    opener_offset = script.index(opener) + len(opener)
+    body_offset = script.index("\n", opener_offset) + 1
+    body_end = script.index(f"\n{marker}", body_offset)
+    return script[:body_offset], script[body_offset:body_end]
+
+
+class RolloutPlanContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.document = PUBLIC_PLAN.read_text(encoding="utf-8")
+        cls.task3_step1 = _code_block_after(
+            cls.document,
+            "**Step 1: Run the complete local matrix from a clean branch**",
+        )
+        cls.task3_step2 = _code_block_after(
+            cls.document,
+            "**Step 2: Perform a fresh spec and security diff review**",
+        )
+        cls.task3_step3 = _code_block_after(
+            cls.document,
+            "**Step 3: Incorporate newly arrived user commits, rerun, and push without force**",
+        )
+        cls.task3_step4 = _code_block_after(
+            cls.document,
+            "**Step 4: Open the pull request and wait for all checks**",
+        )
+        cls.task3_merge = _code_block_after(
+            cls.document,
+            "**Step 5: Merge through GitHub and record the immutable generator SHA**",
+        )
+        cls.task1_commit = _code_block_after(
+            cls.document,
+            "**Step 5: Commit the independently reviewable copy change**",
+        )
+        cls.smoke_api = _code_block_after(
+            cls.document,
+            "**Step 5: Verify APIs, security headers, model choices, and local status**",
+        )
+        cls.smoke_sync = _code_block_after(
+            cls.document,
+            "**Step 6: Perform a fully automated reversible HTTP/CLI live-sync and conflict smoke**",
+        )
+        cls.deployment = _code_block_after(
+            cls.document,
+            "**Step 9: Execute Steps 1\u20138 through one guarded deployment transaction**",
+        )
+        cls.harness = _code_block_after(
+            cls.document,
+            "**Step 10: Syntax-check and failure-inject the restore semantics in isolation**",
+        )
+        task5_offset = cls.document.index("### Task 5:")
+        cls.task5_step1 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 1: Verify the archive checkout and remote are clean/current**",
+        )
+        cls.task5_step2 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 2: Resolve and validate the immutable factory SHA**",
+        )
+        cls.task5_step3 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 3: Replace both old pins",
+        )
+        cls.task5_step4 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 4: Validate the two pins and exact diff**",
+        )
+        cls.task5_step5 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 5: Commit the isolated archive pin and open its pull request**",
+        )
+        cls.task5_step6 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 6: Merge and watch the exact archive Pages run**",
+        )
+        task6_offset = cls.document.index("### Task 6:")
+        cls.task6_step1 = _code_block_after(
+            cls.document[task6_offset:],
+            "**Step 1: Dispatch the hub with the exact active archive commit**",
+        )
+
+    def test_task1_commit_starts_clean_and_stages_exactly_the_declared_paths(self) -> None:
+        expected_paths = (
+            "web/tests/copy-contract.test.ts",
+            "web/src/layouts/BaseLayout.astro",
+            "web/src/pages/index.astro",
+            "web/src/components/MediaCard.astro",
+            "web/src/pages/projekt/status.astro",
+        )
+        self.assertIn("git diff --cached --quiet", self.task1_commit)
+        self.assertIn("expected_task1_paths=(", self.task1_commit)
+        self.assertIn("git diff --cached --name-only", self.task1_commit)
+        self.assertIn("cmp --silent", self.task1_commit)
+        self.assertIn('git add -- "${expected_task1_paths[@]}"', self.task1_commit)
+        for path in expected_paths:
+            self.assertEqual(self.task1_commit.count(path), 1, path)
+
+    def _make_merge_fixture(self, tmp: str) -> dict[str, str]:
+        repo = Path(tmp) / "merge-source"
+        _fixture_git(["init", "-q", str(repo)], check=True)
+        _fixture_git(["-C", str(repo), "config", "user.name", "Fixture"], check=True)
+        _fixture_git(
+            ["-C", str(repo), "config", "user.email", "fixture@example.invalid"],
+            check=True,
+        )
+        (repo / "story").write_text("base\n", encoding="utf-8")
+        _fixture_git(["-C", str(repo), "add", "story"], check=True)
+        _fixture_git(["-C", str(repo), "commit", "-q", "-m", "base"], check=True)
+        base = _fixture_git(
+            ["-C", str(repo), "rev-parse", "HEAD"],
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        (repo / "story").write_text("reviewed head\n", encoding="utf-8")
+        _fixture_git(["-C", str(repo), "commit", "-q", "-am", "reviewed"], check=True)
+        head = _fixture_git(
+            ["-C", str(repo), "rev-parse", "HEAD"],
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        head_tree = _fixture_git(
+            ["-C", str(repo), "rev-parse", f"{head}^{{tree}}"],
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        merge_date = _fixture_git(
+            ["-C", str(repo), "show", "-s", "--format=%cI", head],
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        message = "Merge pull request #17 from feature/reviewed"
+        merge_env = {
+            "GIT_AUTHOR_NAME": "H234598",
+            "GIT_AUTHOR_EMAIL": "54270221+H234598@users.noreply.github.com",
+            "GIT_AUTHOR_DATE": merge_date,
+            "GIT_COMMITTER_NAME": "H234598",
+            "GIT_COMMITTER_EMAIL": "54270221+H234598@users.noreply.github.com",
+            "GIT_COMMITTER_DATE": merge_date,
+        }
+
+        def commit_tree(tree: str) -> str:
+            return _fixture_git(
+                ["-C", str(repo), "commit-tree", tree, "-p", base, "-p", head],
+                input=f"{message}\n",
+                text=True,
+                capture_output=True,
+                check=True,
+                extra_env=merge_env,
+            ).stdout.strip()
+
+        expected_merge = commit_tree(head_tree)
+        malicious_blob = _fixture_git(
+            ["-C", str(repo), "hash-object", "-w", "--stdin"],
+            input="unreviewed payload\n",
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        malicious_tree = _fixture_git(
+            ["-C", str(repo), "mktree"],
+            input=f"100644 blob {malicious_blob}\tunreviewed\n",
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        malicious_merge = commit_tree(malicious_tree)
+        return {
+            "repo": str(repo),
+            "base": base,
+            "head": head,
+            "head_tree": head_tree,
+            "merge_date": merge_date,
+            "message": message,
+            "expected_merge": expected_merge,
+            "malicious_tree": malicious_tree,
+            "malicious_merge": malicious_merge,
+        }
+
+    @staticmethod
+    def _receipt_for_fixture(fixture: dict[str, str]) -> dict[str, object]:
+        return {
+            "version": 3,
+            "state": "planned",
+            "actor_login": "H234598",
+            "actor_id": 54270221,
+            "repository_id": "R_kgDOTpr2BA",
+            "repository": "H234598/Wirtelprimpf-generator",
+            "canonical_origin": "https://github.com/H234598/Wirtelprimpf-generator.git",
+            "pr_number": 17,
+            "head_ref": "feature/reviewed",
+            "expected_head": fixture["head"],
+            "base_before": fixture["base"],
+            "head_tree": fixture["head_tree"],
+            "merge_date": fixture["merge_date"],
+            "merge_message": fixture["message"],
+            "merge_sha": fixture["expected_merge"],
+            "review_id": 8142270,
+            "review_author_login": "coderabbitai[bot]",
+            "review_author_id": 136622811,
+            "review_commit": fixture["head"],
+            "review_state": "APPROVED",
+        }
+
+    def test_task3_uses_an_exact_base_lease_cas_and_verifies_the_indirect_merge(self) -> None:
+        normalized = " ".join(self.task3_merge.split())
+        self.assertNotIn("gh pr merge", normalized)
+        self.assertIn("commit-tree", normalized)
+        self.assertIn(
+            "--force-with-lease=refs/heads/main:$generator_base_before",
+            normalized,
+        )
+        self.assertIn("git_remote push --atomic", normalized)
+        self.assertIn(
+            "--force-with-lease=refs/heads/$generator_head:$generator_expected_head",
+            normalized,
+        )
+        self.assertIn('\":refs/heads/$generator_head\"', normalized)
+        self.assertIn("rulesets", normalized)
+        self.assertIn("branch_protection", normalized)
+        self.assertIn("/tmp/wirtelprimpf-merge-policy.", normalized)
+        self.assertIn("indirect-merges", self.document)
+        self.assertIn("== MERGED", self.task3_merge)
+        self.assertIn(".mergeCommit.oid", self.task3_merge)
+
+    def test_task5_archive_operations_are_inside_literal_teladi_fences(self) -> None:
+        archive_path = "/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001"
+        for name, script, marker in (
+            ("step1", self.task5_step1, "TASK5_STEP1_TELADI"),
+            ("step3", self.task5_step3, "TASK5_STEP3_TELADI"),
+            ("step4", self.task5_step4, "TASK5_STEP4_TELADI"),
+            ("step5", self.task5_step5, "TASK5_STEP5_TELADI"),
+        ):
+            with self.subTest(name=name):
+                outer, child = _quoted_heredoc(script, marker)
+                normalized_outer = " ".join(outer.split())
+                self.assertIn("test \"$(id -u)\" = 0", outer)
+                self.assertIn(
+                    "/usr/sbin/runuser -u teladi -- /usr/bin/env -i",
+                    normalized_outer,
+                )
+                self.assertIn("HOME=/home/teladi", normalized_outer)
+                self.assertIn('test "$(id -u)" = 1000', child)
+                self.assertIn('test "$(id -g)" = 1000', child)
+                self.assertIn(archive_path, child)
+                root_shell = script.replace(child, "", 1)
+                self.assertNotIn(archive_path, root_shell)
+                self.assertNotIn("$archive_checkout", root_shell)
+
+        self.assertIn(
+            "os.replace(part_name, workflow_name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)",
+            self.task5_step3,
+        )
+        self.assertIn("parent_fd = os.open(", self.task5_step3)
+        self.assertIn("root_fd = os.open(", self.task5_step3)
+        self.assertIn('github_fd = os.open(', self.task5_step3)
+        self.assertIn('".github"', self.task5_step3)
+        self.assertIn("dir_fd=parent_fd", self.task5_step3)
+        self.assertIn("follow_symlinks=False", self.task5_step3)
+        self.assertIn("parent_identity", self.task5_step3)
+        self.assertIn("target_identity", self.task5_step3)
+        self.assertIn("st.st_uid == 1000 and st.st_gid == 1000", self.task5_step3)
+        self.assertIn("if old_count != 2", self.task5_step3)
+        self.assertIn("if new_count != 2", self.task5_step3)
+
+    def test_task5_literal_fence_executes_as_teladi_without_root_expansion(self) -> None:
+        if os.geteuid() != 0 or not Path("/usr/sbin/runuser").is_file():
+            self.skipTest("the real Task-5 runuser probe requires root and /usr/sbin/runuser")
+        try:
+            teladi_ids = subprocess.run(  # nosec B603 -- fixed root probe argv
+                ["/usr/bin/id", "-u", "teladi"],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip(), subprocess.run(  # nosec B603 -- fixed root probe argv
+                ["/usr/bin/id", "-g", "teladi"],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+        except subprocess.CalledProcessError:
+            self.skipTest("the real Task-5 runuser probe requires the teladi account")
+        if teladi_ids != ("1000", "1000"):
+            self.skipTest("the Task-5 contract pins teladi to UID/GID 1000")
+
+        prefix, _child = _quoted_heredoc(self.task5_step1, "TASK5_STEP1_TELADI")
+        probe = (
+            "root_only=ROOT_MUST_NOT_EXPAND_THIS\n"
+            f"{prefix}"
+            "set -Eeuo pipefail\n"
+            'test "$(id -u)" = 1000\n'
+            'test "$(id -g)" = 1000\n'
+            'test "${root_only-unexpanded}" = unexpanded\n'
+            'printf "%s:%s:%s\\n" "$(id -u)" "$(id -g)" "${root_only-unexpanded}"\n'
+            "TASK5_STEP1_TELADI\n"
+        )
+        result = subprocess.run(  # nosec B603 -- fixed shell and generated local probe
+            ["/bin/bash"],
+            input=probe,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "1000:1000:unexpanded\n")
+        self.assertNotIn("ROOT_MUST_NOT_EXPAND_THIS", result.stdout + result.stderr)
+
+    def test_task5_workflow_rewriter_executes_as_teladi_and_changes_only_two_pins(self) -> None:
+        teladi_uid = 1000
+        teladi_gid = 1000
+        if os.geteuid() == teladi_uid and os.getegid() == teladi_gid:
+            command_prefix = [
+                "/usr/bin/env",
+                "-i",
+                "HOME=/home/teladi",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "/usr/bin/python3",
+            ]
+        elif os.geteuid() == 0 and Path("/usr/sbin/runuser").is_file():
+            command_prefix = [
+                "/usr/sbin/runuser",
+                "-u",
+                "teladi",
+                "--",
+                "/usr/bin/env",
+                "-i",
+                "HOME=/home/teladi",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                "/usr/bin/python3",
+            ]
+        else:
+            self.skipTest("the Task-5 workflow rewrite probe requires teladi or root/runuser")
+        if (teladi_uid, teladi_gid) != (1000, 1000):
+            self.skipTest("the Task-5 contract pins teladi to UID/GID 1000")
+
+        _prefix, rewrite = _quoted_heredoc(self.task5_step3, "TASK5_REWRITE_PY")
+        old_sha = "1" * 40
+        new_sha = "2" * 40
+        original = (
+            "jobs:\n"
+            "  publish:\n"
+            "    uses: H234598/Wirtelprimpf-generator/.github/workflows/"
+            f"archive-pages.yml@{old_sha}\n"
+            "    with:\n"
+            f'      factory_ref: "{old_sha}"\n'
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-task5-rewrite-") as tmp:
+            root = Path(tmp)
+            root.chmod(0o700)
+            archive = root / "archive"
+            workflow = archive / ".github/workflows/pages.yml"
+            workflow.parent.mkdir(parents=True, mode=0o700)
+            workflow.write_text(original, encoding="utf-8")
+            if os.geteuid() == 0:
+                for path in (root, archive, archive / ".github", workflow.parent, workflow):
+                    os.chown(path, teladi_uid, teladi_gid)
+            workflow.chmod(0o644)
+            result = subprocess.run(  # nosec B603 -- fixed runuser/python argv
+                [*command_prefix, "-", str(workflow), new_sha],
+                input=rewrite,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            updated = workflow.read_text(encoding="utf-8")
+            metadata = workflow.stat()
+        self.assertEqual(updated.count(new_sha), 2)
+        self.assertNotIn(old_sha, updated)
+        self.assertEqual(metadata.st_uid, teladi_uid)
+        self.assertEqual(metadata.st_gid, teladi_gid)
+        self.assertEqual(metadata.st_mode & 0o777, 0o644)
+
+    def test_task5_workflow_rewriter_rejects_github_symlink_and_parent_swap(self) -> None:
+        if (os.geteuid(), os.getegid()) != (1000, 1000):
+            self.skipTest("the attack probe runs directly as teladi")
+        _prefix, rewrite = _quoted_heredoc(self.task5_step3, "TASK5_REWRITE_PY")
+        old_sha = "1" * 40
+        new_sha = "2" * 40
+        original = (
+            "jobs:\n"
+            "  publish:\n"
+            "    uses: H234598/Wirtelprimpf-generator/.github/workflows/"
+            f"archive-pages.yml@{old_sha}\n"
+            "    with:\n"
+            f'      factory_ref: "{old_sha}"\n'
+        )
+
+        def execute(script: str, workflow: Path) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [
+                    "/usr/bin/env",
+                    "-i",
+                    "HOME=/home/teladi",
+                    "PATH=/usr/local/bin:/usr/bin:/bin",
+                    "/usr/bin/python3",
+                    "-",
+                    str(workflow),
+                    new_sha,
+                ],
+                input=script,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-task5-symlink-") as tmp:
+            root = Path(tmp)
+            archive = root / "archive"
+            archive.mkdir()
+            external = root / "external-github/workflows"
+            external.mkdir(parents=True)
+            workflow = external / "pages.yml"
+            workflow.write_text(original, encoding="utf-8")
+            workflow.chmod(0o644)
+            (archive / ".github").symlink_to(external.parent, target_is_directory=True)
+
+            result = execute(rewrite, archive / ".github/workflows/pages.yml")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(workflow.read_text(encoding="utf-8"), original)
+            self.assertEqual(list(external.glob(".*.part")), [])
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-task5-parent-swap-") as tmp:
+            archive = Path(tmp) / "archive"
+            original_parent = archive / ".github/workflows"
+            replacement_parent = archive / ".github-replacement/workflows"
+            original_parent.mkdir(parents=True)
+            replacement_parent.mkdir(parents=True)
+            workflow = original_parent / "pages.yml"
+            replacement = replacement_parent / "pages.yml"
+            workflow.write_text(original, encoding="utf-8")
+            replacement.write_text(original, encoding="utf-8")
+            workflow.chmod(0o644)
+            replacement.chmod(0o644)
+            needle = "    current_root = os.stat(archive_root, follow_symlinks=False)\n"
+            self.assertIn(needle, rewrite)
+            injected = rewrite.replace(
+                needle,
+                "    os.rename(archive_root / '.github', archive_root / '.github-original')\n"
+                "    os.rename(archive_root / '.github-replacement', archive_root / '.github')\n"
+                + needle,
+                1,
+            )
+
+            result = execute(injected, workflow)
+
+            self.assertNotEqual(result.returncode, 0)
+            moved_original = archive / ".github-original/workflows/pages.yml"
+            self.assertEqual(moved_original.read_text(encoding="utf-8"), original)
+            self.assertEqual(
+                (archive / ".github/workflows/pages.yml").read_text(encoding="utf-8"),
+                original,
+            )
+            self.assertEqual(list(moved_original.parent.glob(".*.part")), [])
+
+    def test_runtime_git_fetch_and_switch_share_the_hardened_local_config_boundary(self) -> None:
+        guard = _marked_block(self.deployment, "TASK4_RUNTIME_GIT_GUARD")
+        runtime_git = _shell_function(self.deployment, "git_runtime")
+        runtime_fetch = _shell_function(self.deployment, "git_runtime_fetch_bounded")
+        for script in (guard, runtime_git, runtime_fetch):
+            self.assertIn("GIT_CONFIG_NOSYSTEM=1", script)
+            self.assertIn("GIT_CONFIG_GLOBAL=/dev/null", script)
+        self.assertIn("assert_safe_runtime_git_config", runtime_git)
+        self.assertIn("switch)", runtime_git)
+        self.assertIn("core.hooksPath=/dev/null", runtime_git)
+        self.assertIn("core.fsmonitor=false", runtime_git)
+        self.assertIn("protocol.ext.allow=never", runtime_git)
+        self.assertIn('fetch "$runtime_canonical_origin"', runtime_fetch)
+        self.assertIn("refs/heads/main:refs/remotes/origin/main", runtime_fetch)
+        self.assertNotIn("fetch origin main", runtime_fetch)
+
+    def test_runtime_git_local_config_is_exactly_allowlisted_for_checkout(self) -> None:
+        guard = _marked_block(self.deployment, "TASK4_RUNTIME_GIT_GUARD")
+        hostile_entries = (
+            ("filter.attack.smudge", "/bin/false"),
+            ("core.attributesFile", "/tmp/hostile-attributes"),  # nosec B108
+            ("core.worktree", "/tmp/hostile-worktree"),  # nosec B108
+            ("diff.attack.command", "/bin/false"),
+            ("merge.attack.driver", "/bin/false"),
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-runtime-config-") as tmp:
+            repository = Path(tmp) / "runtime"
+            _fixture_git(
+                ["init", "-q", "-b", "main", str(repository)],
+                check=True,
+                timeout=10,
+            )
+            _fixture_git(
+                [
+                    "-C",
+                    str(repository),
+                    "remote",
+                    "add",
+                    "origin",
+                    "https://github.com/H234598/Wirtelprimpf-generator.git",
+                ],
+                check=True,
+                timeout=10,
+            )
+            _fixture_git(
+                [
+                    "-C",
+                    str(repository),
+                    "config",
+                    "--local",
+                    "core.repositoryformatversion",
+                    "1",
+                ],
+                check=True,
+                timeout=10,
+            )
+            _fixture_git(
+                [
+                    "-C",
+                    str(repository),
+                    "config",
+                    "--local",
+                    "remote.origin.fetch",
+                    "+refs/heads/main:refs/remotes/origin/main",
+                ],
+                check=True,
+                timeout=10,
+            )
+            for key, value in (
+                ("branch.main.remote", "origin"),
+                ("branch.main.merge", "refs/heads/main"),
+                ("branch.agent/transactional-settings-live-sync-status.remote", "origin"),
+                (
+                    "branch.agent/transactional-settings-live-sync-status.merge",
+                    "refs/heads/agent/transactional-settings-live-sync-status",
+                ),
+            ):
+                _fixture_git(
+                    ["-C", str(repository), "config", "--local", key, value],
+                    check=True,
+                    timeout=10,
+                )
+            script = (
+                "set -Eeuo pipefail\n"
+                f"runtime={repository!s}\n"
+                "runtime_canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git\n"
+                f"{guard}\n"
+                "assert_safe_runtime_git_config\n"
+            )
+            accepted = subprocess.run(
+                ["/bin/bash", "-c", script],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            for key, value in hostile_entries:
+                _fixture_git(
+                    ["-C", str(repository), "config", "--local", key, value],
+                    check=True,
+                    timeout=10,
+                )
+                rejected = subprocess.run(
+                    ["/bin/bash", "-c", script],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                    env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                )
+                with self.subTest(key=key):
+                    self.assertNotEqual(rejected.returncode, 0)
+                _fixture_git(
+                    [
+                        "-C",
+                        str(repository),
+                        "config",
+                        "--local",
+                        "--unset-all",
+                        key,
+                    ],
+                    check=True,
+                    timeout=10,
+                )
+
+    def test_task6_binds_probe_dispatch_selection_and_watch_to_exact_inputs(self) -> None:
+        step = self.task6_step1
+        normalized = " ".join(step.split())
+        self.assertIn("set -Eeuo pipefail", step)
+        self.assertIn("test \"$(id -u)\" = 0", step)
+        self.assertIn("/usr/sbin/runuser -u teladi -- /usr/bin/env -i", normalized)
+        self.assertIn("DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus", normalized)
+        self.assertIn("XDG_RUNTIME_DIR=/run/user/1000", normalized)
+        local_prefix, local_probe = _quoted_heredoc(step, "TASK6_LOCAL_PROBE")
+        del local_prefix
+        self.assertNotIn("GH_TOKEN", local_probe)
+        self.assertNotIn("GITHUB_TOKEN", local_probe)
+        self.assertIn("refs/heads/main", local_probe)
+        self.assertIn("refs/remotes/origin/main", local_probe)
+        self.assertIn("task6_token_call", step)
+        self.assertIn("set +x", step)
+        self.assertIn(".login == \"H234598\"", step)
+        self.assertIn(".id == 54270221", step)
+        self.assertIn(".id == \"R_kgDOTpr2BA\"", step)
+        self.assertIn(
+            "repos/H234598/Wirtelprimpf-generator/actions/workflows/"
+            "hub-pages.yml/dispatches",
+            step,
+        )
+        self.assertIn("X-GitHub-Api-Version: 2026-03-10", step)
+        self.assertIn('"return_run_details": true', step)
+        self.assertIn('"ref": "main"', step)
+        self.assertIn('"active_repository": $active_repository', step)
+        self.assertIn('"archive_ref": $archive_main_sha', step)
+        self.assertIn('"current_volume": $current_volume', step)
+        self.assertNotIn("workflow run hub-pages.yml", step)
+        self.assertNotIn("run list", step)
+        self.assertNotIn("dispatch_started_at", step)
+        self.assertIn("workflow_run_id", step)
+        for field in (
+            "head_sha",
+            "head_branch",
+            "event",
+            "display_title",
+            "repository",
+            "workflow_url",
+        ):
+            self.assertIn(field, step)
+        self.assertIn("expected_display_title", step)
+        self.assertIn("verify_hub_run_identity", step)
+        self.assertLess(step.rindex("verify_hub_run_identity"), step.index("run watch"))
+
+    def test_token_children_isolate_system_and_global_git_configuration(self) -> None:
+        task5_child = _quoted_heredoc(self.task5_step5, "TASK5_STEP5_TELADI")[1]
+        cases = (
+            ("task3-step3", self.task3_step3, "task3_token_call", "task3_ephemeral_token"),
+            ("task3-step5", self.task3_merge, "task3_token_call", "task3_ephemeral_token"),
+            ("task5-root", self.task5_step5, "task5_token_call", "task5_ephemeral_token"),
+            ("task5-teladi", task5_child, "task5_token_call", "task5_ephemeral_token"),
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-git-config-env-") as tmp:
+            probe = Path(tmp) / "probe"
+            probe.write_text(
+                "#!/bin/bash\n"
+                "set -Eeuo pipefail\n"
+                'test "$GIT_CONFIG_NOSYSTEM" = 1\n'
+                'test "$GIT_CONFIG_GLOBAL" = /dev/null\n'
+                'test "$GIT_TERMINAL_PROMPT" = 0\n'
+                'test "$GIT_ASKPASS" = /bin/false\n'
+                'test "$SSH_ASKPASS" = /bin/false\n',
+                encoding="utf-8",
+            )
+            probe.chmod(0o700)
+            for name, plan_script, function_name, token_name in cases:
+                token_call = _shell_function(plan_script, function_name)
+                script = f"""
+set -Eeuo pipefail
+{token_call}
+{token_name}=CONFIG_ISOLATION_SENTINEL_NOT_A_SECRET
+{function_name} "$1"
+"""
+                result = subprocess.run(  # nosec B603 -- fixed local shell/probe argv
+                    ["/bin/bash", "-c", script, "git-config-env-test", str(probe)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                    env={
+                        "HOME": "/home/teladi",
+                        "PATH": "/usr/bin:/bin",
+                        "GIT_CONFIG_SYSTEM": str(Path(tmp) / "hostile-system"),
+                        "GIT_CONFIG_GLOBAL": str(Path(tmp) / "hostile-global"),
+                    },
+                )
+                with self.subTest(name=name):
+                    self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_effective_local_git_config_guard_rejects_every_routing_or_exec_vector(self) -> None:
+        marker = "# BEGIN TASK3_GIT_CONFIG_GUARD"
+        self.assertIn(marker, self.task3_merge)
+        guard = _marked_block(self.task3_merge, "TASK3_GIT_CONFIG_GUARD")
+        hostile_entries = (
+            ("include.path", "/tmp/hostile-config"),  # nosec B108 -- not a tempfile sink
+            ("includeIf.onbranch:main.path", "/tmp/hostile-config"),  # nosec B108 -- not a tempfile sink
+            ("url.https://foreign.invalid/.insteadOf", "https://github.com/"),
+            ("url.ssh://foreign.invalid/.pushInsteadOf", "https://github.com/"),
+            ("http.https://github.com/.extraHeader", "Authorization: forbidden"),
+            ("protocol.ext.allow", "always"),
+            ("core.sshCommand", "/tmp/forbidden-command"),  # nosec B108 -- not a tempfile sink
+            ("core.gitProxy", "/tmp/forbidden-command"),  # nosec B108 -- not a tempfile sink
+            ("core.fsmonitor", "/tmp/forbidden-command"),  # nosec B108 -- not a tempfile sink
+            ("http.proxy", "http://127.0.0.1:9"),
+            ("http.sslVerify", "false"),
+            ("http.sslCAInfo", "/tmp/forbidden-ca"),  # nosec B108 -- not a tempfile sink
+            ("http.curloptResolve", "github.com:443:127.0.0.1"),
+            ("remote.origin.proxy", "http://127.0.0.1:9"),
+            ("credential.https://github.com.helper", "/tmp/forbidden-helper"),  # nosec B108 -- not a tempfile sink
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-local-config-guard-") as tmp:
+            repo = Path(tmp) / "repo"
+            _fixture_git(
+                ["init", "-q", str(repo)],
+                check=True,
+            )
+            script = f"set -Eeuo pipefail\n{guard}\nassert_safe_local_git_config \"$1\"\n"
+            accepted = subprocess.run(  # nosec B603 -- fixed local shell argv
+                ["/bin/bash", "-c", script, "local-config-test", str(repo)],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            for key, value in hostile_entries:
+                _fixture_git(
+                    ["-C", str(repo), "config", "--local", key, value],
+                    check=True,
+                )
+                rejected = subprocess.run(  # nosec B603 -- fixed local shell argv
+                    ["/bin/bash", "-c", script, "local-config-test", str(repo)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                with self.subTest(key=key):
+                    self.assertNotEqual(rejected.returncode, 0)
+                _fixture_git(
+                    ["-C", str(repo), "config", "--local", "--unset-all", key],
+                    check=True,
+                )
+
+    def test_every_git_config_guard_redacts_secret_bearing_key_names(self) -> None:
+        sentinel = "guard_secret_sentinel_6fdb8a15"
+        cases = (
+            ("task3-step3", self.task3_step3, "TASK3_GIT_CONFIG_GUARD"),
+            ("task3-step5", self.task3_merge, "TASK3_GIT_CONFIG_GUARD"),
+            ("task5-step1", self.task5_step1, "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step2", self.task5_step2, "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step3", self.task5_step3, "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step4", self.task5_step4, "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step5", self.task5_step5, "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step6", self.task5_step6, "TASK5_GIT_CONFIG_GUARD"),
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-redacted-git-guard-") as tmp:
+            for name, plan_script, marker in cases:
+                repo = Path(tmp) / name
+                _fixture_git(
+                    ["init", "-q", str(repo)],
+                    check=True,
+                )
+                secret_key = f"url.https://{sentinel}@foreign.invalid/.insteadOf"
+                _fixture_git(
+                    [
+                        "-C",
+                        str(repo),
+                        "config",
+                        "--local",
+                        secret_key,
+                        "https://github.com/",
+                    ],
+                    check=True,
+                )
+                guard = _marked_block(plan_script, marker)
+                result = subprocess.run(  # nosec B603 -- fixed local shell argv
+                    [
+                        "/bin/bash",
+                        "-c",
+                        f"set -Eeuo pipefail\n{guard}\nassert_safe_local_git_config \"$1\"\n",
+                        "redacted-git-guard-test",
+                        str(repo),
+                    ],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                with self.subTest(name=name):
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn(sentinel, result.stdout)
+                    self.assertNotIn(sentinel, result.stderr)
+
+    def test_every_network_git_wrapper_uses_system_trust_without_empty_ca_overrides(self) -> None:
+        cases = (
+            ("task3-step3", self.task3_step3, "git_remote", "TASK3_GIT_CONFIG_GUARD"),
+            ("task3-step5", self.task3_merge, "git_remote", "TASK3_GIT_CONFIG_GUARD"),
+            ("task5-step1", self.task5_step1, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step2", self.task5_step2, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step3", self.task5_step3, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step4", self.task5_step4, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step5", self.task5_step5, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step6", self.task5_step6, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+        )
+        for name, script, function_name, guard_marker in cases:
+            wrapper = _shell_function(script, function_name)
+            normalized_wrapper = " ".join(wrapper.split())
+            with self.subTest(name=name):
+                self.assertIn(guard_marker, script)
+                self.assertIn("GIT_CONFIG_NOSYSTEM=1", script)
+                self.assertIn("GIT_CONFIG_GLOBAL=/dev/null", script)
+                self.assertIn("-c http.sslVerify=true", normalized_wrapper)
+                self.assertNotIn("-c http.sslCAInfo=", normalized_wrapper)
+                self.assertNotIn("-c http.sslCAPath=", normalized_wrapper)
+                self.assertRegex(
+                    script,
+                    r"https://github\.com/H234598/Wirtelprimpf-(?:generator|0001)\.git",
+                )
+
+    def test_task5_has_no_raw_network_git_and_uses_only_canonical_literal_urls(self) -> None:
+        for name, script in (
+            ("step1", self.task5_step1),
+            ("step2", self.task5_step2),
+            ("step3", self.task5_step3),
+            ("step4", self.task5_step4),
+            ("step5", self.task5_step5),
+            ("step6", self.task5_step6),
+        ):
+            with self.subTest(name=name):
+                self.assertIn("TASK5_GIT_CONFIG_GUARD", script)
+                self.assertNotRegex(
+                    " ".join(script.split()),
+                    r"/usr/bin/git\b(?:(?!task5_git_remote).){0,180}\b(?:fetch|pull|ls-remote|push)\b",
+                )
+                self.assertNotIn("ls-remote origin", script)
+        self.assertIn('task5_git_remote fetch "$canonical_origin"', self.task5_step1)
+        self.assertIn('task5_git_remote ls-remote "$canonical_origin"', self.task5_step2)
+        self.assertIn('task5_git_remote push', self.task5_step5)
+
+    def test_task3_current_head_review_gate_is_paginated_and_fail_closed(self) -> None:
+        self.assertIn("# BEGIN TASK3_REVIEW_GATE", self.task3_merge)
+        review_gate = _marked_block(self.task3_merge, "TASK3_REVIEW_GATE")
+        pr_identity = _shell_function(self.task3_merge, "assert_pr_identity")
+        head = "2" * 40
+        base_overview = {
+            "state": "OPEN",
+            "headRefName": "feature/reviewed",
+            "headRefOid": head,
+            "baseRefName": "main",
+            "isDraft": False,
+            "isCrossRepository": False,
+            "headRepository": {
+                "id": "R_kgDOTpr2BA",
+                "nameWithOwner": "H234598/Wirtelprimpf-generator",
+            },
+            "headRepositoryOwner": {"login": "H234598"},
+            "reviewDecision": "APPROVED",
+        }
+        actor = {"login": "coderabbitai[bot]", "id": 136622811}
+
+        def page(nodes: list[dict[str, object]], *, more: bool = False, cursor: str | None = None):
+            return {
+                "nodes": nodes,
+                "pageInfo": {"hasNextPage": more, "endCursor": cursor},
+            }
+
+        approved_review = {
+            "databaseId": 4837973683,
+            "state": "APPROVED",
+            "author": {
+                "__typename": "Bot",
+                "login": "coderabbitai",
+                "databaseId": 136622811,
+                "id": "BOT_kgDOCCSy2w",
+                "url": "https://github.com/apps/coderabbitai",
+            },
+            "commit": {"oid": head},
+        }
+
+        reviews_page_function = _shell_function(review_gate, "fetch_task3_reviews_page")
+        author_selection = re.search(
+            r"author\{(?P<actor>[^{}]*?)\.\.\. on Bot\{(?P<bot>[^{}]+)\}\}",
+            reviews_page_function,
+        )
+        self.assertIsNotNone(author_selection)
+        assert author_selection is not None
+        self.assertEqual(author_selection.group("actor").split(), ["__typename", "login"])
+        self.assertEqual(
+            author_selection.group("bot").split(), ["id", "databaseId", "url"]
+        )
+        self.assertEqual(reviews_page_function.count("author{"), 1)
+        self.assertIn("__typename", review_gate)
+        self.assertIn("databaseId", review_gate)
+        self.assertIn("BOT_kgDOCCSy2w", review_gate)
+        self.assertIn("https://github.com/apps/coderabbitai", review_gate)
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-review-gate-") as tmp:
+            fixture_dir = Path(tmp)
+            script = f"""
+set -Eeuo pipefail
+{pr_identity}
+{review_gate}
+fixture_dir=$1
+fetch_task3_review_overview() {{ /bin/cat "$fixture_dir/overview.json"; }}
+fetch_task3_coderabbit_actor() {{ /bin/cat "$fixture_dir/actor.json"; }}
+fetch_task3_review_threads_page() {{
+  case "${{1:-}}" in
+    '') /bin/cat "$fixture_dir/threads-root.json" ;;
+    T1) /bin/cat "$fixture_dir/threads-T1.json" ;;
+    *) return 91 ;;
+  esac
+}}
+fetch_task3_reviews_page() {{
+  case "${{1:-}}" in
+    '') /bin/cat "$fixture_dir/reviews-root.json" ;;
+    R1) /bin/cat "$fixture_dir/reviews-R1.json" ;;
+    *) return 92 ;;
+  esac
+}}
+generator_pr_number=17
+generator_head=feature/reviewed
+generator_expected_head=$2
+canonical_repo_id=R_kgDOTpr2BA
+canonical_repository=H234598/Wirtelprimpf-generator
+assert_task3_current_review
+printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
+  "$generator_review_author_login" "$generator_review_author_id" \
+  "$generator_review_commit" "$generator_review_state"
+"""
+
+            def execute(
+                *,
+                overview: dict[str, object] | None = None,
+                actor_override: dict[str, object] | None = None,
+                threads: dict[str, object] | None = None,
+                reviews: dict[str, object] | None = None,
+                threads_second: dict[str, object] | None = None,
+                reviews_second: dict[str, object] | None = None,
+            ) -> subprocess.CompletedProcess[str]:
+                payloads = {
+                    "overview.json": overview or base_overview,
+                    "actor.json": actor_override or actor,
+                    "threads-root.json": threads or page([{"isResolved": True}]),
+                    "threads-T1.json": threads_second or page([]),
+                    "reviews-root.json": reviews or page([approved_review]),
+                    "reviews-R1.json": reviews_second or page([]),
+                }
+                for filename, payload in payloads.items():
+                    (fixture_dir / filename).write_text(json.dumps(payload), encoding="utf-8")
+                return subprocess.run(  # nosec B603 -- fixed local shell and fixture argv
+                    ["/bin/bash", "-c", script, "review-gate-test", str(fixture_dir), head],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+
+            accepted = execute(
+                threads=page([{"isResolved": True}], more=True, cursor="T1"),
+                reviews=page(
+                    [
+                        {
+                            "databaseId": 1,
+                            "state": "COMMENTED",
+                            "author": {
+                                "__typename": "User",
+                                "login": "human",
+                            },
+                            "commit": {"oid": head},
+                        }
+                    ],
+                    more=True,
+                    cursor="R1",
+                ),
+                reviews_second=page([approved_review]),
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(
+                accepted.stdout,
+                f"4837973683:coderabbitai[bot]:136622811:{head}:APPROVED\n",
+            )
+
+            drifted = dict(base_overview, headRefOid="3" * 40)
+            changed = dict(base_overview, reviewDecision="CHANGES_REQUESTED")
+            stale_review = dict(approved_review, commit={"oid": "3" * 40})
+            duplicate_reviews = page(
+                [approved_review, dict(approved_review, databaseId=4837973684)]
+            )
+            foreign_bot = copy.deepcopy(approved_review)
+            foreign_bot["author"]["databaseId"] = 999999999
+            same_named_user = copy.deepcopy(approved_review)
+            same_named_user["author"]["__typename"] = "User"
+            wrong_node = copy.deepcopy(approved_review)
+            wrong_node["author"]["id"] = "BOT_foreign"
+            wrong_url = copy.deepcopy(approved_review)
+            wrong_url["author"]["url"] = "https://github.com/apps/foreign"
+            rejected_cases = {
+                "head-drift": {"overview": drifted},
+                "changes-requested": {"overview": changed},
+                "unresolved": {"threads": page([{"isResolved": False}])},
+                "stale-review": {"reviews": page([stale_review])},
+                "ambiguous-review": {"reviews": duplicate_reviews},
+                "broken-pagination": {
+                    "threads": page([{"isResolved": True}], more=True, cursor=None)
+                },
+                "foreign-rest-actor": {
+                    "actor_override": {
+                        "login": "coderabbitai[bot]",
+                        "id": 999999999,
+                    }
+                },
+                "foreign-rest-login": {
+                    "actor_override": {
+                        "login": "coderabbitai",
+                        "id": 136622811,
+                    }
+                },
+                "foreign-graphql-bot": {"reviews": page([foreign_bot])},
+                "same-named-user": {"reviews": page([same_named_user])},
+                "wrong-bot-node": {"reviews": page([wrong_node])},
+                "wrong-app-url": {"reviews": page([wrong_url])},
+            }
+            for name, kwargs in rejected_cases.items():
+                with self.subTest(name=name):
+                    self.assertNotEqual(execute(**kwargs).returncode, 0)
+
+    def test_task3_review_gate_precedes_receipt_and_atomic_push_and_receipt_is_v3(self) -> None:
+        planned = self.task3_merge.index("write_task3_receipt planned")
+        retry = self.task3_merge.index(
+            'else\n  case "$generator_pr_state" in OPEN|MERGED)'
+        )
+        remote_classification = self.task3_merge.index("\nremote_main_sha=", retry)
+        retry_branch = self.task3_merge[retry:remote_classification]
+        push_case = self.task3_merge.index("\n  push)", remote_classification)
+        push = self.task3_merge.index("git_remote push --atomic", push_case)
+        push_preamble = self.task3_merge[push_case:push]
+        self.assertGreaterEqual(
+            self.task3_merge[:planned].count("assert_task3_current_review"),
+            1,
+        )
+        self.assertNotIn("assert_task3_current_review", retry_branch)
+        for field in (
+            "id",
+            "author_login",
+            "author_id",
+            "commit",
+            "state",
+        ):
+            hydration = (
+                f'generator_review_{field}="$receipt_review_{field}"'
+            )
+            self.assertIn(hydration, retry_branch)
+            self.assertLess(
+                retry_branch.index(hydration),
+                retry_branch.index("derive_task3_merge"),
+            )
+        self.assertLess(
+            retry_branch.index("derive_task3_merge"),
+            retry_branch.index("validate_task3_receipt_derivation"),
+        )
+        self.assertEqual(push_preamble.count("assert_task3_current_review"), 1)
+        self.assertLess(
+            push_preamble.index("assert_task3_current_review"),
+            push_preamble.index("validate_task3_receipt_derivation"),
+        )
+        self.assertIn(".version == 3", self.task3_merge)
+        for field in (
+            "review_id",
+            "review_author_login",
+            "review_author_id",
+            "review_commit",
+            "review_state",
+        ):
+            self.assertIn(field, self.task3_merge)
+
+    def test_all_normative_pr_views_have_an_explicit_pr_argument(self) -> None:
+        self.assertNotRegex(
+            self.document,
+            r"\btask[35]_gh pr view(?:[ \t]+|[ \t]*\\\n[ \t]*)--repo\b",
+        )
+        discovery_start = self.task3_merge.index("receipt_state=absent")
+        discovery_end = self.task3_merge.index(
+            '\nif [[ "$receipt_state" == absent ]]; then',
+            discovery_start,
+        )
+        discovery = self.task3_merge[discovery_start:discovery_end]
+        list_call = discovery.index("task3_gh pr list")
+        numbered_view = discovery.index(
+            'task3_gh pr view "$generator_pr_number"',
+        )
+        identity_gate = discovery.index(
+            'assert_pr_identity "$generator_merge_gate"',
+        )
+        self.assertIn(
+            '--state open --base main --head "$generator_head" --limit 2',
+            discovery,
+        )
+        self.assertLess(list_call, numbered_view)
+        self.assertLess(numbered_view, identity_gate)
+
+    def test_absent_receipt_discovers_one_exact_open_pr_before_numbered_view(self) -> None:
+        assert_pr_identity = _shell_function(self.task3_merge, "assert_pr_identity")
+        discovery_start = self.task3_merge.index("receipt_state=absent")
+        discovery_end = self.task3_merge.index(
+            '\nif [[ "$receipt_state" == absent ]]; then',
+            discovery_start,
+        )
+        discovery = self.task3_merge[discovery_start:discovery_end]
+        script = (
+            "set -Eeuo pipefail\n"
+            + assert_pr_identity
+            + r'''
+
+candidate_json() {
+  /usr/bin/jq -cn --arg oid "$1" '{
+    number: 17,
+    state: "OPEN",
+    headRefName: "feature/reviewed",
+    headRefOid: $oid,
+    baseRefName: "main",
+    isDraft: false,
+    isCrossRepository: false,
+    headRepository: {
+      id: "R_kgDOTpr2BA",
+      nameWithOwner: "H234598/Wirtelprimpf-generator"
+    },
+    headRepositoryOwner: {login: "H234598"},
+    mergeCommit: null
+  }'
+}
+
+task3_gh() {
+  test "$1" = pr
+  local operation="$2"
+  shift 2
+  case "$operation" in
+    list)
+      local list_fields=number,state,headRefName,headRefOid,baseRefName,isDraft
+      list_fields+=,isCrossRepository,headRepository,headRepositoryOwner
+      local -a expected_list=(
+        --repo "$canonical_repository"
+        --state open --base main --head "$generator_head" --limit 2
+        --json "$list_fields"
+      )
+      local -a actual_list=("$@")
+      test "${#actual_list[@]}" = "${#expected_list[@]}"
+      local index
+      for index in "${!expected_list[@]}"; do
+        test "${actual_list[$index]}" = "${expected_list[$index]}"
+      done
+      local candidate
+      case "$scenario" in
+        exact)
+          candidate="$(candidate_json "$generator_expected_head")"
+          printf '[%s]\n' "$candidate"
+          ;;
+        zero)
+          printf '[]\n'
+          ;;
+        multiple)
+          candidate="$(candidate_json "$generator_expected_head")"
+          printf '[%s,%s]\n' "$candidate" "$candidate"
+          ;;
+        wrong-head)
+          candidate="$(candidate_json '3333333333333333333333333333333333333333')"
+          printf '[%s]\n' "$candidate"
+          ;;
+        *) return 90 ;;
+      esac
+      ;;
+    view)
+      if (( $# == 0 )) || [[ "$1" == --* ]]; then
+        printf 'argument required when using the --repo flag\n' >&2
+        return 2
+      fi
+      test "$1" = 17
+      shift
+      local view_fields=state,headRefName,headRefOid,baseRefName,isDraft
+      view_fields+=,isCrossRepository,headRepository,headRepositoryOwner,mergeCommit
+      local -a expected_view=(
+        --repo "$canonical_repository"
+        --json "$view_fields"
+      )
+      local -a actual_view=("$@")
+      test "${#actual_view[@]}" = "${#expected_view[@]}"
+      for index in "${!expected_view[@]}"; do
+        test "${actual_view[$index]}" = "${expected_view[$index]}"
+      done
+      candidate_json "$generator_expected_head"
+      ;;
+    *) return 91 ;;
+  esac
+}
+
+receipt_file=$1
+receipt_dir=$2
+scenario=$3
+canonical_repository=H234598/Wirtelprimpf-generator
+canonical_repo_id=R_kgDOTpr2BA
+generator_head=feature/reviewed
+generator_expected_head=2222222222222222222222222222222222222222
+'''
+            + discovery
+            + r'''
+printf '%s:%s\n' "$generator_pr_number" "$generator_pr_state"
+'''
+        )
+
+        def execute(scenario: str) -> subprocess.CompletedProcess[str]:
+            with tempfile.TemporaryDirectory(prefix="wirtelprimpf-pr-discovery-") as tmp:
+                receipt = Path(tmp) / "absent.json"
+                result = subprocess.run(  # nosec B603 -- fixed shell and controlled local fixture argv
+                    ["/bin/bash", "-c", script, "pr-discovery-test", str(receipt), tmp, scenario],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                self.assertFalse(receipt.exists())
+                return result
+
+        exact = execute("exact")
+        self.assertEqual(exact.returncode, 0, exact.stderr)
+        self.assertEqual(exact.stdout, "17:OPEN\n")
+        for scenario in ("zero", "multiple", "wrong-head"):
+            with self.subTest(scenario=scenario):
+                rejected = execute(scenario)
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertNotIn(
+                    "argument required when using the --repo flag",
+                    rejected.stderr,
+                )
+
+    def test_task5_accepts_only_the_verified_task3_v3_receipt_sha(self) -> None:
+        self.assertIn("# BEGIN TASK5_FACTORY_RECEIPT", self.task5_step2)
+        receipt_guard = _marked_block(self.task5_step2, "TASK5_FACTORY_RECEIPT")
+        production_metadata_guard = (
+            'test "$(stat -c \'%u:%g:%a\' "$receipt_file")" = 1000:1000:600'
+        )
+        self.assertEqual(receipt_guard.count(production_metadata_guard), 1)
+        fixture_receipt_guard = receipt_guard
+        fixture_identity = (os.geteuid(), os.getegid())
+        if os.geteuid() != 0 and fixture_identity != (1000, 1000):
+            fixture_metadata_guard = production_metadata_guard.replace(
+                "1000:1000:600",
+                f"{fixture_identity[0]}:{fixture_identity[1]}:600",
+            )
+            fixture_receipt_guard = receipt_guard.replace(
+                production_metadata_guard,
+                fixture_metadata_guard,
+                1,
+            )
+            self.assertNotIn(production_metadata_guard, fixture_receipt_guard)
+        head = "2" * 40
+        merge = "3" * 40
+        valid = {
+            "version": 3,
+            "state": "verified",
+            "actor_login": "H234598",
+            "actor_id": 54270221,
+            "repository_id": "R_kgDOTpr2BA",
+            "repository": "H234598/Wirtelprimpf-generator",
+            "canonical_origin": "https://github.com/H234598/Wirtelprimpf-generator.git",
+            "pr_number": 17,
+            "head_ref": "feature/reviewed",
+            "expected_head": head,
+            "base_before": "1" * 40,
+            "head_tree": "4" * 40,
+            "merge_date": "2026-08-02T00:00:00+00:00",
+            "merge_message": "Merge pull request #17 from feature/reviewed",
+            "merge_sha": merge,
+            "review_id": 8142270,
+            "review_author_login": "coderabbitai[bot]",
+            "review_author_id": 136622811,
+            "review_commit": head,
+            "review_state": "APPROVED",
+        }
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-task5-receipt-") as tmp:
+            receipt = Path(tmp) / "receipt.json"
+            script = f"""
+set -Eeuo pipefail
+{fixture_receipt_guard}
+receipt_file=$1
+load_verified_task3_factory_sha
+"""
+
+            def validate(name: str, payload: dict[str, object]) -> subprocess.CompletedProcess[str]:
+                receipt.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+                receipt.chmod(0o600)
+                if os.geteuid() == 0:
+                    os.chown(receipt, 1000, 1000)
+                return subprocess.run(  # nosec B603 -- fixed local shell and fixture argv
+                    ["/bin/bash", "-c", script, f"task5-receipt-{name}", str(receipt)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+
+            accepted = validate("valid", valid)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(accepted.stdout, f"{merge}\n")
+            invalid_cases = {
+                "planned": dict(valid, state="planned"),
+                "stale-review": dict(valid, review_commit="5" * 40),
+                "wrong-review": dict(valid, review_state="CHANGES_REQUESTED"),
+                "extra": {**valid, "unexpected": True},
+            }
+            for name, payload in invalid_cases.items():
+                with self.subTest(name=name):
+                    self.assertNotEqual(validate(name, payload).returncode, 0)
+
+    def test_every_task5_step_rebinds_receipt_sha_and_merge_uses_exact_head_cas(self) -> None:
+        for name, script in (
+            ("step1", self.task5_step1),
+            ("step2", self.task5_step2),
+            ("step3", self.task5_step3),
+            ("step4", self.task5_step4),
+            ("step5", self.task5_step5),
+            ("step6", self.task5_step6),
+        ):
+            with self.subTest(name=name):
+                self.assertIn("load_verified_task3_factory_sha", script)
+                self.assertIn("generator_factory_sha", script)
+        self.assertIn("canonical_archive_repo_id=", self.task5_step5)
+        self.assertIn("canonical_archive_repo_id=", self.task5_step6)
+        self.assertIn("task5_gh pr merge", self.task5_step6)
+        self.assertIn('--match-head-commit "$archive_head_sha"', self.task5_step6)
+        self.assertIn("TASK5_STEP6_TELADI", self.task5_step6)
+        self.assertIn("task5_token_call", self.task5_step6)
+
+    def test_task5_step6_content_gate_uses_ubuntu_runner_baseline_tools(self) -> None:
+        gate = _marked_block(self.task5_step6, "TASK5_STEP6_ARCHIVE_CONTENT_GATE")
+        self.assertNotIn("/usr/bin/rg", gate)
+        self.assertIn("/usr/bin/grep", gate)
+
+    def test_task5_step6_archive_candidate_gate_enforces_exact_diff_and_pins(self) -> None:
+        marker = "TASK5_STEP6_ARCHIVE_CONTENT_GATE"
+        self.assertIn(f"# BEGIN {marker}", self.task5_step6)
+        gate = _marked_block(self.task5_step6, marker)
+        old_sha = "1" * 40
+        factory_sha = "2" * 40
+
+        def exercise(
+            workflow: str,
+            *,
+            extra_file: bool = False,
+            base_has_pr_trigger: bool = False,
+        ) -> subprocess.CompletedProcess[str]:
+            with tempfile.TemporaryDirectory(prefix="wirtelprimpf-step6-candidate-") as tmp:
+                repo = Path(tmp) / "archive"
+                _fixture_git(
+                    ["init", "-q", str(repo)],
+                    check=True,
+                )
+                _fixture_git(
+                    ["-C", str(repo), "config", "user.name", "Contract Test"],
+                    check=True,
+                )
+                _fixture_git(
+                    ["-C", str(repo), "config", "user.email", "contract@example.invalid"],
+                    check=True,
+                )
+                workflow_path = repo / ".github" / "workflows" / "pages.yml"
+                workflow_path.parent.mkdir(parents=True)
+                workflow_path.write_text(
+                    "on:\n  push:\n"
+                    + ("  pull_request:\n" if base_has_pr_trigger else "")
+                    + "jobs:\n  publish:\n"
+                    "    uses: H234598/Wirtelprimpf-generator/.github/workflows/"
+                    f"archive-pages.yml@{old_sha}\n"
+                    "    with:\n"
+                    f'      factory_ref: "{old_sha}"\n',
+                    encoding="utf-8",
+                )
+                _fixture_git(["-C", str(repo), "add", "."], check=True)
+                _fixture_git(
+                    ["-C", str(repo), "commit", "-q", "-m", "base"],
+                    check=True,
+                )
+                base = _fixture_git(
+                    ["-C", str(repo), "rev-parse", "HEAD"],
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ).stdout.strip()
+                workflow_path.write_text(workflow, encoding="utf-8")
+                if extra_file:
+                    (repo / "unexpected").write_text("unexpected\n", encoding="utf-8")
+                _fixture_git(["-C", str(repo), "add", "."], check=True)
+                _fixture_git(
+                    ["-C", str(repo), "commit", "-q", "-m", "candidate"],
+                    check=True,
+                )
+                head = _fixture_git(
+                    ["-C", str(repo), "rev-parse", "HEAD"],
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ).stdout.strip()
+                script = f"set -Eeuo pipefail\n{gate}\nassert_task5_archive_candidate \"$1\" \"$2\" \"$3\" \"$4\"\n"
+                return subprocess.run(  # nosec B603 -- fixed local shell and fixture argv
+                    [
+                        "/bin/bash",
+                        "-c",
+                        script,
+                        "step6-candidate-test",
+                        str(repo),
+                        base,
+                        head,
+                        factory_sha,
+                    ],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+
+        valid = (
+            "on:\n  push:\n"
+            "jobs:\n  publish:\n"
+            "    uses: H234598/Wirtelprimpf-generator/.github/workflows/"
+            f"archive-pages.yml@{factory_sha}\n"
+            "    with:\n"
+            f'      factory_ref: "{factory_sha}"\n'
+        )
+        accepted = exercise(valid)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(accepted.stdout, "0\n")
+
+        with_pr_trigger = valid.replace("  push:\n", "  push:\n  pull_request:\n")
+        accepted_with_pr = exercise(with_pr_trigger, base_has_pr_trigger=True)
+        self.assertEqual(accepted_with_pr.returncode, 0, accepted_with_pr.stderr)
+        self.assertEqual(accepted_with_pr.stdout, "1\n")
+
+        wrong_pin = valid.replace(f'factory_ref: "{factory_sha}"', f'factory_ref: "{"3" * 40}"')
+        extra_sha = valid + f"# {'4' * 40}\n"
+        for name, workflow, extra_file in (
+            ("wrong-pin", wrong_pin, False),
+            ("extra-sha", extra_sha, False),
+            ("extra-file", valid, True),
+        ):
+            with self.subTest(name=name):
+                self.assertNotEqual(exercise(workflow, extra_file=extra_file).returncode, 0)
+
+    def test_task5_step6_revalidates_immediately_and_observes_remote_merge_before_pages(self) -> None:
+        merge_index = self.task5_step6.index("task5_gh pr merge")
+        pages_index = self.task5_step6.index('archive_run_id=""')
+        premerge = self.task5_step6[:merge_index]
+        postmerge = self.task5_step6[merge_index:pages_index]
+        self.assertGreaterEqual(premerge.count("load_verified_task3_factory_sha"), 2)
+        self.assertIn("TASK5_STEP6_FINAL_PREMERGE", premerge)
+        self.assertIn("assert_task5_archive_candidate", premerge)
+        self.assertIn("statusCheckRollup", premerge)
+        self.assertIn('test "$archive_has_pr_trigger" = 0', premerge)
+        self.assertIn("headRepository", premerge)
+        self.assertIn(".files[].path", premerge)
+        self.assertIn('.state == "MERGED"', postmerge)
+        self.assertIn("mergeCommit", postmerge)
+        self.assertIn("git/ref/heads/main", postmerge)
+        self.assertIn("git/matching-refs/heads/chore/pin-transactional-site-factory", postmerge)
+        self.assertIn("task5_postmerge_local_main", postmerge)
+        self.assertIn("refs/heads/main:refs/remotes/origin/main", postmerge)
+        self.assertIn("'refs/heads/main^{commit}'", postmerge)
+        self.assertIn("'refs/remotes/origin/main^{commit}'", postmerge)
+        self.assertIn('test "$local_main" = "$merged_sha"', postmerge)
+        self.assertIn('test "$remote_main" = "$merged_sha"', postmerge)
+        self.assertIn("switch main", postmerge)
+
+    def test_task5_postmerge_git_config_is_exactly_allowlisted(self) -> None:
+        postmerge_child = _quoted_heredoc(
+            self.task5_step6, "TASK5_POSTMERGE_TELADI"
+        )[1]
+        guard = _marked_block(postmerge_child, "TASK5_POSTMERGE_GIT_GUARD")
+        hostile_entries = (
+            ("filter.attack.smudge", "/bin/false"),
+            ("core.attributesFile", "/tmp/hostile-attributes"),  # nosec B108
+            ("core.worktree", "/tmp/hostile-worktree"),  # nosec B108
+            ("diff.attack.command", "/bin/false"),
+            ("merge.attack.driver", "/bin/false"),
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-postmerge-config-") as tmp:
+            repository = Path(tmp) / "archive"
+            canonical = "https://github.com/H234598/Wirtelprimpf-0001.git"
+            _fixture_git(["init", "-q", "-b", "main", str(repository)], check=True)
+            _fixture_git(
+                ["-C", str(repository), "remote", "add", "origin", canonical],
+                check=True,
+            )
+            _fixture_git(
+                [
+                    "-C",
+                    str(repository),
+                    "config",
+                    "--local",
+                    "remote.origin.fetch",
+                    "+refs/heads/main:refs/remotes/origin/main",
+                ],
+                check=True,
+            )
+            for key, value in (
+                ("branch.main.remote", "origin"),
+                ("branch.main.merge", "refs/heads/main"),
+            ):
+                _fixture_git(
+                    ["-C", str(repository), "config", "--local", key, value],
+                    check=True,
+                )
+            script = (
+                "set -Eeuo pipefail\n"
+                f"archive_checkout={repository!s}\n"
+                f"canonical_origin={canonical}\n"
+                f"{guard}\n"
+                "assert_safe_task5_postmerge_config\n"
+            )
+            accepted = subprocess.run(
+                ["/bin/bash", "-c", script],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            for key, value in hostile_entries:
+                _fixture_git(
+                    ["-C", str(repository), "config", "--local", key, value],
+                    check=True,
+                )
+                rejected = subprocess.run(
+                    ["/bin/bash", "-c", script],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                    env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                )
+                with self.subTest(key=key):
+                    self.assertNotEqual(rejected.returncode, 0)
+                _fixture_git(
+                    ["-C", str(repository), "config", "--local", "--unset-all", key],
+                    check=True,
+                )
+
+    def test_task3_expected_text_has_no_normative_v2_receipt(self) -> None:
+        task3_expected_start = self.document.index(
+            "Expected: GitHub main contains the deterministic two-parent merge",
+        )
+        task3_expected_end = self.document.index(
+            "#### Verbindliches Execution-Context-Erratum für Task 3 Step 5",
+            task3_expected_start,
+        )
+        task3_expected = self.document[task3_expected_start:task3_expected_end]
+        self.assertIn("private atomic v3 receipt", task3_expected)
+        self.assertNotIn("private atomic v2 receipt", task3_expected)
+
+    def test_task3_runs_git_as_teladi_with_ephemeral_authenticated_credentials(self) -> None:
+        normalized = " ".join(self.task3_merge.split())
+        self.assertIn("test \"$(id -u)\" = 0", self.task3_merge)
+        self.assertIn("runuser -u teladi -- /usr/bin/env -i", normalized)
+        self.assertIn("HOME=/home/teladi", normalized)
+        self.assertIn("USER=teladi", normalized)
+        self.assertIn("LOGNAME=teladi", normalized)
+        self.assertNotIn('GH_TOKEN="$task3_ephemeral_token" \\', self.task3_merge)
+        self.assertIn('"/user"', self.task3_merge)
+        self.assertIn("credential.helper=", self.task3_merge)
+        self.assertIn("!/usr/bin/gh auth git-credential", self.task3_merge)
+        self.assertIn("core.hooksPath=/dev/null", self.task3_merge)
+        self.assertNotIn("gh auth setup-git", self.task3_merge)
+        self.assertNotIn("safe.directory", self.task3_merge)
+
+    def test_task3_steps_one_through_three_enter_clean_teladi_context(self) -> None:
+        for name, script in (
+            ("step1", self.task3_step1),
+            ("step2", self.task3_step2),
+            ("step3", self.task3_step3),
+        ):
+            with self.subTest(name=name):
+                normalized = " ".join(script.split())
+                self.assertIn("/usr/sbin/runuser -u teladi -- /usr/bin/env -i", normalized)
+                self.assertIn('test "$(id -u)" = 1000', script)
+                self.assertIn('test "$(id -g)" = 1000', script)
+
+    def test_step1_profile_builds_and_validators_stay_inside_teladi_fence(self) -> None:
+        section_start = self.document.index(
+            "**Step 1: Run the complete local matrix from a clean branch**",
+        )
+        section_end = self.document.index(
+            "**Step 2: Perform a fresh spec and security diff review**",
+            section_start,
+        )
+        step1_section = self.document[section_start:section_end]
+        normalized = " ".join(self.task3_step1.replace("\\\n", "").split())
+        hub_build = (
+            'WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" '
+            'WIRTELPRIMPF_MEDIA_MANIFEST="$PWD/data/media-manifest.json" '
+            "WIRTELPRIMPF_SITE_PROFILE=hub "
+            "WIRTELPRIMPF_SITE_URL=https://wirtelprimpf.telacore.org "
+            "npm --prefix web run build"
+        )
+        hub_validate = (
+            "python3 scripts/validate_pages_artifact.py web/dist "
+            "--expected-domain wirtelprimpf.telacore.org"
+        )
+        archive_build = (
+            'WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" '
+            'WIRTELPRIMPF_MEDIA_MANIFEST="$PWD/data/media-manifest.json" '
+            "WIRTELPRIMPF_SITE_PROFILE=archive "
+            "WIRTELPRIMPF_SITE_URL=https://wirtelprimpf-0001.telacore.org "
+            "npm --prefix web run build"
+        )
+        archive_validate = (
+            "python3 scripts/validate_pages_artifact.py web/dist "
+            "--expected-domain wirtelprimpf-0001.telacore.org"
+        )
+        for command in (hub_build, hub_validate, archive_build, archive_validate):
+            self.assertIn(command, normalized)
+        ordered = (
+            normalized.index("/usr/sbin/runuser -u teladi -- /usr/bin/env -i"),
+            normalized.index('test "$(id -u)" = 1000'),
+            normalized.index('test "$(id -g)" = 1000'),
+            normalized.index(hub_build),
+            normalized.index(hub_validate),
+            normalized.index(archive_build),
+            normalized.index(archive_validate),
+            normalized.rindex("TASK3_STEP1_TELADI"),
+        )
+        self.assertEqual(ordered, tuple(sorted(ordered)))
+        self.assertEqual(normalized.count("npm --prefix web run build"), 2)
+        self.assertNotIn("Then repeat the two profile builds", step1_section)
+
+    def test_step3_actual_prewrite_gate_precedes_the_first_fetch(self) -> None:
+        script = self.task3_step3
+        self.assertIn("# BEGIN TASK3_STEP3_PREWRITE_GATE", script)
+        gate = _marked_block(script, "TASK3_STEP3_PREWRITE_GATE")
+        required_calls = (
+            'generator_head="$(/usr/bin/git branch --show-current)"',
+            'assert_task3_feature_branch "$generator_head"',
+            "assert_canonical_origin",
+            "require_task3_auth",
+            "require_canonical_repository",
+        )
+        for call in required_calls:
+            self.assertIn(call, gate)
+        positions = tuple(gate.index(call) for call in required_calls)
+        self.assertEqual(positions, tuple(sorted(positions)))
+        gate_end = script.index("# END TASK3_STEP3_PREWRITE_GATE")
+        fetch = script.index('git_remote fetch "$canonical_origin"')
+        merge = script.index("core.hooksPath=/dev/null merge")
+        push = script.index('git_remote push "$canonical_origin"')
+        self.assertLess(gate_end, fetch)
+        self.assertLess(fetch, merge)
+        self.assertLess(merge, push)
+        self.assertLess(script.index("set +x"), script.index("${GH_TOKEN"))
+
+    def test_step3_branch_predicate_rejects_main_and_accepts_a_feature(self) -> None:
+        self.assertIn("# BEGIN TASK3_FEATURE_BRANCH_PREDICATE", self.task3_step3)
+        predicate = _marked_block(self.task3_step3, "TASK3_FEATURE_BRANCH_PREDICATE")
+        script = f"set -Eeuo pipefail\n{predicate}\nassert_task3_feature_branch \"$1\"\n"
+        accepted = subprocess.run(
+            ["bash", "-c", script, "branch-test", "feature/reviewed"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        rejected = subprocess.run(
+            ["bash", "-c", script, "branch-test", "main"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertNotEqual(rejected.returncode, 0)
+
+    def test_task3_identity_predicates_pin_actor_and_repository(self) -> None:
+        valid_actor = json.dumps({"login": "H234598", "id": 54270221})
+        valid_repository = json.dumps(
+            {
+                "id": "R_kgDOTpr2BA",
+                "nameWithOwner": "H234598/Wirtelprimpf-generator",
+            },
+        )
+        invalid_pairs = (
+            (json.dumps({"login": "H234598", "id": 1}), valid_repository),
+            (json.dumps({"id": 54270221}), valid_repository),
+            (
+                valid_actor,
+                json.dumps(
+                    {
+                        "id": "R_DYNAMIC_REPLACEMENT",
+                        "nameWithOwner": "H234598/Wirtelprimpf-generator",
+                    },
+                ),
+            ),
+            (
+                valid_actor,
+                json.dumps({"nameWithOwner": "H234598/Wirtelprimpf-generator"}),
+            ),
+            (
+                valid_actor,
+                json.dumps(
+                    {
+                        "id": "R_kgDOTpr2BA",
+                        "nameWithOwner": "H234598/replacement",
+                    },
+                ),
+            ),
+        )
+        for name, plan_script in (
+            ("step3", self.task3_step3),
+            ("step4", self.task3_step4),
+            ("step5", self.task3_merge),
+        ):
+            has_marker = "# BEGIN TASK3_IDENTITY_PREDICATES" in plan_script
+            with self.subTest(name=name, case="marker"):
+                self.assertTrue(has_marker)
+            if not has_marker:
+                continue
+            predicates = _marked_block(plan_script, "TASK3_IDENTITY_PREDICATES")
+            actor_gate = _shell_function(plan_script, "require_task3_auth")
+            repository_gate = _shell_function(
+                plan_script,
+                "require_canonical_repository",
+            )
+            script = (
+                f"set -Eeuo pipefail\n{predicates}\n{actor_gate}\n{repository_gate}\n"
+                'actor_json=$1\nrepository_json=$2\n'
+                "task3_gh() {\n"
+                '  if [[ "$1" == api && "$2" == /user ]]; then\n'
+                '    printf \'%s\\n\' "$actor_json"\n'
+                '  elif [[ "$1" == repo && "$2" == view ]]; then\n'
+                '    test "$3" = H234598/Wirtelprimpf-generator\n'
+                '    test "$4" = --json\n'
+                '    test "$5" = id,nameWithOwner\n'
+                '    printf \'%s\\n\' "$repository_json"\n'
+                "  else\n"
+                "    return 90\n"
+                "  fi\n"
+                "}\n"
+                "require_task3_auth\n"
+                "require_canonical_repository\n"
+            )
+            accepted = subprocess.run(
+                ["bash", "-c", script, "identity-test", valid_actor, valid_repository],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            with self.subTest(name=name, case="valid"):
+                self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            for case, (actor_json, repository_json) in enumerate(invalid_pairs):
+                rejected = subprocess.run(
+                    [
+                        "bash",
+                        "-c",
+                        script,
+                        "identity-test",
+                        actor_json,
+                        repository_json,
+                    ],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                with self.subTest(name=name, case=case):
+                    self.assertNotEqual(rejected.returncode, 0)
+        placeholder_id = "R_" + "TEST_CANONICAL"
+        self.assertNotIn(placeholder_id, self.document)
+        self.assertNotIn(placeholder_id, Path(__file__).read_text(encoding="utf-8"))
+
+    def test_steps_four_and_five_execute_the_fixed_repository_gate(self) -> None:
+        for name, script, marker, first_post_gate_operation in (
+            (
+                "step4",
+                self.task3_step4,
+                "TASK3_STEP4_IDENTITY_GATE",
+                'generator_head="$(/usr/bin/git branch --show-current)"',
+            ),
+            (
+                "step5",
+                self.task3_merge,
+                "TASK3_STEP5_IDENTITY_GATE",
+                "receipt_state=absent",
+            ),
+        ):
+            with self.subTest(name=name):
+                self.assertIn(f"# BEGIN {marker}", script)
+                gate = _marked_block(script, marker)
+                self.assertIn("require_task3_auth", gate)
+                self.assertIn("require_canonical_repository", gate)
+                self.assertLess(
+                    script.index(f"# END {marker}"),
+                    script.index(first_post_gate_operation),
+                )
+
+    def test_normative_fd_relay_keeps_token_out_of_argv_and_long_environment(self) -> None:
+        self.assertIn("# BEGIN TASK3_FD_TOKEN_CALL", self.task3_merge)
+        token_call = _marked_block(self.task3_merge, "TASK3_FD_TOKEN_CALL")
+        token = b"FD_RELAY_SENTINEL_NOT_A_SECRET\0"
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-fd-contract-") as tmp:
+            probe = Path(tmp) / "probe"
+            probe.write_text(
+                "#!/bin/bash\n"
+                "set -Eeuo pipefail\n"
+                "test \"${GH_TOKEN:-}\" = FD_RELAY_SENTINEL_NOT_A_SECRET\n"
+                "! tr '\\\\0' '\\\\n' </proc/self/cmdline | grep -Fq \"$GH_TOKEN\"\n"
+                "! tr '\\\\0' '\\\\n' </proc/$PPID/cmdline | grep -Fq \"$GH_TOKEN\"\n"
+                "printf 'probe-ok\\n'\n",
+                encoding="utf-8",
+            )
+            probe.chmod(0o700)
+            read_fd, write_fd = os.pipe()
+            try:
+                os.write(write_fd, token)
+                os.close(write_fd)
+                write_fd = -1
+                script = f"""
+set -Eeuo pipefail
+set +x
+{token_call}
+relay_fd=$1
+task3_ephemeral_token=
+IFS= read -r -d '' task3_ephemeral_token <&"$relay_fd"
+exec {{relay_fd}}<&-
+test -z "${{GH_TOKEN+x}}"
+! tr '\\0' '\\n' </proc/self/environ | grep -Fq "$task3_ephemeral_token"
+! /usr/bin/env | grep -q '^GH_TOKEN='
+task3_token_call "$2"
+"""
+                result = subprocess.run(
+                    ["bash", "-x", "-c", script, "task3-fd-test", str(read_fd), str(probe)],
+                    pass_fds=(read_fd,),
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                    env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                )
+            finally:
+                if write_fd >= 0:
+                    os.close(write_fd)
+                os.close(read_fd)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "probe-ok\n")
+            self.assertNotIn("FD_RELAY_SENTINEL_NOT_A_SECRET", result.stderr)
+
+    def test_short_token_children_disable_every_askpass_environment(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-token-env-") as tmp:
+            probe = Path(tmp) / "probe"
+            probe.write_text(
+                "#!/bin/bash\n"
+                "set -Eeuo pipefail\n"
+                'test "$GIT_TERMINAL_PROMPT" = 0\n'
+                'test "$GIT_ASKPASS" = /bin/false\n'
+                'test "$SSH_ASKPASS" = /bin/false\n'
+                'test "$GH_TOKEN" = SHORT_CHILD_SENTINEL_NOT_A_SECRET\n',
+                encoding="utf-8",
+            )
+            probe.chmod(0o700)
+            for name, plan_script in (
+                ("step3", self.task3_step3),
+                ("step4", self.task3_step4),
+                ("step5", self.task3_merge),
+            ):
+                token_call = _shell_function(plan_script, "task3_token_call")
+                script = f"""
+set -Eeuo pipefail
+{token_call}
+task3_ephemeral_token=SHORT_CHILD_SENTINEL_NOT_A_SECRET
+task3_token_call "$1"
+"""
+                result = subprocess.run(
+                    ["bash", "-c", script, "token-env-test", str(probe)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                    env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                )
+                with self.subTest(name=name):
+                    self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_normative_origin_predicate_rejects_every_extra_url(self) -> None:
+        self.assertIn("# BEGIN TASK3_CANONICAL_ORIGIN", self.task3_merge)
+        predicate = _marked_block(self.task3_merge, "TASK3_CANONICAL_ORIGIN")
+        canonical = "https://github.com/H234598/Wirtelprimpf-generator.git"
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-origin-contract-") as tmp:
+            repo = Path(tmp) / "repo"
+            poisoned_global = Path(tmp) / "poisoned-global.gitconfig"
+            poisoned_global.write_text(
+                '[url "https://attacker.invalid/"]\n'
+                "\tinsteadOf = https://github.com/\n",
+                encoding="utf-8",
+            )
+            poisoned_probe_env = dict(_FIXTURE_GIT_ENV)
+            poisoned_probe_env["GIT_CONFIG_GLOBAL"] = str(poisoned_global)
+            _fixture_git(["init", "-q", str(repo)], check=True)
+            _fixture_git(["-C", str(repo), "remote", "add", "origin", canonical], check=True)
+            check_script = f"set -Eeuo pipefail\n{predicate}\ncanonical_origin=$1\nassert_canonical_origin origin\n"
+            accepted = subprocess.run(
+                ["/bin/bash", "-c", check_script, "origin-test", canonical],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env=poisoned_probe_env,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+            _fixture_git(
+                ["-C", str(repo), "remote", "set-url", "--add", "--push", "origin", canonical],
+                check=True,
+            )
+            _fixture_git(
+                [
+                    "-C",
+                    str(repo),
+                    "remote",
+                    "set-url",
+                    "--add",
+                    "--push",
+                    "origin",
+                    "https://example.invalid/second.git",
+                ],
+                check=True,
+            )
+            rejected = subprocess.run(
+                ["/bin/bash", "-c", check_script, "origin-test", canonical],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env=poisoned_probe_env,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+
+    def test_normative_git_remote_disables_a_real_pre_push_hook(self) -> None:
+        self.assertIn("# BEGIN TASK3_FD_TOKEN_CALL", self.task3_merge)
+        self.assertIn("# BEGIN TASK3_GIT_REMOTE", self.task3_merge)
+        git_remote = _marked_block(self.task3_merge, "TASK3_GIT_REMOTE")
+        self.assertIn("-c core.hooksPath=/dev/null", git_remote)
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-hook-contract-") as tmp:
+            source = Path(tmp) / "source"
+            remote = Path(tmp) / "remote.git"
+            leak = Path(tmp) / "hook-leak"
+            _fixture_git(["init", "-q", str(source)], check=True)
+            _fixture_git(["init", "-q", "--bare", str(remote)], check=True)
+            _fixture_git(["-C", str(source), "config", "user.name", "Contract Test"], check=True)
+            _fixture_git(
+                ["-C", str(source), "config", "user.email", "contract@example.invalid"],
+                check=True,
+            )
+            (source / "tracked").write_text("reviewed\n", encoding="utf-8")
+            _fixture_git(["-C", str(source), "add", "tracked"], check=True)
+            _fixture_git(
+                ["-C", str(source), "commit", "-q", "-m", "reviewed"], check=True
+            )
+            hook = source / ".git/hooks/pre-push"
+            hook.write_text(
+                f"#!/bin/sh\nprintf '%s' \"${{GH_TOKEN:-missing}}\" >'{leak}'\nexit 91\n",
+                encoding="utf-8",
+            )
+            hook.chmod(0o700)
+            result = _fixture_git(
+                [
+                    "-C",
+                    str(source),
+                    "push",
+                    str(remote),
+                    "HEAD:refs/heads/main",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(leak.exists(), "the real pre-push hook observed the tokenized Git process")
+            remote_head = _fixture_git(
+                ["-C", str(remote), "rev-parse", "refs/heads/main"],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+            local_head = _fixture_git(
+                ["-C", str(source), "rev-parse", "HEAD"],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(remote_head, local_head)
+
+    def test_git_remote_rejects_url_specific_authorization_extraheader(self) -> None:
+        received_paths: list[str] = []
+        received_authorizations: list[str] = []
+
+        class HeaderProbeHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                received_paths.append(self.path)
+                received_authorizations.extend(self.headers.get_all("Authorization") or [])
+                self.send_response(403)
+                self.end_headers()
+
+            def log_message(self, format: str, *args: object) -> None:
+                del format, args
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), HeaderProbeHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address
+        remote_url = f"http://{host}:{port}/repository.git"
+        sentinel = "EXTRAHEADER_SENTINEL_NOT_A_SECRET"
+        try:
+            with tempfile.TemporaryDirectory(prefix="wirtelprimpf-extraheader-") as tmp:
+                for name, plan_script in (
+                    ("step3", self.task3_step3),
+                    ("step5", self.task3_merge),
+                ):
+                    repo = Path(tmp) / name
+                    _fixture_git(["init", "-q", str(repo)], check=True)
+                    _fixture_git(
+                        [
+                            "-C",
+                            str(repo),
+                            "config",
+                            f"http.{remote_url}.extraHeader",
+                            f"Authorization: Basic {sentinel}",
+                        ],
+                        check=True,
+                    )
+                    git_remote = _shell_function(plan_script, "git_remote")
+                    git_config_guard = _marked_block(
+                        plan_script,
+                        "TASK3_GIT_CONFIG_GUARD",
+                    )
+                    script = f"""
+set -Eeuo pipefail
+{git_config_guard}
+{git_remote}
+canonical_origin=$2
+task3_token_call() {{
+  /usr/bin/env -i \
+    HOME=/home/teladi \
+    PATH=/usr/bin:/bin \
+    GH_TOKEN=EXTRAHEADER_CHILD_TOKEN_NOT_A_SECRET \
+    GIT_TERMINAL_PROMPT=0 \
+    "$@"
+}}
+cd "$1"
+if git_remote ls-remote "$2"; then
+  exit 91
+fi
+"""
+                    result = subprocess.run(
+                        ["bash", "-c", script, "extraheader-test", str(repo), remote_url],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        timeout=10,
+                        env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                    )
+                    with self.subTest(name=name):
+                        self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(received_paths, [])
+            self.assertFalse(
+                any(sentinel in value for value in received_authorizations),
+                received_authorizations,
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_git_remote_neutralizes_configured_askpass_after_helper_failure(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-askpass-") as tmp:
+            root = Path(tmp)
+            askpass = root / "askpass"
+            askpass.write_text(
+                "#!/bin/bash\n"
+                "set -Eeuo pipefail\n"
+                'printf "%s" "${GH_TOKEN:-missing}" >"$ASKPASS_LEAK_PATH"\n'
+                "printf 'credential-from-forbidden-askpass\\n'\n",
+                encoding="utf-8",
+            )
+            askpass.chmod(0o700)
+            for name, plan_script in (
+                ("step3", self.task3_step3),
+                ("step5", self.task3_merge),
+            ):
+                repo = root / f"repo-{name}"
+                leak = root / f"askpass-leak-{name}"
+                _fixture_git(["init", "-q", str(repo)], check=True)
+                _fixture_git(
+                    ["-C", str(repo), "config", "core.askPass", str(askpass)],
+                    check=True,
+                )
+                git_remote = _shell_function(plan_script, "git_remote")
+                script = f"""
+set -Eeuo pipefail
+{git_remote}
+askpass_leak_path=$2
+task3_token_call() {{
+  /usr/bin/env -i \
+    HOME=/home/teladi \
+    PATH=/usr/bin:/bin \
+    GH_TOKEN=ASKPASS_CHILD_TOKEN_NOT_A_SECRET \
+    GIT_TERMINAL_PROMPT=0 \
+    ASKPASS_LEAK_PATH="$askpass_leak_path" \
+    "$@"
+}}
+if printf 'protocol=https\\nhost=example.invalid\\n\\n' | \
+  git_remote -C "$1" \
+    -c credential.helper= \
+    -c 'credential.helper=!/bin/false' \
+    credential fill >/dev/null 2>&1; then
+  exit 92
+fi
+test ! -e "$2"
+"""
+                result = subprocess.run(
+                    ["bash", "-c", script, "askpass-test", str(repo), str(leak)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                    env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                )
+                with self.subTest(name=name):
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(leak.exists())
+
+    def test_normative_merge_derivation_matches_the_reviewed_tree_and_exact_oid(self) -> None:
+        self.assertIn("# BEGIN TASK3_DERIVE_MERGE", self.task3_merge)
+        derive_merge = _marked_block(self.task3_merge, "TASK3_DERIVE_MERGE")
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-derive-contract-") as tmp:
+            fixture = self._make_merge_fixture(tmp)
+            script = f"""
+set -Eeuo pipefail
+{derive_merge}
+generator_pr_number=17
+generator_head=feature/reviewed
+generator_expected_head=$1
+generator_base_before=$2
+derive_task3_merge
+printf '%s\\n' "$generator_head_tree" "$generator_merge_date" \\
+  "$generator_merge_message" "$generator_merge_sha"
+"""
+            result = subprocess.run(
+                ["bash", "-c", script, "derive-test", fixture["head"], fixture["base"]],
+                cwd=fixture["repo"],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                result.stdout.splitlines(),
+                [
+                    fixture["head_tree"],
+                    fixture["merge_date"],
+                    fixture["message"],
+                    fixture["expected_merge"],
+                ],
+            )
+
+    def test_normative_receipt_rejects_extra_malformed_stale_and_forged_content(self) -> None:
+        self.assertIn("# BEGIN TASK3_DERIVE_MERGE", self.task3_merge)
+        self.assertIn("# BEGIN TASK3_VALIDATE_RECEIPT", self.task3_merge)
+        derive_merge = _marked_block(self.task3_merge, "TASK3_DERIVE_MERGE")
+        validate_receipt = _marked_block(self.task3_merge, "TASK3_VALIDATE_RECEIPT")
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-receipt-contract-") as tmp:
+            fixture = self._make_merge_fixture(tmp)
+            valid_receipt = self._receipt_for_fixture(fixture)
+            validation_script = f"""
+set -Eeuo pipefail
+{derive_merge}
+{validate_receipt}
+receipt_file=$1
+task3_actor_login=H234598
+task3_actor_id=54270221
+canonical_repo_id=R_kgDOTpr2BA
+canonical_repository=H234598/Wirtelprimpf-generator
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+generator_head=feature/reviewed
+generator_expected_head=$2
+load_task3_receipt
+generator_pr_number=$receipt_pr_number
+generator_base_before=$receipt_base_before
+generator_review_id=8142270
+generator_review_author_login='coderabbitai[bot]'
+generator_review_author_id=136622811
+generator_review_commit=$generator_expected_head
+generator_review_state=APPROVED
+derive_task3_merge
+validate_task3_receipt_derivation
+"""
+
+            def validate(name: str, content: str) -> subprocess.CompletedProcess[str]:
+                receipt_path = Path(tmp) / f"{name}.json"
+                receipt_path.write_text(content, encoding="utf-8")
+                receipt_path.chmod(0o600)
+                return subprocess.run(
+                    ["bash", "-c", validation_script, "receipt-test", str(receipt_path), fixture["head"]],
+                    cwd=fixture["repo"],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+
+            accepted = validate("valid", json.dumps(valid_receipt, sort_keys=True))
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+            extra = dict(valid_receipt)
+            extra["attacker_note"] = "schema extension must not be ignored"
+            stale = dict(valid_receipt)
+            stale["expected_head"] = fixture["base"]
+            forged = dict(valid_receipt)
+            forged["head_tree"] = fixture["malicious_tree"]
+            forged["merge_sha"] = fixture["malicious_merge"]
+            replacement_repository = dict(valid_receipt)
+            replacement_repository["repository_id"] = "R_DYNAMIC_REPLACEMENT"
+            rejected_cases = {
+                "extra": json.dumps(extra, sort_keys=True),
+                "malformed": "{",
+                "stale": json.dumps(stale, sort_keys=True),
+                "forged": json.dumps(forged, sort_keys=True),
+                "replacement_repository": json.dumps(
+                    replacement_repository,
+                    sort_keys=True,
+                ),
+            }
+            for name, content in rejected_cases.items():
+                with self.subTest(name=name):
+                    rejected = validate(name, content)
+                    self.assertNotEqual(rejected.returncode, 0)
+
+    def test_normative_receipt_writer_cleans_private_temp_after_atomic_replace_failure(self) -> None:
+        self.assertIn("# BEGIN TASK3_RECEIPT_IO", self.task3_merge)
+        receipt_io = _marked_block(self.task3_merge, "TASK3_RECEIPT_IO")
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-receipt-io-") as tmp:
+            fixture = self._make_merge_fixture(tmp)
+            receipt_parent = Path(tmp) / "state"
+            receipt_dir = receipt_parent / "task3-merge"
+            receipt_parent.mkdir(mode=0o700)
+            receipt_parent.chmod(0o700)
+            receipt_dir.mkdir(mode=0o700)
+            receipt_dir.chmod(0o700)
+            occupied_destination = receipt_dir / "occupied-destination"
+            occupied_destination.mkdir(mode=0o700)
+            script = f"""
+set -Eeuo pipefail
+{receipt_io}
+receipt_parent=$1
+receipt_dir=$2
+receipt_file=$3
+receipt_state=absent
+task3_actor_login=H234598
+task3_actor_id=54270221
+canonical_repo_id=R_kgDOTpr2BA
+canonical_repository=H234598/Wirtelprimpf-generator
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+generator_pr_number=17
+generator_head=feature/reviewed
+generator_expected_head=$4
+generator_base_before=$5
+generator_head_tree=$6
+generator_merge_date=$7
+generator_merge_message='Merge pull request #17 from feature/reviewed'
+generator_merge_sha=$8
+generator_review_id=8142270
+generator_review_author_login='coderabbitai[bot]'
+generator_review_author_id=136622811
+generator_review_commit=$4
+generator_review_state=APPROVED
+write_task3_receipt planned
+"""
+            failed = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    script,
+                    "receipt-io-test",
+                    str(receipt_parent),
+                    str(receipt_dir),
+                    str(occupied_destination),
+                    fixture["head"],
+                    fixture["base"],
+                    fixture["head_tree"],
+                    fixture["merge_date"],
+                    fixture["expected_merge"],
+                ],
+                cwd=fixture["repo"],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertEqual(list(receipt_dir.glob(".generator-main-receipt.*")), [])
+
+    def test_existing_receipt_reconcile_and_observe_do_not_refetch_live_review(self) -> None:
+        derive_merge = _marked_block(self.task3_merge, "TASK3_DERIVE_MERGE")
+        validate_receipt = _marked_block(self.task3_merge, "TASK3_VALIDATE_RECEIPT")
+        classifier = _marked_block(self.task3_merge, "TASK3_REMOTE_STATE")
+        retry_start = self.task3_merge.index(
+            'else\n  case "$generator_pr_state" in OPEN|MERGED)'
+        ) + len("else\n")
+        retry_end = self.task3_merge.index("\nfi\n\nremote_main_sha=", retry_start)
+        retry_branch = self.task3_merge[retry_start:retry_end]
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-reconcile-contract-") as tmp:
+            fixture = self._make_merge_fixture(tmp)
+            script = f"""
+set -Eeuo pipefail
+{derive_merge}
+{validate_receipt}
+{classifier}
+receipt_file=$1
+task3_actor_login=H234598
+task3_actor_id=54270221
+canonical_repo_id=R_kgDOTpr2BA
+canonical_repository=H234598/Wirtelprimpf-generator
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+generator_head=feature/reviewed
+generator_expected_head=$2
+generator_pr_state=MERGED
+live_review_decision=$3
+remote_main=$4
+remote_head=$5
+assert_task3_current_review() {{
+  printf 'unexpected live review fetch: %s\\n' "$live_review_decision" >&2
+  return 97
+}}
+load_task3_receipt
+generator_pr_number=$receipt_pr_number
+generator_base_before=$receipt_base_before
+{retry_branch}
+classify_task3_remote_action \
+  "$receipt_state" "$remote_main" "$remote_head" \
+  "$generator_base_before" "$generator_merge_sha" \
+  "$generator_expected_head"
+"""
+            self.assertIn(
+                "printf 'unexpected live review fetch: %s\\n'",
+                script,
+            )
+
+            def execute(
+                state: str,
+                live_review_decision: str,
+                remote_main: str,
+                remote_head: str,
+            ) -> subprocess.CompletedProcess[str]:
+                receipt = self._receipt_for_fixture(fixture)
+                receipt["state"] = state
+                receipt_path = Path(tmp) / f"receipt-{state}.json"
+                receipt_path.write_text(
+                    json.dumps(receipt, sort_keys=True),
+                    encoding="utf-8",
+                )
+                receipt_path.chmod(0o600)
+                return subprocess.run(  # nosec B603 -- fixed shell and controlled local fixture argv
+                    [
+                        "/bin/bash",
+                        "-c",
+                        script,
+                        "receipt-reconcile-test",
+                        str(receipt_path),
+                        fixture["head"],
+                        live_review_decision,
+                        remote_main,
+                        remote_head,
+                    ],
+                    cwd=fixture["repo"],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+
+            reconcile = execute("planned", "null", fixture["expected_merge"], "")
+            self.assertEqual(reconcile.returncode, 0, reconcile.stderr)
+            self.assertEqual(reconcile.stdout, "reconcile\n")
+
+            observe = execute(
+                "remote_committed",
+                "CHANGES_REQUESTED",
+                fixture["expected_merge"],
+                "",
+            )
+            self.assertEqual(observe.returncode, 0, observe.stderr)
+            self.assertEqual(observe.stdout, "observe\n")
+
+            unknown = execute("planned", "null", fixture["base"], "")
+            self.assertNotEqual(unknown.returncode, 0)
+            self.assertNotIn("unexpected live review fetch", unknown.stderr)
+
+    def test_normative_remote_state_classifier_never_repushes_a_committed_merge(self) -> None:
+        self.assertIn("# BEGIN TASK3_REMOTE_STATE", self.task3_merge)
+        classifier = _marked_block(self.task3_merge, "TASK3_REMOTE_STATE")
+        base = "1" * 40
+        head = "2" * 40
+        merge = "3" * 40
+        script = f"""
+set -Eeuo pipefail
+{classifier}
+classify_task3_remote_action "$1" "$2" "$3" "$4" "$5" "$6"
+"""
+
+        def classify(state: str, remote_main: str, remote_head: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    script,
+                    "remote-state-test",
+                    state,
+                    remote_main,
+                    remote_head,
+                    base,
+                    merge,
+                    head,
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+
+        cases = {
+            ("planned", base, head): "push\n",
+            ("planned", merge, ""): "reconcile\n",
+            ("remote_committed", merge, ""): "observe\n",
+            ("verified", merge, ""): "observe\n",
+        }
+        for inputs, expected in cases.items():
+            with self.subTest(inputs=inputs):
+                result = classify(*inputs)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+        for inputs in (
+            ("planned", "4" * 40, head),
+            ("remote_committed", base, head),
+            ("verified", merge, head),
+            ("unknown", merge, ""),
+        ):
+            with self.subTest(rejected=inputs):
+                result = classify(*inputs)
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_task3_policy_and_pr_identity_gates_are_strictly_fail_closed(self) -> None:
+        self.assertIn('type == "array" and length == 0', self.task3_merge)
+        self.assertNotIn("blocking_rules=", self.task3_merge)
+        self.assertIn("classic_protection_status", self.task3_merge)
+        self.assertIn('test "$classic_protection_status" = 404', self.task3_merge)
+        self.assertIn("headRefName", self.task3_merge)
+        self.assertIn("isCrossRepository", self.task3_merge)
+        self.assertIn("headRepository", self.task3_merge)
+        self.assertIn("nameWithOwner", self.task3_merge)
+        self.assertIn(
+            "canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git",
+            self.task3_merge,
+        )
+        self.assertIn(
+            "task3_git_probe remote get-url --push --all origin",
+            self.task3_merge,
+        )
+        self.assertIn(
+            'generator_merge_message="Merge pull request #${generator_pr_number} from ${generator_head}"',
+            self.task3_merge,
+        )
+        self.assertEqual(self.task3_merge.count("git branch --show-current"), 1)
+
+    def test_step4_rechecks_the_exact_same_repository_pr_head(self) -> None:
+        task3_start = self.document.index("### Task 3:")
+        step4_start = self.document.index("**Step 4: Open the pull request", task3_start)
+        step5_start = self.document.index("**Step 5: Merge through GitHub", step4_start)
+        step4 = self.document[step4_start:step5_start]
+        self.assertIn("headRefName", step4)
+        self.assertIn("isCrossRepository", step4)
+        self.assertIn("headRepository", step4)
+        self.assertIn("nameWithOwner", step4)
+        self.assertIn('"/user"', step4)
+
+    def test_task3_has_a_durable_idempotent_remote_commit_receipt(self) -> None:
+        for state in ("planned", "remote_committed", "verified"):
+            self.assertIn(state, self.task3_merge)
+        self.assertIn("write_task3_receipt", self.task3_merge)
+        self.assertIn("receipt_parent=/home/teladi/.local/state/wirtelprimpf", self.task3_merge)
+        self.assertLess(
+            self.task3_merge.index('realpath -e -- "$receipt_parent"'),
+            self.task3_merge.index('install -d -m0700 "$receipt_dir"'),
+        )
+        self.assertIn("task3_remote_committed=1", self.task3_merge)
+        self.assertIn("task3_push_started=1", self.task3_merge)
+        self.assertIn("REMOTE COMMIT COMPLETE; VERIFICATION PENDING", self.task3_merge)
+        self.assertIn("PUSH OUTCOME REQUIRES RECEIPT RECONCILIATION", self.task3_merge)
+        self.assertIn("planned_remote_committed", self.task3_merge)
+        self.assertLess(
+            self.task3_merge.index("task3_push_started=1"),
+            self.task3_merge.index("git_remote push --atomic"),
+        )
+        self.assertLess(
+            self.task3_merge.index("git_remote push --atomic"),
+            self.task3_merge.index("task3_remote_committed=1"),
+        )
+        self.assertLess(
+            self.task3_merge.index("task3_remote_committed=1"),
+            self.task3_merge.index("write_task3_receipt remote_committed"),
+        )
+
+    def test_step9_contains_the_exact_smokes_and_orders_marker_producer_before_consumer(self) -> None:
+        self.assertIn(self.smoke_api, self.deployment)
+        self.assertIn(self.smoke_sync, self.deployment)
+        self.assertNotIn("Execute the exact Step-5", self.deployment)
+        producer = self.deployment.index("marker_path.write_text")
+        consumer = self.deployment.index(
+            "smoke_owned_revision=\"$(jq -er '.revision' "
+            '"$deploy_backup/smoke-owned-revision.json")"'
+        )
+        self.assertLess(producer, consumer)
+
+    def test_erratum_keeps_runtime_old_until_the_guarded_task4_cas(self) -> None:
+        self.assertIn(
+            "Task 3 verändert den Runtime-Checkout nicht",
+            self.document,
+        )
+        self.assertIn('test "$runtime_sha_before" != "$target_sha"', self.deployment)
+        self.assertIn(
+            "Erst nach dem Task-4-CAS",
+            self.document,
+        )
+
+    def test_step10_contains_real_signal_and_lease_race_injections(self) -> None:
+        self.assertIn('kill -TERM "$recovery_pid"', self.harness)
+        self.assertIn('kill -HUP "$recovery_pid"', self.harness)
+        self.assertIn("lease-race", self.harness)
+        self.assertIn("masked-runtime", self.harness)
+        self.assertIn("timer-persistent-enablement", self.harness)
+        self.assertIn("after-push-before-receipt", self.harness)
+        self.assertIn("planned-remote-committed-reconciled", self.harness)
+        self.assertIn("remote-committed-api-failure", self.harness)
+        self.assertIn("verified-without-second-push", self.harness)
+
+    def test_step10_runtime_cas_moves_main_from_the_old_commit_to_the_target(self) -> None:
+        detach_old = 'git -C "$runtime_harness" switch --detach -q "$runtime_sha_before"'
+        update_main = (
+            'git -C "$runtime_harness" update-ref refs/heads/main \\\n'
+            '  "$target_sha" "$runtime_sha_before"'
+        )
+        self.assertIn(detach_old, self.harness)
+        self.assertIn(update_main, self.harness)
+        self.assertLess(
+            self.harness.index(detach_old),
+            self.harness.index("printf 'target-tree\\n'"),
+        )
+
+    def test_normative_quiesce_handles_auto_restart_without_stopping_a_running_job(self) -> None:
+        self.assertIn("# BEGIN TASK4_GENERATOR_QUIESCE", self.deployment)
+        quiesce = _marked_block(self.deployment, "TASK4_GENERATOR_QUIESCE")
+        quiesce_generator = _shell_function(f"{quiesce}\n", "quiesce_generator")
+        self.assertIn("deadline=$((SECONDS + 300))", quiesce)
+        self.assertIn(
+            "systemctl --user --job-mode=fail stop wirtelprimpf.service",
+            quiesce,
+        )
+        self.assertNotIn(
+            "systemctl --user stop wirtelprimpf.service",
+            quiesce_generator,
+        )
+        self.assertIn(
+            "systemctl --user show wirtelprimpf.service -p LoadState --value",
+            quiesce,
+        )
+
+        fail_closed = _shell_function(self.deployment, "fail_closed_runtime")
+        self.assertLess(
+            fail_closed.index("wait_generator_inactive"),
+            fail_closed.index("mask_generator_runtime"),
+        )
+        self.assertNotIn("mask --runtime wirtelprimpf.service", fail_closed)
+
+        script = f"""
+set -Eeuo pipefail
+{quiesce}
+case_name=$1
+events=$2
+state_counter=$3
+mask_state=$4
+state_spec=$5
+load_state=$6
+printf '0\n' >"$state_counter"
+case "$case_name" in
+  unexpected-unit-state) printf 'enabled\n' >"$mask_state" ;;
+  partial-mask-state) printf 'masked-runtime\n' >"$mask_state" ;;
+  *) printf 'static\n' >"$mask_state" ;;
+esac
+
+next_generator_state() {{
+  local index state active sub
+  index="$(<"$state_counter")"
+  IFS=',' read -r -a states <<<"$state_spec"
+  if (( index >= ${{#states[@]}} )); then
+    index=$((${{#states[@]}} - 1))
+  fi
+  state="${{states[$index]}}"
+  printf '%s\n' "$(( $(<"$state_counter") + 1 ))" >"$state_counter"
+  active="${{state%%:*}}"
+  sub="${{state#*:}}"
+  printf 'observe:%s/%s\n' "$active" "$sub" >>"$events"
+  printf 'ActiveState=%s\nSubState=%s\n' "$active" "$sub"
+}}
+
+systemctl() {{
+  case "$*" in
+    '--user stop wirtelprimpf.timer')
+      printf 'timer-stop\n' >>"$events"
+      ;;
+    '--user show wirtelprimpf.service -p ActiveState -p SubState --no-pager')
+      next_generator_state
+      ;;
+    '--user --job-mode=fail stop wirtelprimpf.service')
+      if [[ "$case_name" == post-snapshot-stop-race ]]; then
+        printf 'service-stop-job-rejected\n' >>"$events"
+        return 1
+      fi
+      printf 'service-stop\n' >>"$events"
+      ;;
+    '--user stop wirtelprimpf.service')
+      printf 'destructive-default-service-stop\n' >>"$events"
+      ;;
+    '--user is-enabled wirtelprimpf.service')
+      cat "$mask_state"
+      ;;
+    '--user mask --runtime wirtelprimpf.service')
+      printf 'service-mask\n' >>"$events"
+      printf 'masked-runtime\n' >"$mask_state"
+      load_state=masked
+      ;;
+    '--user daemon-reload')
+      printf 'daemon-reload\n' >>"$events"
+      ;;
+    '--user show wirtelprimpf.service -p LoadState --value')
+      printf '%s\n' "$load_state"
+      ;;
+    *)
+      printf 'unexpected-systemctl:%s\n' "$*" >>"$events"
+      return 97
+      ;;
+  esac
+}}
+
+sleep() {{
+  printf 'natural-wait\n' >>"$events"
+  if [[ "$case_name" == timeout ]]; then
+    SECONDS=301
+  fi
+}}
+
+runtime_service_masked=0
+SECONDS=0
+set +e
+quiesce_generator
+status=$?
+set -e
+printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
+"""
+
+        cases = {
+            "current-auto-restart": {
+                "states": "activating:auto-restart,activating:auto-restart,inactive:dead,inactive:dead,inactive:dead",
+                "success": True,
+                "service_stop": True,
+            },
+            "running-start-pre-success": {
+                "states": "activating:start-pre,inactive:dead,inactive:dead,inactive:dead",
+                "success": True,
+                "service_stop": False,
+            },
+            "running-success": {
+                "states": "activating:start,inactive:dead,inactive:dead,inactive:dead",
+                "success": True,
+                "service_stop": False,
+            },
+            "running-auto-restart": {
+                "states": (
+                    "activating:start,activating:auto-restart,activating:auto-restart,"
+                    "inactive:dead,inactive:dead,inactive:dead"
+                ),
+                "success": True,
+                "service_stop": True,
+            },
+            "queued-auto-restart": {
+                "states": "activating:auto-restart-queued,inactive:dead,inactive:dead,inactive:dead",
+                "success": True,
+                "service_stop": False,
+            },
+            "auto-restart-race": {
+                "states": "activating:auto-restart,activating:start",
+                "success": False,
+                "service_stop": False,
+            },
+            "post-snapshot-stop-race": {
+                "states": (
+                    "activating:auto-restart,activating:auto-restart,"
+                    "inactive:dead,inactive:dead"
+                ),
+                "success": False,
+                "service_stop": False,
+            },
+            "after-mask-race": {
+                "states": "inactive:dead,activating:start",
+                "success": False,
+                "service_stop": False,
+            },
+            "unexpected": {
+                "states": "active:running",
+                "success": False,
+                "service_stop": False,
+            },
+            "unexpected-unit-state": {
+                "states": "inactive:dead",
+                "success": False,
+                "service_stop": False,
+            },
+            "partial-mask-state": {
+                "states": "inactive:dead,inactive:dead",
+                "success": False,
+                "service_stop": False,
+            },
+            "timeout": {
+                "states": "activating:start",
+                "success": False,
+                "service_stop": False,
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-quiesce-contract-") as tmp:
+            for case_name, expected in cases.items():
+                with self.subTest(case=case_name):
+                    events = Path(tmp) / f"{case_name}.events"
+                    counter = Path(tmp) / f"{case_name}.counter"
+                    mask_state = Path(tmp) / f"{case_name}.mask"
+                    result = subprocess.run(  # nosec B603 -- fixed Bash argv and local stub
+                        [
+                            "/bin/bash",
+                            "-c",
+                            script,
+                            "quiesce-test",
+                            case_name,
+                            str(events),
+                            str(counter),
+                            str(mask_state),
+                            str(expected["states"]),
+                            "loaded",
+                        ],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        timeout=5,
+                        env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+                    )
+                    event_lines = events.read_text(encoding="utf-8").splitlines()
+                    self.assertEqual(event_lines[0], "timer-stop", result.stderr)
+                    self.assertFalse(
+                        any(line.startswith("unexpected-systemctl:") for line in event_lines),
+                        event_lines,
+                    )
+                    status_line = next(
+                        line for line in result.stdout.splitlines() if line.startswith("status:")
+                    )
+                    status = int(status_line.removeprefix("status:"))
+                    if expected["success"]:
+                        self.assertEqual(status, 0, (result.stderr, event_lines))
+                        self.assertIn("service-mask", event_lines)
+                        mask_index = event_lines.index("service-mask")
+                        inactive_indexes = [
+                            index
+                            for index, line in enumerate(event_lines)
+                            if line == "observe:inactive/dead"
+                        ]
+                        self.assertTrue(inactive_indexes, event_lines)
+                        self.assertLess(inactive_indexes[0], mask_index, event_lines)
+                        self.assertTrue(
+                            any(index > mask_index for index in inactive_indexes),
+                            event_lines,
+                        )
+                        self.assertIn("runtime-mask-flag:1", result.stdout)
+                    else:
+                        self.assertNotEqual(status, 0, (result.stderr, event_lines))
+                        if expected.get("fail_closed_mask"):
+                            self.assertIn("service-mask", event_lines)
+                            self.assertIn("runtime-mask-flag:1", result.stdout)
+                            self.assertGreater(
+                                event_lines.index("observe:activating/start"),
+                                event_lines.index("service-mask"),
+                                event_lines,
+                            )
+                        else:
+                            self.assertNotIn("service-mask", event_lines)
+                            self.assertIn("runtime-mask-flag:0", result.stdout)
+                    if expected["service_stop"]:
+                        self.assertIn("service-stop", event_lines)
+                        self.assertLess(
+                            event_lines.index("observe:activating/auto-restart"),
+                            event_lines.index("service-stop"),
+                            event_lines,
+                        )
+                    else:
+                        self.assertNotIn("service-stop", event_lines)
+                    if case_name == "current-auto-restart":
+                        self.assertNotIn("natural-wait", event_lines)
+                    if case_name in {
+                        "running-start-pre-success",
+                        "running-success",
+                        "running-auto-restart",
+                        "queued-auto-restart",
+                        "timeout",
+                    }:
+                        self.assertIn("natural-wait", event_lines)
+                    self.assertNotIn("destructive-default-service-stop", event_lines)
+
+    def test_fail_closed_runtime_stops_then_masks_after_quiescence_failure(self) -> None:
+        fail_closed = _shell_function(self.deployment, "fail_closed_runtime")
+        script = f"""
+set -Eeuo pipefail
+{fail_closed}
+events=$1
+wait_calls=0
+runtime_service_masked=0
+
+wait_generator_inactive() {{
+  wait_calls=$((wait_calls + 1))
+  printf 'wait:%s\n' "$wait_calls" >>"$events"
+  (( wait_calls > 1 ))
+}}
+mask_timer_runtime_stopped() {{ printf 'timer-mask\n' >>"$events"; }}
+mask_generator_runtime() {{
+  printf 'service-mask\n' >>"$events"
+  runtime_service_masked=1
+}}
+systemctl() {{
+  case "$*" in
+    '--user stop wirtelprimpf-admin.service')
+      printf 'admin-stop\n' >>"$events"
+      ;;
+    '--user stop wirtelprimpf.service')
+      printf 'service-stop\n' >>"$events"
+      ;;
+    '--user is-active wirtelprimpf-admin.service'|'--user is-active wirtelprimpf.timer')
+      printf 'inactive\n'
+      ;;
+    '--user is-enabled wirtelprimpf.timer'|'--user is-enabled wirtelprimpf.service')
+      printf 'masked-runtime\n'
+      ;;
+    '--user show wirtelprimpf.service -p LoadState --value')
+      printf 'masked\n'
+      ;;
+    *) return 97 ;;
+  esac
+}}
+
+set +e
+fail_closed_runtime
+status=$?
+set -e
+test "$status" = 1
+test "$runtime_service_masked" = 1
+"""
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-fail-closed-") as tmp:
+            events = Path(tmp) / "events"
+            result = subprocess.run(  # nosec B603 -- fixed Bash argv and local stub
+                ["/bin/bash", "-c", script, "fail-closed-test", str(events)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+            )
+            event_lines = events.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            event_lines,
+            [
+                "admin-stop",
+                "timer-mask",
+                "wait:1",
+                "service-stop",
+                "wait:2",
+                "service-mask",
+            ],
+        )
+
+    def test_restore_unmasks_an_inactive_generator_without_starting_it(self) -> None:
+        unmask = _shell_function(self.deployment, "unmask_generator_runtime")
+        first_inactive_proof = unmask.index("assert_generator_inactive")
+        unmask_call = unmask.index(
+            "systemctl --user unmask --runtime wirtelprimpf.service"
+        )
+        final_inactive_proof = unmask.rindex("assert_generator_inactive")
+        self.assertLess(first_inactive_proof, unmask_call)
+        self.assertLess(unmask_call, final_inactive_proof)
+        self.assertNotIn("start wirtelprimpf.service", unmask)
+        self.assertNotIn("restart wirtelprimpf.service", unmask)
+
+        rollback = _marked_block(self.deployment, "TASK4_ROLLBACK_DEPLOYMENT")
+        self.assertLess(rollback.index("quiesce_generator"), rollback.index("restore_targets"))
+        self.assertLess(
+            rollback.index("unmask_generator_runtime"),
+            rollback.index("restore_timer_activity"),
+        )
+        self.assertIn("service-auto-restart-stop", self.harness)
+        self.assertIn("auto-restart-race", self.harness)
+        self.assertIn("after-mask-reactivation", self.harness)
+
+    def test_normative_step9_rollback_prolog_masks_signals_before_recovery(self) -> None:
+        rollback = _marked_block(self.deployment, "TASK4_ROLLBACK_DEPLOYMENT")
+        disarm = rollback.index("trap - EXIT")
+        mask = rollback.index("trap '' HUP INT TERM")
+        recovery = rollback.index("set +e")
+        acquire = rollback.index("acquire_settings_lock_bounded")
+        release = rollback.rindex("release_settings_lock")
+        final_exit = rollback.rindex('exit "$final_status"')
+        self.assertLess(disarm, mask)
+        self.assertLess(mask, recovery)
+        self.assertLess(recovery, acquire)
+        self.assertLess(acquire, release)
+        self.assertLess(release, final_exit)
+        self.assertNotIn("trap - EXIT HUP INT TERM", rollback)
+
+    def test_actual_normative_rollback_survives_second_signal_and_releases_lock(self) -> None:
+        self.assertIn("# BEGIN TASK4_ROLLBACK_DEPLOYMENT", self.deployment)
+        rollback = _marked_block(self.deployment, "TASK4_ROLLBACK_DEPLOYMENT")
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-rollback-contract-") as tmp:
+            armed = Path(tmp) / "armed"
+            recovery_ready = Path(tmp) / "recovery-ready"
+            recovery_release = Path(tmp) / "recovery-release"
+            release_proof = Path(tmp) / "release-proof"
+            script = f"""
+set -Eeuo pipefail
+{rollback}
+armed_path=$1
+recovery_ready_path=$2
+recovery_release_path=$3
+release_proof_path=$4
+deployment_complete=0
+software_commit_complete=0
+backup_complete=0
+settings_lock_held=0
+target_sha=2222222222222222222222222222222222222222
+runtime_sha_before=1111111111111111111111111111111111111111
+runtime_branch_before=main
+runtime=/nonexistent/runtime
+deploy_backup=/nonexistent/backup
+timer_enabled_before=disabled
+timer_active_before=inactive
+admin_active_before=inactive
+applet_running_before=0
+runtime_timer_masked=0
+runtime_service_masked=0
+
+quiesce_generator() {{ return 0; }}
+acquire_settings_lock_bounded() {{
+  settings_lock_held=1
+  : >"$recovery_ready_path"
+  while [[ ! -e "$recovery_release_path" ]]; do sleep 0.01; done
+}}
+release_settings_lock() {{
+  settings_lock_held=0
+  : >"$release_proof_path"
+}}
+fail_closed_runtime() {{ return 0; }}
+restore_timer_enablement_stopped() {{ return 0; }}
+restore_timer_activity() {{ return 0; }}
+unmask_timer_runtime_stopped() {{ return 0; }}
+unmask_generator_runtime() {{ return 0; }}
+git_runtime() {{
+  if [[ "$1" == rev-parse && "$2" == refs/heads/main ]]; then
+    printf '%s\\n' "$runtime_sha_before"
+  elif [[ "$1" == rev-parse && "$2" == HEAD ]]; then
+    printf '%s\\n' "$runtime_sha_before"
+  else
+    return 0
+  fi
+}}
+systemctl() {{
+  case "$*" in
+    '--user is-enabled wirtelprimpf.timer') printf 'disabled\\n' ;;
+    '--user is-enabled wirtelprimpf.service') printf 'static\\n' ;;
+    '--user is-active wirtelprimpf-admin.service') printf 'inactive\\n' ;;
+    *) return 0 ;;
+  esac
+}}
+timeout() {{ return 0; }}
+cmp() {{ return 0; }}
+diff() {{ return 0; }}
+gdbus() {{ printf '(@as [],)\\n'; }}
+
+trap 'rollback_deployment $?' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+: >"$armed_path"
+while :; do sleep 0.01; done
+"""
+            process = subprocess.Popen(
+                [
+                    "bash",
+                    "-c",
+                    script,
+                    "rollback-test",
+                    str(armed),
+                    str(recovery_ready),
+                    str(recovery_release),
+                    str(release_proof),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+            )
+            communicated = False
+            try:
+                armed_deadline = time.monotonic() + 5
+                while not armed.exists() and time.monotonic() < armed_deadline:
+                    time.sleep(0.01)
+                self.assertTrue(armed.exists(), "normative rollback probe did not arm")
+                process.send_signal(signal.SIGTERM)
+                recovery_deadline = time.monotonic() + 5
+                while not recovery_ready.exists() and time.monotonic() < recovery_deadline:
+                    time.sleep(0.01)
+                self.assertTrue(
+                    recovery_ready.exists(), "normative rollback did not enter recovery"
+                )
+                process.send_signal(signal.SIGHUP)
+                time.sleep(0.05)
+                self.assertIsNone(process.poll(), "second signal interrupted normative recovery")
+                recovery_release.touch()
+                stdout, stderr = process.communicate(timeout=10)
+                communicated = True
+                self.assertEqual(process.returncode, 143, stderr)
+                self.assertEqual(stdout, "")
+                self.assertTrue(
+                    release_proof.exists(), "normative rollback did not release its lock"
+                )
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                if not communicated:
+                    try:
+                        process.communicate(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.communicate(timeout=2)
+
+    def test_normative_deployment_and_harness_are_valid_bash(self) -> None:
+        for name, script in (
+            ("task3_step3", self.task3_step3),
+            ("task3_step4", self.task3_step4),
+            ("task3_merge", self.task3_merge),
+            ("deployment", self.deployment),
+            ("harness", self.harness),
+        ):
+            with self.subTest(name=name):
+                result = subprocess.run(
+                    ["bash", "-n"],
+                    input=script,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_make_check_runs_the_rollout_contract(self) -> None:
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertIn(
+            "$(PYTHON) -m unittest tests.test_rollout_plan_contract",
+            makefile,
+        )
+
+    def test_disposable_step10_harness_executes_successfully(self) -> None:
+        result = subprocess.run(
+            ["/bin/bash"],
+            input=self.harness,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+            env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

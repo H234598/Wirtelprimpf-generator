@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="__CSRF_TOKEN__">
+  <title>Wirtelprimpf · Ateliersteuerung</title>
+  <link rel="stylesheet" href="/assets/admin.css">
+  <script type="module" src="/assets/admin.mjs"></script>
+</head>
+<body>
+  <main class="wrap">
+    <header class="hero">
+      <span class="eyebrow">Lokale Steuerzentrale · nur Loopback</span>
+      <h1>Das Geschichtenatelier</h1>
+      <p>Generator, Story, Zeitplan und Publikation an einem sicheren Ort. Geheimnisse werden niemals angezeigt.</p>
+    </header>
+
+    <section class="status-card card" aria-labelledby="operations-heading">
+      <div><span class="eyebrow">Betriebsstatus</span><h2 id="operations-heading">Lokaler Überblick</h2></div>
+      <dl class="status-grid">
+        <div><dt>Gesamt</dt><dd id="status-health">Unbekannt</dd></div>
+        <div><dt>Letzter Lauf</dt><dd id="status-last-run">Unbekannt</dd></div>
+        <div><dt>Nächster Lauf</dt><dd id="status-next-run">Unbekannt</dd></div>
+        <div><dt>Timer</dt><dd id="status-timer">Unbekannt</dd></div>
+        <div><dt>Story</dt><dd id="status-story">Unbekannt</dd></div>
+        <div><dt>Repository</dt><dd id="status-repository">Unbekannt</dd></div>
+        <div><dt>Letztes Ergebnis</dt><dd id="status-result">Unbekannt</dd></div>
+        <div><dt>Synchronisation</dt><dd id="status-sync">Unbekannt</dd></div>
+      </dl>
+    </section>
+
+    <form id="settings" novalidate>
+      <div class="grid">
+        <section class="card"><h2>Generierung</h2>
+          <div class="field" data-field="operandi"><label for="operandi">Modus</label><select id="operandi" name="operandi"></select><p class="field-state" id="operandi-state"></p></div>
+          <div class="field" data-field="image_model"><label for="image_model">Bildmodell</label><select id="image_model" name="image_model"></select><p class="field-state" id="image_model-state"></p></div>
+          <div class="field" data-field="story_model"><label for="story_model">Storymodell</label><select id="story_model" name="story_model"></select><p class="field-state" id="story_model-state"></p></div>
+          <div class="field" data-field="image_size"><label for="image_size">API-Bildgröße</label><select id="image_size" name="image_size"></select><p class="field-state" id="image_size-state"></p></div>
+          <div class="field" data-field="output_resolution"><label for="output_resolution">Ausgabeauflösung</label><select id="output_resolution" name="output_resolution"></select><p class="field-state" id="output_resolution-state"></p></div>
+        </section>
+
+        <section class="card"><h2>Story &amp; Zeitplan</h2>
+          <div class="field" data-field="generation_interval_minutes"><label for="generation_interval_minutes">Intervall in Minuten</label><input id="generation_interval_minutes" name="generation_interval_minutes" type="number"><p class="field-state" id="generation_interval_minutes-state"></p></div>
+          <div class="field" data-field="story_finish_parts_min"><label for="story_finish_parts_min">Minimale Abschlussteile</label><input id="story_finish_parts_min" name="story_finish_parts_min" type="number"><p class="field-state" id="story_finish_parts_min-state"></p></div>
+          <div class="field" data-field="story_finish_parts_max"><label for="story_finish_parts_max">Maximale Abschlussteile</label><input id="story_finish_parts_max" name="story_finish_parts_max" type="number"><p class="field-state" id="story_finish_parts_max-state"></p></div>
+          <div class="field" data-field="publish_immediately"><label class="check" for="publish_immediately"><input id="publish_immediately" name="publish_immediately" type="checkbox"> Nach Erfolg sofort publizieren</label><p class="field-state" id="publish_immediately-state"></p></div>
+          <p>10 vollständige Storys = 1 Buch; 5 Bücher = 50 Storys je Archiv. Erst danach rotiert das Repository vollautomatisch.</p>
+        </section>
+
+        <section class="card"><h2>Website</h2>
+          <div class="field" data-field="site_title"><label for="site_title">Seitentitel</label><input id="site_title" name="site_title" maxlength="120"><p class="field-state" id="site_title-state"></p></div>
+          <div class="field" data-field="site_intro"><label for="site_intro">Einleitung</label><textarea id="site_intro" name="site_intro" maxlength="500"></textarea><p class="field-state" id="site_intro-state"></p></div>
+          <p>Die aktuelle Story erscheint auf der Landingpage verbindlich mit dem neuesten Teil zuerst.</p>
+        </section>
+
+        <section class="card"><h2>Geheimnisse</h2>
+          <fieldset><legend>OpenAI</legend><label for="openai_api_key">Schlüssel ersetzen</label><input class="secret" id="openai_api_key" type="password" autocomplete="new-password"><label class="check" for="delete_openai_api_key"><input id="delete_openai_api_key" type="checkbox"> vorhandenen Schlüssel löschen</label><p id="openai-presence"></p></fieldset>
+          <fieldset><legend>Cloudflare</legend><label for="cloudflare_api_token">Token ersetzen</label><input class="secret" id="cloudflare_api_token" type="password" autocomplete="new-password"><label class="check" for="delete_cloudflare_api_token"><input id="delete_cloudflare_api_token" type="checkbox"> vorhandenen Token löschen</label><p id="cloudflare-presence"></p></fieldset>
+        </section>
+      </div>
+      <div class="actions"><button type="submit">Sicher anwenden</button><button class="secondary" id="discard-all" type="button">Alle lokalen Entwürfe verwerfen</button></div>
+      <p class="poll-status" id="poll-status" role="status" aria-live="polite"></p>
+      <p class="save-status" id="save-status" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+</body>
+</html>

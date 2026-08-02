@@ -44,7 +44,7 @@ const centralUrl = "https://wirtelprimpf.telacore.org/";
     <header class="site-header">
       <a class="brand" href="/" aria-label={`${data.title} – Startseite`}>
         <img src="/wirtelprimpf-mark.svg" width="52" height="52" alt="" />
-        <span><small>{data.profile === "hub" ? "Zentrale Landingpage" : `Publikationsarchiv ${String(data.archiveIndex).padStart(4, "0")}`}</small>{data.title}</span>
+        <span><small>{data.profile === "hub" ? "Telacores:" : `Publikationsarchiv ${String(data.archiveIndex).padStart(4, "0")}`}</small>{data.title}</span>
       </a>
       <nav aria-label="Hauptnavigation">
         <a href="/" aria-current={section === "start" ? "page" : undefined}>Start</a>

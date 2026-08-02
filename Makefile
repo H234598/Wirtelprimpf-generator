@@ -7,16 +7,19 @@ check:
 	$(PYTHON) -m json.tool files/$(UUID)/metadata.json >/dev/null
 	$(PYTHON) -m json.tool files/$(UUID)/settings-schema.json >/dev/null
 	$(PYTHON) -m py_compile Sourcecode/wirtelprimpf_generator.py
-	$(PYTHON) -m py_compile files/$(UUID)/helper.py files/$(UUID)/SettingsLogo.py
+	$(PYTHON) -m py_compile files/$(UUID)/helper.py files/$(UUID)/SettingsLogo.py files/$(UUID)/settings_sync.py
 	$(PYTHON) -m py_compile files/$(UUID)/story_directives_core.py files/$(UUID)/StoryDirectives.py
 	node --check files/$(UUID)/applet.js
 	node tests/test_applet_runtime.js
+	node --test tests/test_admin_ui.mjs
 	$(PYTHON) -m unittest tests.test_semver
 	$(PYTHON) -m unittest tests.test_git_object_fallback
 	$(PYTHON) -m unittest tests.test_release_publication
 	$(PYTHON) -m unittest tests.test_helper_env
+	$(PYTHON) -m unittest tests.test_applet_settings_sync
 	$(PYTHON) -m unittest tests.test_settings_schema
 	$(PYTHON) -m unittest tests.test_story_directives
+	$(PYTHON) -m unittest tests.test_rollout_plan_contract
 	@test -f files/$(UUID)/assets/settings-header-logo.png
 	@test -f files/$(UUID)/assets/settings-footer-logo.png
 	@test -f files/$(UUID)/assets/settings-generator-atelier.png

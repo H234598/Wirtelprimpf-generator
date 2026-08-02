@@ -10,7 +10,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from .admin import SettingsStore, serve_admin
+from .admin import serve_admin
 from .catalog import CatalogStore
 from .cloudflare_credentials import CloudflareCredentialResolver
 from .cloudflare_dns import CloudflareDNS, CloudflareHTTPTransport, resolve_zone_id
@@ -23,9 +23,26 @@ from .media import (
     publish_release_plan,
 )
 from .naming import ARCHIVE_CAPACITY, archive_target_for_volume, book_target_for_story
+from .operational_status import OperationalStatusCollector, StatusPaths
 from .provision import RotationOrchestrator
+from .settings import (
+    ChangeRequest,
+    SettingsApplyFailure,
+    SettingsConflict,
+    SettingsLockBusy,
+    SettingsManager,
+    SettingsPaths,
+    SettingsValidationFailure,
+)
 from .state import PlatformState, StateStore, state_to_dict, status_to_dict
+from .systemd_user import SystemdUserManager
 from .target_switch import GeneratorTargetSwitcher, GitCatalogPublisher
+
+CONFLICT_EXIT_CODE = 3
+VALIDATION_ERROR_EXIT_CODE = 4
+LOCK_BUSY_EXIT_CODE = 5
+APPLY_FAILURE_EXIT_CODE = 6
+UNAVAILABLE_ERROR_EXIT_CODE = 7
 
 
 def _json(payload: object) -> None:
@@ -46,6 +63,98 @@ def _copy_atomic(source: Path, target: Path, *, mode: int = 0o644) -> None:
         os.replace(part, target)
     finally:
         part.unlink(missing_ok=True)
+
+
+def _add_settings_parser(subparsers: argparse._SubParsersAction) -> None:
+    settings = subparsers.add_parser("settings", help="transactional local settings JSON bridge")
+    settings_subcommands = settings.add_subparsers(dest="settings_command", required=True)
+    settings_subcommands.add_parser("snapshot", help="print one public settings snapshot")
+    settings_subcommands.add_parser("apply", help="apply one sparse JSON request from stdin")
+
+
+def _build_settings_only_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="wirtelprimpf-settings")
+    subcommands = parser.add_subparsers(dest="settings_command", required=True)
+    subcommands.add_parser("snapshot", help="print one public settings snapshot")
+    subcommands.add_parser("apply", help="apply one sparse JSON request from stdin")
+    return parser
+
+
+def build_settings_manager() -> SettingsManager:
+    paths = SettingsPaths.for_home(Path.home())
+    return SettingsManager(paths, systemd=SystemdUserManager(paths.timer_dropin))
+
+
+def build_status_collector(manager: SettingsManager) -> OperationalStatusCollector:
+    return OperationalStatusCollector(
+        paths=StatusPaths.from_settings_paths(manager.paths),
+        snapshot_reader=manager.snapshot,
+        timer_reader=manager.systemd.observe_timer,
+    )
+
+
+def _read_bounded_stdin(maximum_bytes: int) -> str:
+    stream = getattr(sys.stdin, "buffer", sys.stdin)
+    content = stream.read(maximum_bytes + 1)
+    if isinstance(content, str):
+        encoded = content.encode("utf-8")
+        if len(encoded) > maximum_bytes:
+            raise SettingsValidationFailure(f"settings request exceeds {maximum_bytes} bytes")
+        return content
+    if len(content) > maximum_bytes:
+        raise SettingsValidationFailure(f"settings request exceeds {maximum_bytes} bytes")
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SettingsValidationFailure("settings request must be UTF-8") from exc
+
+
+def _run_settings_command(command: str, manager: SettingsManager) -> int:
+    try:
+        if command == "snapshot":
+            _json({"ok": True, **manager.snapshot().to_public_dict()})
+            return 0
+        payload = _read_bounded_stdin(64 * 1024)
+        request = ChangeRequest.from_payload(json.loads(payload))
+        _json({"ok": True, **manager.apply(request).to_public_dict()})
+        return 0
+    except SettingsConflict as exc:
+        _json(
+            {
+                "ok": False,
+                "error": "conflict",
+                "conflicts": list(exc.fields),
+                "snapshot": exc.snapshot.to_public_dict(),
+            }
+        )
+        return CONFLICT_EXIT_CODE
+    except (UnicodeError, json.JSONDecodeError, SettingsValidationFailure) as exc:
+        _json({"ok": False, "error": str(exc)})
+        return VALIDATION_ERROR_EXIT_CODE
+    except SettingsLockBusy:
+        _json({"ok": False, "error": "settings lock is busy"})
+        return LOCK_BUSY_EXIT_CODE
+    except SettingsApplyFailure as exc:
+        _json(
+            {
+                "ok": False,
+                "error": "settings transaction failed",
+                "rollback_succeeded": exc.rollback_succeeded,
+            }
+        )
+        return APPLY_FAILURE_EXIT_CODE
+    except Exception:
+        _json({"ok": False, "error": "settings operation unavailable"})
+        return UNAVAILABLE_ERROR_EXIT_CODE
+
+
+def settings_main(argv: list[str] | None = None) -> int:
+    command = _build_settings_only_parser().parse_args(argv)
+    return _run_settings_command(command.settings_command, build_settings_manager())
+
+
+def settings_entrypoint() -> int:
+    return settings_main(sys.argv[1:])
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -87,6 +196,8 @@ def _build_parser() -> argparse.ArgumentParser:
     rotate.add_argument("--zone", default="telacore.org")
     rotate.add_argument("--zone-id")
     rotate.add_argument("--settings", type=Path, default=Path.home() / ".config/wirtelprimpf/openai.env")
+
+    _add_settings_parser(subparsers)
 
     return parser
 
@@ -158,7 +269,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     if args.command == "admin":
-        serve_admin(SettingsStore(args.settings), host=args.host, port=args.port)
+        manager = build_settings_manager()
+        if args.settings != manager.paths.env_file:
+            _json(
+                {
+                    "ok": False,
+                    "error": "admin settings path must match the transactional manager path",
+                }
+            )
+            return VALIDATION_ERROR_EXIT_CODE
+        serve_admin(
+            manager,
+            build_status_collector(manager),
+            host=args.host,
+            port=args.port,
+        )
         return 0
     if args.command == "rotate":
         api_token = CloudflareCredentialResolver().resolve(
@@ -193,6 +318,8 @@ def main(argv: list[str] | None = None) -> int:
         ).run()
         _json(state_to_dict(state))
         return 0
+    if args.command == "settings":
+        return _run_settings_command(args.settings_command, build_settings_manager())
     raise AssertionError(f"unhandled command: {args.command}")
 
 

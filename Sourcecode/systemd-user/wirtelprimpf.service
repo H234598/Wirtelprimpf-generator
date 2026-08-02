@@ -6,6 +6,7 @@ After=network-online.target
 [Service]
 Type=oneshot
 EnvironmentFile=%h/.config/wirtelprimpf/openai.env
+EnvironmentFile=-%h/.config/cloudflare/api-token.env
 Environment=WIRTELPRIMPF_OPERANDI=story
 WorkingDirectory=%h/.local/share/wirtelprimpf-generator
 RuntimeDirectory=wirtelprimpf-generator

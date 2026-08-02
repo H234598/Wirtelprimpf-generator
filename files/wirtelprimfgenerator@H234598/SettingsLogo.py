@@ -1,18 +1,16 @@
 #!/usr/bin/python3
 
-import os
 import json
+import os
 import random
-import re
-import stat
 import subprocess
 import threading
 import urllib.request
-import uuid
+from concurrent.futures import ThreadPoolExecutor
 
+import settings_sync
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
 from JsonSettingsWidgets import SettingsWidget
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
-
 
 GENERATOR_IMAGE_CHOICES = {
     "atelier": "settings-generator-atelier.png",
@@ -22,14 +20,6 @@ ABOUT_IMAGE_CHOICES = {
     "story": "settings-about-story.png",
     "book": "settings-about-book.png",
 }
-IMAGE_MODEL_CHOICES = (
-    "gpt-image-2",
-    "gpt-image-1.5",
-    "gpt-image-1",
-    "gpt-image-1-mini",
-)
-
-
 def _choice_asset(choices, value, default_key):
     selected = (value or default_key).strip()
     return choices.get(selected, choices[default_key])
@@ -719,81 +709,139 @@ class PiperModelChooser(SettingsWidget):
         self.status.set_text(text)
 
 
-class GeneratorConfigEditor(SettingsWidget):
-    env_path = os.path.expanduser("~/.config/wirtelprimpf/openai.env")
-    systemd_user_dir = os.path.expanduser("~/.config/systemd/user")
-    secret_env_names = frozenset(("OPENAI_API_KEY", "CLOUDFLARE_API_TOKEN"))
+class _GLibScheduler:
+    def call_later(self, milliseconds, callback):
+        return GLib.timeout_add(milliseconds, callback)
 
-    env_fields = (
-        ("OPENAI_API_KEY", "OpenAI API Key", "secret", ()),
-        ("CLOUDFLARE_API_TOKEN", "Cloudflare API Token", "secret", ()),
-        ("WIRTELPRIMPF_LOCAL_OUTDIR", "Lokaler Output", "entry", ()),
-        ("WIRTELPRIMPF_WORKING_DIR", "Working-Verzeichnis", "entry", ()),
-        ("WIRTELPRIMPF_REPO_PATH", "Git-Repo-Pfad", "entry", ()),
-        ("WIRTELPRIMPF_REPO_SLUG", "GitHub Repo-Slug", "entry", ()),
-        ("WIRTELPRIMPF_REPO_SUBDIR", "Repo-Unterordner", "entry", ()),
-        ("WIRTELPRIMPF_REPO_BRANCH", "Repo-Branch", "entry", ()),
-        ("WIRTELPRIMPF_GITHUB_OWNER", "GitHub Eigentümer", "entry", ()),
-        ("WIRTELPRIMPF_MEDIA_MODE", "Medienpublikation", "combo", ("release", "git")),
-        ("WIRTELPRIMPF_MEDIA_STAGING", "Release-Staging", "entry", ()),
-        ("WIRTELPRIMPF_PUBLISH_IMMEDIATELY", "Sofort publizieren", "combo", ("true", "false")),
-        ("WIRTELPRIMPF_PLATFORM_STATE", "Plattformstatus", "entry", ()),
-        ("WIRTELPRIMPF_HUB_DISPATCH_STATE", "Hub-Outbox", "entry", ()),
-        ("WIRTELPRIMPF_GENERATOR_ROOT", "Generator-Checkout", "entry", ()),
-        ("WIRTELPRIMPF_ARCHIVE_ROOT", "Archivwurzel", "entry", ()),
-        ("WIRTELPRIMPF_PLATFORM_CATALOG", "Publikationskatalog", "entry", ()),
-        ("WIRTELPRIMPF_SETTINGS_PATH", "Private Einstellungen", "entry", ()),
-        ("WIRTELPRIMPF_CLOUDFLARE_ZONE", "Cloudflare-Zone", "entry", ()),
-        ("WIRTELPRIMPF_CLOUDFLARE_ZONE_ID", "Cloudflare-Zonen-ID", "entry", ()),
-        ("WIRTELPRIMPF_GIT_AUTHOR_NAME", "Git Autor Name", "entry", ()),
-        ("WIRTELPRIMPF_GIT_AUTHOR_EMAIL", "Git Autor Mail", "entry", ()),
-        ("WIRTELPRIMPF_IMAGE_MODEL", "Bildmodell", "combo", IMAGE_MODEL_CHOICES),
-        ("WIRTELPRIMPF_IMAGE_SIZE", "Bildgroesse", "entry", ()),
-        ("WIRTELPRIMPF_FLEX_PROCESSING", "Flex Processing", "combo", ("on", "off", "flex")),
-        ("WIRTELPRIMPF_OPERANDI", "Modus", "combo", ("story", "classic", "both")),
-        ("WIRTELPRIMPF_PROMPT_CONFIG", "Bildregeln", "entry", ()),
-        ("WIRTELPRIMPF_STORY_PROMPT_CONFIG", "Storyregeln", "entry", ()),
-        ("WIRTELPRIMPF_STORY_MODEL", "Storymodell", "entry", ()),
-        ("WIRTELPRIMPF_STORY_DOCUMENT", "Story-Dokument", "entry", ()),
-        ("WIRTELPRIMPF_STORY_STATE", "Story-Status", "entry", ()),
-        ("WIRTELPRIMPF_STORY_FINISH", "Story abschliessen", "combo", ("false", "true")),
-        ("WIRTELPRIMPF_STORY_FINISH_PARTS_MIN", "Finish Teile min", "entry", ()),
-        ("WIRTELPRIMPF_STORY_FINISH_PARTS_MAX", "Finish Teile max", "entry", ()),
-        ("WIRTELPRIMPF_OUTPUT_RESOLUTION", "Ausgabe-Aufloesung", "entry", ()),
+    def call_repeated(self, seconds, callback):
+        return GLib.timeout_add_seconds(seconds, callback)
+
+    def cancel(self, handle):
+        try:
+            GLib.source_remove(handle)
+        except Exception:
+            return
+
+
+class _GioMonitorFactory:
+    def __call__(self, target, callback):
+        normalized_target = os.path.normpath(os.path.abspath(target))
+        parent = Gio.File.new_for_path(os.path.dirname(normalized_target))
+        monitor = parent.monitor_directory(Gio.FileMonitorFlags.NONE, None)
+
+        def changed(_monitor, changed_file, other_file, _event_type):
+            for candidate in (changed_file, other_file):
+                if candidate is None:
+                    continue
+                candidate_path = candidate.get_path()
+                if candidate_path and os.path.normpath(os.path.abspath(candidate_path)) == normalized_target:
+                    callback(normalized_target)
+                    break
+
+        monitor.connect("changed", changed)
+        return monitor
+
+
+class GeneratorConfigEditor(SettingsWidget):
+    settings_cli_path = os.path.expanduser(
+        "~/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-settings"
+    )
+    env_path = os.path.expanduser("~/.config/wirtelprimpf/openai.env")
+    timer_dropin_path = os.path.expanduser(
+        "~/.config/systemd/user/wirtelprimpf.timer.d/override.conf"
+    )
+    revision_state_path = os.path.expanduser(
+        "~/.config/wirtelprimpf/settings-state.json"
+    )
+    settings_lock_path = os.path.expanduser(
+        "~/.config/wirtelprimpf/settings.lock"
+    )
+    operation_lock_timeout_seconds = 0.1
+
+    field_sections = (
+        (
+            "Generierung",
+            (
+                ("operandi", "Modus", "choice", "operandi"),
+                ("image_model", "Bildmodell", "model", "image_model"),
+                ("story_model", "Storymodell", "model", "story_model"),
+                ("image_size", "Bildgröße", "choice", "image_size"),
+                ("output_resolution", "Ausgabe-Auflösung", "choice", "output_resolution"),
+                (
+                    "generation_interval_minutes",
+                    "Generator-Intervall (Minuten)",
+                    "integer",
+                    None,
+                ),
+                ("publish_immediately", "Sofort publizieren", "boolean", None),
+                ("story_finish_parts_min", "Finish-Teile min", "integer", None),
+                ("story_finish_parts_max", "Finish-Teile max", "integer", None),
+            ),
+        ),
+        (
+            "Archive und Publikation",
+            (
+                ("local_outdir", "Lokaler Output", "string", None),
+                ("working_dir", "Working-Verzeichnis", "string", None),
+                ("repo_path", "Git-Repo-Pfad", "string", None),
+                ("repo_slug", "GitHub Repo-Slug", "string", None),
+                ("repo_subdir", "Repo-Unterordner", "string", None),
+                ("repo_branch", "Repo-Branch", "string", None),
+                ("github_owner", "GitHub Eigentümer", "string", None),
+                ("media_mode", "Medienpublikation", "choice", "media_mode"),
+                ("media_staging", "Release-Staging", "string", None),
+                ("platform_state", "Plattformstatus", "string", None),
+                ("hub_dispatch_state", "Hub-Outbox", "string", None),
+                ("generator_root", "Generator-Checkout", "string", None),
+                ("archive_root", "Archivwurzel", "string", None),
+                ("platform_catalog", "Publikationskatalog", "string", None),
+            ),
+        ),
+        (
+            "Laufzeit und Regeln",
+            (
+                ("settings_path", "Private Einstellungen", "string", None),
+                ("cloudflare_zone", "Cloudflare-Zone", "string", None),
+                ("cloudflare_zone_id", "Cloudflare-Zonen-ID", "string", None),
+                ("git_author_name", "Git Autor Name", "string", None),
+                ("git_author_email", "Git Autor Mail", "string", None),
+                ("flex_processing", "Flex Processing", "choice", "flex_processing"),
+                ("prompt_config", "Bildregeln", "string", None),
+                ("story_prompt_config", "Storyregeln", "string", None),
+                ("story_document", "Story-Dokument", "string", None),
+                ("story_state", "Story-Status", "string", None),
+                ("story_finish", "Story abschließen", "boolean", None),
+            ),
+        ),
+        (
+            "systemd User-Timer",
+            (
+                ("timer_enabled", "Generator-Timer aktiv", "boolean", None),
+                (
+                    "timer_randomized_delay_seconds",
+                    "RandomizedDelaySec",
+                    "integer",
+                    None,
+                ),
+                ("timer_persistent", "Persistent", "boolean", None),
+            ),
+        ),
     )
 
-    defaults = {
-        "WIRTELPRIMPF_REPO_PATH": "~/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001",
-        "WIRTELPRIMPF_REPO_SLUG": "H234598/Wirtelprimpf-0001",
-        "WIRTELPRIMPF_REPO_SUBDIR": "Wirtelprimpf",
-        "WIRTELPRIMPF_REPO_BRANCH": "main",
-        "WIRTELPRIMPF_GITHUB_OWNER": "H234598",
-        "WIRTELPRIMPF_MEDIA_MODE": "release",
-        "WIRTELPRIMPF_MEDIA_STAGING": "~/.local/state/wirtelprimpf/media-staging",
-        "WIRTELPRIMPF_PUBLISH_IMMEDIATELY": "true",
-        "WIRTELPRIMPF_PLATFORM_STATE": "~/.local/state/wirtelprimpf/platform-state.json",
-        "WIRTELPRIMPF_HUB_DISPATCH_STATE": "~/.local/state/wirtelprimpf/hub-dispatch.json",
-        "WIRTELPRIMPF_GENERATOR_ROOT": "~/.local/share/wirtelprimpf-generator",
-        "WIRTELPRIMPF_ARCHIVE_ROOT": "~/.local/share/wirtelprimpf/archives",
-        "WIRTELPRIMPF_PLATFORM_CATALOG": "~/.local/share/wirtelprimpf-generator/data/publication-catalog.json",
-        "WIRTELPRIMPF_SETTINGS_PATH": "~/.config/wirtelprimpf/openai.env",
-        "WIRTELPRIMPF_CLOUDFLARE_ZONE": "telacore.org",
-        "WIRTELPRIMPF_IMAGE_MODEL": "gpt-image-2",
-        "WIRTELPRIMPF_IMAGE_SIZE": "1536x1024",
-        "WIRTELPRIMPF_FLEX_PROCESSING": "on",
-        "WIRTELPRIMPF_OPERANDI": "story",
-        "WIRTELPRIMPF_STORY_MODEL": "gpt-5-mini",
-        "WIRTELPRIMPF_STORY_FINISH": "false",
-        "WIRTELPRIMPF_STORY_FINISH_PARTS_MIN": "3",
-        "WIRTELPRIMPF_STORY_FINISH_PARTS_MAX": "5",
-        "WIRTELPRIMPF_OUTPUT_RESOLUTION": "2k",
+    integer_ranges = {  # noqa: RUF012 - immutable class-level schema contract
+        "generation_interval_minutes": (30, 10080),
+        "story_finish_parts_min": (1, 12),
+        "story_finish_parts_max": (1, 12),
+        "timer_randomized_delay_seconds": (0, 86400),
     }
 
-    systemd_fields = (
-        ("generator_timer_enabled", "Generator-Timer aktiv", "switch", "true"),
-        ("generator_interval_minutes", "Generator-Intervall (Minuten)", "minutes", "120"),
-        ("generator_randomized_delay", "Generator RandomizedDelaySec", "entry", "120"),
-        ("generator_persistent", "Generator Persistent", "switch", "true"),
+    secret_specs = (
+        ("openai_api_key", "OpenAI API Key", "openai_api_key_present"),
+        (
+            "cloudflare_api_token",
+            "Cloudflare API Token",
+            "cloudflare_api_token_present",
+        ),
     )
 
     def __init__(self, info, key, settings):
@@ -802,13 +850,30 @@ class GeneratorConfigEditor(SettingsWidget):
         self.set_spacing(8)
         self.set_hexpand(True)
         self.set_vexpand(True)
-        self.env_widgets = {}
-        self.systemd_widgets = {}
-        self.status = Gtk.Label(label="")
+
+        self.widgets = {}
+        self.field_state_labels = {}
+        self.field_discard_buttons = {}
+        self.secret_entries = {}
+        self.secret_delete_checks = {}
+        self.secret_presence_labels = {}
+        self.secret_state_labels = {}
+        self.secret_discard_buttons = {}
+        self.sync_state = None
+        self.sync_coordinator = None
+        self.settings_client = None
+        self._suppress_dirty = False
+        self._save_busy = False
+        self._operation_busy = False
+        self._disposed = False
+        self._executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="wirtel-settings",
+        )
+
+        self.status = Gtk.Label(label="Lade transaktionale Einstellungen …")
         self.status.set_halign(Gtk.Align.START)
         self.status.set_line_wrap(True)
-
-        env_values = self._read_env_file()
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -816,46 +881,84 @@ class GeneratorConfigEditor(SettingsWidget):
         scroller.set_hexpand(True)
         scroller.set_vexpand(True)
 
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        content.set_margin_start(8)
-        content.set_margin_end(8)
-        content.set_margin_top(8)
-        content.set_margin_bottom(8)
-        scroller.add(content)
+        self.settings_content = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=10,
+        )
+        self.settings_content.set_margin_start(8)
+        self.settings_content.set_margin_end(8)
+        self.settings_content.set_margin_top(8)
+        self.settings_content.set_margin_bottom(8)
+        scroller.add(self.settings_content)
 
-        content.pack_start(self._section_label("Generator-Environment"), False, True, 0)
-        for name, label, kind, options in self.env_fields:
-            default_value = self.defaults.get(name, "")
-            widget = self._make_value_widget(kind, options, default_value)
-            self._set_widget_value(widget, env_values.get(name, default_value))
-            self.env_widgets[name] = widget
-            content.pack_start(self._make_row(label, widget), False, True, 0)
-
-        content.pack_start(self._section_label("systemd User-Units"), False, True, 0)
-        systemd_values = self._read_systemd_values()
-        for name, label, kind, default in self.systemd_fields:
-            widget = self._make_value_widget(kind, (), default)
-            self._set_widget_value(widget, systemd_values.get(name, default))
-            self.systemd_widgets[name] = widget
-            content.pack_start(self._make_row(label, widget), False, True, 0)
+        self.loading_label = Gtk.Label(label="Einstellungen werden sicher geladen …")
+        self.loading_label.set_halign(Gtk.Align.START)
+        self.settings_content.pack_start(self.loading_label, False, True, 0)
 
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         buttons.set_halign(Gtk.Align.START)
-        save_button = Gtk.Button(label="Speichern")
-        save_button.connect("clicked", self._on_save)
-        restart_button = Gtk.Button(label="Speichern + Restart")
-        restart_button.connect("clicked", self._on_save_restart)
-        run_button = Gtk.Button(label="Generator jetzt starten")
-        run_button.connect("clicked", self._on_start_generator)
-        timer_button = Gtk.Button(label="Timer neu starten")
-        timer_button.connect("clicked", self._on_restart_timers)
-        for button in (save_button, restart_button, run_button, timer_button):
+
+        self.save_button = Gtk.Button(label="Speichern")
+        self.save_button.set_sensitive(False)
+        self.save_button.connect("clicked", self._on_save)
+
+        self.discard_all_button = Gtk.Button(label="Alle lokalen Entwürfe verwerfen")
+        self.discard_all_button.set_sensitive(False)
+        self.discard_all_button.connect("clicked", self._on_discard_all)
+
+        self.run_button = Gtk.Button(label="Generator jetzt starten")
+        self.run_button.connect("clicked", self._on_start_generator)
+
+        self.timer_button = Gtk.Button(label="Timer neu starten")
+        self.timer_button.connect("clicked", self._on_restart_timers)
+
+        for button in (
+            self.save_button,
+            self.discard_all_button,
+            self.run_button,
+            self.timer_button,
+        ):
             buttons.pack_start(button, False, False, 0)
 
         self.pack_start(scroller, True, True, 0)
         self.pack_start(buttons, False, True, 0)
         self.pack_start(self.status, False, True, 0)
         self.content_widget = scroller
+
+        self.connect("map", self._on_map)
+        self.connect("focus-in-event", self._on_focus_in)
+        self.connect("destroy", self._dispose_sync)
+
+        try:
+            self.settings_client = settings_sync.SettingsCliClient(
+                self.settings_cli_path
+            )
+            self.sync_coordinator = settings_sync.SettingsSyncCoordinator(
+                client=self.settings_client,
+                scheduler=_GLibScheduler(),
+                monitor_factory=_GioMonitorFactory(),
+                executor=self._executor,
+                completion_dispatch=self._dispatch_completion,
+                on_snapshot=self._on_snapshot,
+                on_error=self._on_sync_error,
+                on_busy=self._on_sync_busy,
+                on_save_result=self._on_save_result,
+            )
+            self.sync_coordinator.start(
+                (
+                    self.env_path,
+                    self.timer_dropin_path,
+                    self.revision_state_path,
+                )
+            )
+        except Exception as exc:
+            self._dispose_failed_sync_coordinator()
+            self._set_status(
+                f"Transaktionale Einstellungen sind nicht verfügbar: {exc}"
+            )
+
+    def _dispatch_completion(self, callback, *args):
+        return GLib.idle_add(callback, *args)
 
     def _section_label(self, text):
         label = Gtk.Label()
@@ -864,378 +967,568 @@ class GeneratorConfigEditor(SettingsWidget):
         label.set_margin_top(8)
         return label
 
-    def _make_row(self, label_text, widget):
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+    def _make_field_row(self, key, label_text, widget):
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         row.set_hexpand(True)
+
+        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        controls.set_hexpand(True)
         label = Gtk.Label(label=label_text)
         label.set_halign(Gtk.Align.START)
         label.set_size_request(230, -1)
-        row.pack_start(label, False, False, 0)
-        row.pack_start(widget, True, True, 0)
+        controls.pack_start(label, False, False, 0)
+        controls.pack_start(widget, True, True, 0)
+        row.pack_start(controls, False, True, 0)
+
+        state_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        state_row.set_margin_start(240)
+        state_label = Gtk.Label(label="")
+        state_label.set_halign(Gtk.Align.START)
+        discard = Gtk.Button(label="Externen Wert übernehmen")
+        discard.set_no_show_all(True)
+        discard.set_visible(False)
+        discard.connect("clicked", self._on_discard_field, key)
+        state_row.pack_start(state_label, False, True, 0)
+        state_row.pack_start(discard, False, False, 0)
+        row.pack_start(state_row, False, True, 0)
+
+        self.field_state_labels[key] = state_label
+        self.field_discard_buttons[key] = discard
         return row
 
-    def _make_value_widget(self, kind, options, default=""):
-        if kind == "combo":
-            combo = Gtk.ComboBoxText()
-            for option in options:
-                combo.append(option, option)
-            combo._wirtel_options = tuple(options)
-            combo._wirtel_default = str(default or (options[0] if options else ""))
-            combo.set_hexpand(True)
-            return combo
-        if kind == "switch":
+    def _make_secret_row(self, key, label_text):
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        label = Gtk.Label(label=label_text)
+        label.set_halign(Gtk.Align.START)
+        label.set_size_request(230, -1)
+
+        secret_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        entry = Gtk.Entry()
+        entry.set_hexpand(True)
+        entry.set_visibility(False)
+        entry.set_invisible_char("*")
+        entry.set_placeholder_text("Leer lassen = vorhandenen Wert beibehalten")
+        deletion = Gtk.CheckButton(label="Vorhandenen Wert löschen")
+        presence = Gtk.Label(label="Vorhandener Wert: unbekannt")
+        presence.set_halign(Gtk.Align.START)
+
+        secret_box.pack_start(entry, False, True, 0)
+        secret_box.pack_start(deletion, False, True, 0)
+        secret_box.pack_start(presence, False, True, 0)
+        controls.pack_start(label, False, False, 0)
+        controls.pack_start(secret_box, True, True, 0)
+        row.pack_start(controls, False, True, 0)
+
+        state_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        state_row.set_margin_start(240)
+        state_label = Gtk.Label(label="")
+        state_label.set_halign(Gtk.Align.START)
+        discard = Gtk.Button(label="Externen Wert übernehmen")
+        discard.set_no_show_all(True)
+        discard.set_visible(False)
+        discard.connect("clicked", self._on_discard_secret, key)
+        state_row.pack_start(state_label, False, True, 0)
+        state_row.pack_start(discard, False, False, 0)
+        row.pack_start(state_row, False, True, 0)
+
+        entry.connect("changed", self._on_secret_changed, key)
+        deletion.connect("toggled", self._on_secret_changed, key)
+        self.secret_entries[key] = entry
+        self.secret_delete_checks[key] = deletion
+        self.secret_presence_labels[key] = presence
+        self.secret_state_labels[key] = state_label
+        self.secret_discard_buttons[key] = discard
+        return row
+
+    def _integer_range(self, payload, key):
+        fallback = self.integer_ranges[key]
+        invariants = payload.get("invariants", {})
+        if not isinstance(invariants, dict):
+            return fallback
+        numeric_bounds = invariants.get("numeric_bounds", {})
+        if not isinstance(numeric_bounds, dict):
+            return fallback
+        bounds = numeric_bounds.get(key, {})
+        if not isinstance(bounds, dict):
+            return fallback
+        minimum = bounds.get("minimum")
+        maximum = bounds.get("maximum")
+        if (
+            isinstance(minimum, int)
+            and not isinstance(minimum, bool)
+            and isinstance(maximum, int)
+            and not isinstance(maximum, bool)
+            and minimum <= maximum
+        ):
+            return minimum, maximum
+        return fallback
+
+    def _make_value_widget(self, key, kind, choices, current, integer_range=None):
+        if kind in ("choice", "model"):
+            return self._make_catalog_combo(choices, current)
+        if kind == "boolean":
             switch = Gtk.Switch()
             switch.set_halign(Gtk.Align.START)
             return switch
-        if kind == "minutes":
-            spin = Gtk.SpinButton.new_with_range(1, 10080, 1)
+        if kind == "integer":
+            minimum, maximum = integer_range or self.integer_ranges[key]
+            spin = Gtk.SpinButton.new_with_range(minimum, maximum, 1)
             spin.set_numeric(True)
             spin.set_hexpand(True)
             return spin
         entry = Gtk.Entry()
         entry.set_hexpand(True)
-        if kind == "secret":
-            entry.set_visibility(False)
-            entry.set_invisible_char("*")
-            entry.set_placeholder_text("Leer lassen = vorhandenen Wert beibehalten")
         return entry
 
-    def _set_widget_value(self, widget, value):
-        value = "" if value is None else str(value)
-        if isinstance(widget, Gtk.ComboBoxText):
-            widget.set_active_id(value)
-            if widget.get_active_id() is None:
-                fallback = getattr(widget, "_wirtel_default", "")
-                if fallback:
-                    widget.set_active_id(fallback)
-            if widget.get_active_id() is None:
-                options = getattr(widget, "_wirtel_options", ())
-                if options:
-                    widget.set_active_id(options[0])
-        elif isinstance(widget, Gtk.Switch):
-            widget.set_active(value.lower() in ("1", "yes", "true", "on"))
-        elif isinstance(widget, Gtk.SpinButton):
-            widget.set_value(self._minutes_value(value, 120))
-        else:
-            widget.set_text(value)
+    def _make_catalog_combo(self, choices, current):
+        combo = Gtk.ComboBoxText()
+        combo.set_hexpand(True)
+        self._populate_catalog_combo(combo, choices, current)
+        return combo
 
-    def _get_widget_value(self, widget):
+    def _populate_catalog_combo(self, combo, choices, current):
+        combo.remove_all()
+        for value, label, _legacy in settings_sync.catalog_options(choices, current):
+            combo.append(value, label)
+
+    def _build_fields(self, payload, visible):
+        self.loading_label.set_visible(False)
+        choices_payload = payload.get("choices", {})
+        if not isinstance(choices_payload, dict):
+            choices_payload = {}
+
+        for section, fields in self.field_sections:
+            self.settings_content.pack_start(
+                self._section_label(section),
+                False,
+                True,
+                0,
+            )
+            for key, label, kind, choice_key in fields:
+                choices = choices_payload.get(choice_key, []) if choice_key else []
+                current = visible.get(key)
+                integer_range = (
+                    self._integer_range(payload, key) if kind == "integer" else None
+                )
+                widget = self._make_value_widget(
+                    key,
+                    kind,
+                    choices,
+                    current,
+                    integer_range,
+                )
+                self._set_widget_public_value(widget, current)
+                self.widgets[key] = widget
+                self.settings_content.pack_start(
+                    self._make_field_row(key, label, widget),
+                    False,
+                    True,
+                    0,
+                )
+
+        self.settings_content.pack_start(
+            self._section_label("Schreibgeschützte Secrets"),
+            False,
+            True,
+            0,
+        )
+        for key, label, _presence_key in self.secret_specs:
+            self.settings_content.pack_start(
+                self._make_secret_row(key, label),
+                False,
+                True,
+                0,
+            )
+
+        for key, widget in self.widgets.items():
+            if isinstance(widget, Gtk.Switch):
+                widget.connect("notify::active", self._on_widget_changed, key)
+            elif isinstance(widget, Gtk.SpinButton):
+                widget.connect("value-changed", self._on_widget_changed, key)
+            else:
+                widget.connect("changed", self._on_widget_changed, key)
+
+        self.settings_content.show_all()
+        for button in self.field_discard_buttons.values():
+            button.set_visible(False)
+        for button in self.secret_discard_buttons.values():
+            button.set_visible(False)
+
+    def _set_widget_public_value(self, widget, value):
+        if isinstance(widget, Gtk.ComboBoxText):
+            widget.set_active_id("" if value is None else str(value))
+        elif isinstance(widget, Gtk.Switch):
+            widget.set_active(bool(value))
+        elif isinstance(widget, Gtk.SpinButton):
+            widget.set_value(int(value or 0))
+        else:
+            widget.set_text("" if value is None else str(value))
+
+    def _widget_public_value(self, widget):
         if isinstance(widget, Gtk.ComboBoxText):
             return widget.get_active_id() or ""
         if isinstance(widget, Gtk.Switch):
-            return "true" if widget.get_active() else "false"
+            return bool(widget.get_active())
         if isinstance(widget, Gtk.SpinButton):
-            return str(int(widget.get_value()))
+            return int(widget.get_value())
         return widget.get_text()
 
-    def _minutes_value(self, value, default):
-        text = "" if value is None else str(value).strip().lower()
-        if not text:
-            return int(default)
-        units = (
-            ("min", 1),
-            ("m", 1),
-            ("h", 60),
-            ("d", 1440),
-            ("s", 1 / 60),
-        )
-        for suffix, multiplier in units:
-            if text.endswith(suffix):
-                number = text[: -len(suffix)].strip()
-                try:
-                    minutes = float(number) * multiplier
-                except ValueError:
-                    return int(default)
-                return max(1, int(round(minutes)))
+    def _apply_visible_values(self, payload, visible):
+        choices_payload = payload.get("choices", {})
+        if not isinstance(choices_payload, dict):
+            choices_payload = {}
+        self._suppress_dirty = True
         try:
-            return max(1, int(text))
-        except ValueError:
-            return int(default)
+            for _section, fields in self.field_sections:
+                for key, _label, kind, choice_key in fields:
+                    widget = self.widgets.get(key)
+                    if kind in ("choice", "model") and widget is not None:
+                        self._populate_catalog_combo(
+                            widget,
+                            choices_payload.get(choice_key, []),
+                            visible.get(key),
+                        )
+                    elif kind == "integer" and widget is not None:
+                        widget.set_range(*self._integer_range(payload, key))
+            for key, widget in self.widgets.items():
+                self._set_widget_public_value(widget, visible.get(key))
+        finally:
+            self._suppress_dirty = False
 
-    def _timer_interval_minutes(self):
-        dropin_value = self._read_timer_dropin_value("OnUnitActiveSec")
-        if dropin_value:
-            return str(self._minutes_value(dropin_value, 120))
-        monotonic = self._systemctl_show("wirtelprimpf.timer", "TimersMonotonic")
-        match = None
-        if monotonic:
-            match = re.search(r"OnUnitActiveUSec=([^;]+)", monotonic)
-        if match:
-            return str(self._minutes_value(match.group(1), 120))
-        return "120"
-
-    def _read_timer_dropin_value(self, name):
-        path = os.path.join(self.systemd_user_dir, "wirtelprimpf.timer.d", "override.conf")
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                for raw_line in handle:
-                    line = raw_line.strip()
-                    if line.startswith(name + "="):
-                        return line.split("=", 1)[1].strip()
-        except FileNotFoundError:
-            return ""
-        except Exception:
-            return ""
-        return ""
-
-    def _read_env_file(self):
-        values = {}
-        try:
-            flags = os.O_RDONLY
-            if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
-            descriptor = os.open(self.env_path, flags)
-            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                os.close(descriptor)
-                raise OSError("Env-Pfad ist keine regulaere Datei")
-            with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
-                for raw_line in handle:
-                    line = raw_line.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    key, value = line.split("=", 1)
-                    key = key.strip()
-                    if key in self.secret_env_names:
-                        continue
-                    value = self._unquote_env_value(value.strip())
-                    values[key] = value
-        except FileNotFoundError:
-            pass
-        except Exception as exc:
-            self._set_status("Env-Datei konnte nicht gelesen werden: %s" % exc)
-        return values
-
-    def _unquote_env_value(self, value):
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
-        return value.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
-
-    def _quote_env_value(self, value):
-        value = "" if value is None else str(value)
-        if value == "":
-            return ""
-        needs_quotes = any(char.isspace() or char in "\"'#$\\;" for char in value)
-        if not needs_quotes:
-            return value
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-        return '"%s"' % escaped
-
-    def _atomic_write_text(self, path, content, mode):
-        target = os.path.abspath(os.path.expanduser(path))
-        parent = os.path.dirname(target)
-        os.makedirs(parent, mode=0o700, exist_ok=True)
-
-        parent_stat = os.lstat(parent)
-        if stat.S_ISLNK(parent_stat.st_mode) or not stat.S_ISDIR(parent_stat.st_mode):
-            raise OSError("Zielverzeichnis ist kein regulaeres Verzeichnis: %s" % parent)
-        os.chmod(parent, 0o700)
-
-        try:
-            target_stat = os.lstat(target)
-        except FileNotFoundError:
-            target_stat = None
-        if target_stat is not None and (
-            stat.S_ISLNK(target_stat.st_mode) or not stat.S_ISREG(target_stat.st_mode)
+    def _on_widget_changed(self, widget, *args):
+        key = args[-1]
+        if (
+            self._suppress_dirty
+            or self._save_busy
+            or self.sync_coordinator is None
+            or self.sync_coordinator.state is None
         ):
-            raise OSError("Ziel ist keine regulaere Datei: %s" % target)
-
-        part = os.path.join(
-            parent,
-            ".%s.%s.%s.part" % (os.path.basename(target), os.getpid(), uuid.uuid4().hex),
+            return
+        self.sync_coordinator.state.change(
+            key,
+            self._widget_public_value(widget),
         )
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        descriptor = None
+        self.sync_state = self.sync_coordinator.state
+        self._render_field_states()
+
+    def _on_secret_changed(self, changed_widget, key):
+        if (
+            self._suppress_dirty
+            or self._save_busy
+            or self.sync_coordinator is None
+            or self.sync_coordinator.state is None
+        ):
+            return
+        entry = self.secret_entries[key]
+        deletion = self.secret_delete_checks[key]
+        self._suppress_dirty = True
         try:
-            descriptor = os.open(part, flags, 0o600)
-            with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
-                descriptor = None
-                handle.write(content)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.chmod(part, mode)
-            os.replace(part, target)
-            os.chmod(target, mode)
-            directory_descriptor = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            if changed_widget is entry and entry.get_text():
+                deletion.set_active(False)
+            elif changed_widget is deletion and deletion.get_active():
+                entry.set_text("")
+        finally:
+            self._suppress_dirty = False
+
+        state = self.sync_coordinator.state
+        if entry.get_text() or deletion.get_active():
+            state.mark_secret_dirty(key)
+        else:
+            state.discard_secret(key)
+        self.sync_state = state
+        self._render_field_states()
+
+    def _on_snapshot(self, payload, visible, state):
+        self.sync_state = state
+        if not self.widgets:
+            self._suppress_dirty = True
             try:
-                os.fsync(directory_descriptor)
+                self._build_fields(payload, visible)
             finally:
-                os.close(directory_descriptor)
-        finally:
-            if descriptor is not None:
-                os.close(descriptor)
-            try:
-                os.unlink(part)
-            except FileNotFoundError:
-                pass
+                self._suppress_dirty = False
+        else:
+            self._apply_visible_values(payload, visible)
 
-    def _existing_env_lines(self):
-        try:
-            flags = os.O_RDONLY
-            if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
-            descriptor = os.open(self.env_path, flags)
-        except FileNotFoundError:
-            return [
-                "# Wirtelprimpf generator settings.",
-                "# Written by the Cinnamon applet settings UI.",
-                "",
-            ]
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            os.close(descriptor)
-            raise OSError("Env-Pfad ist keine regulaere Datei")
-        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
-            return handle.read().splitlines()
+        secrets = payload.get("secrets", {})
+        if not isinstance(secrets, dict):
+            secrets = {}
+        for key, _label, presence_key in self.secret_specs:
+            present = bool(secrets.get(presence_key))
+            self.secret_presence_labels[key].set_text(
+                "Vorhandener Wert: %s" % ("ja" if present else "nein")
+            )
+        self._render_field_states()
+        if not state.dirty and not state.secret_dirty:
+            self._set_status("Synchron.")
 
-    def _write_env_file(self):
-        values = {name: self._get_widget_value(widget) for name, widget in self.env_widgets.items()}
-        try:
-            updates = {}
-            ordered_names = []
-            for name, _label, kind, _options in self.env_fields:
-                ordered_names.append(name)
-                value = values.get(name, "")
-                if kind == "secret" and not value:
-                    continue
-                updates[name] = "%s=%s" % (name, self._quote_env_value(value))
+    def _render_field_states(self):
+        state = self.sync_state
+        if state is None:
+            self.save_button.set_sensitive(False)
+            self.discard_all_button.set_sensitive(False)
+            return
 
-            lines = self._existing_env_lines()
-            seen = set()
-            rendered = []
-            for raw_line in lines:
-                stripped = raw_line.strip()
-                if not stripped or stripped.startswith("#") or "=" not in stripped:
-                    rendered.append(raw_line)
-                    continue
-                key = stripped.split("=", 1)[0].strip()
-                if key in seen:
-                    raise ValueError("Doppelter Environment-Schluessel: %s" % key)
-                seen.add(key)
-                rendered.append(updates.pop(key, raw_line))
-
-            for name in ordered_names:
-                if name in updates:
-                    rendered.append(updates.pop(name))
-            for name in sorted(updates):
-                rendered.append(updates[name])
-
-            self._atomic_write_text(self.env_path, "\n".join(rendered) + "\n", 0o600)
-        finally:
-            for name in self.secret_env_names:
-                widget = self.env_widgets.get(name)
-                if widget is not None:
-                    widget.set_text("")
-
-    def _read_systemd_values(self):
-        return {
-            "generator_timer_enabled": self._unit_enabled("wirtelprimpf.timer"),
-            "generator_interval_minutes": self._timer_interval_minutes(),
-            "generator_randomized_delay": self._systemctl_show("wirtelprimpf.timer", "RandomizedDelayUSec").replace("us", "") or "120",
-            "generator_persistent": self._systemctl_show("wirtelprimpf.timer", "Persistent") or "true",
-        }
-
-    def _unit_enabled(self, unit):
-        result = self._run(["systemctl", "--user", "is-enabled", unit], check=False)
-        return "true" if result.returncode == 0 else "false"
-
-    def _systemctl_show(self, unit, prop):
-        result = self._run(["systemctl", "--user", "show", unit, "-p", prop, "--value"], check=False)
-        if result.returncode != 0:
-            return ""
-        return result.stdout.strip()
-
-    def _write_dropin(self, unit, content):
-        if not re.fullmatch(r"[A-Za-z0-9_.@-]+\.(?:service|timer)", unit):
-            raise ValueError("Ungueltiger systemd-Unit-Name: %s" % unit)
-        dropin_dir = os.path.join(self.systemd_user_dir, "%s.d" % unit)
-        self._atomic_write_text(os.path.join(dropin_dir, "override.conf"), content, 0o644)
-
-    def _write_systemd_dropins(self):
-        env = {name: self._get_widget_value(widget) for name, widget in self.env_widgets.items()}
-        sysvals = {name: self._get_widget_value(widget) for name, widget in self.systemd_widgets.items()}
-
-        self._write_dropin(
-            "wirtelprimpf.service",
-            "\n".join(
-                [
-                    "[Service]",
-                    "Environment=WIRTELPRIMPF_OPERANDI=%s" % env.get("WIRTELPRIMPF_OPERANDI", "story"),
-                    "",
-                ]
-            ),
-        )
-        self._write_dropin(
-            "wirtelprimpf.timer",
-            "\n".join(
-                [
-                    "[Timer]",
-                    "OnCalendar=",
-                    "OnBootSec=",
-                    "OnUnitActiveSec=",
-                    "OnBootSec=%smin" % self._minutes_value(sysvals.get("generator_interval_minutes"), 120),
-                    "OnUnitActiveSec=%smin" % self._minutes_value(sysvals.get("generator_interval_minutes"), 120),
-                    "RandomizedDelaySec=%s" % sysvals.get("generator_randomized_delay", "120"),
-                    "Persistent=%s" % sysvals.get("generator_persistent", "true"),
-                    "",
-                ]
-            ),
-        )
-    def _apply_enabled_state(self):
-        sysvals = {name: self._get_widget_value(widget) for name, widget in self.systemd_widgets.items()}
-        for unit, key in (
-            ("wirtelprimpf.timer", "generator_timer_enabled"),
-        ):
-            if sysvals.get(key) == "true":
-                self._run(["systemctl", "--user", "enable", "--now", unit])
+        for key, label in self.field_state_labels.items():
+            if key in state.conflicts:
+                label.set_text("Extern geändert – lokaler Entwurf bleibt erhalten")  # noqa: RUF001
+            elif key in state.dirty:
+                label.set_text("Ungespeichert")
             else:
-                self._run(["systemctl", "--user", "disable", "--now", unit], check=False)
+                label.set_text("")
+            self.field_discard_buttons[key].set_visible(
+                key in state.conflicts and not self._save_busy
+            )
 
-    def _save(self):
-        self._write_env_file()
-        self._write_systemd_dropins()
-        self._run(["systemctl", "--user", "daemon-reload"])
-        self._apply_enabled_state()
+        for key, label in self.secret_state_labels.items():
+            if key in state.conflicts:
+                label.set_text("Extern geändert – Secret-Entwurf bleibt erhalten")  # noqa: RUF001
+            elif key in state.secret_dirty:
+                label.set_text("Ungespeicherter Secret-Entwurf")
+            else:
+                label.set_text("")
+            self.secret_discard_buttons[key].set_visible(
+                key in state.conflicts and not self._save_busy
+            )
+
+        draft_count = len(state.dirty) + len(state.secret_dirty)
+        self.save_button.set_sensitive(
+            draft_count > 0 and not self._interaction_busy()
+        )
+        self.discard_all_button.set_sensitive(
+            draft_count > 0 and not self._save_busy
+        )
+
+    def _interaction_busy(self):
+        return self._save_busy or self._operation_busy
+
+    def _update_operation_sensitivity(self):
+        sensitive = not self._interaction_busy()
+        self.run_button.set_sensitive(sensitive)
+        self.timer_button.set_sensitive(sensitive)
+
+    def _on_discard_field(self, _button, key):
+        if self._save_busy or self.sync_state is None:
+            return
+        value = self.sync_state.discard(key)
+        self._suppress_dirty = True
+        try:
+            self._set_widget_public_value(self.widgets[key], value)
+        finally:
+            self._suppress_dirty = False
+        self._render_field_states()
+
+    def _on_discard_secret(self, _button, key):
+        if self._save_busy or self.sync_state is None:
+            return
+        self._suppress_dirty = True
+        try:
+            self.sync_state.discard_secret(key)
+            self.secret_entries[key].set_text("")
+            self.secret_delete_checks[key].set_active(False)
+        finally:
+            self._suppress_dirty = False
+        self._render_field_states()
+
+    def _on_discard_all(self, _button):
+        if self._save_busy or self.sync_state is None:
+            return
+        transient_for = self.get_toplevel()
+        if not isinstance(transient_for, Gtk.Window):
+            transient_for = None
+        dialog = Gtk.MessageDialog(
+            transient_for=transient_for,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text="Alle lokalen, noch nicht gespeicherten Entwürfe verwerfen?",
+        )
+        try:
+            confirmed = dialog.run() == Gtk.ResponseType.OK
+        finally:
+            dialog.destroy()
+        if not confirmed:
+            return
+
+        self._suppress_dirty = True
+        try:
+            for key in list(self.sync_state.dirty):
+                value = self.sync_state.discard(key)
+                self._set_widget_public_value(self.widgets[key], value)
+            for key in list(self.sync_state.secret_dirty):
+                self.sync_state.discard_secret(key)
+                self.secret_entries[key].set_text("")
+                self.secret_delete_checks[key].set_active(False)
+        finally:
+            self._suppress_dirty = False
+        self._set_status("Lokale Entwürfe verworfen.")
+        self._render_field_states()
+
+    def _secret_actions(self):
+        actions = {}
+        if self.sync_state is None:
+            return actions
+        for key in self.sync_state.secret_dirty:
+            if self.secret_delete_checks[key].get_active():
+                actions[key] = {"action": "delete"}
+            else:
+                value = self.secret_entries[key].get_text()
+                if value:
+                    actions[key] = {"action": "replace", "value": value}
+        return actions
 
     def _on_save(self, _button):
+        if (
+            self._interaction_busy()
+            or self.sync_coordinator is None
+            or self.sync_coordinator.state is None
+        ):
+            return
+        state = self.sync_coordinator.state
+        values = {
+            key: self._widget_public_value(widget)
+            for key, widget in self.widgets.items()
+        }
         try:
-            self._save()
-            self._set_status("Gespeichert.")
-        except Exception as exc:
-            self._set_status("Speichern fehlgeschlagen: %s" % exc)
+            request = state.build_request(values, self._secret_actions())
+        except settings_sync.SettingsCliError as exc:
+            self._set_status(f"Speichern abgelehnt: {exc}")
+            return
+        if not request["changes"] and not request["secret_actions"]:
+            self._set_status("Keine lokalen Änderungen.")
+            return
+        if self.sync_coordinator.submit_save(request):
+            self._set_status("Prüfe und speichere atomar …")
+        else:
+            self._set_status("Eine Speicherung läuft bereits.")
 
-    def _on_save_restart(self, _button):
+    def _on_sync_busy(self, busy):
+        self._save_busy = bool(busy)
+        for widget in self.widgets.values():
+            widget.set_sensitive(not self._save_busy)
+        for key in self.secret_entries:
+            self.secret_entries[key].set_sensitive(not self._save_busy)
+            self.secret_delete_checks[key].set_sensitive(not self._save_busy)
+        self._update_operation_sensitivity()
+        self._render_field_states()
+
+    def _on_save_result(self, kind, message, _payload):
+        if kind == "success":
+            self._suppress_dirty = True
+            try:
+                for key in self.secret_entries:
+                    self.secret_entries[key].set_text("")
+                    self.secret_delete_checks[key].set_active(False)
+            finally:
+                self._suppress_dirty = False
+        self._set_status(message)
+        self._render_field_states()
+
+    def _on_sync_error(self, message):
+        self._set_status(message)
+
+    def _on_map(self, *_args):
+        if self.sync_coordinator is not None:
+            return self.sync_coordinator.focus_refresh()
+        return False
+
+    def _on_focus_in(self, *_args):
+        if self.sync_coordinator is not None:
+            return self.sync_coordinator.focus_refresh()
+        return False
+
+    def _dispose_sync(self, *_args):
+        if self._disposed:
+            return False
+        self._disposed = True
+        if self.sync_coordinator is not None:
+            self.sync_coordinator.dispose()
+        else:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+        return False
+
+    def _dispose_failed_sync_coordinator(self):
+        coordinator = self.sync_coordinator
+        if coordinator is None:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            return
+        self.sync_coordinator = None
         try:
-            self._save()
-            self._restart_generator_timer()
-            self._set_status("Gespeichert und neu gestartet.")
-        except Exception as exc:
-            self._set_status("Restart fehlgeschlagen: %s" % exc)
+            coordinator.dispose()
+        except Exception:
+            self._executor.shutdown(wait=False, cancel_futures=True)
 
     def _on_start_generator(self, _button):
-        try:
-            self._run(["systemctl", "--user", "start", "wirtelprimpf.service"])
-            self._set_status("Generator gestartet.")
-        except Exception as exc:
-            self._set_status("Generatorstart fehlgeschlagen: %s" % exc)
+        self._run_operation(
+            (["systemctl", "--user", "start", "wirtelprimpf.service"],),
+            "Generator gestartet.",
+            "Generatorstart fehlgeschlagen",
+        )
 
     def _on_restart_timers(self, _button):
+        self._run_operation(
+            (
+                ["systemctl", "--user", "daemon-reload"],
+                ["systemctl", "--user", "restart", "wirtelprimpf.timer"],
+            ),
+            "Timer neu gestartet.",
+            "Timer-Restart fehlgeschlagen",
+        )
+
+    def _run_operation(self, commands, success, failure_prefix):
+        if self._interaction_busy() or self._disposed:
+            return
+        self._operation_busy = True
+        self._update_operation_sensitivity()
+        self._render_field_states()
+        thread = threading.Thread(
+            target=self._operation_worker,
+            args=(commands, success, failure_prefix),
+            daemon=True,
+        )
         try:
-            self._run(["systemctl", "--user", "daemon-reload"])
-            self._restart_generator_timer()
-            self._set_status("Timer neu gestartet.")
+            thread.start()
+        except Exception:
+            self._finish_operation_idle(failure_prefix)
+
+    def _operation_worker(self, commands, success, failure_prefix):
+        try:
+            with settings_sync.exclusive_settings_lock(
+                self.settings_lock_path,
+                timeout_seconds=self.operation_lock_timeout_seconds,
+            ):
+                for command in commands:
+                    self._run(command)
+            message = success
         except Exception as exc:
-            self._set_status("Timer-Restart fehlgeschlagen: %s" % exc)
+            message = f"{failure_prefix}: {exc}"
+        GLib.idle_add(self._finish_operation_idle, message)
 
-    def _restart_generator_timer(self):
-        self._run(["systemctl", "--user", "restart", "wirtelprimpf.timer"], check=False)
-
-    def _run(self, args, check=True):
-        result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if check and result.returncode != 0:
-            message = result.stderr.strip() or result.stdout.strip() or "exit %s" % result.returncode
+    def _run(self, args):
+        result = subprocess.run(
+            args,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+            shell=False,
+        )
+        if result.returncode != 0:
+            message = (
+                result.stderr.strip()
+                or result.stdout.strip()
+                or f"exit {result.returncode}"
+            )
             raise RuntimeError("%s: %s" % (" ".join(args), message))
         return result
 
+    def _finish_operation_idle(self, text):
+        self._operation_busy = False
+        if not self._disposed:
+            self._update_operation_sensitivity()
+            self._render_field_states()
+            self._set_status(text)
+        return False
+
     def _set_status(self, text):
-        self.status.set_text(text)
+        self.status.set_text(str(text))
