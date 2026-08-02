@@ -239,18 +239,34 @@ Expected: no `web/dist` or dependency artifact appears; only expected plan/imple
 Run:
 
 ```bash
-generator_dirty="$(git status --porcelain)"
+set -Eeuo pipefail
+test "$(id -u)" = 0
+/usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+  HOME=/home/teladi \
+  USER=teladi \
+  LOGNAME=teladi \
+  PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  /bin/bash -se <<'TASK3_STEP1_TELADI'
+set -Eeuo pipefail
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
+test "$(/usr/bin/git rev-parse --show-toplevel)" = "$(pwd -P)"
+generator_dirty="$(/usr/bin/git status --porcelain)"
 if [[ -n "$generator_dirty" ]]; then
   printf 'Generator checkout is not clean; aborting local matrix.\n' >&2
   printf '%s\n' "$generator_dirty" >&2
   exit 1
 fi
-python -m unittest discover -s tests/platform -p 'test_*.py' -v
+python3 -m unittest discover -s tests/platform -p 'test_*.py' -v
 make check
-python -m compileall -q Sourcecode wirtelprimpf_platform scripts
+python3 -m compileall -q Sourcecode wirtelprimpf_platform scripts
 npm --prefix web test
-WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" WIRTELPRIMPF_SITE_PROFILE=hub npm --prefix web run check
-git diff --check
+WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" \
+  WIRTELPRIMPF_SITE_PROFILE=hub npm --prefix web run check
+/usr/bin/git diff --check
+TASK3_STEP1_TELADI
 ```
 
 Then repeat the two profile builds and validators from Task 2. Expected: every command exits 0.
@@ -260,16 +276,34 @@ Then repeat the two profile builds and validators from Task 2. Expected: every c
 Run:
 
 ```bash
-generator_dirty="$(git status --porcelain)"
+set -Eeuo pipefail
+test "$(id -u)" = 0
+/usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+  HOME=/home/teladi \
+  USER=teladi \
+  LOGNAME=teladi \
+  PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  /bin/bash -se <<'TASK3_STEP2_TELADI'
+set -Eeuo pipefail
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
+test "$(/usr/bin/git rev-parse --show-toplevel)" = "$(pwd -P)"
+generator_dirty="$(/usr/bin/git status --porcelain)"
 if [[ -n "$generator_dirty" ]]; then
   printf 'Generator checkout is not clean; aborting review.\n' >&2
   printf '%s\n' "$generator_dirty" >&2
   exit 1
 fi
-git status --short
-git log --oneline --decorate "$(git merge-base HEAD origin/main)"..HEAD
-git diff --stat "$(git merge-base HEAD origin/main)"..HEAD
-git diff "$(git merge-base HEAD origin/main)"..HEAD -- Sourcecode/systemd-user/wirtelprimpf-admin.service wirtelprimpf_platform files/wirtelprimfgenerator@H234598 web tests
+/usr/bin/git status --short
+generator_review_base="$(/usr/bin/git merge-base HEAD origin/main)"
+/usr/bin/git log --oneline --decorate "$generator_review_base"..HEAD
+/usr/bin/git diff --stat "$generator_review_base"..HEAD
+/usr/bin/git diff "$generator_review_base"..HEAD -- \
+  Sourcecode/systemd-user/wirtelprimpf-admin.service \
+  wirtelprimpf_platform files/wirtelprimfgenerator@H234598 web tests
+TASK3_STEP2_TELADI
 ```
 
 Review every changed hunk against the approved spec. Explicitly verify no response/log path returns secrets, no applet file writer remains, `/api/status` has no network client, and public copy has exactly six changes.
@@ -279,21 +313,113 @@ Review every changed hunk against the approved spec. Explicitly verify no respon
 Run:
 
 ```bash
-git fetch origin
-if ! git merge-base --is-ancestor origin/main HEAD; then
-  git log --oneline --decorate HEAD..origin/main
-  if ! git merge --no-edit origin/main; then
-    git merge --abort || true
+set -Eeuo pipefail
+test "$(id -u)" = 0
+set +x
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  printf 'A valid ephemeral GH_TOKEN is required before the first Git write.\n' >&2
+  exit 1
+fi
+task3_ephemeral_token=$GH_TOKEN
+unset GH_TOKEN
+exec {task3_token_relay_fd}< <(printf '%s\0' "$task3_ephemeral_token")
+unset task3_ephemeral_token
+
+set +e
+/usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+  HOME=/home/teladi \
+  USER=teladi \
+  LOGNAME=teladi \
+  PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  /bin/bash -se "$task3_token_relay_fd" <<'TASK3_STEP3_TELADI'
+set -Eeuo pipefail
+set +x
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
+test "$(/usr/bin/git rev-parse --show-toplevel)" = "$(pwd -P)"
+task3_token_relay_fd=$1
+[[ "$task3_token_relay_fd" =~ ^[0-9]+$ ]]
+task3_ephemeral_token=
+IFS= read -r -d '' task3_ephemeral_token <&"$task3_token_relay_fd"
+exec {task3_token_relay_fd}<&-
+test -n "$task3_ephemeral_token"
+test -z "${GH_TOKEN+x}"
+
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+
+task3_token_call() {
+  set +x
+  local task3_token_status=0
+  printf '%s\0' "$task3_ephemeral_token" |
+    /usr/bin/env -i \
+      HOME=/home/teladi \
+      USER=teladi \
+      LOGNAME=teladi \
+      PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+      GIT_TERMINAL_PROMPT=0 \
+      /bin/bash -c '
+        set -Eeuo pipefail
+        set +x
+        task3_call_token=
+        IFS= read -r -d "" task3_call_token
+        exec 0<&-
+        GH_TOKEN="$task3_call_token" exec "$@"
+      ' task3-token-call "$@" || task3_token_status=$?
+  return "$task3_token_status"
+}
+
+task3_gh() {
+  task3_token_call /usr/bin/gh "$@"
+}
+
+git_remote() {
+  task3_token_call \
+    /usr/bin/git \
+    -c credential.helper= \
+    -c 'credential.helper=!/usr/bin/gh auth git-credential' \
+    -c core.hooksPath=/dev/null \
+    "$@"
+}
+
+require_task3_auth() {
+  local authenticated_user
+  authenticated_user="$(task3_gh api "/user")"
+  /usr/bin/jq -e \
+    '.login == "H234598" and .id == 54270221' \
+    <<<"$authenticated_user" >/dev/null
+}
+
+assert_canonical_origin() {
+  local -a task3_fetch_urls=() task3_push_urls=()
+  mapfile -t task3_fetch_urls < <(/usr/bin/git remote get-url --all origin)
+  mapfile -t task3_push_urls < <(/usr/bin/git remote get-url --push --all origin)
+  test "${#task3_fetch_urls[@]}" = 1
+  test "${#task3_push_urls[@]}" = 1
+  test "${task3_fetch_urls[0]}" = "$canonical_origin"
+  test "${task3_push_urls[0]}" = "$canonical_origin"
+}
+
+# Authentication and the exact single-URL remote contract both precede fetch,
+# which is the first local Git-object/ref write in this step.
+require_task3_auth
+assert_canonical_origin
+git_remote fetch "$canonical_origin" \
+  '+refs/heads/main:refs/remotes/origin/main'
+if ! /usr/bin/git merge-base --is-ancestor origin/main HEAD; then
+  /usr/bin/git log --oneline --decorate HEAD..origin/main
+  if ! /usr/bin/git -c core.hooksPath=/dev/null merge --no-edit origin/main; then
+    /usr/bin/git -c core.hooksPath=/dev/null merge --abort || true
     printf 'origin/main merge failed or conflicted; review required.\n' >&2
     exit 1
   fi
-  test -z "$(git status --porcelain)"
-  # An origin/main integration invalidates every earlier result. Repeat the
-  # complete Step-1 matrix, including compileall, Astro check, and both full
-  # profile builds plus artifact validators, before the push is permitted.
-  python -m unittest discover -s tests/platform -p 'test_*.py' -v
+  test -z "$(/usr/bin/git status --porcelain)"
+  # An origin/main integration invalidates every earlier result. The token is a
+  # non-exported shell variable, so no test/build/merge-hook process receives it.
+  python3 -m unittest discover -s tests/platform -p 'test_*.py' -v
   make check
-  python -m compileall -q Sourcecode wirtelprimpf_platform scripts
+  python3 -m compileall -q Sourcecode wirtelprimpf_platform scripts
   npm --prefix web test
   WIRTELPRIMPF_DATA_ROOT="$PWD/web/fixtures/site" \
     WIRTELPRIMPF_SITE_PROFILE=hub npm --prefix web run check
@@ -311,10 +437,20 @@ if ! git merge-base --is-ancestor origin/main HEAD; then
     npm --prefix web run build
   python3 scripts/validate_pages_artifact.py \
     web/dist --expected-domain wirtelprimpf-0001.telacore.org
-  git diff --check
+  /usr/bin/git diff --check
 fi
-git merge-base --is-ancestor origin/main HEAD
-git push --set-upstream origin HEAD
+/usr/bin/git merge-base --is-ancestor origin/main HEAD
+generator_head=$(/usr/bin/git branch --show-current)
+/usr/bin/git check-ref-format --branch "$generator_head" >/dev/null
+assert_canonical_origin
+require_task3_auth
+git_remote push "$canonical_origin" "HEAD:refs/heads/$generator_head"
+unset task3_ephemeral_token
+TASK3_STEP3_TELADI
+task3_step3_status=$?
+set -e
+exec {task3_token_relay_fd}<&-
+test "$task3_step3_status" = 0
 ```
 
 Expected: already-published user commits are preserved in branch history, the post-merge matrix is green, and the branch push succeeds without force. Stop for review if the merge reports a conflict or introduces a scope-changing behavior; do not resolve a user conflict by discarding either side.
@@ -326,47 +462,96 @@ Run:
 ```bash
 set -Eeuo pipefail
 test "$(id -u)" = 0
+set +x
 if [[ -z "${GH_TOKEN:-}" ]]; then
   printf 'A valid ephemeral GH_TOKEN is required before PR writes.\n' >&2
   exit 1
 fi
-task3_ephemeral_token="$GH_TOKEN"
+task3_ephemeral_token=$GH_TOKEN
 unset GH_TOKEN
-trap 'unset task3_ephemeral_token' EXIT
-task3_gh() {
-  /usr/bin/env -i \
-    HOME=/root \
-    PATH=/usr/local/bin:/usr/bin:/bin \
-    GH_TOKEN="$task3_ephemeral_token" \
-    /usr/bin/gh "$@"
+exec {task3_token_relay_fd}< <(printf '%s\0' "$task3_ephemeral_token")
+unset task3_ephemeral_token
+
+set +e
+/usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+  HOME=/home/teladi \
+  USER=teladi \
+  LOGNAME=teladi \
+  PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  /bin/bash -se "$task3_token_relay_fd" <<'TASK3_STEP4_TELADI'
+set -Eeuo pipefail
+set +x
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
+test "$(/usr/bin/git rev-parse --show-toplevel)" = "$(pwd -P)"
+task3_token_relay_fd=$1
+[[ "$task3_token_relay_fd" =~ ^[0-9]+$ ]]
+task3_ephemeral_token=
+IFS= read -r -d '' task3_ephemeral_token <&"$task3_token_relay_fd"
+exec {task3_token_relay_fd}<&-
+test -n "$task3_ephemeral_token"
+test -z "${GH_TOKEN+x}"
+
+canonical_repository=H234598/Wirtelprimpf-generator
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+
+task3_token_call() {
+  set +x
+  local task3_token_status=0
+  printf '%s\0' "$task3_ephemeral_token" |
+    /usr/bin/env -i \
+      HOME=/home/teladi \
+      USER=teladi \
+      LOGNAME=teladi \
+      PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+      GIT_TERMINAL_PROMPT=0 \
+      /bin/bash -c '
+        set -Eeuo pipefail
+        set +x
+        task3_call_token=
+        IFS= read -r -d "" task3_call_token
+        exec 0<&-
+        GH_TOKEN="$task3_call_token" exec "$@"
+      ' task3-token-call "$@" || task3_token_status=$?
+  return "$task3_token_status"
 }
+
+task3_gh() {
+  task3_token_call /usr/bin/gh "$@"
+}
+
 require_task3_auth() {
   local authenticated_user
   authenticated_user="$(task3_gh api "/user")"
   /usr/bin/jq -e \
-    '.login == "H234598" and (.id | type == "number" and . > 0)' \
+    '.login == "H234598" and .id == 54270221' \
     <<<"$authenticated_user" >/dev/null
 }
-git_teladi() {
-  /usr/sbin/runuser -u teladi -- env -i \
-    HOME=/home/teladi \
-    USER=teladi \
-    LOGNAME=teladi \
-    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
-    /usr/bin/git "$@"
+
+assert_canonical_origin() {
+  local -a task3_fetch_urls=() task3_push_urls=()
+  mapfile -t task3_fetch_urls < <(/usr/bin/git remote get-url --all origin)
+  mapfile -t task3_push_urls < <(/usr/bin/git remote get-url --push --all origin)
+  test "${#task3_fetch_urls[@]}" = 1
+  test "${#task3_push_urls[@]}" = 1
+  test "${task3_fetch_urls[0]}" = "$canonical_origin"
+  test "${task3_push_urls[0]}" = "$canonical_origin"
 }
+
 require_task3_auth
-canonical_repository=H234598/Wirtelprimpf-generator
+assert_canonical_origin
 canonical_repo_json="$(
   task3_gh repo view "$canonical_repository" --json id,nameWithOwner
 )"
 canonical_repo_id="$(/usr/bin/jq -er '.id' <<<"$canonical_repo_json")"
 test "$(/usr/bin/jq -r '.nameWithOwner' <<<"$canonical_repo_json")" = \
   "$canonical_repository"
-generator_head="$(git_teladi branch --show-current)"
-generator_head_sha="$(git_teladi rev-parse HEAD)"
+generator_head="$(/usr/bin/git branch --show-current)"
+generator_head_sha="$(/usr/bin/git rev-parse HEAD)"
 [[ -n "$generator_head" && "$generator_head_sha" =~ ^[0-9a-f]{40}$ ]]
-git_teladi check-ref-format --branch "$generator_head" >/dev/null
+/usr/bin/git check-ref-format --branch "$generator_head" >/dev/null
 [[ "$generator_head" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]
 
 pr_is_exact_generator_head() {
@@ -394,16 +579,16 @@ known_pr="$({ task3_gh pr view 4 \
   --repo "$canonical_repository" \
   --json number,url,state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,headRepositoryOwner || true; } 2>/dev/null)"
 if [[ -n "$known_pr" \
-  && "$(jq -r '.state' <<<"$known_pr")" == OPEN ]] \
+  && "$(/usr/bin/jq -r '.state' <<<"$known_pr")" == OPEN ]] \
   && pr_is_exact_generator_head "$known_pr"; then
   generator_pr_number=4
-  generator_pr_url="$(jq -r '.url' <<<"$known_pr")"
+  generator_pr_url="$(/usr/bin/jq -r '.url' <<<"$known_pr")"
 else
   matching_prs="$(task3_gh pr list \
     --repo "$canonical_repository" \
     --state open --base main --head "H234598:$generator_head" --limit 2 \
     --json number,url,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,headRepositoryOwner)"
-  matching_count="$(jq 'length' <<<"$matching_prs")"
+  matching_count="$(/usr/bin/jq 'length' <<<"$matching_prs")"
   case "$matching_count" in
     0)
       require_task3_auth
@@ -416,8 +601,8 @@ else
       generator_pr_number="${generator_pr_url##*/}"
       ;;
     1)
-      generator_pr_number="$(jq -r '.[0].number' <<<"$matching_prs")"
-      generator_pr_url="$(jq -r '.[0].url' <<<"$matching_prs")"
+      generator_pr_number="$(/usr/bin/jq -r '.[0].number' <<<"$matching_prs")"
+      generator_pr_url="$(/usr/bin/jq -r '.[0].url' <<<"$matching_prs")"
       ;;
     *)
       printf 'Multiple open PRs use generator head %s; refusing ambiguity.\n' "$generator_head" >&2
@@ -430,19 +615,23 @@ fi
 verified_pr="$(task3_gh pr view "$generator_pr_number" \
   --repo "$canonical_repository" \
   --json state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,headRepositoryOwner,url)"
-test "$(jq -r '.state' <<<"$verified_pr")" = OPEN
+test "$(/usr/bin/jq -r '.state' <<<"$verified_pr")" = OPEN
 pr_is_exact_generator_head "$verified_pr"
-test "$(jq -r '.url' <<<"$verified_pr")" = "$generator_pr_url"
+test "$(/usr/bin/jq -r '.url' <<<"$verified_pr")" = "$generator_pr_url"
 task3_gh pr checks "$generator_pr_number" \
   --repo "$canonical_repository" --watch --fail-fast
 post_check_pr="$(task3_gh pr view "$generator_pr_number" \
   --repo "$canonical_repository" \
   --json state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,headRepositoryOwner)"
-test "$(jq -r '.state' <<<"$post_check_pr")" = OPEN
+test "$(/usr/bin/jq -r '.state' <<<"$post_check_pr")" = OPEN
 pr_is_exact_generator_head "$post_check_pr"
 printf 'Reviewed generator head SHA: %s\n' "$generator_head_sha"
 unset task3_ephemeral_token
-trap - EXIT
+TASK3_STEP4_TELADI
+task3_step4_status=$?
+set -e
+exec {task3_token_relay_fd}<&-
+test "$task3_step4_status" = 0
 ```
 
 Expected: applet, platform, web, Pages-related checks, and configured review gates are successful. Address actual review findings with new focused test-first commits and rerun the full affected matrix; do not dismiss findings without evidence.
@@ -454,43 +643,42 @@ Run:
 ```bash
 set -Eeuo pipefail
 test "$(id -u)" = 0
+set +x
 if [[ -z "${GH_TOKEN:-}" ]]; then
   printf 'A valid ephemeral GH_TOKEN is required; no Git or remote write occurred.\n' >&2
   exit 1
 fi
-task3_ephemeral_token="$GH_TOKEN"
+task3_ephemeral_token=$GH_TOKEN
 unset GH_TOKEN
-trap 'unset task3_ephemeral_token' EXIT
-
-# Never trust the persisted gh keyrings for this write phase. The externally
-# supplied token must authenticate successfully as the canonical owner before
-# it is passed once into the clean teladi execution environment.
-task3_root_identity="$(
-  /usr/bin/env -i \
-    HOME=/root \
-    PATH=/usr/local/bin:/usr/bin:/bin \
-    GH_TOKEN="$task3_ephemeral_token" \
-    /usr/bin/gh api "/user"
-)"
-/usr/bin/jq -e \
-  '.login == "H234598" and (.id | type == "number" and . > 0)' \
-  <<<"$task3_root_identity" >/dev/null
+exec {task3_token_relay_fd}< <(printf '%s\0' "$task3_ephemeral_token")
+unset task3_ephemeral_token
 
 set +e
-/usr/sbin/runuser -u teladi -- env -i \
+/usr/sbin/runuser -u teladi -- /usr/bin/env -i \
   HOME=/home/teladi \
   USER=teladi \
   LOGNAME=teladi \
   PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
-  GIT_TERMINAL_PROMPT=0 \
-  GH_TOKEN="$task3_ephemeral_token" \
-  /bin/bash -se <<'TASK3_TELADI'
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  /bin/bash -se "$task3_token_relay_fd" <<'TASK3_TELADI'
 set -Eeuo pipefail
+set +x
 test "$(id -u)" = 1000
 test "$(id -g)" = 1000
+test "$(/usr/bin/git rev-parse --show-toplevel)" = "$(pwd -P)"
+task3_token_relay_fd=$1
+[[ "$task3_token_relay_fd" =~ ^[0-9]+$ ]]
+task3_ephemeral_token=
+IFS= read -r -d '' task3_ephemeral_token <&"$task3_token_relay_fd"
+exec {task3_token_relay_fd}<&-
+test -n "$task3_ephemeral_token"
+test -z "${GH_TOKEN+x}"
 
 canonical_repository=H234598/Wirtelprimpf-generator
 canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+task3_actor_login=H234598
+task3_actor_id=54270221
 receipt_parent=/home/teladi/.local/state/wirtelprimpf
 receipt_dir=/home/teladi/.local/state/wirtelprimpf/task3-merge
 receipt_file="$receipt_dir/generator-main-receipt.json"
@@ -498,6 +686,56 @@ policy_probe=
 task3_push_started=0
 task3_remote_committed=0
 task3_verified=0
+
+# BEGIN TASK3_FD_TOKEN_CALL
+task3_token_call() {
+  set +x
+  local task3_token_status=0
+  printf '%s\0' "$task3_ephemeral_token" |
+    /usr/bin/env -i \
+      HOME=/home/teladi \
+      USER=teladi \
+      LOGNAME=teladi \
+      PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+      GIT_TERMINAL_PROMPT=0 \
+      /bin/bash -c '
+        set -Eeuo pipefail
+        set +x
+        task3_call_token=
+        IFS= read -r -d "" task3_call_token
+        exec 0<&-
+        GH_TOKEN="$task3_call_token" exec "$@"
+      ' task3-token-call "$@" || task3_token_status=$?
+  return "$task3_token_status"
+}
+# END TASK3_FD_TOKEN_CALL
+
+task3_gh() {
+  task3_token_call /usr/bin/gh "$@"
+}
+
+# BEGIN TASK3_GIT_REMOTE
+git_remote() {
+  task3_token_call \
+    /usr/bin/git \
+    -c credential.helper= \
+    -c 'credential.helper=!/usr/bin/gh auth git-credential' \
+    -c core.hooksPath=/dev/null \
+    "$@"
+}
+# END TASK3_GIT_REMOTE
+
+# BEGIN TASK3_CANONICAL_ORIGIN
+assert_canonical_origin() {
+  local -a task3_fetch_urls=() task3_push_urls=()
+  mapfile -t task3_fetch_urls < <(/usr/bin/git remote get-url --all origin)
+  mapfile -t task3_push_urls < <(/usr/bin/git remote get-url --push --all origin)
+  test "${#task3_fetch_urls[@]}" = 1
+  test "${#task3_push_urls[@]}" = 1
+  test "${task3_fetch_urls[0]}" = "$canonical_origin"
+  test "${task3_push_urls[0]}" = "$canonical_origin"
+}
+# END TASK3_CANONICAL_ORIGIN
 
 cleanup_policy_probe() {
   if [[ -n "$policy_probe" && -e "$policy_probe" ]]; then
@@ -511,6 +749,8 @@ cleanup_policy_probe() {
 task3_exit() {
   local original_status="$1"
   trap - EXIT
+  set +x
+  unset task3_ephemeral_token
   set +e
   cleanup_policy_probe
   if [[ "$task3_remote_committed" == 1 && "$task3_verified" != 1 ]]; then
@@ -526,17 +766,12 @@ trap 'task3_exit $?' EXIT
 
 require_task3_auth() {
   local authenticated_user
-  authenticated_user="$(/usr/bin/gh api "/user")"
+  authenticated_user="$(task3_gh api "/user")"
   /usr/bin/jq -e \
-    '.login == "H234598" and (.id | type == "number" and . > 0)' \
+    --arg login "$task3_actor_login" \
+    --argjson actor_id "$task3_actor_id" \
+    '.login == $login and .id == $actor_id' \
     <<<"$authenticated_user" >/dev/null
-}
-
-git_remote() {
-  /usr/bin/git \
-    -c credential.helper= \
-    -c 'credential.helper=!/usr/bin/gh auth git-credential' \
-    "$@"
 }
 
 assert_pr_identity() {
@@ -566,7 +801,7 @@ assert_no_main_policy() {
   test -d "$policy_probe" && test ! -L "$policy_probe"
   chmod 0700 "$policy_probe"
 
-  /usr/bin/gh api \
+  task3_gh api \
     "repos/$canonical_repository/rules/branches/main" \
     >"$policy_probe/rulesets.json"
   /usr/bin/jq -e 'type == "array" and length == 0' \
@@ -576,7 +811,7 @@ assert_no_main_policy() {
     }
 
   set +e
-  /usr/bin/gh api --include \
+  task3_gh api --include \
     "repos/$canonical_repository/branches/main/protection" \
     >"$policy_probe/branch_protection.response" \
     2>"$policy_probe/branch_protection.error"
@@ -600,6 +835,7 @@ assert_no_main_policy() {
   cleanup_policy_probe
 }
 
+# BEGIN TASK3_RECEIPT_IO
 ensure_receipt_dir() {
   test -d "$receipt_parent" && test ! -L "$receipt_parent"
   test "$(realpath -e -- "$receipt_parent")" = "$receipt_parent"
@@ -613,10 +849,24 @@ ensure_receipt_dir() {
   test "$(stat -c '%u:%g:%a' "$receipt_dir")" = 1000:1000:700
 }
 
-write_task3_receipt() {
-  local next_state="$1" receipt_tmp
-  case "$next_state" in
-    planned|remote_committed|verified) ;;
+write_task3_receipt() (
+  set -Eeuo pipefail
+  local next_state="$1" receipt_tmp= original_status
+
+  cleanup_receipt_tmp() {
+    original_status=$?
+    trap - EXIT
+    if [[ -n "$receipt_tmp" && -e "$receipt_tmp" ]]; then
+      [[ "$receipt_tmp" == "$receipt_dir"/.generator-main-receipt.* ]]
+      test -f "$receipt_tmp" && test ! -L "$receipt_tmp"
+      rm -f -- "$receipt_tmp"
+    fi
+    exit "$original_status"
+  }
+  trap cleanup_receipt_tmp EXIT
+
+  case "$receipt_state:$next_state" in
+    absent:planned|planned:remote_committed|remote_committed:verified) ;;
     *) return 1 ;;
   esac
   ensure_receipt_dir
@@ -626,35 +876,160 @@ write_task3_receipt() {
   chmod 0600 "$receipt_tmp"
   /usr/bin/jq -n \
     --arg state "$next_state" \
+    --arg actor_login "$task3_actor_login" \
+    --argjson actor_id "$task3_actor_id" \
+    --arg repository_id "$canonical_repo_id" \
     --arg repository "$canonical_repository" \
+    --arg canonical_origin "$canonical_origin" \
     --argjson pr_number "$generator_pr_number" \
     --arg head_ref "$generator_head" \
     --arg expected_head "$generator_expected_head" \
     --arg base_before "$generator_base_before" \
-    --arg merge_sha "$generator_merge_sha" \
     --arg head_tree "$generator_head_tree" \
+    --arg merge_date "$generator_merge_date" \
+    --arg merge_message "$generator_merge_message" \
+    --arg merge_sha "$generator_merge_sha" \
     '{
-      version: 1,
+      version: 2,
       state: $state,
+      actor_login: $actor_login,
+      actor_id: $actor_id,
+      repository_id: $repository_id,
       repository: $repository,
+      canonical_origin: $canonical_origin,
       pr_number: $pr_number,
       head_ref: $head_ref,
       expected_head: $expected_head,
       base_before: $base_before,
-      merge_sha: $merge_sha,
-      head_tree: $head_tree
+      head_tree: $head_tree,
+      merge_date: $merge_date,
+      merge_message: $merge_message,
+      merge_sha: $merge_sha
   }' >"$receipt_tmp"
   chmod 0600 "$receipt_tmp"
   sync -f "$receipt_tmp"
   mv -fT -- "$receipt_tmp" "$receipt_file"
+  receipt_tmp=
   sync -f "$receipt_dir"
   test -f "$receipt_file" && test ! -L "$receipt_file"
   test "$(stat -c '%u:%g:%a' "$receipt_file")" = 1000:1000:600
+)
+# END TASK3_RECEIPT_IO
+
+# BEGIN TASK3_DERIVE_MERGE
+derive_task3_merge() {
+  [[ "$generator_pr_number" =~ ^[0-9]+$ ]]
+  [[ "$generator_expected_head" =~ ^[0-9a-f]{40}$ ]]
+  [[ "$generator_base_before" =~ ^[0-9a-f]{40}$ ]]
+  /usr/bin/git cat-file -e "$generator_expected_head^{commit}"
+  /usr/bin/git cat-file -e "$generator_base_before^{commit}"
+  /usr/bin/git merge-base --is-ancestor \
+    "$generator_base_before" "$generator_expected_head"
+  generator_head_tree="$(
+    /usr/bin/git rev-parse "$generator_expected_head^{tree}"
+  )"
+  [[ "$generator_head_tree" =~ ^[0-9a-f]{40}$ ]]
+  generator_merge_date="$(
+    /usr/bin/git show -s --format=%cI "$generator_expected_head"
+  )"
+  test -n "$generator_merge_date"
+  generator_merge_message="Merge pull request #${generator_pr_number} from ${generator_head}"
+  generator_merge_sha="$(
+    printf '%s\n' "$generator_merge_message" |
+      GIT_AUTHOR_NAME=H234598 \
+      GIT_AUTHOR_EMAIL=54270221+H234598@users.noreply.github.com \
+      GIT_AUTHOR_DATE="$generator_merge_date" \
+      GIT_COMMITTER_NAME=H234598 \
+      GIT_COMMITTER_EMAIL=54270221+H234598@users.noreply.github.com \
+      GIT_COMMITTER_DATE="$generator_merge_date" \
+      /usr/bin/git -c core.hooksPath=/dev/null \
+        commit-tree "$generator_head_tree" \
+        -p "$generator_base_before" -p "$generator_expected_head"
+  )"
+  [[ "$generator_merge_sha" =~ ^[0-9a-f]{40}$ ]]
+  test "$(/usr/bin/git rev-parse "$generator_merge_sha^{tree}")" = \
+    "$generator_head_tree"
+  test "$(/usr/bin/git rev-list --parents -n1 "$generator_merge_sha")" = \
+    "$generator_merge_sha $generator_base_before $generator_expected_head"
 }
+# END TASK3_DERIVE_MERGE
+
+# BEGIN TASK3_VALIDATE_RECEIPT
+load_task3_receipt() {
+  /usr/bin/jq -e \
+    --arg actor_login "$task3_actor_login" \
+    --argjson actor_id "$task3_actor_id" \
+    --arg repository_id "$canonical_repo_id" \
+    --arg repository "$canonical_repository" \
+    --arg canonical_origin "$canonical_origin" \
+    --arg head_ref "$generator_head" \
+    --arg expected_head "$generator_expected_head" '
+      keys == [
+        "actor_id", "actor_login", "base_before", "canonical_origin",
+        "expected_head", "head_ref", "head_tree", "merge_date",
+        "merge_message", "merge_sha", "pr_number", "repository",
+        "repository_id", "state", "version"
+      ]
+      and .version == 2
+      and (.state == "planned" or .state == "remote_committed" or .state == "verified")
+      and .actor_login == $actor_login
+      and .actor_id == $actor_id
+      and .repository_id == $repository_id
+      and .repository == $repository
+      and .canonical_origin == $canonical_origin
+      and .head_ref == $head_ref
+      and .expected_head == $expected_head
+      and (.pr_number | type == "number" and . > 0 and floor == .)
+      and (.base_before | type == "string" and test("^[0-9a-f]{40}$"))
+      and (.head_tree | type == "string" and test("^[0-9a-f]{40}$"))
+      and (.merge_date | type == "string" and length > 0)
+      and (.merge_message | type == "string" and length > 0)
+      and (.merge_sha | type == "string" and test("^[0-9a-f]{40}$"))
+    ' "$receipt_file" >/dev/null
+  receipt_state="$(/usr/bin/jq -r '.state' "$receipt_file")"
+  receipt_pr_number="$(/usr/bin/jq -r '.pr_number' "$receipt_file")"
+  receipt_base_before="$(/usr/bin/jq -r '.base_before' "$receipt_file")"
+  receipt_head_tree="$(/usr/bin/jq -r '.head_tree' "$receipt_file")"
+  receipt_merge_date="$(/usr/bin/jq -r '.merge_date' "$receipt_file")"
+  receipt_merge_message="$(/usr/bin/jq -r '.merge_message' "$receipt_file")"
+  receipt_merge_sha="$(/usr/bin/jq -r '.merge_sha' "$receipt_file")"
+}
+
+validate_task3_receipt_derivation() {
+  test "$receipt_pr_number" = "$generator_pr_number"
+  test "$receipt_base_before" = "$generator_base_before"
+  test "$receipt_head_tree" = "$generator_head_tree"
+  test "$receipt_merge_date" = "$generator_merge_date"
+  test "$receipt_merge_message" = "$generator_merge_message"
+  test "$receipt_merge_sha" = "$generator_merge_sha"
+}
+# END TASK3_VALIDATE_RECEIPT
+
+# BEGIN TASK3_REMOTE_STATE
+classify_task3_remote_action() {
+  local state="$1" remote_main="$2" remote_head="$3"
+  local base_before="$4" merge_sha="$5" expected_head="$6"
+  if [[ "$state" == planned \
+    && "$remote_main" == "$base_before" \
+    && "$remote_head" == "$expected_head" ]]; then
+    printf 'push\n'
+  elif [[ "$state" == planned \
+    && "$remote_main" == "$merge_sha" \
+    && -z "$remote_head" ]]; then
+    printf 'reconcile\n'
+  elif [[ ( "$state" == remote_committed || "$state" == verified ) \
+    && "$remote_main" == "$merge_sha" \
+    && -z "$remote_head" ]]; then
+    printf 'observe\n'
+  else
+    return 1
+  fi
+}
+# END TASK3_REMOTE_STATE
 
 require_task3_auth
 canonical_repo_json="$(
-  /usr/bin/gh repo view "$canonical_repository" --json id,nameWithOwner
+  task3_gh repo view "$canonical_repository" --json id,nameWithOwner
 )"
 canonical_repo_id="$(/usr/bin/jq -er '.id' <<<"$canonical_repo_json")"
 test -n "$canonical_repo_id"
@@ -668,8 +1043,7 @@ test -n "$generator_head"
 test "$generator_head" != main
 generator_expected_head="$(/usr/bin/git rev-parse HEAD)"
 [[ "$generator_expected_head" =~ ^[0-9a-f]{40}$ ]]
-test "$(/usr/bin/git remote get-url origin)" = "$canonical_origin"
-test "$(/usr/bin/git remote get-url --push origin)" = "$canonical_origin"
+assert_canonical_origin
 
 receipt_state=absent
 if [[ -e "$receipt_file" ]]; then
@@ -678,35 +1052,19 @@ if [[ -e "$receipt_file" ]]; then
   test "$(stat -c '%u:%g:%a' "$receipt_dir")" = 1000:1000:700
   test -f "$receipt_file" && test ! -L "$receipt_file"
   test "$(stat -c '%u:%g:%a' "$receipt_file")" = 1000:1000:600
-  /usr/bin/jq -e \
-    --arg repository "$canonical_repository" \
-    --arg head "$generator_head" \
-    --arg oid "$generator_expected_head" '
-      .version == 1
-      and (.state == "planned" or .state == "remote_committed" or .state == "verified")
-      and .repository == $repository
-      and .head_ref == $head
-      and .expected_head == $oid
-      and (.pr_number | type == "number" and . > 0)
-      and (.base_before | test("^[0-9a-f]{40}$"))
-      and (.merge_sha | test("^[0-9a-f]{40}$"))
-      and (.head_tree | test("^[0-9a-f]{40}$"))
-    ' "$receipt_file" >/dev/null
-  receipt_state="$(/usr/bin/jq -r '.state' "$receipt_file")"
-  generator_pr_number="$(/usr/bin/jq -r '.pr_number' "$receipt_file")"
-  generator_base_before="$(/usr/bin/jq -r '.base_before' "$receipt_file")"
-  generator_merge_sha="$(/usr/bin/jq -r '.merge_sha' "$receipt_file")"
-  generator_head_tree="$(/usr/bin/jq -r '.head_tree' "$receipt_file")"
+  load_task3_receipt
+  generator_pr_number=$receipt_pr_number
+  generator_base_before=$receipt_base_before
 else
   generator_pr_number="$(
-    /usr/bin/gh pr view \
+    task3_gh pr view \
       --repo "$canonical_repository" --json number --jq .number
   )"
 fi
 [[ "$generator_pr_number" =~ ^[0-9]+$ ]]
 
 generator_merge_gate="$(
-  /usr/bin/gh pr view "$generator_pr_number" \
+  task3_gh pr view "$generator_pr_number" \
     --repo "$canonical_repository" \
     --json state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,headRepositoryOwner,mergeCommit
 )"
@@ -716,122 +1074,109 @@ generator_pr_state="$(/usr/bin/jq -r '.state' <<<"$generator_merge_gate")"
 if [[ "$receipt_state" == absent ]]; then
   test "$generator_pr_state" = OPEN
   generator_base_before="$(
-    git_remote ls-remote origin refs/heads/main | cut -f1
+    git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1
   )"
   [[ "$generator_base_before" =~ ^[0-9a-f]{40}$ ]]
   test "$generator_base_before" = "$(/usr/bin/git rev-parse origin/main)"
-  test "$(git_remote ls-remote origin "refs/heads/$generator_head" | cut -f1)" = \
+  test "$(git_remote ls-remote "$canonical_origin" "refs/heads/$generator_head" | cut -f1)" = \
     "$generator_expected_head"
   /usr/bin/git merge-base --is-ancestor \
     "$generator_base_before" "$generator_expected_head"
 
-  /usr/bin/gh pr checks "$generator_pr_number" \
+  task3_gh pr checks "$generator_pr_number" \
     --repo "$canonical_repository" --watch --fail-fast
   generator_post_checks_gate="$(
-    /usr/bin/gh pr view "$generator_pr_number" \
+    task3_gh pr view "$generator_pr_number" \
       --repo "$canonical_repository" \
       --json state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,headRepositoryOwner,mergeCommit
   )"
   assert_pr_identity "$generator_post_checks_gate"
   test "$(/usr/bin/jq -r '.state' <<<"$generator_post_checks_gate")" = OPEN
-  test "$(git_remote ls-remote origin refs/heads/main | cut -f1)" = \
+  test "$(git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)" = \
     "$generator_base_before"
-  test "$(git_remote ls-remote origin "refs/heads/$generator_head" | cut -f1)" = \
+  test "$(git_remote ls-remote "$canonical_origin" "refs/heads/$generator_head" | cut -f1)" = \
     "$generator_expected_head"
 
   # Every nonempty applied-rule array and every classic-protection result other
   # than an authenticated exact 404 stops before commit-tree creates an object.
   assert_no_main_policy
   require_task3_auth
-  generator_head_tree="$(/usr/bin/git rev-parse "$generator_expected_head^{tree}")"
-  generator_merge_date="$(/usr/bin/git show -s --format=%cI "$generator_expected_head")"
-  generator_merge_message="Merge pull request #${generator_pr_number} from ${generator_head}"
-  generator_merge_sha="$(
-    printf '%s\n' "$generator_merge_message" |
-      GIT_AUTHOR_NAME=H234598 \
-      GIT_AUTHOR_EMAIL=54270221+H234598@users.noreply.github.com \
-      GIT_AUTHOR_DATE="$generator_merge_date" \
-      GIT_COMMITTER_NAME=H234598 \
-      GIT_COMMITTER_EMAIL=54270221+H234598@users.noreply.github.com \
-      GIT_COMMITTER_DATE="$generator_merge_date" \
-      /usr/bin/git commit-tree "$generator_head_tree" \
-        -p "$generator_base_before" -p "$generator_expected_head"
-  )"
-  [[ "$generator_merge_sha" =~ ^[0-9a-f]{40}$ ]]
-  test "$(/usr/bin/git rev-parse "$generator_merge_sha^{tree}")" = "$generator_head_tree"
-  test "$(/usr/bin/git rev-list --parents -n1 "$generator_merge_sha")" = \
-    "$generator_merge_sha $generator_base_before $generator_expected_head"
-  /usr/bin/git merge-base --is-ancestor "$generator_base_before" "$generator_merge_sha"
+  derive_task3_merge
   write_task3_receipt planned
   receipt_state=planned
 else
   case "$generator_pr_state" in OPEN|MERGED) ;; *) exit 1 ;; esac
-  test "$(/usr/bin/git rev-parse "$generator_merge_sha^{tree}")" = "$generator_head_tree"
-  test "$(/usr/bin/git rev-list --parents -n1 "$generator_merge_sha")" = \
-    "$generator_merge_sha $generator_base_before $generator_expected_head"
+  # Never trust content-derived fields from a persisted receipt. Reconstruct the
+  # reviewed tree and deterministic merge from current trusted Git/PR inputs on
+  # every retry, then compare every derived receipt field before remote reads.
+  derive_task3_merge
+  validate_task3_receipt_derivation
 fi
 
-remote_main_sha="$(git_remote ls-remote origin refs/heads/main | cut -f1)"
-remote_head_sha="$(git_remote ls-remote origin "refs/heads/$generator_head" | cut -f1)"
-if [[ "$receipt_state" == planned \
-  && "$remote_main_sha" == "$generator_base_before" \
-  && "$remote_head_sha" == "$generator_expected_head" ]]; then
-  test "$generator_pr_state" = OPEN
-  /usr/bin/gh pr checks "$generator_pr_number" \
-    --repo "$canonical_repository" --watch --fail-fast
-  generator_pre_push_gate="$(
-    /usr/bin/gh pr view "$generator_pr_number" \
-      --repo "$canonical_repository" \
-      --json state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,headRepositoryOwner,mergeCommit
-  )"
-  assert_pr_identity "$generator_pre_push_gate"
-  test "$(/usr/bin/jq -r '.state' <<<"$generator_pre_push_gate")" = OPEN
-  assert_no_main_policy
-  test "$(git_remote ls-remote origin refs/heads/main | cut -f1)" = \
-    "$generator_base_before"
-  test "$(git_remote ls-remote origin "refs/heads/$generator_head" | cut -f1)" = \
-    "$generator_expected_head"
-  require_task3_auth
-  task3_push_started=1
-  git_remote push --atomic \
-    --force-with-lease=refs/heads/main:$generator_base_before \
-    --force-with-lease=refs/heads/$generator_head:$generator_expected_head \
-    origin \
-    "$generator_merge_sha:refs/heads/main" \
-    ":refs/heads/$generator_head"
-  task3_remote_committed=1
-  write_task3_receipt remote_committed
-  receipt_state=remote_committed
-elif [[ "$receipt_state" == planned \
-  && "$remote_main_sha" == "$generator_merge_sha" \
-  && -z "$remote_head_sha" ]]; then
-  case "$generator_pr_state" in OPEN|MERGED) ;; *) exit 1 ;; esac
-  task3_remote_committed=1
-  write_task3_receipt remote_committed
-  receipt_state=remote_committed
-  printf 'planned_remote_committed state reconciled without another push.\n'
-elif [[ "$receipt_state" == remote_committed || "$receipt_state" == verified ]]; then
-  test "$remote_main_sha" = "$generator_merge_sha"
-  test -z "$remote_head_sha"
-  task3_remote_committed=1
-else
+remote_main_sha="$(git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
+remote_head_sha="$(git_remote ls-remote "$canonical_origin" "refs/heads/$generator_head" | cut -f1)"
+if ! task3_remote_action="$(classify_task3_remote_action \
+  "$receipt_state" "$remote_main_sha" "$remote_head_sha" \
+  "$generator_base_before" "$generator_merge_sha" \
+  "$generator_expected_head")"; then
   printf 'Unknown receipt/remote ref combination; refusing mutation.\n' >&2
   exit 1
 fi
+case "$task3_remote_action" in
+  push)
+    test "$generator_pr_state" = OPEN
+    task3_gh pr checks "$generator_pr_number" \
+      --repo "$canonical_repository" --watch --fail-fast
+    generator_pre_push_gate="$(
+      task3_gh pr view "$generator_pr_number" \
+        --repo "$canonical_repository" \
+        --json state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,headRepositoryOwner,mergeCommit
+    )"
+    assert_pr_identity "$generator_pre_push_gate"
+    test "$(/usr/bin/jq -r '.state' <<<"$generator_pre_push_gate")" = OPEN
+    assert_no_main_policy
+    test "$(git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)" = \
+      "$generator_base_before"
+    test "$(git_remote ls-remote "$canonical_origin" "refs/heads/$generator_head" | cut -f1)" = \
+      "$generator_expected_head"
+    require_task3_auth
+    task3_push_started=1
+    git_remote push --atomic \
+      --force-with-lease=refs/heads/main:$generator_base_before \
+      --force-with-lease=refs/heads/$generator_head:$generator_expected_head \
+      "$canonical_origin" \
+      "$generator_merge_sha:refs/heads/main" \
+      ":refs/heads/$generator_head"
+    task3_remote_committed=1
+    write_task3_receipt remote_committed
+    receipt_state=remote_committed
+    ;;
+  reconcile)
+    case "$generator_pr_state" in OPEN|MERGED) ;; *) exit 1 ;; esac
+    task3_remote_committed=1
+    write_task3_receipt remote_committed
+    receipt_state=remote_committed
+    printf 'planned_remote_committed state reconciled without another push.\n'
+    ;;
+  observe)
+    task3_remote_committed=1
+    ;;
+  *) exit 1 ;;
+esac
 
 # The push is the remote commit point. Every following failure is explicitly a
 # committed/pending observation failure and a rerun starts from the receipt,
 # never from the push branch above.
-test "$(git_remote ls-remote origin refs/heads/main | cut -f1)" = \
+test "$(git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)" = \
   "$generator_merge_sha"
-test -z "$(git_remote ls-remote origin "refs/heads/$generator_head")"
+test -z "$(git_remote ls-remote "$canonical_origin" "refs/heads/$generator_head")"
 
 merge_observation_deadline=$((SECONDS + 60))
 merged_pr=
 while :; do
   set +e
   merged_pr="$(
-    /usr/bin/gh pr view "$generator_pr_number" \
+    task3_gh pr view "$generator_pr_number" \
       --repo "$canonical_repository" \
       --json state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,headRepositoryOwner,mergeCommit
   )"
@@ -851,7 +1196,7 @@ assert_pr_identity "$merged_pr"
 test "$(/usr/bin/jq -r '.mergeCommit.oid' <<<"$merged_pr")" = \
   "$generator_merge_sha"
 generator_merge_object="$(
-  /usr/bin/gh api \
+  task3_gh api \
     "repos/$canonical_repository/git/commits/$generator_merge_sha"
 )"
 test "$(/usr/bin/jq -r '.tree.sha' <<<"$generator_merge_object")" = \
@@ -861,23 +1206,24 @@ test "$(/usr/bin/jq -r '.parents[0].sha' <<<"$generator_merge_object")" = \
   "$generator_base_before"
 test "$(/usr/bin/jq -r '.parents[1].sha' <<<"$generator_merge_object")" = \
   "$generator_expected_head"
-write_task3_receipt verified
-receipt_state=verified
+if [[ "$receipt_state" != verified ]]; then
+  write_task3_receipt verified
+  receipt_state=verified
+fi
 task3_verified=1
 printf 'Merged generator SHA for Task 4/5: %s\n' "$generator_merge_sha"
 TASK3_TELADI
 task3_status=$?
 set -e
-unset task3_ephemeral_token
-trap - EXIT
+exec {task3_token_relay_fd}<&-
 test "$task3_status" = 0
 ```
 
-Expected: GitHub main contains the deterministic two-parent merge after one atomic exact-base/exact-head lease CAS, the reviewed PR head branch is deleted in that same atomic update, and the printed 40-character SHA is recorded as the only factory reference permitted in Tasks 4–5. GitHub reports the same object as the PR's indirect merge; see the official [indirect merges contract](https://docs.github.com/en/pull-requests/reference/pull-request-merges?apiVersion=2022-11-28#indirect-merges). The applied-rules response must be exactly `[]`, and classic protection must be an authenticated exact HTTP 404; every nonempty array, HTTP 200, unclassified response or API failure stops before `commit-tree`. The PR head name, OID, same-repository bit, owner, repository ID and `nameWithOwner` as well as both canonical HTTPS origin URLs agree exactly before any push. No protection is bypassed or weakened.
+Expected: GitHub main contains the deterministic two-parent merge after one atomic exact-base/exact-head lease CAS, the reviewed PR head branch is deleted in that same atomic update, and the printed 40-character SHA is recorded as the only factory reference permitted in Tasks 4–5. GitHub reports the same object as the PR's indirect merge; see the official [indirect merges contract](https://docs.github.com/en/pull-requests/reference/pull-request-merges?apiVersion=2022-11-28#indirect-merges). The applied-rules response must be exactly `[]`, and classic protection must be an authenticated exact HTTP 404; every nonempty array, HTTP 200, unclassified response or API failure stops the remote mutation. The PR head name, OID, same-repository bit, owner, repository ID and `nameWithOwner` agree exactly. Every fetch-/push-URL value is enumerated with `--all`; each set has cardinality one and equals canonical HTTPS. Every subsequent fetch, `ls-remote`, and push uses that URL literal, never the mutable remote name. No protection is bypassed or weakened.
 
-Both persisted `gh` authentication contexts were invalid at the last local preflight; successful unauthenticated public reads are not write authorization. Therefore Step 5 performs no Git-object, receipt or remote mutation unless an externally supplied ephemeral `GH_TOKEN` first passes the `/user` identity gate in both the root gate and the clean UID/GID-`teladi` execution context. The token is neither printed nor written, and Git HTTPS authentication exists only on each remote command through the cleared helper list plus `gh auth git-credential`; `setup-git`, persistent credentials and `safe.directory` are forbidden.
+Both persisted `gh` authentication contexts were invalid at the last local preflight; successful unauthenticated public reads are not write authorization. Steps 3–5 therefore require an externally supplied ephemeral `GH_TOKEN`, immediately disable xtrace before its first reference, unset its exported source, and relay its bytes only through private anonymous descriptors into a clean UID/GID-`teladi` shell. That long-lived shell retains only a non-exported variable and closes the relay descriptor immediately. Each `gh` or authenticated Git process receives the token through a fresh short-lived pipe; it never appears in argv, here-doc text, files, tests/builds, or merge hooks. `/user` must equal login `H234598` and numeric ID `54270221`. Authenticated Git clears credential helpers, installs only `gh auth git-credential`, disables hooks with `core.hooksPath=/dev/null`, and receives no persistent credential setup.
 
-The private atomic receipt at `/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json` is owned by `teladi`, mode `0600`, and advances only `planned -> remote_committed -> verified`. A successful push is latched before any fallible observation. A crash in the unavoidable push/receipt gap is reconciled from `planned` by the exact remote ref pair; `OPEN + planned + remote already committed` and `MERGED + matching receipt` never enter the push branch again. API convergence failures report `REMOTE COMMIT COMPLETE; VERIFICATION PENDING`; every unknown receipt/ref/PR combination fails closed. The runtime checkout remains untouched; its previous SHA is captured and its update begins only inside Task 4 after quiescence, backup and rollback trapping.
+The private atomic v2 receipt at `/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json` is owned by `teladi`, mode `0600`, uses an exact no-extra-field schema, and binds actor login/ID, repository ID/name, canonical URL, PR/ref/head/base, the reviewed head tree, deterministic date/message, and merge OID. Every run derives `expected_head^{tree}` from trusted Git state and reconstructs the deterministic commit from fixed identity plus trusted PR/head/base inputs before accepting receipt-derived values. Malformed, extra-field, stale, or forged receipts fail closed; failed atomic replacements remove their private temporary file. The state machine advances only `planned -> remote_committed -> verified`. A successful push is latched before any fallible observation; a push/receipt crash reconciles from the exact remote ref pair, while committed states classify only as `reconcile` or `observe` and can never re-enter `push`. API convergence failures report `REMOTE COMMIT COMPLETE; VERIFICATION PENDING`; every unknown combination fails closed. The runtime checkout remains untouched until Task 4.
 
 #### Verbindliches Execution-Context-Erratum für Task 3 Step 5 und Task 4
 
@@ -1788,6 +2134,7 @@ restore_timer_activity() {
   test "$(systemctl --user is-active wirtelprimpf.timer || true)" = "$timer_active_before"
 }
 
+# BEGIN TASK4_ROLLBACK_DEPLOYMENT
 rollback_deployment() {
   local original_status="$1" rollback_failed=0 config_attention=0
   local config_status=0 generator_quiesced=0 critical_recovery_ok=0 final_status
@@ -1960,6 +2307,7 @@ rollback_deployment() {
   fi
   exit "$final_status"
 }
+# END TASK4_ROLLBACK_DEPLOYMENT
 
 trap 'rollback_deployment $?' EXIT
 trap 'exit 129' HUP
@@ -4063,3 +4411,66 @@ Completion requires all of the following:
   einem ungültigen Keyring übernommen. Der Doku-/Test-SHA ist der lokale
   `teladi`-Commit, der diesen Abschnitt enthält, und wird in der Übergabe
   ausgewiesen.
+
+### 2026-08-02 — Additive Gegenreview-Härtung: anonymer Tokenkanal und Receipt v2
+
+- Dieser Abschnitt ist additiv. Er superseded die älteren Task-3-Aussagen,
+  soweit sie einen Token allgemein als Prozessumgebung beschrieben, Root als
+  Git-Akteur zuließen, nur eine einzelne Origin-URL betrachteten oder ein
+  Receipt ohne vollständig rekonstruierbaren Vertrauensanker akzeptierten.
+  Produktions-, Runtime- und Webcode wurden in dieser Author-Runde nicht
+  verändert.
+- Steps 1 bis 5 erzwingen ihren Ausführungskontext explizit: Der äußere
+  privilegierte Prozess prüft UID 0 und reicht anschließend ausschließlich
+  einen anonymen, geerbten Dateideskriptor an `runuser -u teladi -- env -i`
+  weiter. Der lange Shellprozess beweist UID/GID 1000, festes `HOME`, festen
+  sicheren `PATH` und das erwartete Repository. Vor jeder Berührung des
+  Geheimnisses ist Tracing mit `set +x` abgeschaltet. Der Token erscheint
+  weder in `argv`, Heredoc, Datei noch im Environment des langen
+  Shellprozesses, der Tests, Builds oder Hooks; nur der jeweils kurze
+  `/user`-, `gh`- oder Credential-Helper-Aufruf erhält ihn nach einem
+  NUL-begrenzten Read aus dem anonymen FD.
+- Noch vor dem ersten Fetch und erneut vor Merge-/Pushphasen muss `/user`
+  exakt Login `H234598` und numerische ID `54270221` liefern. Alle Fetch- und
+  Push-URLs werden mit `git remote get-url --all` getrennt ausgelesen; beide
+  Mengen müssen jeweils genau ein Element enthalten und dieses muss wörtlich
+  `https://github.com/H234598/Wirtelprimpf-generator.git` sein. `ls-remote`,
+  Fetch und der atomare Push adressieren ebenfalls nur dieses Literal. Jeder
+  Gitbefehl leert die Credential-Helperliste, setzt ausschließlich den
+  kontrollierten `gh auth git-credential`-Helper und neutralisiert Hooks mit
+  `core.hooksPath=/dev/null`.
+- Receipt v2 besitzt eine exakte, gegen Zusatzfelder geschlossene
+  JSON-Schemabindung für Actor, Repository-ID/-Name, kanonische URL,
+  PR-Nummer, Head-Ref/-OID, Base-OID, Head-Tree, Mergezeit, Mergenachricht,
+  Merge-OID und Zustand. Auf jedem Lauf werden der vertrauenswürdige
+  Head-Tree und der deterministische Zwei-Eltern-Merge aus den aktuell
+  verifizierten Gitobjekten neu erzeugt. Ein syntaktisch plausibles Receipt
+  mit frei gewähltem Tree und korrekten Eltern reicht deshalb nicht;
+  zusätzliche, fehlende, veraltete oder abweichende Felder enden fail-closed.
+  Der atomare Writer räumt auch bei einem fehlgeschlagenen Rename seine
+  private temporäre Datei auf.
+- Die direkte Zustandsklassifikation erlaubt einen Push nur für
+  `planned + Base/Head vorhanden`. `planned + Merge/Head fehlt` wird
+  reconciled; `remote_committed` und `verified` dürfen nur beobachten und
+  verifizieren. Unbekannte Receipt-/Remote-Kombinationen brechen ab. Damit
+  kann ein Wiederanlauf nach dem Remote-Commitpunkt keinen zweiten Push
+  auslösen.
+- Test-first-Evidenz dieses Gegenreviews: Die erste Erweiterung lief bei
+  `17` Vertragstests mit neun gezielten Fehlern rot; die Receipt-v2-Stufe bei
+  `20` Tests mit drei gezielten Fehlern. Anschließend liefen je ein direkter
+  Rollback- und ein Zustandsklassifikator-Fokustest zunächst rot. GREEN sind
+  nun `22/22`. Die Suite führt den anonymen FD real unter `bash -x` aus,
+  untersucht Prozessargumente und -umgebungen, provoziert einen bösartigen
+  Pre-Push-Hook, pusht dennoch nur hookneutral in ein lokales Bare-Remote,
+  rekonstruiert den Merge unabhängig, versucht Receipt-Fälschungen und
+  Rename-Fehler und löst den normativen Rollback mit echten Signalen aus.
+- Die frische vollständige Matrix lief als `teladi` unter `env -i` mit Exit
+  0: Applet-Runtime grün, Admin-UI `24/24`, SemVer `8/8`,
+  Git-Object-Fallback `3/3`, Release-Publication `3/3`, Helper-Environment
+  `7/7`, Applet-Sync `25/25`, Settings-Schema `14/14`, Story-Directives
+  `31/31` und Rollout-Vertrag `22/22`.
+- Diese Gegenreview-Runde führte keinen Fetch, Push, PR-Write, Merge,
+  Install, Reload, Deploy, Runtime-, `systemctl`-, `gdbus`-, Cloudflare-,
+  DNS- oder Upstreamzugriff aus. Alle schreibenden Gitproben nutzten
+  ausschließlich disposable lokale Repositories. Der lokale
+  Doku-/Test-Commit wird in der Übergabe ausgewiesen.

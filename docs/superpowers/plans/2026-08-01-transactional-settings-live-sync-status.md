@@ -2825,3 +2825,57 @@ Do not start public deployment merely because Task 10 is green. First compare th
   Runtime-, `systemctl`-, `gdbus`-, Cloudflare-, DNS- oder Upstreamzugriff. Der
   Doku-/Test-SHA ist der lokale `teladi`-Commit dieser additiven Remediation und
   wird in der Übergabe ausgewiesen.
+
+### 2026-08-02 — Additive Gegenreview-Härtung: Task-3-Vertrauenskette v2
+
+- Dieser parallele Ledger-Eintrag ist additiv und superseded die älteren
+  Task-3-Formulierungen nur dort, wo sie einen allgemeinen
+  Prozessumgebungs-Token, Root-Git, eine einzelne Origin-URL oder ein nicht
+  vollständig rekonstruierbares Receipt zuließen. Der transaktionale
+  Konfigurationskern und die Produktionsoberflächen blieben unverändert.
+- Der privilegierte äußere Prozess prüft UID 0, deaktiviert Tracing vor jedem
+  Geheimniszugriff und reicht nur einen anonymen FD an einen langen
+  `teladi`-/`env -i`-Prozess weiter. Dieser beweist UID/GID 1000, festes
+  `HOME`, sicheren `PATH` und Repositorykontext. Der Token gelangt weder in
+  `argv`, Heredoc, Datei noch in das Environment dieses Prozesses, seiner
+  Tests, Builds oder Hooks. Ausschließlich kurze API-/`gh`-/Credential-Aufrufe
+  lesen ihn NUL-begrenzt und erhalten ihn für ihre eigene Lebensdauer.
+- Vor dem ersten Fetch und vor jeder späteren Writephase wird der Akteur als
+  `H234598` mit ID `54270221` verifiziert. Fetch- und Push-URL müssen nach
+  `get-url --all` jeweils exakt einmal und wörtlich als
+  `https://github.com/H234598/Wirtelprimpf-generator.git` vorkommen; alle
+  Netzwerkkommandos verwenden dasselbe Literal. Pro Gitbefehl werden
+  Credential-Helper geleert, nur der kontrollierte `gh`-Helper ergänzt und
+  Hooks durch `core.hooksPath=/dev/null` neutralisiert.
+- Receipt v2 bindet mit geschlossener Feldmenge Zustand, Actor,
+  Repository-ID/-Name, kanonische URL, PR, Head-Ref/-OID, Base-OID,
+  Head-Tree, Mergezeit, Mergenachricht und Merge-OID. Jeder Lauf leitet
+  Head-Tree und deterministischen Merge neu aus den aktuell geprüften
+  Gitobjekten ab und vergleicht jedes Feld. Zusätzliche, fehlende,
+  veraltete, inkonsistente und auch strukturell plausible, aber frei
+  gefälschte Receipts brechen ab. Temporäre Receipt-Dateien werden selbst bei
+  erzwungenem atomarem Rename-Fehler entfernt.
+- Die unmittelbar getestete Zustandsfunktion erlaubt genau einen Pushpfad:
+  `planned` bei unveränderten Base-/Head-Refs. Einen bereits sichtbaren Merge
+  reconciled sie; `remote_committed` und `verified` beobachten nur. Jede
+  unbekannte Kombination ist fail-closed. Der normative Rollback wurde
+  ebenfalls direkt extrahiert und mit TERM/HUP, Recovery und Lockfreigabe
+  ausgeführt.
+- Test-first-Evidenz: neun gezielte Fehler bei zunächst `17` Tests, danach
+  drei Receipt-v2-Fehler bei `20` Tests sowie je ein roter Fokus für den
+  direkten Rollback und die Remote-Zustandsklassifikation. Der aktuelle
+  Vertrag ist `22/22` grün. Seine realen Harnesses prüfen unter anderem
+  FD-/`bash -x`-Geheimnisfreiheit, Actor- und URL-Kardinalität,
+  Hook-Neutralisierung gegen einen absichtlich fehlschlagenden Pre-Push-Hook,
+  unabhängige Mergeableitung, Receipt-Fälschung/Cleanup und den No-Re-push-
+  Zustandsautomaten.
+- Die frische vollständige `make check`-Matrix lief als `teladi` unter
+  `env -i` mit Exit 0: Applet-Runtime grün, Admin-UI `24/24`, SemVer `8/8`,
+  Git-Object-Fallback `3/3`, Release-Publication `3/3`, Helper-Environment
+  `7/7`, Applet-Sync `25/25`, Settings-Schema `14/14`, Story-Directives
+  `31/31` und Rollout-Vertrag `22/22`.
+- Es erfolgte keine Runtime- oder externe Mutation: kein Fetch, Push,
+  PR-Write, Merge, Install, Reload, Deploy, `systemctl`, `gdbus`, Cloudflare,
+  DNS oder Upstream. Schreibende Gitproben blieben auf disposable lokale
+  Repositories begrenzt; der lokale Doku-/Test-Commit wird in der Übergabe
+  ausgewiesen.
