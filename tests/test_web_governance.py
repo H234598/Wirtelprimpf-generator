@@ -144,6 +144,29 @@ class WebGovernanceValidationTests(unittest.TestCase):
             result = self.validate(root)
         self.assert_rejected(result, "plan digest")
 
+    def test_rejects_baseline_claiming_unverified_remote_state(self) -> None:
+        """Rejects human prose that upgrades local evidence to remote verification."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            baseline = root / BASELINE
+            baseline.write_text(
+                baseline.read_text(encoding="utf-8") + "\nRemote state verified.\n",
+                encoding="utf-8",
+            )
+            result = self.validate(root)
+        self.assert_rejected(result, "baseline doc")
+
+    def test_rejects_unhashable_repository_id_without_traceback(self) -> None:
+        """Rejects malformed repository identifiers through controlled stderr."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            revisions = self.read_revisions(root)
+            revisions["repositories"][0]["id"] = []
+            self.write_revisions(root, revisions)
+            result = self.validate(root)
+        self.assert_rejected(result, "repository IDs")
+        self.assertNotIn("Traceback", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

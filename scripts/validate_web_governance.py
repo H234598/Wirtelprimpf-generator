@@ -14,7 +14,6 @@ from pathlib import Path
 PLAN_PATH = Path("docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md")
 BASELINE_PATH = Path("docs/REVISIONSBASELINE.md")
 REVISIONS_PATH = Path("config/reference-revisions.json")
-SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 EXPECTED_REPOSITORIES = {
     "H234598/Wirtelprimpf-generator": (
         "Generator, Plattform, Applet, Admin, Seitenfabrik, Hub",
@@ -92,6 +91,57 @@ def exact_set(value: object, expected: set[str], message: str) -> None:
     require(len(value) == len(expected) and set(value) == expected, message)
 
 
+def render_baseline(revisions: dict) -> str:
+    """Render the human baseline from validated structured evidence."""
+    lines = [
+        "# Revisionsbaseline",
+        "",
+        "Diese Baseline trennt frozen von observed Evidenz. Freeze-Werte sind reproduzierbare",
+        "Referenzen, keine Behauptung über heutigen Remote-Zustand. Beobachtungen werden nur",
+        "nach dokumentierter Prüfung aktualisiert.",
+        "",
+        "| Repository | Rolle | Freeze-HEAD | Beobachtung |",
+        "| --- | --- | --- | --- |",
+    ]
+    for repository in revisions["repositories"]:
+        observed = repository["observed"]
+        observation = (
+            f"`{observed['sha']}`, lokal via `{observed['source']}`, Drift"
+            if observed["status"] == "checked"
+            else "not-checked"
+        )
+        lines.append(
+            f"| `{repository['id']}` | {repository['role']} | `{repository['frozen_sha']}` | {observation} |"
+        )
+    boundaries = "\n".join(f"- {boundary}" for boundary in revisions["manual_verification_boundaries"])
+    lines.extend(
+        [
+            "",
+            "Generator-Drift ist explizit: lokales `main` wurde beobachtet, nicht am Freeze.",
+            "Dies ist keine Fernabfrage und keine Aussage über den aktuellen Remote-Stand.",
+            "",
+            f"Archiv-Factory-Pin `{revisions['archive_factory_pin']['sha']}` bleibt unverändert.",
+            "Er ist ein eingefrorener Rollout-Rückstand, kein hier erlaubtes Repin-Ziel.",
+            "",
+            "## Manuelle Grenzen",
+            "",
+            "Folgende Betreiberprüfungen sind unverified:",
+            boundaries,
+            "",
+            "Keine davon ist als erfolgreich geprüft markiert.",
+            "",
+            "## Wiederholung",
+            "",
+            "Nach einer neuen, belegten Beobachtung `config/reference-revisions.json` aktualisieren,",
+            "`python3 scripts/validate_web_governance.py --root .` und",
+            "`python3 tests/test_web_governance.py` ausführen. Änderungen an Freeze, Pin oder",
+            "Plan-Digest benötigen neue Evidenz und erneute vollständige Prüfung.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def validate_repository(entry: object) -> None:
     require(isinstance(entry, dict), "repository record")
     require(
@@ -99,6 +149,7 @@ def validate_repository(entry: object) -> None:
         "repository record fields",
     )
     identifier = entry.get("id")
+    require(isinstance(identifier, str), "repository IDs")
     require(identifier in EXPECTED_REPOSITORIES, "repository IDs")
     role, frozen_sha, commit_time = EXPECTED_REPOSITORIES[identifier]
     require(isinstance(entry.get("frozen_sha"), str) and re.fullmatch(r"[0-9a-f]{40}", entry["frozen_sha"]), "frozen SHA")
@@ -134,7 +185,8 @@ def validate(root: Path) -> None:
 
     repositories = revisions.get("repositories")
     require(isinstance(repositories, list), "repository IDs")
-    identifiers = [entry.get("id") for entry in repositories if isinstance(entry, dict)]
+    require(all(isinstance(entry, dict) and isinstance(entry.get("id"), str) for entry in repositories), "repository IDs")
+    identifiers = [entry["id"] for entry in repositories]
     require(len(identifiers) == len(EXPECTED_REPOSITORIES) and set(identifiers) == set(EXPECTED_REPOSITORIES), "repository IDs")
     for entry in repositories:
         validate_repository(entry)
@@ -152,13 +204,7 @@ def validate(root: Path) -> None:
 
     for identifier in EXPECTED_PHASE_IDS | EXPECTED_CURRENT_ADRS:
         require(identifier in plan, f"canonical plan missing {identifier}")
-    allowed_shas = {value[1] for value in EXPECTED_REPOSITORIES.values()} | {GENERATOR_OBSERVED_SHA, FACTORY_PIN}
-    require(set(SHA_PATTERN.findall(baseline)) <= allowed_shas, "baseline doc contains conflicting SHA")
-    for value in allowed_shas:
-        require(value in baseline, "baseline doc missing frozen or observed SHA")
-    for term in ("frozen", "observed", "not-checked", "unverified", "local-git"):
-        require(term in baseline, "baseline doc evidence explanation")
-    require("no-drift" not in baseline, "baseline doc contains conflicting status")
+    require(baseline == render_baseline(revisions), "baseline doc differs from revision register")
 
 
 def main() -> int:
