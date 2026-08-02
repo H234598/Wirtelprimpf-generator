@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import re
@@ -3533,6 +3534,38 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
         self.assertIn("remote-committed-api-failure", self.harness)
         self.assertIn("verified-without-second-push", self.harness)
 
+    def test_step10_models_search_precedence_and_the_interrupted_retry(self) -> None:
+        for state_file in (
+            "service-legacy-mask",
+            "service-control-mask",
+            "timer-legacy-mask",
+            "timer-control-mask",
+        ):
+            self.assertIn(state_file, self.harness)
+        self.assertIn("runtime_load_state_harness", self.harness)
+        self.assertIn("lower-priority-mask-is-ineffective", self.harness)
+        self.assertIn("interrupted-four-link-adoption", self.harness)
+        self.assertIn("timer-recovery-normalized", self.harness)
+
+        quiesce = _shell_function(self.harness, "quiesce_generator_harness")
+        lower = quiesce.index("service-legacy-mask")
+        ineffective = quiesce.index("lower-priority-mask-is-ineffective")
+        control = quiesce.index("service-control-mask", ineffective)
+        masked = quiesce.index("runtime_load_state_harness service", control)
+        self.assertLess(lower, ineffective)
+        self.assertLess(ineffective, control)
+        self.assertLess(control, masked)
+
+        recovery = _marked_block(
+            self.harness,
+            "TASK4_INTERRUPTED_FOUR_LINK_HARNESS",
+        )
+        service_before = recovery.index("runtime_load_state_harness service")
+        timer_remove = recovery.index('rm -f -- "$sandbox/timer-legacy-mask"')
+        service_after = recovery.rindex("runtime_load_state_harness service")
+        self.assertLess(service_before, timer_remove)
+        self.assertGreater(service_after, timer_remove)
+
     def test_step10_runtime_cas_moves_main_from_the_old_commit_to_the_target(self) -> None:
         detach_old = 'git -C "$runtime_harness" switch --detach -q "$runtime_sha_before"'
         update_main = (
@@ -3545,6 +3578,401 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
             self.harness.index(detach_old),
             self.harness.index("printf 'target-tree\\n'"),
         )
+
+    def test_step9_preflights_the_canonical_private_backup_root_without_mutating_it(self) -> None:
+        preflight = _marked_block(self.deployment, "TASK4_BACKUP_ROOT_PREFLIGHT")
+        function = _shell_function(f"{preflight}\n", "assert_private_backup_root")
+        call = (
+            'assert_private_backup_root "$backup_root" '
+            '"/home/teladi/.local/state/wirtelprimpf/deploy-backups" '
+            '1000 1000 53 7999241'
+        )
+        self.assertIn(call, self.deployment)
+        self.assertNotIn('install -d -m0700 "$backup_root"', self.deployment)
+        self.assertLess(self.deployment.index(call), self.deployment.index("deploy_backup="))
+        self.assertLess(
+            self.deployment.index(call),
+            self.deployment.index("systemctl --user stop wirtelprimpf.timer"),
+        )
+
+        script = f"""
+set -Eeuo pipefail
+{function}
+assert_private_backup_root "$1" "$2" "$3" "$4" "$5" "$6"
+"""
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-backup-root-") as tmp:
+            root = Path(tmp) / "deploy-backups"
+            root.mkdir(mode=0o700)
+            uid = os.geteuid()
+            gid = os.getegid()
+
+            valid = subprocess.run(  # nosec B603 -- fixed Bash argv and local fixture
+                ["/bin/bash", "-c", script, "backup-root-test", str(root), str(root), str(uid), str(gid), str(root.stat().st_dev), str(root.stat().st_ino)],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=5,
+                env={"HOME": "/nonexistent", "PATH": "/usr/bin:/bin"},
+            )
+            self.assertEqual(valid.returncode, 0, valid.stderr)
+
+            root.chmod(0o755)
+            wrong_mode = subprocess.run(  # nosec B603 -- fixed Bash argv and local fixture
+                ["/bin/bash", "-c", script, "backup-root-test", str(root), str(root), str(uid), str(gid), str(root.stat().st_dev), str(root.stat().st_ino)],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=5,
+                env={"HOME": "/nonexistent", "PATH": "/usr/bin:/bin"},
+            )
+            self.assertNotEqual(wrong_mode.returncode, 0)
+            self.assertEqual(root.stat().st_mode & 0o777, 0o755)
+
+            root.chmod(0o700)
+            alias = Path(tmp) / "backup-alias"
+            alias.symlink_to(root, target_is_directory=True)
+            symlink = subprocess.run(  # nosec B603 -- fixed Bash argv and local fixture
+                ["/bin/bash", "-c", script, "backup-root-test", str(alias), str(alias), str(uid), str(gid), str(root.stat().st_dev), str(root.stat().st_ino)],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=5,
+                env={"HOME": "/nonexistent", "PATH": "/usr/bin:/bin"},
+            )
+            self.assertNotEqual(symlink.returncode, 0)
+            self.assertTrue(alias.is_symlink())
+
+            wrong_inode = subprocess.run(  # nosec B603 -- fixed Bash argv and local fixture
+                ["/bin/bash", "-c", script, "backup-root-test", str(root), str(root), str(uid), str(gid), str(root.stat().st_dev), str(root.stat().st_ino + 1)],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=5,
+                env={"HOME": "/nonexistent", "PATH": "/usr/bin:/bin"},
+            )
+            self.assertNotEqual(wrong_inode.returncode, 0)
+
+    def test_runtime_barrier_uses_high_priority_control_and_bound_exact_removal(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.deployment,
+            "TASK4_RUNTIME_BARRIER_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "runtime_barrier_contract_test"}
+        exec(compile(program, "<task4-runtime-barrier-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        ensure = namespace["ensure_runtime_barrier"]
+        remove = namespace["remove_runtime_barrier"]
+        capture = namespace["capture_runtime_barrier"]
+        uid = os.geteuid()
+        gid = os.getegid()
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-runtime-barrier-") as tmp:
+            root = Path(tmp)
+            control = root / "systemd" / "user.control"
+            legacy = root / "systemd" / "user"
+            control.mkdir(parents=True, mode=0o700)
+            legacy.mkdir(mode=0o755)
+            unit = "wirtelprimpf.service"
+            legacy_link = legacy / unit
+            legacy_link.symlink_to("/dev/null")
+            unrelated = control / "unrelated.service"
+            unrelated.symlink_to("/dev/null")
+
+            binding = ensure(str(control), str(legacy), unit, uid, gid)
+            control_link = control / unit
+            self.assertTrue(control_link.is_symlink())
+            self.assertEqual(os.readlink(control_link), "/dev/null")
+            self.assertEqual(
+                int(binding["control"]["ino"]),
+                control_link.lstat().st_ino,
+            )
+            self.assertEqual(
+                int(binding["legacy"]["ino"]),
+                legacy_link.lstat().st_ino,
+            )
+
+            adopted = ensure(str(control), str(legacy), unit, uid, gid)
+            self.assertEqual(adopted, binding)
+
+            control_link.unlink()
+            control_link.symlink_to("/dev/null")
+            with self.assertRaises(RuntimeError):
+                remove(str(control), str(legacy), unit, binding, uid, gid)
+            self.assertTrue(control_link.is_symlink())
+            self.assertTrue(legacy_link.is_symlink())
+            self.assertTrue(unrelated.is_symlink())
+
+            rebound = {
+                "control": capture(str(control), unit, uid, gid),
+                "legacy": capture(str(legacy), unit, uid, gid),
+            }
+            remove(str(control), str(legacy), unit, rebound, uid, gid)
+            self.assertFalse(control_link.exists())
+            self.assertFalse(control_link.is_symlink())
+            self.assertFalse(legacy_link.exists())
+            self.assertFalse(legacy_link.is_symlink())
+            self.assertTrue(unrelated.is_symlink())
+
+            fresh = root / "fresh" / "systemd"
+            fresh.mkdir(parents=True, mode=0o755)
+            fresh_legacy = fresh / "user"
+            fresh_legacy.mkdir(mode=0o755)
+            (fresh_legacy / unit).symlink_to("/dev/null")
+            fresh_control = fresh / "user.control"
+            self.assertFalse(fresh_control.exists())
+            fresh_binding = ensure(
+                str(fresh_control), str(fresh_legacy), unit, uid, gid
+            )
+            self.assertTrue(fresh_control.is_dir())
+            self.assertFalse(fresh_control.is_symlink())
+            self.assertEqual(fresh_control.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(
+                (fresh_control.stat().st_uid, fresh_control.stat().st_gid),
+                (uid, gid),
+            )
+            remove(
+                str(fresh_control),
+                str(fresh_legacy),
+                unit,
+                fresh_binding,
+                uid,
+                gid,
+            )
+
+            hostile = root / "hostile" / "systemd"
+            hostile.mkdir(parents=True, mode=0o755)
+            hostile_legacy = hostile / "user"
+            hostile_legacy.mkdir(mode=0o755)
+            (hostile_legacy / unit).symlink_to("/dev/null")
+            redirect = root / "redirect"
+            redirect.mkdir(mode=0o700)
+            (hostile / "user.control").symlink_to(
+                redirect, target_is_directory=True
+            )
+            with self.assertRaises((OSError, RuntimeError)):
+                ensure(
+                    str(hostile / "user.control"),
+                    str(hostile_legacy),
+                    unit,
+                    uid,
+                    gid,
+                )
+            self.assertEqual(list(redirect.iterdir()), [])
+
+    def test_step9_adopts_only_the_bound_interrupted_four_link_prestate(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.deployment,
+            "TASK4_RUNTIME_BARRIER_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "runtime_barrier_contract_test"}
+        exec(compile(program, "<task4-runtime-barrier-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        validate_prestate = namespace["validate_interrupted_prestate"]
+        interrupted_prestate = namespace["INTERRUPTED_PRESTATE"]
+        interrupted_barriers = namespace["INTERRUPTED_BARRIERS"]
+
+        self.assertEqual(interrupted_prestate["path"], "/home/teladi/.local/state/wirtelprimpf/deploy-backups/20260801-admin-live.HNkEdc")
+        self.assertEqual(
+            (interrupted_prestate["dev"], interrupted_prestate["ino"]),
+            (53, 8250927),
+        )
+        self.assertEqual(
+            {
+                name: (record["ino"], record["sha256"])
+                for name, record in interrupted_prestate["files"].items()
+            },
+            {
+                "runtime-sha-before": (8250928, "c884bec764a03e4c876acf6beaee32b17ad55b863c11b22b5d80724f51392873"),
+                "runtime-branch-before": (8250929, "6403203dd5a0867eb14d104ee8a73730bd72dd9ad92e78d996a6dba0a5dcfc01"),
+                "target-sha": (8250930, "784140f1bd8201950fe8f91ba37775371cc87530643efe6fb3d814203ca81aa2"),
+                "timer-enabled-before": (8250931, "e056a35db086947e2f5969d747f0a7517bff00c7ffff1f9e7b47b72bfac9d948"),
+                "timer-active-before": (8250932, "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659"),
+                "admin-active-before": (8250933, "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659"),
+                "service-unit-state-before": (8250934, "652cabf0de6cd70f66f72b17d6409203b84909be9864261feb614943f2e6cc62"),
+                "service-load-state-before": (8250935, "25dbd4fa5b9f0710b9f27009c1e38969b8cbb2806502388beae5063d460a85f5"),
+            },
+        )
+        self.assertEqual(
+            {
+                (side, unit): (record["dev"], record["ino"])
+                for side, units in interrupted_barriers.items()
+                for unit, record in units.items()
+            },
+            {
+                ("control", "wirtelprimpf.service"): (84, 48465),
+                ("control", "wirtelprimpf.timer"): (84, 48466),
+                ("legacy", "wirtelprimpf.service"): (84, 47828),
+                ("legacy", "wirtelprimpf.timer"): (84, 48126),
+            },
+        )
+
+        values = {
+            "runtime-sha-before": "59ba29418e3c299973b20b590f86a6b2d18c2f06",
+            "runtime-branch-before": "main",
+            "target-sha": "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f",
+            "timer-enabled-before": "enabled",
+            "timer-active-before": "active",
+            "admin-active-before": "active",
+            "service-unit-state-before": "static",
+            "service-load-state-before": "loaded",
+        }
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-interrupted-prestate-") as tmp:
+            root = Path(tmp) / "failed-attempt"
+            root.mkdir(mode=0o700)
+            for name, value in values.items():
+                path = root / name
+                path.write_text(value + "\n", encoding="utf-8")
+                path.chmod(0o600)
+            expected = {
+                "path": str(root),
+                "dev": root.stat().st_dev,
+                "ino": root.stat().st_ino,
+                "files": {
+                    name: {
+                        "dev": (root / name).stat().st_dev,
+                        "ino": (root / name).stat().st_ino,
+                        "sha256": hashlib.sha256((value + "\n").encode()).hexdigest(),
+                    }
+                    for name, value in values.items()
+                },
+            }
+            validated = validate_prestate(
+                str(root), expected, os.geteuid(), os.getegid()
+            )
+            self.assertEqual(validated, values)
+
+            replaced = root / "admin-active-before"
+            replaced.unlink()
+            replaced.write_text("active\n", encoding="utf-8")
+            replaced.chmod(0o600)
+            with self.assertRaises(RuntimeError):
+                validate_prestate(str(root), expected, os.geteuid(), os.getegid())
+
+        recovery = _marked_block(
+            self.deployment,
+            "TASK4_INTERRUPTED_MASK_RECOVERY",
+        )
+        self.assertIn("runtime_barrier_python recover-interrupted", recovery)
+        self.assertIn("runtime_barrier_python adopt-interrupted", recovery)
+        self.assertIn("interrupted_runtime_barriers=1", recovery)
+        self.assertIn("runtime_service_barrier_binding", recovery)
+        self.assertIn("runtime_timer_barrier_binding", recovery)
+        self.assertNotIn("rm ", recovery)
+        self.assertNotIn("chmod", recovery)
+        self.assertNotIn("systemctl --user unmask", recovery)
+        target_gate = (
+            'test "$(jq -er \'."target-sha"\' '
+            '<<<"$interrupted_prestate_json")" = "$target_sha"'
+        )
+        self.assertIn(target_gate, recovery)
+
+        normalize = _shell_function(
+            self.deployment,
+            "normalize_interrupted_timer_barrier",
+        )
+        service_proofs = [
+            match.start()
+            for match in re.finditer(
+                "systemctl --user show wirtelprimpf.service -p LoadState --value",
+                normalize,
+            )
+        ]
+        timer_remove = normalize.index("unmask_timer_runtime_stopped")
+        self.assertEqual(len(service_proofs), 2)
+        self.assertLess(service_proofs[0], timer_remove)
+        self.assertGreater(service_proofs[1], timer_remove)
+
+    def test_partial_unmask_keeps_control_effective_and_rebinds_only_legacy(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.deployment,
+            "TASK4_RUNTIME_BARRIER_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "runtime_barrier_contract_test"}
+        exec(compile(program, "<task4-runtime-barrier-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        ensure = namespace["ensure_runtime_barrier"]
+        remove = namespace["remove_runtime_barrier"]
+        reconcile = namespace["reconcile_runtime_barrier_binding"]
+        contract_os = namespace["os"]
+        uid = os.geteuid()
+        gid = os.getegid()
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-partial-unmask-") as tmp:
+            systemd = Path(tmp) / "systemd"
+            control = systemd / "user.control"
+            legacy = systemd / "user"
+            control.mkdir(parents=True, mode=0o700)
+            legacy.mkdir(mode=0o755)
+            unit = "wirtelprimpf.service"
+            (legacy / unit).symlink_to("/dev/null")
+            binding = ensure(str(control), str(legacy), unit, uid, gid)
+            original_unlink = contract_os.unlink
+            calls = 0
+
+            def injected_unlink(path: str, *, dir_fd: int | None = None) -> None:
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("injected control unlink failure")
+                original_unlink(path, dir_fd=dir_fd)
+
+            contract_os.unlink = injected_unlink
+            try:
+                with self.assertRaisesRegex(OSError, "injected control"):
+                    remove(str(control), str(legacy), unit, binding, uid, gid)
+            finally:
+                contract_os.unlink = original_unlink
+
+            self.assertTrue((control / unit).is_symlink())
+            self.assertFalse((legacy / unit).exists())
+            self.assertEqual(os.readlink(control / unit), "/dev/null")
+            repaired = ensure(str(control), str(legacy), unit, uid, gid)
+            self.assertEqual(
+                reconcile(binding, repaired),
+                repaired,
+            )
+
+            (control / unit).unlink()
+            (control / unit).symlink_to("/dev/null")
+            replaced_control = ensure(str(control), str(legacy), unit, uid, gid)
+            with self.assertRaises(RuntimeError):
+                reconcile(repaired, replaced_control)
+
+    def test_normative_mask_and_unmask_bind_the_effective_and_legacy_pair(self) -> None:
+        service_mask = _shell_function(self.deployment, "mask_generator_runtime")
+        timer_mask = _shell_function(self.deployment, "mask_timer_runtime_stopped")
+        service_unmask = _shell_function(self.deployment, "unmask_generator_runtime")
+        timer_unmask = _shell_function(self.deployment, "unmask_timer_runtime_stopped")
+
+        service_lower = service_mask.index(
+            "systemctl --user mask --runtime wirtelprimpf.service"
+        )
+        service_effective = service_mask.index("runtime_barrier_python ensure")
+        service_reload = service_mask.index("systemctl --user daemon-reload")
+        self.assertLess(service_lower, service_effective)
+        self.assertLess(service_effective, service_reload)
+        self.assertIn("runtime_service_barrier_binding", service_mask)
+        self.assertIn("reconcile", service_mask)
+        self.assertIn("$runtime_control_dir", service_mask)
+        self.assertIn("$runtime_legacy_dir", service_mask)
+
+        timer_lower = timer_mask.index(
+            "systemctl --user mask --runtime wirtelprimpf.timer"
+        )
+        timer_effective = timer_mask.index("runtime_barrier_python ensure")
+        timer_reload = timer_mask.index("systemctl --user daemon-reload")
+        self.assertLess(timer_lower, timer_effective)
+        self.assertLess(timer_effective, timer_reload)
+        self.assertIn("runtime_timer_barrier_binding", timer_mask)
+        self.assertIn("reconcile", timer_mask)
+
+        for unmask, unit, binding in (
+            (service_unmask, "wirtelprimpf.service", "runtime_service_barrier_binding"),
+            (timer_unmask, "wirtelprimpf.timer", "runtime_timer_barrier_binding"),
+        ):
+            remove = unmask.index("runtime_barrier_python remove")
+            reload = unmask.index("systemctl --user daemon-reload")
+            self.assertLess(remove, reload)
+            self.assertIn(unit, unmask)
+            self.assertIn(binding, unmask)
+            self.assertNotIn("systemctl --user unmask --runtime", unmask)
 
     def test_normative_quiesce_handles_auto_restart_without_stopping_a_running_job(self) -> None:
         self.assertIn("# BEGIN TASK4_GENERATOR_QUIESCE", self.deployment)
@@ -3579,11 +4007,11 @@ events=$2
 state_counter=$3
 mask_state=$4
 state_spec=$5
-load_state=$6
+effective_state=$6
 printf '0\n' >"$state_counter"
 case "$case_name" in
   unexpected-unit-state) printf 'enabled\n' >"$mask_state" ;;
-  partial-mask-state) printf 'masked-runtime\n' >"$mask_state" ;;
+  lower-only-mask-repaired) printf 'masked-runtime\n' >"$mask_state" ;;
   *) printf 'static\n' >"$mask_state" ;;
 esac
 
@@ -3626,13 +4054,12 @@ systemctl() {{
     '--user mask --runtime wirtelprimpf.service')
       printf 'service-mask\n' >>"$events"
       printf 'masked-runtime\n' >"$mask_state"
-      load_state=masked
       ;;
     '--user daemon-reload')
       printf 'daemon-reload\n' >>"$events"
       ;;
     '--user show wirtelprimpf.service -p LoadState --value')
-      printf '%s\n' "$load_state"
+      if [[ -e "$effective_state" ]]; then printf 'masked\n'; else printf 'loaded\n'; fi
       ;;
     *)
       printf 'unexpected-systemctl:%s\n' "$*" >>"$events"
@@ -3640,6 +4067,19 @@ systemctl() {{
       ;;
   esac
 }}
+
+runtime_barrier_python() {{
+  case "$1:$4" in
+    'ensure:wirtelprimpf.service')
+      printf 'service-control-barrier\n' >>"$events"
+      : >"$effective_state"
+      printf '{{"control":{{}},"legacy":{{}}}}\n'
+      ;;
+    *) return 97 ;;
+  esac
+}}
+
+normalize_interrupted_timer_barrier() {{ return 0; }}
 
 sleep() {{
   printf 'natural-wait\n' >>"$events"
@@ -3649,6 +4089,9 @@ sleep() {{
 }}
 
 runtime_service_masked=0
+runtime_service_barrier_binding=
+runtime_control_dir=/fixture/user.control
+runtime_legacy_dir=/fixture/user
 SECONDS=0
 set +e
 quiesce_generator
@@ -3714,10 +4157,11 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
                 "success": False,
                 "service_stop": False,
             },
-            "partial-mask-state": {
-                "states": "inactive:dead,inactive:dead",
-                "success": False,
+            "lower-only-mask-repaired": {
+                "states": "inactive:dead,inactive:dead,inactive:dead",
+                "success": True,
                 "service_stop": False,
+                "lower_mask": False,
             },
             "timeout": {
                 "states": "activating:start",
@@ -3742,7 +4186,7 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
                             str(counter),
                             str(mask_state),
                             str(expected["states"]),
-                            "loaded",
+                            str(Path(tmp) / f"{case_name}.effective"),
                         ],
                         text=True,
                         capture_output=True,
@@ -3762,8 +4206,8 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
                     status = int(status_line.removeprefix("status:"))
                     if expected["success"]:
                         self.assertEqual(status, 0, (result.stderr, event_lines))
-                        self.assertIn("service-mask", event_lines)
-                        mask_index = event_lines.index("service-mask")
+                        self.assertIn("service-control-barrier", event_lines)
+                        mask_index = event_lines.index("service-control-barrier")
                         inactive_indexes = [
                             index
                             for index, line in enumerate(event_lines)
@@ -3776,10 +4220,18 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
                             event_lines,
                         )
                         self.assertIn("runtime-mask-flag:1", result.stdout)
+                        if expected.get("lower_mask", True):
+                            self.assertIn("service-mask", event_lines)
+                            self.assertLess(
+                                event_lines.index("service-mask"),
+                                mask_index,
+                            )
+                        else:
+                            self.assertNotIn("service-mask", event_lines)
                     else:
                         self.assertNotEqual(status, 0, (result.stderr, event_lines))
                         if expected.get("fail_closed_mask"):
-                            self.assertIn("service-mask", event_lines)
+                            self.assertIn("service-control-barrier", event_lines)
                             self.assertIn("runtime-mask-flag:1", result.stdout)
                             self.assertGreater(
                                 event_lines.index("observe:activating/start"),
@@ -3787,7 +4239,7 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
                                 event_lines,
                             )
                         else:
-                            self.assertNotIn("service-mask", event_lines)
+                            self.assertNotIn("service-control-barrier", event_lines)
                             self.assertIn("runtime-mask-flag:0", result.stdout)
                     if expected["service_stop"]:
                         self.assertIn("service-stop", event_lines)
@@ -3886,14 +4338,13 @@ test "$runtime_service_masked" = 1
     def test_restore_unmasks_an_inactive_generator_without_starting_it(self) -> None:
         unmask = _shell_function(self.deployment, "unmask_generator_runtime")
         first_inactive_proof = unmask.index("assert_generator_inactive")
-        unmask_call = unmask.index(
-            "systemctl --user unmask --runtime wirtelprimpf.service"
-        )
+        unmask_call = unmask.index("runtime_barrier_python remove")
         final_inactive_proof = unmask.rindex("assert_generator_inactive")
         self.assertLess(first_inactive_proof, unmask_call)
         self.assertLess(unmask_call, final_inactive_proof)
         self.assertNotIn("start wirtelprimpf.service", unmask)
         self.assertNotIn("restart wirtelprimpf.service", unmask)
+        self.assertNotIn("systemctl --user unmask --runtime", unmask)
 
         rollback = _marked_block(self.deployment, "TASK4_ROLLBACK_DEPLOYMENT")
         self.assertLess(rollback.index("quiesce_generator"), rollback.index("restore_targets"))

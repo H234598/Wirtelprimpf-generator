@@ -3572,6 +3572,18 @@ unbounded-CLI-apply conflict smoke from Step 6 at the marked location, run
 `bash -n` over the resulting script, and execute it exactly once. The following
 frame is normative; no standalone command from Steps 1–8 may run outside it:
 
+`systemctl --user mask --runtime` alone is not an execution barrier for these
+locally installed units: it writes below `~/.config/systemd/user` in the user
+manager's load path, so the persistent unit wins and remains `loaded`. The
+transaction therefore binds the compatibility link created by `systemctl` and
+adds the effective `/run/user/1000/systemd/user.control/<unit> -> /dev/null`
+link. Success always requires `daemon-reload`, `masked-runtime`, and
+`LoadState=masked`. Removal validates both recorded parent/link identities,
+removes the ineffective link first so the high-priority barrier survives an
+interruption, and removes the effective link last. The one interrupted live
+attempt is adopted only from its exact inode/hash-bound eight-file prestate and
+four exact runtime links; every other mixed state is rejected without mutation.
+
 ```bash
 set -Eeuo pipefail
 
@@ -3692,7 +3704,489 @@ git_runtime_fetch_bounded() {
 }
 # END TASK4_RUNTIME_GIT_GUARD
 
+# BEGIN TASK4_BACKUP_ROOT_PREFLIGHT
+assert_private_backup_root() {
+  local candidate="$1" expected="$2" expected_uid="$3" expected_gid="$4"
+  local expected_dev="$5" expected_ino="$6"
+  local metadata
+  test "$candidate" = "$expected"
+  test -d "$candidate" && test ! -L "$candidate"
+  test "$(realpath -e -- "$candidate")" = "$expected"
+  metadata="$(stat -Lc '%u:%g:%a:%d:%i' -- "$candidate")"
+  test "$metadata" = \
+    "$expected_uid:$expected_gid:700:$expected_dev:$expected_ino"
+}
+# END TASK4_BACKUP_ROOT_PREFLIGHT
+
+runtime_control_dir=/run/user/1000/systemd/user.control
+runtime_legacy_dir=/run/user/1000/systemd/user
+runtime_barrier_python() {
+  /usr/bin/python3 -I -S - "$@" <<'TASK4_RUNTIME_BARRIER_PY'
+import json
+import hashlib
+import os
+import re
+import stat
+import sys
+
+
+ALLOWED_UNITS = frozenset(("wirtelprimpf.service", "wirtelprimpf.timer"))
+INTERRUPTED_PRESTATE = {
+    "path": "/home/teladi/.local/state/wirtelprimpf/deploy-backups/20260801-admin-live.HNkEdc",
+    "dev": 53,
+    "ino": 8250927,
+    "files": {
+        "runtime-sha-before": {
+            "dev": 53,
+            "ino": 8250928,
+            "sha256": "c884bec764a03e4c876acf6beaee32b17ad55b863c11b22b5d80724f51392873",
+        },
+        "runtime-branch-before": {
+            "dev": 53,
+            "ino": 8250929,
+            "sha256": "6403203dd5a0867eb14d104ee8a73730bd72dd9ad92e78d996a6dba0a5dcfc01",
+        },
+        "target-sha": {
+            "dev": 53,
+            "ino": 8250930,
+            "sha256": "784140f1bd8201950fe8f91ba37775371cc87530643efe6fb3d814203ca81aa2",
+        },
+        "timer-enabled-before": {
+            "dev": 53,
+            "ino": 8250931,
+            "sha256": "e056a35db086947e2f5969d747f0a7517bff00c7ffff1f9e7b47b72bfac9d948",
+        },
+        "timer-active-before": {
+            "dev": 53,
+            "ino": 8250932,
+            "sha256": "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659",
+        },
+        "admin-active-before": {
+            "dev": 53,
+            "ino": 8250933,
+            "sha256": "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659",
+        },
+        "service-unit-state-before": {
+            "dev": 53,
+            "ino": 8250934,
+            "sha256": "652cabf0de6cd70f66f72b17d6409203b84909be9864261feb614943f2e6cc62",
+        },
+        "service-load-state-before": {
+            "dev": 53,
+            "ino": 8250935,
+            "sha256": "25dbd4fa5b9f0710b9f27009c1e38969b8cbb2806502388beae5063d460a85f5",
+        },
+    },
+}
+INTERRUPTED_BARRIER_PARENTS = {
+    "control": {"dev": 84, "ino": 48464},
+    "legacy": {"dev": 84, "ino": 47827},
+}
+INTERRUPTED_BARRIERS = {
+    "control": {
+        "wirtelprimpf.service": {"dev": 84, "ino": 48465},
+        "wirtelprimpf.timer": {"dev": 84, "ino": 48466},
+    },
+    "legacy": {
+        "wirtelprimpf.service": {"dev": 84, "ino": 47828},
+        "wirtelprimpf.timer": {"dev": 84, "ino": 48126},
+    },
+}
+
+
+def _require_unit(unit):
+    if unit not in ALLOWED_UNITS:
+        raise RuntimeError("runtime barrier unit outside the exact allowlist")
+
+
+def _open_directory(path, uid, gid, mode):
+    if not os.path.isabs(path) or os.path.realpath(path) != path:
+        raise RuntimeError("runtime barrier directory is not canonical")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags)
+    try:
+        current = os.fstat(fd)
+        if not stat.S_ISDIR(current.st_mode):
+            raise RuntimeError("runtime barrier parent is not a directory")
+        if (current.st_uid, current.st_gid) != (uid, gid):
+            raise RuntimeError("runtime barrier parent ownership drift")
+        if stat.S_IMODE(current.st_mode) != mode:
+            raise RuntimeError("runtime barrier parent mode drift")
+        return fd, {
+            "dev": current.st_dev,
+            "ino": current.st_ino,
+            "uid": current.st_uid,
+            "gid": current.st_gid,
+            "mode": stat.S_IMODE(current.st_mode),
+        }
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _capture_at(directory_fd, parent, unit, uid, gid):
+    current = os.stat(unit, dir_fd=directory_fd, follow_symlinks=False)
+    if not stat.S_ISLNK(current.st_mode):
+        raise RuntimeError("runtime barrier entry is not a symlink")
+    if (current.st_uid, current.st_gid) != (uid, gid):
+        raise RuntimeError("runtime barrier entry ownership drift")
+    if current.st_nlink != 1:
+        raise RuntimeError("runtime barrier entry link-count drift")
+    target = os.readlink(unit, dir_fd=directory_fd)
+    if target != "/dev/null":
+        raise RuntimeError("runtime barrier target drift")
+    return {
+        "dev": current.st_dev,
+        "ino": current.st_ino,
+        "uid": current.st_uid,
+        "gid": current.st_gid,
+        "mode": stat.S_IMODE(current.st_mode),
+        "nlink": current.st_nlink,
+        "target": target,
+        "parent": parent,
+    }
+
+
+def _open_or_create_control_directory(path, uid, gid):
+    if not os.path.isabs(path) or os.path.normpath(path) != path:
+        raise RuntimeError("runtime control directory path is not canonical")
+    if os.path.basename(path) != "user.control":
+        raise RuntimeError("runtime control directory basename drift")
+    parent_path = os.path.dirname(path)
+    parent_fd, parent = _open_directory(parent_path, uid, gid, 0o755)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    created = False
+    try:
+        try:
+            control_fd = os.open("user.control", flags, dir_fd=parent_fd)
+        except FileNotFoundError:
+            if (os.geteuid(), os.getegid()) != (uid, gid):
+                raise RuntimeError(
+                    "runtime control directory creator identity drift"
+                )
+            try:
+                os.mkdir("user.control", 0o700, dir_fd=parent_fd)
+                created = True
+            except FileExistsError:
+                pass
+            control_fd = os.open("user.control", flags, dir_fd=parent_fd)
+        current_parent = os.fstat(parent_fd)
+        if (current_parent.st_dev, current_parent.st_ino) != (
+            parent["dev"], parent["ino"]
+        ):
+            os.close(control_fd)
+            raise RuntimeError("runtime systemd parent identity drift")
+        current = os.fstat(control_fd)
+        if not stat.S_ISDIR(current.st_mode):
+            os.close(control_fd)
+            raise RuntimeError("runtime control path is not a directory")
+        if (current.st_uid, current.st_gid) != (uid, gid):
+            os.close(control_fd)
+            raise RuntimeError("runtime control directory ownership drift")
+        if stat.S_IMODE(current.st_mode) != 0o700:
+            os.close(control_fd)
+            raise RuntimeError("runtime control directory mode drift")
+        if current.st_dev != parent["dev"]:
+            os.close(control_fd)
+            raise RuntimeError("runtime control directory filesystem drift")
+        if created:
+            os.fsync(parent_fd)
+        return control_fd, {
+            "dev": current.st_dev,
+            "ino": current.st_ino,
+            "uid": current.st_uid,
+            "gid": current.st_gid,
+            "mode": stat.S_IMODE(current.st_mode),
+        }
+    finally:
+        os.close(parent_fd)
+
+
+def capture_runtime_barrier(directory, unit, uid, gid):
+    _require_unit(unit)
+    expected_mode = 0o700 if directory.endswith("/user.control") else 0o755
+    directory_fd, parent = _open_directory(directory, uid, gid, expected_mode)
+    try:
+        return _capture_at(directory_fd, parent, unit, uid, gid)
+    finally:
+        os.close(directory_fd)
+
+
+def capture_runtime_barrier_pair(control_dir, legacy_dir, unit, uid, gid):
+    return {
+        "control": capture_runtime_barrier(control_dir, unit, uid, gid),
+        "legacy": capture_runtime_barrier(legacy_dir, unit, uid, gid),
+    }
+
+
+def _read_bound_regular(directory_fd, name, expected, uid, gid):
+    flags = os.O_RDONLY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    file_fd = os.open(name, flags, dir_fd=directory_fd)
+    try:
+        current = os.fstat(file_fd)
+        if not stat.S_ISREG(current.st_mode):
+            raise RuntimeError("interrupted prestate member is not regular")
+        if (current.st_uid, current.st_gid) != (uid, gid):
+            raise RuntimeError("interrupted prestate member ownership drift")
+        if stat.S_IMODE(current.st_mode) != 0o600 or current.st_nlink != 1:
+            raise RuntimeError("interrupted prestate member metadata drift")
+        if (current.st_dev, current.st_ino) != (
+            expected["dev"], expected["ino"]
+        ):
+            raise RuntimeError("interrupted prestate member identity drift")
+        payload = b""
+        while True:
+            chunk = os.read(file_fd, 256)
+            if not chunk:
+                break
+            payload += chunk
+            if len(payload) > 256:
+                raise RuntimeError("interrupted prestate member is oversized")
+        if hashlib.sha256(payload).hexdigest() != expected["sha256"]:
+            raise RuntimeError("interrupted prestate member digest drift")
+        try:
+            decoded = payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError("interrupted prestate member encoding drift") from exc
+        if not decoded.endswith("\n") or "\n" in decoded[:-1]:
+            raise RuntimeError("interrupted prestate member line-shape drift")
+        return decoded[:-1]
+    finally:
+        os.close(file_fd)
+
+
+def validate_interrupted_prestate(path, expected, uid, gid):
+    if path != expected.get("path"):
+        raise RuntimeError("interrupted prestate path drift")
+    directory_fd, parent = _open_directory(path, uid, gid, 0o700)
+    try:
+        if (parent["dev"], parent["ino"]) != (
+            expected.get("dev"), expected.get("ino")
+        ):
+            raise RuntimeError("interrupted prestate directory identity drift")
+        expected_files = expected.get("files")
+        if not isinstance(expected_files, dict):
+            raise RuntimeError("invalid interrupted prestate inventory")
+        if set(os.listdir(directory_fd)) != set(expected_files):
+            raise RuntimeError("interrupted prestate inventory drift")
+        values = {
+            name: _read_bound_regular(
+                directory_fd, name, record, uid, gid
+            )
+            for name, record in expected_files.items()
+        }
+    finally:
+        os.close(directory_fd)
+    if not re.fullmatch(r"[0-9a-f]{40}", values["runtime-sha-before"]):
+        raise RuntimeError("invalid interrupted runtime SHA")
+    if values["runtime-branch-before"] != "main":
+        raise RuntimeError("invalid interrupted runtime branch")
+    if not re.fullmatch(r"[0-9a-f]{40}", values["target-sha"]):
+        raise RuntimeError("invalid interrupted target SHA")
+    if values["timer-enabled-before"] not in {
+        "enabled", "enabled-runtime", "disabled"
+    }:
+        raise RuntimeError("invalid interrupted timer enablement")
+    if values["timer-active-before"] not in {"active", "inactive"}:
+        raise RuntimeError("invalid interrupted timer activity")
+    if values["admin-active-before"] not in {"active", "inactive"}:
+        raise RuntimeError("invalid interrupted admin activity")
+    if values["service-unit-state-before"] != "static":
+        raise RuntimeError("invalid interrupted service unit state")
+    if values["service-load-state-before"] != "loaded":
+        raise RuntimeError("invalid interrupted service load state")
+    return values
+
+
+def adopt_exact_interrupted_barriers(control_dir, legacy_dir, uid, gid):
+    bindings = {
+        unit: capture_runtime_barrier_pair(
+            control_dir, legacy_dir, unit, uid, gid
+        )
+        for unit in sorted(ALLOWED_UNITS)
+    }
+    for side, directory in (("control", control_dir), ("legacy", legacy_dir)):
+        parent = bindings["wirtelprimpf.service"][side]["parent"]
+        expected_parent = INTERRUPTED_BARRIER_PARENTS[side]
+        if (parent["dev"], parent["ino"]) != (
+            expected_parent["dev"], expected_parent["ino"]
+        ):
+            raise RuntimeError("interrupted runtime barrier parent drift")
+        for unit in ALLOWED_UNITS:
+            current = bindings[unit][side]
+            expected = INTERRUPTED_BARRIERS[side][unit]
+            if (current["dev"], current["ino"]) != (
+                expected["dev"], expected["ino"]
+            ):
+                raise RuntimeError("interrupted runtime barrier identity drift")
+    return {
+        "service": bindings["wirtelprimpf.service"],
+        "timer": bindings["wirtelprimpf.timer"],
+    }
+
+
+def _same_record(left, right):
+    return left == right
+
+
+def ensure_runtime_barrier(control_dir, legacy_dir, unit, uid, gid):
+    _require_unit(unit)
+    control_fd, control_parent = _open_or_create_control_directory(
+        control_dir, uid, gid
+    )
+    legacy_fd, legacy_parent = _open_directory(legacy_dir, uid, gid, 0o755)
+    try:
+        try:
+            legacy_before = _capture_at(
+                legacy_fd, legacy_parent, unit, uid, gid
+            )
+        except FileNotFoundError:
+            try:
+                os.symlink("/dev/null", unit, dir_fd=legacy_fd)
+            except FileExistsError:
+                pass
+            legacy_before = _capture_at(
+                legacy_fd, legacy_parent, unit, uid, gid
+            )
+        try:
+            control_before = _capture_at(
+                control_fd, control_parent, unit, uid, gid
+            )
+        except FileNotFoundError:
+            try:
+                os.symlink("/dev/null", unit, dir_fd=control_fd)
+            except FileExistsError:
+                pass
+            control_before = _capture_at(
+                control_fd, control_parent, unit, uid, gid
+            )
+        legacy_after = _capture_at(legacy_fd, legacy_parent, unit, uid, gid)
+        if not _same_record(legacy_before, legacy_after):
+            raise RuntimeError("legacy runtime barrier changed during adoption")
+        return {"control": control_before, "legacy": legacy_after}
+    finally:
+        os.close(legacy_fd)
+        os.close(control_fd)
+
+
+def _validate_binding(binding):
+    if not isinstance(binding, dict) or set(binding) != {"control", "legacy"}:
+        raise RuntimeError("invalid runtime barrier binding")
+    for key in ("control", "legacy"):
+        record = binding[key]
+        if not isinstance(record, dict):
+            raise RuntimeError("invalid runtime barrier record")
+        if set(record) != {
+            "dev", "ino", "uid", "gid", "mode", "nlink", "target", "parent"
+        }:
+            raise RuntimeError("invalid runtime barrier record fields")
+
+
+def reconcile_runtime_barrier_binding(previous, candidate):
+    _validate_binding(previous)
+    _validate_binding(candidate)
+    if previous == candidate:
+        return candidate
+    # A failed exact removal deliberately removes legacy first while the
+    # effective control inode stays in place. A fail-closed retry may recreate
+    # and rebind only that ineffective compatibility link; control drift is
+    # never adopted.
+    if previous["control"] != candidate["control"]:
+        raise RuntimeError("effective runtime barrier identity drift")
+    return candidate
+
+
+def remove_runtime_barrier(control_dir, legacy_dir, unit, binding, uid, gid):
+    _require_unit(unit)
+    _validate_binding(binding)
+    control_fd, control_parent = _open_directory(control_dir, uid, gid, 0o700)
+    legacy_fd, legacy_parent = _open_directory(legacy_dir, uid, gid, 0o755)
+    try:
+        control_now = _capture_at(control_fd, control_parent, unit, uid, gid)
+        legacy_now = _capture_at(legacy_fd, legacy_parent, unit, uid, gid)
+        if not _same_record(control_now, binding["control"]):
+            raise RuntimeError("high-priority runtime barrier replacement detected")
+        if not _same_record(legacy_now, binding["legacy"]):
+            raise RuntimeError("legacy runtime barrier replacement detected")
+        # Remove the ineffective low-priority compatibility link first. If this
+        # process dies here, user.control remains the effective fail-closed gate.
+        os.unlink(unit, dir_fd=legacy_fd)
+        control_now = _capture_at(control_fd, control_parent, unit, uid, gid)
+        if not _same_record(control_now, binding["control"]):
+            raise RuntimeError("high-priority runtime barrier changed during removal")
+        os.unlink(unit, dir_fd=control_fd)
+    finally:
+        os.close(legacy_fd)
+        os.close(control_fd)
+
+
+def _main(argv):
+    if not sys.flags.isolated or not sys.flags.no_site or not sys.flags.safe_path:
+        raise RuntimeError("runtime barrier requires isolated safe-path Python")
+    if len(argv) == 4 and argv[0] == "recover-interrupted":
+        action, path, uid_text, gid_text = argv
+        del action
+        values = validate_interrupted_prestate(
+            path, INTERRUPTED_PRESTATE, int(uid_text), int(gid_text)
+        )
+        print(json.dumps(values, sort_keys=True, separators=(",", ":")))
+        return
+    if len(argv) == 5 and argv[0] == "adopt-interrupted":
+        action, control_dir, legacy_dir, uid_text, gid_text = argv
+        del action
+        bindings = adopt_exact_interrupted_barriers(
+            control_dir, legacy_dir, int(uid_text), int(gid_text)
+        )
+        print(json.dumps(bindings, sort_keys=True, separators=(",", ":")))
+        return
+    if len(argv) == 3 and argv[0] == "reconcile":
+        binding = reconcile_runtime_barrier_binding(
+            json.loads(argv[1]), json.loads(argv[2])
+        )
+        print(json.dumps(binding, sort_keys=True, separators=(",", ":")))
+        return
+    if len(argv) not in (6, 7):
+        raise RuntimeError("invalid runtime barrier command")
+    action, control_dir, legacy_dir, unit, uid_text, gid_text, *rest = argv
+    uid = int(uid_text)
+    gid = int(gid_text)
+    if action == "ensure" and not rest:
+        binding = ensure_runtime_barrier(
+            control_dir, legacy_dir, unit, uid, gid
+        )
+        print(json.dumps(binding, sort_keys=True, separators=(",", ":")))
+        return
+    if action == "remove" and len(rest) == 1:
+        remove_runtime_barrier(
+            control_dir,
+            legacy_dir,
+            unit,
+            json.loads(rest[0]),
+            uid,
+            gid,
+        )
+        return
+    raise RuntimeError("invalid runtime barrier command")
+
+
+if __name__ == "__main__":
+    try:
+        _main(sys.argv[1:])
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+        print(f"runtime barrier rejected: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+TASK4_RUNTIME_BARRIER_PY
+}
+
 command -v timeout >/dev/null
+command -v jq >/dev/null
+assert_private_backup_root "$backup_root" "/home/teladi/.local/state/wirtelprimpf/deploy-backups" 1000 1000 53 7999241
 test -z "$(git_runtime status --porcelain)"
 runtime_branch_before="$(git_runtime branch --show-current)"
 runtime_sha_before="$(git_runtime rev-parse HEAD)"
@@ -3700,17 +4194,78 @@ test "$runtime_branch_before" = main
 [[ "$runtime_sha_before" =~ ^[0-9a-f]{40}$ ]]
 test "$runtime_sha_before" != "$target_sha"
 
-timer_enabled_before="$(systemctl --user is-enabled wirtelprimpf.timer || true)"
-timer_active_before="$(systemctl --user is-active wirtelprimpf.timer || true)"
-admin_active_before="$(systemctl --user is-active wirtelprimpf-admin.service || true)"
-service_unit_state_before="$(systemctl --user is-enabled wirtelprimpf.service || true)"
-service_load_state_before="$(systemctl --user show wirtelprimpf.service \
+# BEGIN TASK4_INTERRUPTED_MASK_RECOVERY
+interrupted_runtime_barriers=0
+interrupted_timer_normalized=0
+runtime_service_barrier_binding=
+runtime_timer_barrier_binding=
+current_timer_enabled="$(systemctl --user is-enabled wirtelprimpf.timer || true)"
+current_timer_active="$(systemctl --user is-active wirtelprimpf.timer || true)"
+current_timer_load="$(systemctl --user show wirtelprimpf.timer \
   -p LoadState --value)"
+current_admin_active="$(systemctl --user is-active wirtelprimpf-admin.service || true)"
+current_service_unit="$(systemctl --user is-enabled wirtelprimpf.service || true)"
+current_service_load="$(systemctl --user show wirtelprimpf.service \
+  -p LoadState --value)"
+current_service_active="$(systemctl --user is-active wirtelprimpf.service || true)"
+if [[ "$current_service_unit" == static && "$current_service_load" == loaded && \
+      "$current_timer_load" == loaded ]]; then
+  case "$current_timer_enabled" in enabled|enabled-runtime|disabled) ;; *) exit 1 ;; esac
+  case "$current_timer_active" in active|inactive) ;; *) exit 1 ;; esac
+  case "$current_admin_active" in active|inactive) ;; *) exit 1 ;; esac
+  for barrier_path in \
+    "$runtime_control_dir/wirtelprimpf.service" \
+    "$runtime_control_dir/wirtelprimpf.timer" \
+    "$runtime_legacy_dir/wirtelprimpf.service" \
+    "$runtime_legacy_dir/wirtelprimpf.timer"; do
+    [[ ! -e "$barrier_path" && ! -L "$barrier_path" ]]
+  done
+  timer_enabled_before="$current_timer_enabled"
+  timer_active_before="$current_timer_active"
+  admin_active_before="$current_admin_active"
+  service_unit_state_before="$current_service_unit"
+  service_load_state_before="$current_service_load"
+elif [[ "$current_service_unit" == masked-runtime && \
+        "$current_service_load" == masked && \
+        "$current_service_active" == inactive && \
+        "$current_timer_enabled" == masked-runtime && \
+        "$current_timer_load" == masked && \
+        "$current_timer_active" == inactive && \
+        "$current_admin_active" == inactive ]]; then
+  interrupted_prestate_json="$(runtime_barrier_python recover-interrupted \
+    /home/teladi/.local/state/wirtelprimpf/deploy-backups/20260801-admin-live.HNkEdc \
+    1000 1000)"
+  interrupted_bindings_json="$(runtime_barrier_python adopt-interrupted \
+    "$runtime_control_dir" "$runtime_legacy_dir" 1000 1000)"
+  test "$(jq -er '."runtime-sha-before"' <<<"$interrupted_prestate_json")" = \
+    "$runtime_sha_before"
+  test "$(jq -er '."runtime-branch-before"' <<<"$interrupted_prestate_json")" = \
+    "$runtime_branch_before"
+  test "$(jq -er '."target-sha"' <<<"$interrupted_prestate_json")" = "$target_sha"
+  timer_enabled_before="$(jq -er '."timer-enabled-before"' \
+    <<<"$interrupted_prestate_json")"
+  timer_active_before="$(jq -er '."timer-active-before"' \
+    <<<"$interrupted_prestate_json")"
+  admin_active_before="$(jq -er '."admin-active-before"' \
+    <<<"$interrupted_prestate_json")"
+  service_unit_state_before="$(jq -er '."service-unit-state-before"' \
+    <<<"$interrupted_prestate_json")"
+  service_load_state_before="$(jq -er '."service-load-state-before"' \
+    <<<"$interrupted_prestate_json")"
+  runtime_service_barrier_binding="$(jq -cS '.service' \
+    <<<"$interrupted_bindings_json")"
+  runtime_timer_barrier_binding="$(jq -cS '.timer' \
+    <<<"$interrupted_bindings_json")"
+  interrupted_runtime_barriers=1
+else
+  exit 1
+fi
 case "$timer_enabled_before" in enabled|enabled-runtime|disabled) ;; *) exit 1 ;; esac
 case "$timer_active_before" in active|inactive) ;; *) exit 1 ;; esac
 case "$admin_active_before" in active|inactive) ;; *) exit 1 ;; esac
 test "$service_unit_state_before" = static
 test "$service_load_state_before" = loaded
+# END TASK4_INTERRUPTED_MASK_RECOVERY
 running_xlets="$(gdbus call --session --dest org.Cinnamon \
   --object-path /org/Cinnamon --method org.Cinnamon.GetRunningXletUUIDs applet)"
 if [[ "$running_xlets" == *wirtelprimfgenerator@H234598* ]]; then
@@ -3719,7 +4274,6 @@ else
   applet_running_before=0
 fi
 
-install -d -m0700 "$backup_root"
 deploy_backup="$(mktemp -d "$backup_root/20260801-admin-live.XXXXXX")"
 chmod 0700 "$deploy_backup"
 printf '%s\n' "$runtime_sha_before" >"$deploy_backup/runtime-sha-before"
@@ -3735,8 +4289,8 @@ chmod 0600 "$deploy_backup"/*-before "$deploy_backup/target-sha"
 backup_complete=0
 software_commit_complete=0
 deployment_complete=0
-runtime_service_masked=0
-runtime_timer_masked=0
+runtime_service_masked="$interrupted_runtime_barriers"
+runtime_timer_masked="$interrupted_runtime_barriers"
 
 target_is_scoped() {
   case "$1" in
@@ -3961,7 +4515,7 @@ wait_generator_inactive() {
 }
 
 mask_generator_runtime() {
-  local current
+  local current candidate_binding
   assert_generator_inactive || return 1
   current="$(systemctl --user is-enabled wirtelprimpf.service || true)"
   case "$current" in
@@ -3974,6 +4528,14 @@ mask_generator_runtime() {
       return 1
       ;;
   esac
+  candidate_binding="$(runtime_barrier_python ensure \
+    "$runtime_control_dir" "$runtime_legacy_dir" \
+    wirtelprimpf.service 1000 1000)" || return 1
+  if [[ -n "$runtime_service_barrier_binding" ]]; then
+    candidate_binding="$(runtime_barrier_python reconcile \
+      "$runtime_service_barrier_binding" "$candidate_binding")" || return 1
+  fi
+  runtime_service_barrier_binding="$candidate_binding"
   systemctl --user daemon-reload || return 1
   test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = \
     masked-runtime || return 1
@@ -3989,6 +4551,7 @@ quiesce_generator() {
   # state fails closed without stopping a potentially running generator.
   wait_generator_inactive || return 1
   mask_generator_runtime || return 1
+  normalize_interrupted_timer_barrier || return 1
   # The strict post-mask snapshot closes the inactive-to-mask race. A process
   # appearing here is not waited out or stopped and no code mutation follows.
   assert_generator_inactive
@@ -3996,10 +4559,32 @@ quiesce_generator() {
 # END TASK4_GENERATOR_QUIESCE
 
 mask_timer_runtime_stopped() {
+  local current candidate_binding
   systemctl --user stop wirtelprimpf.timer || return 1
-  systemctl --user mask --runtime wirtelprimpf.timer || return 1
+  current="$(systemctl --user is-enabled wirtelprimpf.timer || true)"
+  case "$current" in
+    enabled|enabled-runtime|disabled)
+      systemctl --user mask --runtime wirtelprimpf.timer || return 1
+      ;;
+    masked-runtime)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  candidate_binding="$(runtime_barrier_python ensure \
+    "$runtime_control_dir" "$runtime_legacy_dir" \
+    wirtelprimpf.timer 1000 1000)" || return 1
+  if [[ -n "$runtime_timer_barrier_binding" ]]; then
+    candidate_binding="$(runtime_barrier_python reconcile \
+      "$runtime_timer_barrier_binding" "$candidate_binding")" || return 1
+  fi
+  runtime_timer_barrier_binding="$candidate_binding"
+  systemctl --user daemon-reload || return 1
   test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = \
     masked-runtime || return 1
+  test "$(systemctl --user show wirtelprimpf.timer -p LoadState --value)" = \
+    masked || return 1
   test "$(systemctl --user is-active wirtelprimpf.timer || true)" = \
     inactive || return 1
   runtime_timer_masked=1
@@ -4007,10 +4592,26 @@ mask_timer_runtime_stopped() {
 
 unmask_timer_runtime_stopped() {
   [[ "$runtime_timer_masked" == 1 ]] || return 1
-  systemctl --user unmask --runtime wirtelprimpf.timer || return 1
+  [[ -n "$runtime_timer_barrier_binding" ]] || return 1
+  runtime_barrier_python remove \
+    "$runtime_control_dir" "$runtime_legacy_dir" \
+    wirtelprimpf.timer 1000 1000 \
+    "$runtime_timer_barrier_binding" || return 1
+  runtime_timer_barrier_binding=
   runtime_timer_masked=0
+  systemctl --user daemon-reload || return 1
   test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = "$timer_enabled_before"
   test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive
+}
+
+normalize_interrupted_timer_barrier() {
+  [[ "$interrupted_runtime_barriers" == 1 && \
+    "$interrupted_timer_normalized" == 0 ]] || return 0
+  [[ "$runtime_service_masked" == 1 && "$runtime_timer_masked" == 1 ]]
+  test "$(systemctl --user show wirtelprimpf.service -p LoadState --value)" = masked
+  unmask_timer_runtime_stopped || return 1
+  test "$(systemctl --user show wirtelprimpf.service -p LoadState --value)" = masked
+  interrupted_timer_normalized=1
 }
 
 unmask_generator_runtime() {
@@ -4019,7 +4620,12 @@ unmask_generator_runtime() {
   # unmasked only while the same strict inactive/dead state is still proven;
   # timer activity is restored separately and last.
   assert_generator_inactive || return 1
-  systemctl --user unmask --runtime wirtelprimpf.service || return 1
+  [[ -n "$runtime_service_barrier_binding" ]] || return 1
+  runtime_barrier_python remove \
+    "$runtime_control_dir" "$runtime_legacy_dir" \
+    wirtelprimpf.service 1000 1000 \
+    "$runtime_service_barrier_binding" || return 1
+  runtime_service_barrier_binding=
   runtime_service_masked=0
   systemctl --user daemon-reload || return 1
   test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = \
@@ -4828,6 +5434,7 @@ printf 'start\n' >"$sandbox/generator-sub-state"
 printf 'static\n' >"$sandbox/service-enablement"
 printf 'active\n' >"$sandbox/admin-state"
 printf 'running\n' >"$sandbox/applet-state"
+: >"$sandbox/barrier-proof"
 for unit in wirtelprimpf.service wirtelprimpf.timer wirtelprimpf-admin.service; do
   printf 'unit=%s\n' "$unit" >"$sandbox/source/units/$unit"
   cp -a -- "$sandbox/source/units/$unit" "$sandbox/live/units/$unit"
@@ -4836,6 +5443,16 @@ printf 'applet-target\n' >"$sandbox/source/applet/metadata.json"
 cp -a -- "$sandbox/source/applet/metadata.json" \
   "$sandbox/live/applet/metadata.json"
 : >"$sandbox/recovery-events"
+
+runtime_load_state_harness() {
+  local unit="$1"
+  case "$unit" in service|timer) ;; *) return 1 ;; esac
+  if [[ -e "$sandbox/$unit-control-mask" ]]; then
+    printf 'masked\n'
+  else
+    printf 'loaded\n'
+  fi
+}
 
 assert_recovery_lock_held() {
   if flock -n "$sandbox/settings.lock" true; then
@@ -4863,6 +5480,9 @@ restore_private_parent_mode() {
 
 quiesce_generator_harness() {
   local transition="$1" attempts=0 max_attempts=3
+  if [[ "$(<"$sandbox/service-enablement")" == static ]]; then
+    rm -f -- "$sandbox/service-legacy-mask" "$sandbox/service-control-mask"
+  fi
   printf 'timer-stop\n' >>"$sandbox/recovery-events"
   printf 'inactive\n' >"$sandbox/timer-state"
   while :; do
@@ -4899,6 +5519,11 @@ quiesce_generator_harness() {
     esac
   done
   printf 'generator-inactive-before-mask\n' >>"$sandbox/recovery-events"
+  : >"$sandbox/service-legacy-mask"
+  test ! -e "$sandbox/service-control-mask"
+  printf 'lower-priority-mask-is-ineffective\n' >>"$sandbox/barrier-proof"
+  : >"$sandbox/service-control-mask"
+  test "$(runtime_load_state_harness service)" = masked
   printf 'masked-runtime\n' >"$sandbox/service-enablement"
   printf 'service-runtime-mask\n' >>"$sandbox/recovery-events"
   if [[ "$transition" == after-mask-reactivation ]]; then
@@ -4944,6 +5569,10 @@ rollback_harness() {
   test "$(<"$sandbox/timer-state")" = inactive
   assert_recovery_lock_held
   printf 'timer-enablement-proof\n' >>"$sandbox/recovery-events"
+  rm -f -- "$sandbox/service-legacy-mask"
+  test "$(runtime_load_state_harness service)" = masked
+  rm -f -- "$sandbox/service-control-mask"
+  test "$(runtime_load_state_harness service)" = loaded
   printf 'static\n' >"$sandbox/service-enablement"
   test "$(<"$sandbox/service-enablement")" = static
   assert_recovery_lock_held
@@ -4974,10 +5603,47 @@ fail_closed_harness() {
   printf 'inactive\n' >"$sandbox/timer-state"
   printf 'masked-runtime\n' >"$sandbox/timer-enablement"
   printf 'masked-runtime\n' >"$sandbox/service-enablement"
+  : >"$sandbox/timer-legacy-mask"
+  : >"$sandbox/timer-control-mask"
+  : >"$sandbox/service-legacy-mask"
+  : >"$sandbox/service-control-mask"
+  test "$(runtime_load_state_harness timer)" = masked
+  test "$(runtime_load_state_harness service)" = masked
   printf 'fail-closed-admin-stop\nfail-closed-timer-stop\ntimer-runtime-mask\nservice-runtime-mask\n' \
     >>"$sandbox/recovery-events"
   test "$(<"$sandbox/timer-persistent-enablement")" = enabled
 }
+
+# BEGIN TASK4_INTERRUPTED_FOUR_LINK_HARNESS
+# Model the exact state left by the failed lower-priority mask attempt plus the
+# effective user.control containment. Adoption itself is read-only; only after
+# the service barrier is proven continuously effective may the stopped timer's
+# pair be normalized for the fresh transaction.
+: >"$sandbox/service-legacy-mask"
+: >"$sandbox/service-control-mask"
+: >"$sandbox/timer-legacy-mask"
+: >"$sandbox/timer-control-mask"
+printf 'masked-runtime\n' >"$sandbox/service-enablement"
+printf 'masked-runtime\n' >"$sandbox/timer-enablement"
+printf 'inactive\n' >"$sandbox/generator-active-state"
+printf 'dead\n' >"$sandbox/generator-sub-state"
+printf 'inactive\n' >"$sandbox/timer-state"
+printf 'inactive\n' >"$sandbox/admin-state"
+test "$(runtime_load_state_harness service)" = masked
+test "$(runtime_load_state_harness timer)" = masked
+printf 'interrupted-four-link-adoption\n' >>"$sandbox/barrier-proof"
+rm -f -- "$sandbox/timer-legacy-mask"
+test "$(runtime_load_state_harness service)" = masked
+test "$(runtime_load_state_harness timer)" = masked
+rm -f -- "$sandbox/timer-control-mask"
+printf 'enabled\n' >"$sandbox/timer-enablement"
+test "$(runtime_load_state_harness service)" = masked
+test "$(runtime_load_state_harness timer)" = loaded
+printf 'timer-recovery-normalized\n' >>"$sandbox/barrier-proof"
+printf 'static\n' >"$sandbox/service-enablement"
+printf 'active\n' >"$sandbox/timer-state"
+printf 'active\n' >"$sandbox/admin-state"
+# END TASK4_INTERRUPTED_FOUR_LINK_HARNESS
 
 set +e
 (
@@ -5231,9 +5897,13 @@ assert_final_lock_held() {
 }
 
 : >"$sandbox/success-events"
+rm -f -- "$sandbox/timer-legacy-mask" "$sandbox/timer-control-mask"
 printf 'inactive\n' >"$sandbox/timer-state"
 printf 'enabled\n' >"$sandbox/timer-enablement"
 printf 'masked-runtime\n' >"$sandbox/service-enablement"
+: >"$sandbox/service-legacy-mask"
+: >"$sandbox/service-control-mask"
+test "$(runtime_load_state_harness service)" = masked
 printf 'inactive\n' >"$sandbox/admin-state"
 exec {final_lock}<>"$sandbox/settings.lock"
 flock -n "$final_lock"
@@ -5246,6 +5916,10 @@ test "$(<"$sandbox/timer-state")" = inactive
 test "$(<"$sandbox/timer-enablement")" = enabled
 printf 'timer-enablement-restored-stopped\n' >>"$sandbox/success-events"
 assert_final_lock_held
+: >"$sandbox/timer-legacy-mask"
+test ! -e "$sandbox/timer-control-mask"
+: >"$sandbox/timer-control-mask"
+test "$(runtime_load_state_harness timer)" = masked
 printf 'masked-runtime\n' >"$sandbox/timer-enablement"
 printf 'timer-runtime-mask\n' >>"$sandbox/success-events"
 test "$(<"$sandbox/service-enablement")" = masked-runtime
@@ -5274,9 +5948,17 @@ test "$(<"$runtime_harness/application.txt")" = target-tree
 test -z "$(git -C "$runtime_harness" status --porcelain)"
 printf 'attach-main-same-tree\n' >>"$sandbox/success-events"
 assert_final_lock_held
+rm -f -- "$sandbox/timer-legacy-mask"
+test "$(runtime_load_state_harness timer)" = masked
+rm -f -- "$sandbox/timer-control-mask"
+test "$(runtime_load_state_harness timer)" = loaded
 printf 'enabled\n' >"$sandbox/timer-enablement"
 test "$(<"$sandbox/timer-state")" = inactive
 printf 'timer-runtime-unmask\n' >>"$sandbox/success-events"
+rm -f -- "$sandbox/service-legacy-mask"
+test "$(runtime_load_state_harness service)" = masked
+rm -f -- "$sandbox/service-control-mask"
+test "$(runtime_load_state_harness service)" = loaded
 printf 'static\n' >"$sandbox/service-enablement"
 test "$(<"$sandbox/service-enablement")" = static
 printf 'service-runtime-unmask\nservice-proof\n' \
