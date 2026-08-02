@@ -15,6 +15,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_PLAN = ROOT / "docs/superpowers/plans/2026-08-01-public-site-copy-and-rollout.md"
+PR4_REOPEN_EVIDENCE = (
+    ROOT / "docs/superpowers/evidence/2026-08-02-pr4-reopen-422.json"
+)
 _FIXTURE_GIT_ENV = {
     "HOME": "/home/teladi",
     "USER": "teladi",
@@ -135,6 +138,10 @@ class RolloutPlanContractTests(unittest.TestCase):
         cls.task3_merge = _code_block_after(
             cls.document,
             "**Step 5: Merge through GitHub and record the immutable generator SHA**",
+        )
+        cls.ownership_gate = _code_block_after(
+            cls.document,
+            "#### Verbindliches Ownership-Gate vor jedem Runtime-Gitlauf",
         )
         cls.task1_commit = _code_block_after(
             cls.document,
@@ -311,6 +318,131 @@ class RolloutPlanContractTests(unittest.TestCase):
             "review_author_id": 136622811,
             "review_commit": fixture["head"],
             "review_state": "APPROVED",
+        }
+
+    @staticmethod
+    def _pr4_closed_binding(
+        receipt_state: str = "remote_committed",
+        remote_feature: str | None = None,
+    ) -> dict[str, object]:
+        historical_reopen = json.loads(PR4_REOPEN_EVIDENCE.read_text(encoding="utf-8"))
+        base = "b00d824adee47341e3251bc18e09239fde1c5939"
+        head = "5aab1907b9af73fe6d8ef56e49beb7a527877e19"
+        tree = "967a0b41f6525de79dfc91e1b52dd8ca3dc85ac8"
+        merge = "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"
+        if remote_feature is None:
+            remote_feature = head
+        return {
+            "version": 1,
+            "actor": {"login": "H234598", "id": 54270221},
+            "repository": {
+                "id": "R_kgDOTpr2BA",
+                "name_with_owner": "H234598/Wirtelprimpf-generator",
+                "canonical_origin": (
+                    "https://github.com/H234598/Wirtelprimpf-generator.git"
+                ),
+            },
+            "receipt": {
+                "version": 3,
+                "state": receipt_state,
+                "pr_number": 4,
+                "head_ref": "agent/transactional-settings-live-sync-status",
+                "base_before": base,
+                "expected_head": head,
+                "head_tree": tree,
+                "merge_sha": merge,
+            },
+            "refs": {"main": merge, "feature": remote_feature},
+            "graphql_pr": {
+                "number": 4,
+                "state": "CLOSED",
+                "merged": False,
+                "merge_commit": None,
+                "viewer_can_reopen": False,
+                "base_ref": "main",
+                "head_ref": "agent/transactional-settings-live-sync-status",
+                "head_oid": head,
+                "is_draft": False,
+                "is_cross_repository": False,
+                "head_repository_id": "R_kgDOTpr2BA",
+                "head_repository": "H234598/Wirtelprimpf-generator",
+                "head_owner": "H234598",
+                "review_decision": "APPROVED",
+            },
+            "rest_pr": {
+                "number": 4,
+                "state": "closed",
+                "merged": False,
+                "merge_commit_sha": "01df605da0cd39f5bbcddfd2ebc9837d74f3f375",
+                "base_ref": "main",
+                "base_sha": base,
+                "head_ref": "agent/transactional-settings-live-sync-status",
+                "head_sha": head,
+                "base_repository_node_id": "R_kgDOTpr2BA",
+                "base_repository": "H234598/Wirtelprimpf-generator",
+                "head_repository_node_id": "R_kgDOTpr2BA",
+                "head_repository": "H234598/Wirtelprimpf-generator",
+                "author_login": "H234598",
+                "author_id": 54270221,
+                "mergeable": True,
+                "mergeable_state": "clean",
+            },
+            "timeline": [
+                {
+                    "event": "closed",
+                    "actor_login": "H234598",
+                    "actor_id": 54270221,
+                    "created_at": "2026-08-02T11:08:29Z",
+                },
+                {
+                    "event": "head_ref_deleted",
+                    "actor_login": "H234598",
+                    "actor_id": 54270221,
+                    "created_at": "2026-08-02T11:08:29Z",
+                },
+                {
+                    "event": "head_ref_restored",
+                    "actor_login": "H234598",
+                    "actor_id": 54270221,
+                    "created_at": "2026-08-02T11:14:21Z",
+                },
+            ],
+            "compare": {
+                "status": "ahead",
+                "ahead_by": 1,
+                "behind_by": 0,
+                "total_commits": 1,
+                "merge_base": head,
+                "base_commit": head,
+                "commits": [merge],
+                "files_count": 0,
+            },
+            "commit": {
+                "sha": merge,
+                "tree": tree,
+                "parents": [base, head],
+                "author_name": "H234598",
+                "author_email": "54270221+H234598@users.noreply.github.com",
+                "author_date": "2026-08-02T11:00:40Z",
+                "committer_name": "H234598",
+                "committer_email": "54270221+H234598@users.noreply.github.com",
+                "committer_date": "2026-08-02T11:00:40Z",
+                "message": (
+                    "Merge pull request #4 from "
+                    "agent/transactional-settings-live-sync-status"
+                ),
+            },
+            "review": {
+                "id": 4838199265,
+                "author_login": "coderabbitai[bot]",
+                "author_id": 136622811,
+                "author_node_id": "BOT_kgDOCCSy2w",
+                "author_url": "https://github.com/apps/coderabbitai",
+                "commit": head,
+                "state": "APPROVED",
+                "unresolved_threads": 0,
+            },
+            "historical_reopen": historical_reopen,
         }
 
     def test_task3_uses_an_exact_base_lease_cas_and_verifies_the_indirect_merge(self) -> None:
@@ -1023,7 +1155,7 @@ generator_head=feature/reviewed
 generator_expected_head=$2
 canonical_repo_id=R_kgDOTpr2BA
 canonical_repository=H234598/Wirtelprimpf-generator
-assert_task3_current_review
+assert_task3_current_review "$3"
 printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
   "$generator_review_author_login" "$generator_review_author_id" \
   "$generator_review_commit" "$generator_review_state"
@@ -1037,6 +1169,7 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
                 reviews: dict[str, object] | None = None,
                 threads_second: dict[str, object] | None = None,
                 reviews_second: dict[str, object] | None = None,
+                required_pr_state: str = "OPEN",
             ) -> subprocess.CompletedProcess[str]:
                 payloads = {
                     "overview.json": overview or base_overview,
@@ -1049,7 +1182,15 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
                 for filename, payload in payloads.items():
                     (fixture_dir / filename).write_text(json.dumps(payload), encoding="utf-8")
                 return subprocess.run(  # nosec B603 -- fixed local shell and fixture argv
-                    ["/bin/bash", "-c", script, "review-gate-test", str(fixture_dir), head],
+                    [
+                        "/bin/bash",
+                        "-c",
+                        script,
+                        "review-gate-test",
+                        str(fixture_dir),
+                        head,
+                        required_pr_state,
+                    ],
                     text=True,
                     capture_output=True,
                     check=False,
@@ -1078,6 +1219,16 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
             self.assertEqual(
                 accepted.stdout,
+                f"4837973683:coderabbitai[bot]:136622811:{head}:APPROVED\n",
+            )
+
+            closed = execute(
+                overview=dict(base_overview, state="CLOSED"),
+                required_pr_state="CLOSED",
+            )
+            self.assertEqual(closed.returncode, 0, closed.stderr)
+            self.assertEqual(
+                closed.stdout,
                 f"4837973683:coderabbitai[bot]:136622811:{head}:APPROVED\n",
             )
 
@@ -2557,6 +2708,229 @@ classify_task3_remote_action "$1" "$2" "$3" "$4" "$5" "$6"
                 result = classify(*inputs)
                 self.assertNotEqual(result.returncode, 0)
 
+    def test_pr4_reopen_rejection_is_machine_bound_and_never_replayed(self) -> None:
+        evidence = json.loads(PR4_REOPEN_EVIDENCE.read_text(encoding="utf-8"))
+        self.assertEqual(
+            evidence,
+            {
+                "schema": "wirtelprimpf-pr4-reopen-rejection/v1",
+                "attempt_count": 1,
+                "request": {
+                    "method": "PATCH",
+                    "path": "/repos/H234598/Wirtelprimpf-generator/pulls/4",
+                    "body": {"state": "open"},
+                },
+                "response": {
+                    "status": 422,
+                    "error": {
+                        "resource": "PullRequest",
+                        "code": "custom",
+                        "field": "state",
+                        "message": (
+                            "state cannot be changed. These commits are already merged."
+                        ),
+                    },
+                },
+                "binding": {
+                    "actor_login": "H234598",
+                    "actor_id": 54270221,
+                    "repository_id": "R_kgDOTpr2BA",
+                    "repository": "H234598/Wirtelprimpf-generator",
+                    "pr_number": 4,
+                    "receipt_version": 3,
+                    "receipt_state": "remote_committed",
+                    "base_before": "b00d824adee47341e3251bc18e09239fde1c5939",
+                    "expected_head": "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+                    "head_tree": "967a0b41f6525de79dfc91e1b52dd8ca3dc85ac8",
+                    "merge_sha": "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f",
+                    "merge_parents": [
+                        "b00d824adee47341e3251bc18e09239fde1c5939",
+                        "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+                    ],
+                    "review_id": 4838199265,
+                    "review_author_id": 136622811,
+                    "review_commit": "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+                    "review_state": "APPROVED",
+                },
+            },
+        )
+        recovery = _marked_block(self.task3_merge, "TASK3_PR4_CLOSED_RECOVERY")
+        normalized = " ".join(recovery.split())
+        self.assertNotIn("--method PATCH", normalized)
+        self.assertNotIn("-X PATCH", normalized)
+        self.assertNotIn("state=open", normalized)
+        self.assertIn("attempt_count == 1", recovery)
+        self.assertIn("task3_git_probe hash-object", recovery)
+        evidence_blob = _fixture_git(
+            ["hash-object", "--", str(PR4_REOPEN_EVIDENCE)],
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+        self.assertEqual(evidence_blob, "769dac62c3d3fa734945de5e83af4444fad1b9b3")
+        self.assertIn(f"PR4_REOPEN_EVIDENCE_BLOB={evidence_blob}", recovery)
+
+    def test_pr4_closed_recovery_classifier_is_exact_and_never_returns_push(self) -> None:
+        recovery = _marked_block(self.task3_merge, "TASK3_PR4_CLOSED_RECOVERY")
+        classifier = _shell_function(
+            recovery,
+            "classify_task3_pr4_closed_action",
+        )
+        validator = _shell_function(
+            recovery,
+            "assert_task3_pr4_closed_binding",
+        )
+        base = "b00d824adee47341e3251bc18e09239fde1c5939"
+        head = "5aab1907b9af73fe6d8ef56e49beb7a527877e19"
+        merge = "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"
+        script = f"""
+set -Eeuo pipefail
+{validator}
+{classifier}
+classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
+"""
+
+        def classify(
+            state: str,
+            remote_main: str,
+            remote_head: str,
+            binding: dict[str, object],
+        ) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(  # nosec B603 -- fixed local shell and JSON fixture
+                [
+                    "/bin/bash",
+                    "-c",
+                    script,
+                    "pr4-closed-state-test",
+                    state,
+                    remote_main,
+                    remote_head,
+                    json.dumps(binding, separators=(",", ":")),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+
+        accepted = (
+            (
+                "remote_committed",
+                merge,
+                head,
+                self._pr4_closed_binding(),
+                "closed-verify-cleanup\n",
+            ),
+            (
+                "verified",
+                merge,
+                head,
+                self._pr4_closed_binding("verified"),
+                "closed-cleanup\n",
+            ),
+            (
+                "verified",
+                merge,
+                "",
+                self._pr4_closed_binding("verified", ""),
+                "closed-observe\n",
+            ),
+        )
+        for state, remote_main, remote_head, binding, expected in accepted:
+            with self.subTest(accepted=(state, remote_main, remote_head)):
+                result = classify(state, remote_main, remote_head, binding)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+                self.assertNotIn("push", result.stdout)
+
+        rejected_inputs = (
+            ("planned", merge, head, self._pr4_closed_binding()),
+            (
+                "remote_committed",
+                merge,
+                "",
+                self._pr4_closed_binding("remote_committed", ""),
+            ),
+            ("remote_committed", base, head, self._pr4_closed_binding()),
+            ("verified", merge, "4" * 40, self._pr4_closed_binding("verified")),
+        )
+        for state, remote_main, remote_head, binding in rejected_inputs:
+            with self.subTest(rejected=(state, remote_main, remote_head)):
+                result = classify(state, remote_main, remote_head, binding)
+                self.assertNotEqual(result.returncode, 0)
+
+        drift_cases: dict[str, tuple[str, object]] = {
+            "actor-id": ("actor.id", 7),
+            "repo-id": ("repository.id", "R_foreign"),
+            "receipt-version": ("receipt.version", 4),
+            "pr-number": ("receipt.pr_number", 5),
+            "base": ("receipt.base_before", "1" * 40),
+            "head": ("receipt.expected_head", "2" * 40),
+            "tree": ("receipt.head_tree", "3" * 40),
+            "merge": ("receipt.merge_sha", "4" * 40),
+            "graphql-state": ("graphql_pr.state", "MERGED"),
+            "graphql-merged": ("graphql_pr.merged", True),
+            "reopen": ("graphql_pr.viewer_can_reopen", True),
+            "rest-mergeable": ("rest_pr.mergeable", False),
+            "timeline": ("timeline.0.created_at", "2026-08-02T11:08:30Z"),
+            "compare": ("compare.ahead_by", 2),
+            "parent": ("commit.parents.0", "5" * 40),
+            "review": ("review.id", 1),
+            "historical-status": ("historical_reopen.response.status", 200),
+        }
+        for name, (path, value) in drift_cases.items():
+            binding = self._pr4_closed_binding()
+            cursor: object = binding
+            parts = path.split(".")
+            for part in parts[:-1]:
+                if isinstance(cursor, list):
+                    cursor = cursor[int(part)]
+                else:
+                    assert isinstance(cursor, dict)
+                    cursor = cursor[part]
+            if isinstance(cursor, list):
+                cursor[int(parts[-1])] = value
+            else:
+                assert isinstance(cursor, dict)
+                cursor[parts[-1]] = value
+            with self.subTest(drift=name):
+                result = classify("remote_committed", merge, head, binding)
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_pr4_cleanup_has_only_an_exact_feature_lease_after_all_live_gates(self) -> None:
+        recovery = _marked_block(self.task3_merge, "TASK3_PR4_CLOSED_RECOVERY")
+        deletion = _marked_block(recovery, "TASK3_PR4_FEATURE_REF_DELETE")
+        normalized_delete = " ".join(deletion.split())
+        self.assertEqual(deletion.count("git_remote push"), 1)
+        self.assertIn(
+            "--force-with-lease=refs/heads/$generator_head:$generator_expected_head",
+            normalized_delete,
+        )
+        self.assertIn('\":refs/heads/$generator_head\"', normalized_delete)
+        self.assertNotIn("refs/heads/main:", normalized_delete)
+        self.assertNotIn("$generator_merge_sha:refs/heads/main", normalized_delete)
+        self.assertNotIn("--atomic", normalized_delete)
+        delete_offset = recovery.index("# BEGIN TASK3_PR4_FEATURE_REF_DELETE")
+        gated = recovery[:delete_offset]
+        for required_gate in (
+            "require_task3_auth",
+            "require_canonical_repository",
+            "assert_task3_current_review CLOSED",
+            "assert_task3_pr4_closed_binding",
+            "assert_task3_pr4_timeline",
+            "assert_task3_pr4_compare",
+            "assert_task3_pr4_merge_object",
+            "write_task3_receipt verified",
+        ):
+            self.assertIn(required_gate, gated)
+        self.assertLess(
+            gated.index("assert_task3_current_review CLOSED"),
+            gated.index("write_task3_receipt verified"),
+        )
+        self.assertIn("closed-verify-cleanup", recovery)
+        self.assertIn("closed-cleanup", recovery)
+        self.assertIn("closed-observe", recovery)
+
     def test_task3_policy_and_pr_identity_gates_are_strictly_fail_closed(self) -> None:
         self.assertIn('type == "array" and length == 0', self.task3_merge)
         self.assertNotIn("blocking_rules=", self.task3_merge)
@@ -2605,18 +2979,21 @@ classify_task3_remote_action "$1" "$2" "$3" "$4" "$5" "$6"
         self.assertIn("REMOTE COMMIT COMPLETE; VERIFICATION PENDING", self.task3_merge)
         self.assertIn("PUSH OUTCOME REQUIRES RECEIPT RECONCILIATION", self.task3_merge)
         self.assertIn("planned_remote_committed", self.task3_merge)
+        atomic_push = self.task3_merge.index("git_remote push --atomic")
+        committed_after_push = self.task3_merge.index(
+            "task3_remote_committed=1",
+            atomic_push,
+        )
+        remote_receipt_after_push = self.task3_merge.index(
+            "write_task3_receipt remote_committed",
+            committed_after_push,
+        )
         self.assertLess(
             self.task3_merge.index("task3_push_started=1"),
-            self.task3_merge.index("git_remote push --atomic"),
+            atomic_push,
         )
-        self.assertLess(
-            self.task3_merge.index("git_remote push --atomic"),
-            self.task3_merge.index("task3_remote_committed=1"),
-        )
-        self.assertLess(
-            self.task3_merge.index("task3_remote_committed=1"),
-            self.task3_merge.index("write_task3_receipt remote_committed"),
-        )
+        self.assertLess(atomic_push, committed_after_push)
+        self.assertLess(committed_after_push, remote_receipt_after_push)
 
     def test_step9_contains_the_exact_smokes_and_orders_marker_producer_before_consumer(self) -> None:
         self.assertIn(self.smoke_api, self.deployment)
@@ -2639,6 +3016,165 @@ classify_task3_remote_action "$1" "$2" "$3" "$4" "$5" "$6"
             "Erst nach dem Task-4-CAS",
             self.document,
         )
+
+    def test_task4_ownership_gate_binds_the_exact_current_allowlist(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_OWNERSHIP_BINDING_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "ownership_contract_test"}
+        exec(compile(program, "<task4-ownership-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        expected = namespace["EXPECTED_RUNTIME_INVENTORY"]
+        self.assertIsInstance(expected, tuple)
+        assert isinstance(expected, tuple)
+        self.assertEqual(len(expected), 84)
+        digest = namespace["canonical_inventory_digest"](expected)
+        self.assertEqual(digest, namespace["EXPECTED_RUNTIME_INVENTORY_SHA256"])
+        self.assertNotIn("450", self.ownership_gate)
+        self.assertIn("expected_runtime_inventory_count=84", self.ownership_gate)
+        self.assertNotIn("--rebuild", program)
+        self.assertNotIn("audit", program.lower())
+        for required in (
+            "O_NOFOLLOW",
+            "st_dev",
+            "st_ino",
+            "st_nlink",
+            "os.fchown",
+            "rollback",
+            "S_ISREG",
+            "S_ISDIR",
+            "commonpath",
+        ):
+            self.assertIn(required, program)
+
+    def test_task4_ownership_inventory_rejects_path_type_link_and_object_drift(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_OWNERSHIP_BINDING_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "ownership_contract_test"}
+        exec(compile(program, "<task4-ownership-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        capture = namespace["capture_runtime_inventory"]
+        validate = namespace["validate_expected_inventory"]
+        bind = namespace["bind_runtime_inventory_fds"]
+        assert_fd_binding = namespace["_assert_fd_binding"]
+        close_bound = namespace["close_bound_inventory"]
+        uid = os.geteuid()
+        gid = os.getegid()
+        foreign_target_uid = uid + 100_000
+        foreign_target_gid = gid + 100_000
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-ownership-") as tmp:
+            root = Path(tmp).resolve()
+            (root / "nested").mkdir()
+            (root / "nested" / "one").write_text("one\n", encoding="utf-8")
+            (root / "two").write_text("two\n", encoding="utf-8")
+            expected = capture(
+                str(root),
+                foreign_target_uid,
+                foreign_target_gid,
+            )
+            validate(str(root), expected, uid, gid)
+            bound = bind(str(root), expected, uid, gid)
+            try:
+                self.assertEqual(len(bound), len(expected))
+                link_drift_record = dict(bound[0]["record"])
+                link_drift_record["nlink"] = int(link_drift_record["nlink"]) + 1
+                with self.assertRaises(RuntimeError):
+                    assert_fd_binding(
+                        int(bound[0]["fd"]), link_drift_record, uid, gid
+                    )
+            finally:
+                close_bound(bound)
+
+            (root / "unexpected").write_text("drift\n", encoding="utf-8")
+            with self.assertRaises(RuntimeError):
+                validate(str(root), expected, uid, gid)
+            (root / "unexpected").unlink()
+
+            (root / "link").symlink_to(root / "two")
+            with self.assertRaises(RuntimeError):
+                capture(str(root), foreign_target_uid, foreign_target_gid)
+            (root / "link").unlink()
+
+            os.link(root / "two", root / "hardlink")
+            with self.assertRaises(RuntimeError):
+                capture(str(root), foreign_target_uid, foreign_target_gid)
+            (root / "hardlink").unlink()
+
+            fifo = root / "special"
+            os.mkfifo(fifo)
+            with self.assertRaises(RuntimeError):
+                capture(str(root), foreign_target_uid, foreign_target_gid)
+            fifo.unlink()
+
+            escaped = list(expected)
+            escaped[0] = dict(escaped[0], path="../escape")
+            with self.assertRaises(RuntimeError):
+                validate(str(root), tuple(escaped), uid, gid)
+
+            object_drift = list(expected)
+            object_drift[0] = dict(
+                object_drift[0],
+                ino=int(object_drift[0]["ino"]) + 1,
+            )
+            with self.assertRaises(RuntimeError):
+                bind(str(root), tuple(object_drift), uid, gid)
+
+            link_count_drift = list(expected)
+            link_count_drift[0] = dict(
+                link_count_drift[0],
+                nlink=int(link_count_drift[0]["nlink"]) + 1,
+            )
+            with self.assertRaises(RuntimeError):
+                bind(str(root), tuple(link_count_drift), uid, gid)
+
+            submount_drift = list(expected)
+            submount_drift[0] = dict(
+                submount_drift[0],
+                dev=int(submount_drift[0]["dev"]) + 1,
+            )
+            with self.assertRaises(RuntimeError):
+                bind(str(root), tuple(submount_drift), uid, gid)
+
+    def test_task4_ownership_transaction_rolls_back_completed_fchowns(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_OWNERSHIP_BINDING_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "ownership_contract_test"}
+        exec(compile(program, "<task4-ownership-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        capture = namespace["capture_runtime_inventory"]
+        bind = namespace["bind_runtime_inventory_fds"]
+        close_bound = namespace["close_bound_inventory"]
+        apply_transaction = namespace["apply_runtime_ownership_transaction"]
+        contract_os = namespace["os"]
+        uid = os.geteuid()
+        gid = os.getegid()
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-ownership-rollback-") as tmp:
+            root = Path(tmp).resolve()
+            (root / "one").write_text("one\n", encoding="utf-8")
+            (root / "two").write_text("two\n", encoding="utf-8")
+            expected = capture(str(root), uid + 100_000, gid + 100_000)
+            bound = bind(str(root), expected, uid, gid)
+            original_fchown = contract_os.fchown
+            calls: list[tuple[int, int, int]] = []
+
+            def injected_fchown(fd: int, next_uid: int, next_gid: int) -> None:
+                calls.append((fd, next_uid, next_gid))
+                if len(calls) == 2:
+                    raise OSError("injected second-fchown failure")
+
+            contract_os.fchown = injected_fchown
+            try:
+                with self.assertRaisesRegex(Exception, "rollback complete"):
+                    apply_transaction(bound, uid, gid, uid, gid)
+                self.assertEqual(len(calls), 3)
+                self.assertEqual(calls[0][0], calls[2][0])
+            finally:
+                contract_os.fchown = original_fchown
+                close_bound(bound)
 
     def test_step10_contains_real_signal_and_lease_race_injections(self) -> None:
         self.assertIn('kill -TERM "$recovery_pid"', self.harness)

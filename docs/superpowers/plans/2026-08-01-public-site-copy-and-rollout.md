@@ -835,6 +835,7 @@ policy_probe=
 task3_push_started=0
 task3_remote_committed=0
 task3_verified=0
+task3_pr4_cleanup_pending=0
 
 # BEGIN TASK3_FD_TOKEN_CALL
 task3_token_call() {
@@ -953,7 +954,10 @@ task3_exit() {
   unset task3_ephemeral_token
   set +e
   cleanup_policy_probe
-  if [[ "$task3_remote_committed" == 1 && "$task3_verified" != 1 ]]; then
+  if [[ "$task3_pr4_cleanup_pending" == 1 ]]; then
+    printf 'PR4 MERGE VERIFIED; EXACT FEATURE CLEANUP PENDING; rerun Step 5, never write main: %s\n' \
+      "$receipt_file" >&2
+  elif [[ "$task3_remote_committed" == 1 && "$task3_verified" != 1 ]]; then
     printf 'REMOTE COMMIT COMPLETE; VERIFICATION PENDING: %s\n' \
       "$receipt_file" >&2
   elif [[ "$task3_push_started" == 1 ]]; then
@@ -1073,7 +1077,9 @@ assert_task3_current_review() {
   overview="$(fetch_task3_review_overview)"
   assert_pr_identity "$overview"
   /usr/bin/jq -e --arg required_pr_state "$required_pr_state" '
-    ($required_pr_state == "OPEN" or $required_pr_state == "MERGED")
+    ($required_pr_state == "OPEN"
+      or $required_pr_state == "MERGED"
+      or $required_pr_state == "CLOSED")
     and .state == $required_pr_state
     and .reviewDecision == "APPROVED"
   ' <<<"$overview" >/dev/null
@@ -1443,6 +1449,565 @@ classify_task3_remote_action() {
 }
 # END TASK3_REMOTE_STATE
 
+# BEGIN TASK3_PR4_CLOSED_RECOVERY
+# This is a one-off reconciliation for PR 4 only. It is deliberately not a
+# generic CLOSED => verified rule. The failed reopen request recorded below is
+# historical evidence and MUST NOT be replayed.
+PR4_REOPEN_EVIDENCE_BLOB=769dac62c3d3fa734945de5e83af4444fad1b9b3
+pr4_evidence_relative=docs/superpowers/evidence/2026-08-02-pr4-reopen-422.json
+
+assert_task3_pr4_historical_reopen() {
+  local evidence="$1"
+  /usr/bin/jq -e '
+    keys == ["attempt_count", "binding", "request", "response", "schema"]
+    and .schema == "wirtelprimpf-pr4-reopen-rejection/v1"
+    and .attempt_count == 1
+    and .request == {
+      method: "PATCH",
+      path: "/repos/H234598/Wirtelprimpf-generator/pulls/4",
+      body: {state: "open"}
+    }
+    and .response == {
+      status: 422,
+      error: {
+        resource: "PullRequest",
+        code: "custom",
+        field: "state",
+        message: "state cannot be changed. These commits are already merged."
+      }
+    }
+    and .binding == {
+      actor_login: "H234598",
+      actor_id: 54270221,
+      repository_id: "R_kgDOTpr2BA",
+      repository: "H234598/Wirtelprimpf-generator",
+      pr_number: 4,
+      receipt_version: 3,
+      receipt_state: "remote_committed",
+      base_before: "b00d824adee47341e3251bc18e09239fde1c5939",
+      expected_head: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+      head_tree: "967a0b41f6525de79dfc91e1b52dd8ca3dc85ac8",
+      merge_sha: "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f",
+      merge_parents: [
+        "b00d824adee47341e3251bc18e09239fde1c5939",
+        "5aab1907b9af73fe6d8ef56e49beb7a527877e19"
+      ],
+      review_id: 4838199265,
+      review_author_id: 136622811,
+      review_commit: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+      review_state: "APPROVED"
+    }
+  ' <<<"$evidence" >/dev/null
+}
+
+assert_task3_pr4_timeline() {
+  local timeline="$1"
+  /usr/bin/jq -e '
+    type == "array"
+    and ([.[] | select(
+      .event == "closed"
+      and .actor.login == "H234598"
+      and .actor.id == 54270221
+      and .created_at == "2026-08-02T11:08:29Z"
+    )] | length) == 1
+    and ([.[] | select(
+      .event == "head_ref_deleted"
+      and .actor.login == "H234598"
+      and .actor.id == 54270221
+      and .created_at == "2026-08-02T11:08:29Z"
+    )] | length) == 1
+    and ([.[] | select(
+      .event == "head_ref_restored"
+      and .actor.login == "H234598"
+      and .actor.id == 54270221
+      and .created_at == "2026-08-02T11:14:21Z"
+    )] | length) == 1
+    and ([.[] | select(
+      (.created_at > "2026-08-02T11:14:21Z")
+      and .event == "head_ref_deleted"
+      and .actor.login == "H234598"
+      and .actor.id == 54270221
+    )] | length) <= 1
+    and all(.[];
+      (
+        .event == "closed"
+        and .actor.login == "H234598"
+        and .actor.id == 54270221
+        and .created_at == "2026-08-02T11:08:29Z"
+      )
+      or (
+        .event == "head_ref_deleted"
+        and .actor.login == "H234598"
+        and .actor.id == 54270221
+        and .created_at == "2026-08-02T11:08:29Z"
+      )
+      or (
+        .event == "head_ref_restored"
+        and .actor.login == "H234598"
+        and .actor.id == 54270221
+        and .created_at == "2026-08-02T11:14:21Z"
+      )
+      or (
+        .created_at > "2026-08-02T11:14:21Z"
+        and .event == "head_ref_deleted"
+        and .actor.login == "H234598"
+        and .actor.id == 54270221
+      )
+    )
+  ' <<<"$timeline" >/dev/null
+}
+
+assert_task3_pr4_compare() {
+  local compare="$1"
+  /usr/bin/jq -e '
+    .status == "ahead"
+    and .ahead_by == 1
+    and .behind_by == 0
+    and .total_commits == 1
+    and .merge_base_commit.sha == "5aab1907b9af73fe6d8ef56e49beb7a527877e19"
+    and .base_commit.sha == "5aab1907b9af73fe6d8ef56e49beb7a527877e19"
+    and [.commits[].sha] == ["274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"]
+    and (.files | type == "array" and length == 0)
+  ' <<<"$compare" >/dev/null
+}
+
+assert_task3_pr4_merge_object() {
+  local merge_object="$1"
+  /usr/bin/jq -e '
+    .sha == "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"
+    and .tree.sha == "967a0b41f6525de79dfc91e1b52dd8ca3dc85ac8"
+    and [.parents[].sha] == [
+      "b00d824adee47341e3251bc18e09239fde1c5939",
+      "5aab1907b9af73fe6d8ef56e49beb7a527877e19"
+    ]
+    and .author == {
+      name: "H234598",
+      email: "54270221+H234598@users.noreply.github.com",
+      date: "2026-08-02T11:00:40Z"
+    }
+    and .committer == {
+      name: "H234598",
+      email: "54270221+H234598@users.noreply.github.com",
+      date: "2026-08-02T11:00:40Z"
+    }
+    and .message == "Merge pull request #4 from agent/transactional-settings-live-sync-status"
+  ' <<<"$merge_object" >/dev/null
+}
+
+assert_task3_pr4_closed_binding() {
+  local state="$1" remote_main="$2" remote_head="$3" binding="$4"
+  /usr/bin/jq -e \
+    --arg state "$state" \
+    --arg remote_main "$remote_main" \
+    --arg remote_head "$remote_head" '
+    keys == [
+      "actor", "commit", "compare", "graphql_pr", "historical_reopen",
+      "receipt", "refs", "repository", "rest_pr", "review", "timeline",
+      "version"
+    ]
+    and .version == 1
+    and .actor == {login: "H234598", id: 54270221}
+    and .repository == {
+      id: "R_kgDOTpr2BA",
+      name_with_owner: "H234598/Wirtelprimpf-generator",
+      canonical_origin: "https://github.com/H234598/Wirtelprimpf-generator.git"
+    }
+    and .receipt == {
+      version: 3,
+      state: $state,
+      pr_number: 4,
+      head_ref: "agent/transactional-settings-live-sync-status",
+      base_before: "b00d824adee47341e3251bc18e09239fde1c5939",
+      expected_head: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+      head_tree: "967a0b41f6525de79dfc91e1b52dd8ca3dc85ac8",
+      merge_sha: "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"
+    }
+    and .refs == {main: $remote_main, feature: $remote_head}
+    and .graphql_pr == {
+      number: 4,
+      state: "CLOSED",
+      merged: false,
+      merge_commit: null,
+      viewer_can_reopen: false,
+      base_ref: "main",
+      head_ref: "agent/transactional-settings-live-sync-status",
+      head_oid: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+      is_draft: false,
+      is_cross_repository: false,
+      head_repository_id: "R_kgDOTpr2BA",
+      head_repository: "H234598/Wirtelprimpf-generator",
+      head_owner: "H234598",
+      review_decision: "APPROVED"
+    }
+    and .rest_pr == {
+      number: 4,
+      state: "closed",
+      merged: false,
+      merge_commit_sha: "01df605da0cd39f5bbcddfd2ebc9837d74f3f375",
+      base_ref: "main",
+      base_sha: "b00d824adee47341e3251bc18e09239fde1c5939",
+      head_ref: "agent/transactional-settings-live-sync-status",
+      head_sha: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+      base_repository_node_id: "R_kgDOTpr2BA",
+      base_repository: "H234598/Wirtelprimpf-generator",
+      head_repository_node_id: "R_kgDOTpr2BA",
+      head_repository: "H234598/Wirtelprimpf-generator",
+      author_login: "H234598",
+      author_id: 54270221,
+      mergeable: true,
+      mergeable_state: "clean"
+    }
+    and .timeline == [
+      {
+        event: "closed", actor_login: "H234598", actor_id: 54270221,
+        created_at: "2026-08-02T11:08:29Z"
+      },
+      {
+        event: "head_ref_deleted", actor_login: "H234598", actor_id: 54270221,
+        created_at: "2026-08-02T11:08:29Z"
+      },
+      {
+        event: "head_ref_restored", actor_login: "H234598", actor_id: 54270221,
+        created_at: "2026-08-02T11:14:21Z"
+      }
+    ]
+    and .compare == {
+      status: "ahead", ahead_by: 1, behind_by: 0, total_commits: 1,
+      merge_base: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+      base_commit: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+      commits: ["274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"],
+      files_count: 0
+    }
+    and .commit == {
+      sha: "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f",
+      tree: "967a0b41f6525de79dfc91e1b52dd8ca3dc85ac8",
+      parents: [
+        "b00d824adee47341e3251bc18e09239fde1c5939",
+        "5aab1907b9af73fe6d8ef56e49beb7a527877e19"
+      ],
+      author_name: "H234598",
+      author_email: "54270221+H234598@users.noreply.github.com",
+      author_date: "2026-08-02T11:00:40Z",
+      committer_name: "H234598",
+      committer_email: "54270221+H234598@users.noreply.github.com",
+      committer_date: "2026-08-02T11:00:40Z",
+      message: "Merge pull request #4 from agent/transactional-settings-live-sync-status"
+    }
+    and .review == {
+      id: 4838199265,
+      author_login: "coderabbitai[bot]",
+      author_id: 136622811,
+      author_node_id: "BOT_kgDOCCSy2w",
+      author_url: "https://github.com/apps/coderabbitai",
+      commit: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+      state: "APPROVED",
+      unresolved_threads: 0
+    }
+    and (.historical_reopen | type == "object")
+    and .historical_reopen.schema == "wirtelprimpf-pr4-reopen-rejection/v1"
+    and .historical_reopen.attempt_count == 1
+    and .historical_reopen.response.status == 422
+    and .historical_reopen.response.error == {
+      resource: "PullRequest", code: "custom", field: "state",
+      message: "state cannot be changed. These commits are already merged."
+    }
+  ' <<<"$binding" >/dev/null
+}
+
+classify_task3_pr4_closed_action() {
+  local state="$1" remote_main="$2" remote_head="$3" binding="$4"
+  local expected_head=5aab1907b9af73fe6d8ef56e49beb7a527877e19
+  local merge_sha=274b25c9e1f9ea97d3b060997ed5c425d2b30e9f
+  assert_task3_pr4_closed_binding \
+    "$state" "$remote_main" "$remote_head" "$binding"
+  if [[ "$state" == remote_committed \
+    && "$remote_main" == "$merge_sha" \
+    && "$remote_head" == "$expected_head" ]]; then
+    printf 'closed-verify-cleanup\n'
+  elif [[ "$state" == verified \
+    && "$remote_main" == "$merge_sha" \
+    && "$remote_head" == "$expected_head" ]]; then
+    printf 'closed-cleanup\n'
+  elif [[ "$state" == verified \
+    && "$remote_main" == "$merge_sha" \
+    && -z "$remote_head" ]]; then
+    printf 'closed-observe\n'
+  else
+    return 1
+  fi
+}
+
+is_task3_pr4_receipt_candidate() {
+  test -f "$receipt_file" && test ! -L "$receipt_file"
+  test "$(stat -c '%u:%g:%a' "$receipt_file")" = 1000:1000:600
+  /usr/bin/jq -e '
+    .version == 3
+    and (.state == "remote_committed" or .state == "verified")
+    and .actor_login == "H234598"
+    and .actor_id == 54270221
+    and .repository_id == "R_kgDOTpr2BA"
+    and .repository == "H234598/Wirtelprimpf-generator"
+    and .canonical_origin == "https://github.com/H234598/Wirtelprimpf-generator.git"
+    and .pr_number == 4
+    and .head_ref == "agent/transactional-settings-live-sync-status"
+    and .expected_head == "5aab1907b9af73fe6d8ef56e49beb7a527877e19"
+    and .base_before == "b00d824adee47341e3251bc18e09239fde1c5939"
+    and .head_tree == "967a0b41f6525de79dfc91e1b52dd8ca3dc85ac8"
+    and .merge_sha == "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"
+    and .review_id == 4838199265
+    and .review_author_login == "coderabbitai[bot]"
+    and .review_author_id == 136622811
+    and .review_commit == "5aab1907b9af73fe6d8ef56e49beb7a527877e19"
+    and .review_state == "APPROVED"
+  ' "$receipt_file" >/dev/null
+}
+
+run_task3_pr4_closed_gate() {
+  local source_root evidence_path evidence tracked_blob
+  local graphql_repository graphql_pr timeline rest_pr compare merge_object
+  local graphql_query remote_main remote_head
+
+  generator_head=agent/transactional-settings-live-sync-status
+  generator_expected_head=5aab1907b9af73fe6d8ef56e49beb7a527877e19
+  load_task3_receipt
+  generator_pr_number=$receipt_pr_number
+  generator_base_before=$receipt_base_before
+  generator_review_id=$receipt_review_id
+  generator_review_author_login=$receipt_review_author_login
+  generator_review_author_id=$receipt_review_author_id
+  generator_review_commit=$receipt_review_commit
+  generator_review_state=$receipt_review_state
+  derive_task3_merge
+  validate_task3_receipt_derivation
+  test "$generator_pr_number" = 4
+  test "$generator_base_before" = b00d824adee47341e3251bc18e09239fde1c5939
+  test "$generator_head_tree" = 967a0b41f6525de79dfc91e1b52dd8ca3dc85ac8
+  test "$generator_merge_sha" = 274b25c9e1f9ea97d3b060997ed5c425d2b30e9f
+  test "$(/usr/bin/git rev-list --parents -n1 "$generator_merge_sha")" = \
+    "$generator_merge_sha $generator_base_before $generator_expected_head"
+  /usr/bin/git diff --quiet "$generator_expected_head" "$generator_merge_sha"
+
+  source_root="$(task3_git_probe rev-parse --show-toplevel)"
+  test "$source_root" = "$(pwd -P)"
+  evidence_path="$source_root/$pr4_evidence_relative"
+  test -f "$evidence_path" && test ! -L "$evidence_path"
+  test "$(realpath -e -- "$evidence_path")" = "$evidence_path"
+  tracked_blob="$(
+    task3_git_probe ls-tree HEAD -- "$pr4_evidence_relative" |
+      /usr/bin/awk 'NR == 1 {print $3} END {if (NR != 1) exit 1}'
+  )"
+  test "$tracked_blob" = "$PR4_REOPEN_EVIDENCE_BLOB"
+  test "$(task3_git_probe hash-object -- "$evidence_path")" = \
+    "$PR4_REOPEN_EVIDENCE_BLOB"
+  evidence="$(/usr/bin/jq -c . "$evidence_path")"
+  assert_task3_pr4_historical_reopen "$evidence"
+
+  assert_canonical_origin
+  require_task3_auth
+  require_canonical_repository
+  remote_main="$(git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
+  remote_head="$(
+    git_remote ls-remote "$canonical_origin" "refs/heads/$generator_head" |
+      cut -f1
+  )"
+
+  graphql_query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){id nameWithOwner pullRequest(number:$number){number state merged viewerCanReopen headRefName headRefOid baseRefName isDraft isCrossRepository headRepository{id nameWithOwner} headRepositoryOwner{login} mergeCommit{oid} reviewDecision}}}'
+  graphql_repository="$(
+    task3_gh api graphql -f query="$graphql_query" \
+      -F owner=H234598 -F name=Wirtelprimpf-generator -F number=4 \
+      --jq '.data.repository'
+  )"
+  assert_canonical_repository_json "$graphql_repository"
+  graphql_pr="$(/usr/bin/jq -c '.pullRequest' <<<"$graphql_repository")"
+  assert_pr_identity "$graphql_pr"
+  /usr/bin/jq -e '
+    .number == 4
+    and .state == "CLOSED"
+    and .merged == false
+    and .mergeCommit == null
+    and .viewerCanReopen == false
+    and .reviewDecision == "APPROVED"
+  ' <<<"$graphql_pr" >/dev/null
+  timeline="$(
+    task3_gh api --paginate --slurp \
+      -H 'Accept: application/vnd.github+json' \
+      "repos/$canonical_repository/issues/4/timeline?per_page=100" |
+      /usr/bin/jq -c '[add[] | select(
+        .event == "closed"
+        or .event == "head_ref_deleted"
+        or .event == "head_ref_restored"
+      )]'
+  )"
+  assert_task3_pr4_timeline "$timeline"
+
+  rest_pr="$(task3_gh api "repos/$canonical_repository/pulls/4")"
+  /usr/bin/jq -e '
+    .number == 4
+    and .state == "closed"
+    and .merged == false
+    and .merge_commit_sha == "01df605da0cd39f5bbcddfd2ebc9837d74f3f375"
+    and .base.ref == "main"
+    and .base.sha == "b00d824adee47341e3251bc18e09239fde1c5939"
+    and .head.ref == "agent/transactional-settings-live-sync-status"
+    and .head.sha == "5aab1907b9af73fe6d8ef56e49beb7a527877e19"
+    and .base.repo.node_id == "R_kgDOTpr2BA"
+    and .base.repo.full_name == "H234598/Wirtelprimpf-generator"
+    and .head.repo.node_id == "R_kgDOTpr2BA"
+    and .head.repo.full_name == "H234598/Wirtelprimpf-generator"
+    and .user.login == "H234598"
+    and .user.id == 54270221
+    and .mergeable == true
+    and .mergeable_state == "clean"
+  ' <<<"$rest_pr" >/dev/null
+
+  compare="$(
+    task3_gh api \
+      "repos/$canonical_repository/compare/$generator_expected_head...$generator_merge_sha"
+  )"
+  assert_task3_pr4_compare "$compare"
+  merge_object="$(
+    task3_gh api "repos/$canonical_repository/git/commits/$generator_merge_sha"
+  )"
+  assert_task3_pr4_merge_object "$merge_object"
+
+  assert_task3_current_review CLOSED
+  test "$generator_review_id" = 4838199265
+  test "$generator_review_author_login" = 'coderabbitai[bot]'
+  test "$generator_review_author_id" = 136622811
+  test "$generator_review_commit" = "$generator_expected_head"
+  test "$generator_review_state" = APPROVED
+  validate_task3_receipt_derivation
+
+  task3_pr4_binding="$(
+    /usr/bin/jq -cn \
+      --arg receipt_state "$receipt_state" \
+      --arg remote_main "$remote_main" \
+      --arg remote_head "$remote_head" \
+      --argjson historical_reopen "$evidence" '
+      {
+        version: 1,
+        actor: {login: "H234598", id: 54270221},
+        repository: {
+          id: "R_kgDOTpr2BA",
+          name_with_owner: "H234598/Wirtelprimpf-generator",
+          canonical_origin: "https://github.com/H234598/Wirtelprimpf-generator.git"
+        },
+        receipt: {
+          version: 3, state: $receipt_state, pr_number: 4,
+          head_ref: "agent/transactional-settings-live-sync-status",
+          base_before: "b00d824adee47341e3251bc18e09239fde1c5939",
+          expected_head: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+          head_tree: "967a0b41f6525de79dfc91e1b52dd8ca3dc85ac8",
+          merge_sha: "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"
+        },
+        refs: {main: $remote_main, feature: $remote_head},
+        graphql_pr: {
+          number: 4, state: "CLOSED", merged: false, merge_commit: null,
+          viewer_can_reopen: false, base_ref: "main",
+          head_ref: "agent/transactional-settings-live-sync-status",
+          head_oid: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+          is_draft: false, is_cross_repository: false,
+          head_repository_id: "R_kgDOTpr2BA",
+          head_repository: "H234598/Wirtelprimpf-generator",
+          head_owner: "H234598", review_decision: "APPROVED"
+        },
+        rest_pr: {
+          number: 4, state: "closed", merged: false,
+          merge_commit_sha: "01df605da0cd39f5bbcddfd2ebc9837d74f3f375",
+          base_ref: "main",
+          base_sha: "b00d824adee47341e3251bc18e09239fde1c5939",
+          head_ref: "agent/transactional-settings-live-sync-status",
+          head_sha: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+          base_repository_node_id: "R_kgDOTpr2BA",
+          base_repository: "H234598/Wirtelprimpf-generator",
+          head_repository_node_id: "R_kgDOTpr2BA",
+          head_repository: "H234598/Wirtelprimpf-generator",
+          author_login: "H234598", author_id: 54270221,
+          mergeable: true, mergeable_state: "clean"
+        },
+        timeline: [
+          {event: "closed", actor_login: "H234598", actor_id: 54270221, created_at: "2026-08-02T11:08:29Z"},
+          {event: "head_ref_deleted", actor_login: "H234598", actor_id: 54270221, created_at: "2026-08-02T11:08:29Z"},
+          {event: "head_ref_restored", actor_login: "H234598", actor_id: 54270221, created_at: "2026-08-02T11:14:21Z"}
+        ],
+        compare: {
+          status: "ahead", ahead_by: 1, behind_by: 0, total_commits: 1,
+          merge_base: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+          base_commit: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+          commits: ["274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"],
+          files_count: 0
+        },
+        commit: {
+          sha: "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f",
+          tree: "967a0b41f6525de79dfc91e1b52dd8ca3dc85ac8",
+          parents: ["b00d824adee47341e3251bc18e09239fde1c5939", "5aab1907b9af73fe6d8ef56e49beb7a527877e19"],
+          author_name: "H234598",
+          author_email: "54270221+H234598@users.noreply.github.com",
+          author_date: "2026-08-02T11:00:40Z",
+          committer_name: "H234598",
+          committer_email: "54270221+H234598@users.noreply.github.com",
+          committer_date: "2026-08-02T11:00:40Z",
+          message: "Merge pull request #4 from agent/transactional-settings-live-sync-status"
+        },
+        review: {
+          id: 4838199265, author_login: "coderabbitai[bot]",
+          author_id: 136622811, author_node_id: "BOT_kgDOCCSy2w",
+          author_url: "https://github.com/apps/coderabbitai",
+          commit: "5aab1907b9af73fe6d8ef56e49beb7a527877e19",
+          state: "APPROVED", unresolved_threads: 0
+        },
+        historical_reopen: $historical_reopen
+      }'
+  )"
+  task3_pr4_remote_main=$remote_main
+  task3_pr4_remote_head=$remote_head
+  assert_task3_pr4_closed_binding \
+    "$receipt_state" "$remote_main" "$remote_head" "$task3_pr4_binding"
+}
+
+if [[ -e "$receipt_file" ]] && is_task3_pr4_receipt_candidate; then
+  task3_remote_committed=1
+  run_task3_pr4_closed_gate
+  task3_pr4_action="$(classify_task3_pr4_closed_action \
+    "$receipt_state" "$task3_pr4_remote_main" "$task3_pr4_remote_head" \
+    "$task3_pr4_binding")"
+  case "$task3_pr4_action" in
+    closed-verify-cleanup)
+      write_task3_receipt verified
+      receipt_state=verified
+      ;;
+    closed-cleanup|closed-observe) ;;
+    *) exit 1 ;;
+  esac
+  task3_verified=1
+
+  if [[ "$task3_pr4_action" != closed-observe ]]; then
+    task3_pr4_cleanup_pending=1
+    # Rebind every live surface after the local receipt transition and
+    # immediately before the only permitted remote mutation.
+    run_task3_pr4_closed_gate
+    test "$(classify_task3_pr4_closed_action \
+      "$receipt_state" "$task3_pr4_remote_main" "$task3_pr4_remote_head" \
+      "$task3_pr4_binding")" = closed-cleanup
+    # BEGIN TASK3_PR4_FEATURE_REF_DELETE
+    git_remote push \
+      --force-with-lease=refs/heads/$generator_head:$generator_expected_head \
+      "$canonical_origin" \
+      ":refs/heads/$generator_head"
+    # END TASK3_PR4_FEATURE_REF_DELETE
+    test "$(git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)" = \
+      "$generator_merge_sha"
+    test -z "$(
+      git_remote ls-remote "$canonical_origin" "refs/heads/$generator_head"
+    )"
+    task3_pr4_cleanup_pending=0
+  fi
+  printf 'Verified closed-state generator SHA for Task 4/5: %s\n' \
+    "$generator_merge_sha"
+  exit 0
+fi
+# END TASK3_PR4_CLOSED_RECOVERY
+
 # BEGIN TASK3_STEP5_IDENTITY_GATE
 require_task3_auth
 require_canonical_repository
@@ -1652,11 +2217,31 @@ exec {task3_token_relay_fd}<&-
 test "$task3_status" = 0
 ```
 
-Expected: GitHub main contains the deterministic two-parent merge after one atomic exact-base/exact-head lease CAS, the reviewed PR head branch is deleted in that same atomic update, and the printed 40-character SHA is recorded as the only factory reference permitted in Tasks 4–5. GitHub reports the same object as the PR's indirect merge; see the official [indirect merges contract](https://docs.github.com/en/pull-requests/reference/pull-request-merges?apiVersion=2022-11-28#indirect-merges). The applied-rules response must be exactly `[]`, and classic protection must be an authenticated exact HTTP 404; every nonempty array, HTTP 200, unclassified response or API failure stops the remote mutation. The PR head name, OID, same-repository bit, owner, repository ID and `nameWithOwner` agree exactly. Every fetch-/push-URL value is enumerated with `--all`; each set has cardinality one and equals canonical HTTPS. Every subsequent fetch, `ls-remote`, and push uses that URL literal, never the mutable remote name. No protection is bypassed or weakened.
+Expected: GitHub main contains the deterministic two-parent merge after one atomic exact-base/exact-head lease CAS, the reviewed PR head branch is deleted in that same atomic update, and the printed 40-character SHA is recorded as the only factory reference permitted in Tasks 4–5. Normally GitHub reports the same object as the PR's indirect merge; see the official [indirect merges contract](https://docs.github.com/en/pull-requests/reference/pull-request-merges?apiVersion=2022-11-28#indirect-merges). The applied-rules response must be exactly `[]`, and classic protection must be an authenticated exact HTTP 404; every nonempty array, HTTP 200, unclassified response or API failure stops the remote mutation. The PR head name, OID, same-repository bit, owner, repository ID and `nameWithOwner` agree exactly. Every fetch-/push-URL value is enumerated with `--all`; each set has cardinality one and equals canonical HTTPS. Every subsequent fetch, `ls-remote`, and push uses that URL literal, never the mutable remote name. No protection is bypassed or weakened.
 
 Both persisted `gh` authentication contexts were invalid at the last local preflight; successful unauthenticated public reads are not write authorization. Steps 3–5 therefore require an externally supplied ephemeral `GH_TOKEN`, immediately disable xtrace before its first reference, unset its exported source, and relay its bytes only through private anonymous descriptors into a clean UID/GID-`teladi` shell. That long-lived shell retains only a non-exported variable and closes the relay descriptor immediately. Each `gh` or authenticated Git process receives the token through a fresh short-lived pipe; it never appears in argv, here-doc text, files, tests/builds, or merge hooks. `/user` must equal login `H234598` and numeric ID `54270221`. Authenticated Git clears credential helpers, installs only `gh auth git-credential`, disables hooks with `core.hooksPath=/dev/null`, and receives no persistent credential setup.
 
-The private atomic v3 receipt at `/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json` supersedes the earlier v2 contract. It is owned by `teladi`, mode `0600`, uses an exact no-extra-field schema, and binds actor login/ID, repository ID/name, canonical URL, PR/ref/head/base, the reviewed head tree, deterministic date/message, merge OID, and the exact trusted review ID/author/commit/state. Every run derives `expected_head^{tree}` from trusted Git state and reconstructs the deterministic commit from fixed identity plus trusted PR/head/base inputs before accepting receipt-derived values. Malformed, extra-field, stale, or forged receipts fail closed; failed atomic replacements remove their private temporary file. The state machine advances only `planned -> remote_committed -> verified`. A successful push is latched before any fallible observation; a push/receipt crash reconciles from the exact remote ref pair, while committed states classify only as `reconcile` or `observe` and can never re-enter `push`. API convergence failures report `REMOTE COMMIT COMPLETE; VERIFICATION PENDING`; every unknown combination fails closed. The runtime checkout remains untouched until Task 4.
+The private atomic v3 receipt at `/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json` supersedes the earlier v2 contract. It is owned by `teladi`, mode `0600`, uses an exact no-extra-field schema, and binds actor login/ID, repository ID/name, canonical URL, PR/ref/head/base, the reviewed head tree, deterministic date/message, merge OID, and the exact trusted review ID/author/commit/state. Every run derives `expected_head^{tree}` from trusted Git state and reconstructs the deterministic commit from fixed identity plus trusted PR/head/base inputs before accepting receipt-derived values. Malformed, extra-field, stale, or forged receipts fail closed; failed atomic replacements remove their private temporary file. The normal state machine advances only `planned -> remote_committed -> verified`. A successful push is latched before any fallible observation; a push/receipt crash reconciles from the exact remote ref pair, while normal committed states classify only as `reconcile` or `observe` and can never re-enter `push`. API convergence failures report `REMOTE COMMIT COMPLETE; VERIFICATION PENDING`; every unknown combination fails closed. The runtime checkout remains untouched until Task 4.
+
+PR 4 is the sole, hard-coded exception to GitHub's normal visible merge
+classification. It may enter the additive recovery block only with the exact
+v3 receipt, Actor/Repository/PR/Base/Head/Tree/Merge/parent/review constants
+printed in that block. Every run then rebinds live authentication, canonical
+repository, main and feature refs, `CLOSED + merged=false + mergeCommit=null +
+viewerCanReopen=false`, the complete relevant paginated timeline, REST PR,
+head-to-merge Compare result, immutable Git commit and the current exact
+CodeRabbit approval with no unresolved thread. The one previously rejected
+reopen request is a committed machine-readable blob with exact HTTP 422 and
+`PullRequest/custom/state/already merged` fields; it is never sent again.
+
+Only this complete conjunction may move the v3 receipt from
+`remote_committed` to `verified`. Before the restored feature ref is removed,
+the entire live conjunction is fetched and checked a second time. That cleanup
+contains one feature-only exact lease deletion and no main refspec, force of
+main, PR mutation or generic `CLOSED => verified` rule. A verified retry with
+the exact restored ref may only finish that cleanup; a verified retry with an
+absent ref may only observe. Any other receipt/ref/API/timeline combination
+fails closed and never reaches either push path.
 
 #### Verbindliches Execution-Context-Erratum für Task 3 Step 5 und Task 4
 
@@ -1720,24 +2305,459 @@ Ziel-SHA entsprechen. Jede frühere Gleichheit ist ein harter Abbruchgrund.
 
 #### Verbindliches Ownership-Gate vor jedem Runtime-Gitlauf
 
-Der bereits read-only bestätigte Fremdbesitz umfasst exakt 450 Einträge im
-Runtime-Checkout. Vor dem ersten und damit vor jedem folgenden Gitlauf als
-`teladi` repariert Root ausschließlich diese aufgelöste, nicht verlinkte
-Checkout-Wurzel; jede abweichende Anzahl bricht vor `chown` ab. Es gibt keine
-`safe.directory`-Ausnahme:
+Die frühere Zahl 450 war ein veralteter Snapshot und darf keine Besitzänderung
+mehr autorisieren. Der aktuelle read-only Befund umfasst exakt 84
+`root:root`-Einträge. Ihre relativen Pfade und Typen sind unten als unveränderliche
+Allowlist plus SHA-256 gebunden; es gibt keinen Modus, der diese Allowlist bei
+Drift neu erzeugt. Root verwirft vor jedem Write Symlinks oder Special Files
+in der Fremdbesitzmenge, mehrfach verlinkte reguläre Allowlistdateien,
+Submounts, nichtkanonische Pfade, abweichende Besitzer und jede zusätzliche
+oder fehlende Allowlistposition. Bereits korrekt `teladi`-eigene venv-Symlinks
+werden weder verfolgt noch aufgezeichnet oder verändert.
+
+Danach öffnet Root jeden aufgezeichneten Pfad komponentenweise relativ zu einem
+kanonischen Runtime-Directory-FD mit `O_NOFOLLOW`, bindet den unmittelbar zuvor
+aufgezeichneten Device-/Inode-/Typ-/UID-/GID-/Link-Stand nochmals per `fstat`
+und hält alle FDs bis zum Transaktionsende offen. Unmittelbar vor **jedem**
+`fchown` wird derselbe Stand erneut geprüft. Scheitert eine Prüfung oder ein
+Write, werden alle bereits geänderten FDs in umgekehrter Reihenfolge auf
+`root:root` zurückgesetzt und verifiziert; ein unvollständiger Rollback ist ein
+eigener harter Fehler. Es gibt keine `safe.directory`-Ausnahme und keinen
+pfadbasierten rekursiven `chown`:
 
 ```bash
 test "$(id -u)" = 0
 runtime=/home/teladi/.local/share/wirtelprimpf-generator
 test -d "$runtime" && test ! -L "$runtime"
 test "$(realpath -e -- "$runtime")" = "$runtime"
-declare -a foreign_runtime_entries=()
-while IFS= read -r -d '' entry; do
-  foreign_runtime_entries+=("$entry")
-done < <(find "$runtime" -xdev \( ! -user teladi -o ! -group teladi \) -print0)
-test "${#foreign_runtime_entries[@]}" = 450
-chown -h teladi:teladi -- "${foreign_runtime_entries[@]}"
-test "$(find "$runtime" -xdev \( ! -user teladi -o ! -group teladi \) -print -quit | wc -l)" = 0
+expected_runtime_inventory_count=84
+expected_runtime_inventory_sha256=713307aef872976278c81ef74dd7ddf635767e7e4bbb3441941db2e17b2dc368
+/usr/bin/python3 - "$runtime" \
+  "$expected_runtime_inventory_count" \
+  "$expected_runtime_inventory_sha256" <<'TASK4_OWNERSHIP_BINDING_PY'
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+from typing import Any
+
+
+EXPECTED_RUNTIME_INVENTORY = (
+    {"type": "d", "path": "docs"},
+    {"type": "d", "path": "docs/superpowers"},
+    {"type": "d", "path": "docs/superpowers/plans"},
+    {"type": "d", "path": "docs/superpowers/specs"},
+    {"type": "d", "path": "files/wirtelprimfgenerator@H234598/__pycache__"},
+    {"type": "d", "path": "scripts/__pycache__"},
+    {"type": "d", "path": "tests/__pycache__"},
+    {"type": "d", "path": "tests/platform/__pycache__"},
+    {"type": "f", "path": ".github/workflows/check.yml"},
+    {"type": "f", "path": "Makefile"},
+    {"type": "f", "path": "README.md"},
+    {"type": "f", "path": "Sourcecode/README.md"},
+    {"type": "f", "path": "Sourcecode/STORY_DIRECTIVES.md"},
+    {"type": "f", "path": "Sourcecode/env.example"},
+    {"type": "f", "path": "Sourcecode/systemd-user/wirtelprimpf.service"},
+    {"type": "f", "path": "Sourcecode/wirtelprimpf_generator.py"},
+    {"type": "f", "path": "docs/superpowers/plans/2026-07-31-story-directives-implementation.md"},
+    {"type": "f", "path": "docs/superpowers/plans/2026-08-01-public-site-copy-and-rollout.md"},
+    {"type": "f", "path": "docs/superpowers/plans/2026-08-01-transactional-settings-live-sync-status.md"},
+    {"type": "f", "path": "docs/superpowers/specs/2026-07-31-story-directives-design.md"},
+    {"type": "f", "path": "docs/superpowers/specs/2026-08-01-admin-live-sync-status-design.md"},
+    {"type": "f", "path": "files/wirtelprimfgenerator@H234598/PROGRAMMPLAN.md"},
+    {"type": "f", "path": "files/wirtelprimfgenerator@H234598/README.md"},
+    {"type": "f", "path": "files/wirtelprimfgenerator@H234598/StoryDirectives.py"},
+    {"type": "f", "path": "files/wirtelprimfgenerator@H234598/__pycache__/SettingsLogo.cpython-314.pyc"},
+    {"type": "f", "path": "files/wirtelprimfgenerator@H234598/__pycache__/helper.cpython-314.pyc"},
+    {"type": "f", "path": "files/wirtelprimfgenerator@H234598/applet.js"},
+    {"type": "f", "path": "files/wirtelprimfgenerator@H234598/metadata.json"},
+    {"type": "f", "path": "files/wirtelprimfgenerator@H234598/settings-schema.json"},
+    {"type": "f", "path": "files/wirtelprimfgenerator@H234598/story_directives_core.py"},
+    {"type": "f", "path": "scripts/__pycache__/validate_pages_artifact.cpython-314.pyc"},
+    {"type": "f", "path": "scripts/install-local.sh"},
+    {"type": "f", "path": "scripts/uninstall-local.sh"},
+    {"type": "f", "path": "tests/__pycache__/test_git_object_fallback.cpython-314.pyc"},
+    {"type": "f", "path": "tests/__pycache__/test_helper_env.cpython-314.pyc"},
+    {"type": "f", "path": "tests/__pycache__/test_release_publication.cpython-314.pyc"},
+    {"type": "f", "path": "tests/__pycache__/test_semver.cpython-314.pyc"},
+    {"type": "f", "path": "tests/__pycache__/test_settings_schema.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_admin.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_cloudflare_credentials.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_github_provision.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_hub.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_incremental_media.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_media_release.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_naming_state.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_pages_artifact.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_provisioning.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_runtime.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_systemd_units.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/__pycache__/test_target_switch.cpython-314.pyc"},
+    {"type": "f", "path": "tests/platform/test_admin.py"},
+    {"type": "f", "path": "tests/platform/test_github_provision.py"},
+    {"type": "f", "path": "tests/platform/test_naming_state.py"},
+    {"type": "f", "path": "tests/platform/test_provisioning.py"},
+    {"type": "f", "path": "tests/test_applet_runtime.js"},
+    {"type": "f", "path": "tests/test_story_directives.py"},
+    {"type": "f", "path": "web/fixtures/site/archive-manifest.json"},
+    {"type": "f", "path": "web/fixtures/site/publication-catalog.json"},
+    {"type": "f", "path": "web/src/components/ArchiveCard.astro"},
+    {"type": "f", "path": "web/src/lib/content.ts"},
+    {"type": "f", "path": "web/src/lib/data.ts"},
+    {"type": "f", "path": "web/src/pages/geschichten/[volume].astro"},
+    {"type": "f", "path": "web/src/pages/geschichten/index.astro"},
+    {"type": "f", "path": "web/src/pages/index.astro"},
+    {"type": "f", "path": "web/src/pages/projekt/index.astro"},
+    {"type": "f", "path": "web/src/pages/projekt/status.astro"},
+    {"type": "f", "path": "web/tests/content.test.ts"},
+    {"type": "f", "path": "wirtelprimpf_platform/__init__.py"},
+    {"type": "f", "path": "wirtelprimpf_platform/__pycache__/__init__.cpython-314.pyc"},
+    {"type": "f", "path": "wirtelprimpf_platform/__pycache__/admin.cpython-314.pyc"},
+    {"type": "f", "path": "wirtelprimpf_platform/__pycache__/catalog.cpython-314.pyc"},
+    {"type": "f", "path": "wirtelprimpf_platform/__pycache__/cli.cpython-314.pyc"},
+    {"type": "f", "path": "wirtelprimpf_platform/__pycache__/github_provision.cpython-314.pyc"},
+    {"type": "f", "path": "wirtelprimpf_platform/__pycache__/hub.cpython-314.pyc"},
+    {"type": "f", "path": "wirtelprimpf_platform/__pycache__/incremental_media.cpython-314.pyc"},
+    {"type": "f", "path": "wirtelprimpf_platform/__pycache__/naming.cpython-314.pyc"},
+    {"type": "f", "path": "wirtelprimpf_platform/__pycache__/runtime.cpython-314.pyc"},
+    {"type": "f", "path": "wirtelprimpf_platform/__pycache__/state.cpython-314.pyc"},
+    {"type": "f", "path": "wirtelprimpf_platform/admin.py"},
+    {"type": "f", "path": "wirtelprimpf_platform/catalog.py"},
+    {"type": "f", "path": "wirtelprimpf_platform/cli.py"},
+    {"type": "f", "path": "wirtelprimpf_platform/github_provision.py"},
+    {"type": "f", "path": "wirtelprimpf_platform/naming.py"},
+    {"type": "f", "path": "wirtelprimpf_platform/state.py"},
+)
+
+EXPECTED_RUNTIME_INVENTORY_SHA256 = "713307aef872976278c81ef74dd7ddf635767e7e4bbb3441941db2e17b2dc368"
+
+
+def canonical_inventory_digest(records: tuple[dict[str, Any], ...]) -> str:
+    projection = sorted(
+        ({"path": str(item["path"]), "type": str(item["type"])} for item in records),
+        key=lambda item: os.fsencode(item["path"]),
+    )
+    payload = json.dumps(
+        projection,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("ascii")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _canonical_root(root: str) -> str:
+    path = Path(root)
+    if not path.is_absolute() or path.is_symlink() or not path.is_dir():
+        raise RuntimeError("runtime root is not an absolute real directory")
+    canonical = os.path.realpath(root)
+    if canonical != root:
+        raise RuntimeError("runtime root is not canonical")
+    return canonical
+
+
+def _lexical_relative(root: str, full_path: str) -> str:
+    relative = os.path.relpath(full_path, root)
+    if relative in ("", ".") or os.path.isabs(relative):
+        raise RuntimeError("invalid relative inventory path")
+    components = relative.split(os.sep)
+    if any(component in ("", ".", "..") for component in components):
+        raise RuntimeError("non-lexical relative inventory path")
+    resolved = os.path.realpath(os.path.join(root, relative))
+    if os.path.commonpath((root, resolved)) != root:
+        raise RuntimeError("inventory path resolves outside runtime")
+    return relative
+
+
+def _type_code(metadata: os.stat_result) -> str:
+    if stat.S_ISREG(metadata.st_mode):
+        if metadata.st_nlink != 1:
+            raise RuntimeError("regular runtime file does not have nlink == 1")
+        return "f"
+    if stat.S_ISDIR(metadata.st_mode):
+        return "d"
+    if stat.S_ISLNK(metadata.st_mode):
+        raise RuntimeError("runtime symlink rejected")
+    raise RuntimeError("runtime special file rejected")
+
+
+def capture_runtime_inventory(
+    root: str,
+    target_uid: int,
+    target_gid: int,
+) -> tuple[dict[str, Any], ...]:
+    canonical = _canonical_root(root)
+    root_metadata = os.lstat(canonical)
+    root_device = root_metadata.st_dev
+    records: list[dict[str, Any]] = []
+    pending = [canonical]
+    while pending:
+        directory = pending.pop()
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                metadata = entry.stat(follow_symlinks=False)
+                if metadata.st_dev != root_device:
+                    raise RuntimeError("unexpected runtime submount")
+                if stat.S_ISLNK(metadata.st_mode):
+                    if metadata.st_uid == target_uid and metadata.st_gid == target_gid:
+                        continue
+                    raise RuntimeError("foreign runtime symlink rejected")
+                kind = _type_code(metadata)
+                relative = _lexical_relative(canonical, entry.path)
+                if kind == "d":
+                    pending.append(entry.path)
+                if metadata.st_uid != target_uid or metadata.st_gid != target_gid:
+                    records.append(
+                        {
+                            "path": relative,
+                            "type": kind,
+                            "uid": metadata.st_uid,
+                            "gid": metadata.st_gid,
+                            "dev": metadata.st_dev,
+                            "ino": metadata.st_ino,
+                            "nlink": metadata.st_nlink,
+                            "target_uid": target_uid,
+                            "target_gid": target_gid,
+                        }
+                    )
+    records.sort(key=lambda item: os.fsencode(str(item["path"])))
+    return tuple(records)
+
+
+def validate_expected_inventory(
+    root: str,
+    expected: tuple[dict[str, Any], ...],
+    source_uid: int,
+    source_gid: int,
+) -> tuple[dict[str, Any], ...]:
+    if not expected:
+        raise RuntimeError("empty ownership inventory rejected")
+    target_pairs = {
+        (int(item["target_uid"]), int(item["target_gid"])) for item in expected
+    }
+    if len(target_pairs) != 1:
+        raise RuntimeError("ambiguous target ownership")
+    for item in expected:
+        relative = str(item["path"])
+        if os.path.isabs(relative) or any(
+            part in ("", ".", "..") for part in relative.split(os.sep)
+        ):
+            raise RuntimeError("invalid expected relative path")
+        if item["type"] not in ("f", "d"):
+            raise RuntimeError("invalid expected object type")
+        if int(item["uid"]) != source_uid or int(item["gid"]) != source_gid:
+            raise RuntimeError("unexpected source ownership")
+        if item["type"] == "f" and int(item["nlink"]) != 1:
+            raise RuntimeError("expected regular file is multiply linked")
+    target_uid, target_gid = next(iter(target_pairs))
+    current = capture_runtime_inventory(root, target_uid, target_gid)
+    if current != expected:
+        raise RuntimeError("runtime ownership inventory drift")
+    return current
+
+
+def _assert_fd_binding(fd: int, record: dict[str, Any], uid: int, gid: int) -> None:
+    metadata = os.fstat(fd)
+    kind = _type_code(metadata)
+    expected = (
+        int(record["dev"]),
+        int(record["ino"]),
+        str(record["type"]),
+        int(record["nlink"]),
+        uid,
+        gid,
+    )
+    current = (
+        metadata.st_dev,
+        metadata.st_ino,
+        kind,
+        metadata.st_nlink,
+        metadata.st_uid,
+        metadata.st_gid,
+    )
+    if current != expected:
+        raise RuntimeError("open runtime object drift")
+
+
+def _open_beneath(root_fd: int, relative: str, kind: str) -> int:
+    parts = relative.split(os.sep)
+    parent_fd = os.dup(root_fd)
+    try:
+        for component in parts[:-1]:
+            next_fd = os.open(
+                component,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                dir_fd=parent_fd,
+            )
+            os.close(parent_fd)
+            parent_fd = next_fd
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+        if kind == "d":
+            flags |= os.O_DIRECTORY
+        return os.open(parts[-1], flags, dir_fd=parent_fd)
+    finally:
+        os.close(parent_fd)
+
+
+def bind_runtime_inventory_fds(
+    root: str,
+    expected: tuple[dict[str, Any], ...],
+    source_uid: int,
+    source_gid: int,
+) -> list[dict[str, Any]]:
+    canonical = _canonical_root(root)
+    validate_expected_inventory(canonical, expected, source_uid, source_gid)
+    root_fd = os.open(
+        canonical,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+    )
+    bound: list[dict[str, Any]] = []
+    try:
+        for record in expected:
+            fd = _open_beneath(root_fd, str(record["path"]), str(record["type"]))
+            try:
+                _assert_fd_binding(fd, record, source_uid, source_gid)
+            except BaseException:
+                os.close(fd)
+                raise
+            bound.append({"fd": fd, "record": record})
+        validate_expected_inventory(canonical, expected, source_uid, source_gid)
+        for item in bound:
+            _assert_fd_binding(
+                int(item["fd"]), item["record"], source_uid, source_gid
+            )
+        return bound
+    except BaseException:
+        close_bound_inventory(bound)
+        raise
+    finally:
+        os.close(root_fd)
+
+
+def close_bound_inventory(bound: list[dict[str, Any]]) -> None:
+    while bound:
+        item = bound.pop()
+        os.close(int(item["fd"]))
+
+
+def apply_runtime_ownership_transaction(
+    bound: list[dict[str, Any]],
+    source_uid: int,
+    source_gid: int,
+    target_uid: int,
+    target_gid: int,
+) -> None:
+    changed: list[dict[str, Any]] = []
+    try:
+        for item in bound:
+            fd = int(item["fd"])
+            record = item["record"]
+            _assert_fd_binding(fd, record, source_uid, source_gid)
+            os.fchown(fd, target_uid, target_gid)
+            changed.append(item)
+            _assert_fd_binding(fd, record, target_uid, target_gid)
+    except BaseException as original_error:
+        rollback_errors: list[str] = []
+        for item in reversed(changed):
+            fd = int(item["fd"])
+            record = item["record"]
+            try:
+                _assert_fd_binding(fd, record, target_uid, target_gid)
+                os.fchown(fd, source_uid, source_gid)
+                _assert_fd_binding(fd, record, source_uid, source_gid)
+            except BaseException as rollback_error:
+                rollback_errors.append(
+                    f"{record['path']}: {type(rollback_error).__name__}: {rollback_error}"
+                )
+        if rollback_errors:
+            raise RuntimeError(
+                "ownership transaction failed; rollback INCOMPLETE: "
+                + "; ".join(rollback_errors)
+            ) from original_error
+        raise RuntimeError(
+            "ownership transaction failed; rollback complete"
+        ) from original_error
+
+
+def rollback_runtime_ownership_transaction(
+    changed: list[dict[str, Any]],
+    source_uid: int,
+    source_gid: int,
+    target_uid: int,
+    target_gid: int,
+) -> None:
+    rollback_errors: list[str] = []
+    for item in reversed(changed):
+        fd = int(item["fd"])
+        record = item["record"]
+        try:
+            _assert_fd_binding(fd, record, target_uid, target_gid)
+            os.fchown(fd, source_uid, source_gid)
+            _assert_fd_binding(fd, record, source_uid, source_gid)
+        except BaseException as rollback_error:
+            rollback_errors.append(
+                f"{record['path']}: {type(rollback_error).__name__}: {rollback_error}"
+            )
+    if rollback_errors:
+        raise RuntimeError(
+            "postcondition failed; rollback INCOMPLETE: " + "; ".join(rollback_errors)
+        )
+
+
+def main() -> None:
+    if len(sys.argv) != 4:
+        raise SystemExit("exact runtime/count/digest arguments required")
+    root, expected_count_text, expected_digest = sys.argv[1:]
+    if os.geteuid() != 0 or os.getegid() != 0:
+        raise SystemExit("ownership transaction requires root")
+    if root != "/home/teladi/.local/share/wirtelprimpf-generator":
+        raise SystemExit("unexpected runtime root")
+    if int(expected_count_text) != len(EXPECTED_RUNTIME_INVENTORY) or int(
+        expected_count_text
+    ) != 84:
+        raise SystemExit("unexpected inventory count")
+    if expected_digest != EXPECTED_RUNTIME_INVENTORY_SHA256:
+        raise SystemExit("unexpected inventory digest argument")
+    if canonical_inventory_digest(EXPECTED_RUNTIME_INVENTORY) != expected_digest:
+        raise SystemExit("embedded inventory digest mismatch")
+
+    current = capture_runtime_inventory(root, 1000, 1000)
+    current_allowlist = tuple(
+        {"type": str(item["type"]), "path": str(item["path"])} for item in current
+    )
+    if current_allowlist != tuple(
+        sorted(EXPECTED_RUNTIME_INVENTORY, key=lambda item: os.fsencode(item["path"]))
+    ):
+        raise SystemExit("runtime ownership allowlist drift")
+    if any(item["uid"] != 0 or item["gid"] != 0 for item in current):
+        raise SystemExit("runtime source ownership is not exactly root:root")
+
+    bound = bind_runtime_inventory_fds(root, current, 0, 0)
+    try:
+        apply_runtime_ownership_transaction(bound, 0, 0, 1000, 1000)
+        try:
+            if capture_runtime_inventory(root, 1000, 1000):
+                raise RuntimeError("foreign ownership remains after transaction")
+        except BaseException as postcondition_error:
+            rollback_runtime_ownership_transaction(bound, 0, 0, 1000, 1000)
+            raise RuntimeError(
+                "ownership postcondition failed; rollback complete"
+            ) from postcondition_error
+    finally:
+        close_bound_inventory(bound)
+    print(
+        f"ownership inventory committed: count={len(current)} "
+        f"sha256={expected_digest}"
+    )
+
+
+if __name__ == "__main__":
+    main()
+TASK4_OWNERSHIP_BINDING_PY
 ```
 
 Danach kapselt Step 9 jeden einzelnen `git -C "$runtime" ...`-Aufruf in
@@ -7366,3 +8386,74 @@ Completion requires all of the following:
   zusätzlich mit 169 Python-Tests (168 grün, ein erwarteter Skip), Admin
   `33/33`, `git diff --check`, Ruff für alle geänderten
   Nichtbaseline-Pythonpfade und Bandit High ohne High-Finding.
+
+### 2026-08-02 — Additive PR-4-CLOSED-Reconciliation und transaktionales 84-Pfad-Ownership-Gate
+
+- Diese ausschließlich lokale Härtung beginnt auf dem exakten Generator-
+  `main`-Merge `274b25c9e1f9ea97d3b060997ed5c425d2b30e9f` im neuen Branch
+  `agent/pr4-closed-merge-reconcile`. Sie führt keinen Schritt des
+  Rolloutplans aus und verändert weder GitHub noch Receipt, Runtime, Services,
+  Applet, Archiv, Pages, DNS, Cloudflare oder Cinnamon-Upstream.
+- PR 4 erhält keinen allgemeinen `CLOSED => verified`-Fallback, sondern einen
+  einmaligen hart gebundenen Reconcilezweig. Er akzeptiert ausschließlich das
+  vorhandene v3-Receipt im Zustand `remote_committed` oder `verified`, den
+  exakten Main-Merge `274b25c9…`, Base `b00d824…`, Head `5aab1907…`, Baum
+  `967a0b41…`, die geordneten Eltern, PR 4, Repository-ID, Actor-ID und das
+  aktuelle CodeRabbit-Approval `4838199265` ohne offenen Thread.
+- Jeder Reconcilelauf erhebt alle autorisierenden Informationen frisch:
+  authentifizierter Actor, kanonisches Repository, beide Remote-Refs,
+  GraphQL-PR, vollständige relevante paginierte Timeline, REST-PR, Compare-
+  Ergebnis, unveränderliches Git-Commitobjekt und aktuelle Reviewkante. Der
+  ungewöhnliche Livevertrag bindet GraphQL an `CLOSED`, `merged=false`,
+  `mergeCommit=null`, `viewerCanReopen=false`, REST jedoch zusätzlich an den
+  von GitHub gelieferten hypothetischen `merge_commit_sha`
+  `01df605da0cd39f5bbcddfd2ebc9837d74f3f375`, `mergeable=true` und
+  `mergeable_state=clean`.
+- Der bereits genau einmal abgelehnte `PATCH state=open` ist als
+  maschinenlesbarer Beleg
+  `docs/superpowers/evidence/2026-08-02-pr4-reopen-422.json` mit Git-Blob
+  `769dac62c3d3fa734945de5e83af4444fad1b9b3` versioniert. Request,
+  HTTP-422-Fehlertupel und Objektbindung werden geprüft; der Request wird im
+  Recoveryblock niemals wiederholt.
+- Nur die vollständige Konjunktion darf `remote_committed -> verified`
+  schreiben. Vor der anschließenden Bereinigung wird die gesamte Livebindung
+  nochmals vollständig erhoben. Der einzige dort zulässige Remote-Write ist
+  die exakte Lease-Löschung des restaurierten Feature-Refs; der Block enthält
+  weder einen Main-Refspec noch `--atomic`, PR-State-Write oder irgendeinen
+  Pfad zurück zum Main-Push. Ein Retry mit bereits fehlendem Feature-Ref ist
+  ausschließlich beobachtend; jede andere Kombination bricht fail-closed ab.
+- Das veraltete Ownership-Snapshot mit 450 Positionen autorisiert keinen
+  Write mehr. Der neue Task-4-Vertrag bindet die aktuell read-only bestätigten
+  84 `root:root`-Positionen als unveränderliche Pfad-/Typ-Allowlist mit
+  SHA-256 `713307aef872976278c81ef74dd7ddf635767e7e4bbb3441941db2e17b2dc368`.
+  Es gibt keinen Rebuild- oder Auditmodus, der diese Liste bei Drift ersetzt.
+  Fremde Symlinks, Special Files, Submounts, zusätzliche/fehlende Positionen,
+  abweichende Eigentümer und mehrfach verlinkte reguläre Dateien stoppen vor
+  dem ersten Write; bereits korrekte venv-Symlinks werden nicht verfolgt oder
+  verändert.
+- Nach der vollständigen Vorprüfung öffnet Root jeden Zielpfad ausschließlich
+  komponentenweise relativ zu einem kanonischen Directory-FD mit
+  `O_NOFOLLOW`. Device, Inode, Typ, Linkzahl, UID und GID werden am offenen FD
+  sofort, erneut nach vollständigem Binden und unmittelbar vor jedem
+  `fchown` verglichen. Scheitert ein Write oder die Postcondition, werden alle
+  bereits geänderten FDs in umgekehrter Reihenfolge auf `root:root`
+  zurückgesetzt und verifiziert; ein unvollständiger Rollback ist ein eigener
+  harter Fehler. Es gibt weder rekursiven/pfadbasierten `chown` noch
+  `safe.directory`.
+- TDD begann mit sieben fokussierten Verträgen: ein echter Failure und sechs
+  erwartete fehlende Verträge; nach Implementierung bestanden `7/7`. Der
+  spätere unabhängige Diffaudit fand die noch nicht unmittelbar am FD
+  verglichene Linkzahl. Der neue fokussierte Test lief deshalb nochmals rot
+  (`0/1`, `Exception not raised`) und nach Aufnahme von `st_nlink` in das
+  Rebindtupel grün (`1/1`). Der vollständige Rolloutvertrag besteht nun aus 64
+  Tests: 63 grün, genau ein erwarteter Root-/`runuser`-Skip.
+- Die frische Abschlussmatrix unter UID/GID `1000:1000` bestand: Plattform
+  `166/166`; `make check` Exit 0 einschließlich Admin `33/33`, Applet-Sync
+  `39/39`, Settings-Schema `19/19` und Story-Directives `31/31`; Web `9/9`;
+  Astro 0 Fehler, 0 Warnungen, 0 Hinweise. Hub und Archiv validierten jeweils
+  823 Dateien, 818 HTML-Dokumente und 10.840 interne Links; ihre Baumhashes
+  lauten `0acc6695654d3e82e450a3467d96995da89e59d954d00340d5a5028916ab1bb6`
+  und `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
+  Task 3 Step 5 bestand `bash -n` und ShellCheck auf Warning-Level;
+  `git diff --check`, JSON-Validierung, Ruff und Bandit High waren ebenfalls
+  ohne Befund.
