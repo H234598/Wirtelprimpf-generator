@@ -373,6 +373,8 @@ task3_token_call() {
       USER=teladi \
       LOGNAME=teladi \
       PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+      GIT_CONFIG_NOSYSTEM=1 \
+      GIT_CONFIG_GLOBAL=/dev/null \
       GIT_TERMINAL_PROMPT=0 \
       GIT_ASKPASS=/bin/false \
       SSH_ASKPASS=/bin/false \
@@ -392,16 +394,52 @@ task3_gh() {
   task3_token_call /usr/bin/gh "$@"
 }
 
+# BEGIN TASK3_GIT_CONFIG_GUARD
+assert_safe_local_git_config() {
+  local repository_path="$1" unsafe_keys
+  unsafe_keys="$(
+    /usr/bin/git -C "$repository_path" config --local --name-only \
+      --get-regexp \
+      '^(include\..*|includeif\..*|url\..*\.(insteadof|pushinsteadof)|http\..*|protocol\..*|alias\..*|credential\..*|core\.(askpass|hookspath|sshcommand|gitproxy|fsmonitor)|remote\..*\.(proxy|vcs|receivepack|uploadpack|pushurl))$' \
+      || :
+  )"
+  if [[ -n "$unsafe_keys" ]]; then
+    printf 'Unsafe local Git routing/execution configuration keys: %s\n' \
+      "$(tr '\n' ' ' <<<"$unsafe_keys")" >&2
+    return 1
+  fi
+}
+# END TASK3_GIT_CONFIG_GUARD
+
 # BEGIN TASK3_GIT_REMOTE
 git_remote() {
+  local operation="${1:-}" argument canonical_url_count=0
+  case "$operation" in fetch|ls-remote|push) ;; *) return 1 ;; esac
+  for argument in "$@"; do
+    [[ "$argument" == "$canonical_origin" ]] && \
+      canonical_url_count=$((canonical_url_count + 1))
+  done
+  test "$canonical_url_count" = 1
+  assert_safe_local_git_config .
   task3_token_call \
     /usr/bin/git \
     -c http.extraHeader= \
     -c "http.$canonical_origin.extraHeader=" \
+    -c http.proxy= \
+    -c http.sslVerify=true \
+    -c http.sslCAInfo= \
+    -c http.sslCAPath= \
+    -c http.curloptResolve= \
     -c credential.helper= \
     -c 'credential.helper=!/usr/bin/gh auth git-credential' \
     -c core.askPass=/bin/false \
     -c core.hooksPath=/dev/null \
+    -c core.fsmonitor=false \
+    -c core.sshCommand=/bin/false \
+    -c core.gitProxy=/bin/false \
+    -c protocol.allow=never \
+    -c protocol.https.allow=always \
+    -c protocol.ext.allow=never \
     "$@"
 }
 # END TASK3_GIT_REMOTE
@@ -574,6 +612,8 @@ task3_token_call() {
       USER=teladi \
       LOGNAME=teladi \
       PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+      GIT_CONFIG_NOSYSTEM=1 \
+      GIT_CONFIG_GLOBAL=/dev/null \
       GIT_TERMINAL_PROMPT=0 \
       GIT_ASKPASS=/bin/false \
       SSH_ASKPASS=/bin/false \
@@ -793,6 +833,8 @@ task3_token_call() {
       USER=teladi \
       LOGNAME=teladi \
       PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+      GIT_CONFIG_NOSYSTEM=1 \
+      GIT_CONFIG_GLOBAL=/dev/null \
       GIT_TERMINAL_PROMPT=0 \
       GIT_ASKPASS=/bin/false \
       SSH_ASKPASS=/bin/false \
@@ -812,16 +854,52 @@ task3_gh() {
   task3_token_call /usr/bin/gh "$@"
 }
 
+# BEGIN TASK3_GIT_CONFIG_GUARD
+assert_safe_local_git_config() {
+  local repository_path="$1" unsafe_keys
+  unsafe_keys="$(
+    /usr/bin/git -C "$repository_path" config --local --name-only \
+      --get-regexp \
+      '^(include\..*|includeif\..*|url\..*\.(insteadof|pushinsteadof)|http\..*|protocol\..*|alias\..*|credential\..*|core\.(askpass|hookspath|sshcommand|gitproxy|fsmonitor)|remote\..*\.(proxy|vcs|receivepack|uploadpack|pushurl))$' \
+      || :
+  )"
+  if [[ -n "$unsafe_keys" ]]; then
+    printf 'Unsafe local Git routing/execution configuration keys: %s\n' \
+      "$(tr '\n' ' ' <<<"$unsafe_keys")" >&2
+    return 1
+  fi
+}
+# END TASK3_GIT_CONFIG_GUARD
+
 # BEGIN TASK3_GIT_REMOTE
 git_remote() {
+  local operation="${1:-}" argument canonical_url_count=0
+  case "$operation" in fetch|ls-remote|push) ;; *) return 1 ;; esac
+  for argument in "$@"; do
+    [[ "$argument" == "$canonical_origin" ]] && \
+      canonical_url_count=$((canonical_url_count + 1))
+  done
+  test "$canonical_url_count" = 1
+  assert_safe_local_git_config .
   task3_token_call \
     /usr/bin/git \
     -c http.extraHeader= \
     -c "http.$canonical_origin.extraHeader=" \
+    -c http.proxy= \
+    -c http.sslVerify=true \
+    -c http.sslCAInfo= \
+    -c http.sslCAPath= \
+    -c http.curloptResolve= \
     -c credential.helper= \
     -c 'credential.helper=!/usr/bin/gh auth git-credential' \
     -c core.askPass=/bin/false \
     -c core.hooksPath=/dev/null \
+    -c core.fsmonitor=false \
+    -c core.sshCommand=/bin/false \
+    -c core.gitProxy=/bin/false \
+    -c protocol.allow=never \
+    -c protocol.https.allow=always \
+    -c protocol.ext.allow=never \
     "$@"
 }
 # END TASK3_GIT_REMOTE
@@ -922,6 +1000,148 @@ assert_pr_identity() {
     ' <<<"$pr_json" >/dev/null
 }
 
+# BEGIN TASK3_REVIEW_GATE
+fetch_task3_review_overview() {
+  task3_gh pr view "$generator_pr_number" \
+    --repo "$canonical_repository" \
+    --json state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository,headRepositoryOwner,reviewDecision
+}
+
+fetch_task3_coderabbit_actor() {
+  task3_gh api '/users/coderabbitai%5Bbot%5D'
+}
+
+fetch_task3_review_threads_page() {
+  local cursor="${1:-}" query
+  query='query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}'
+  if [[ -n "$cursor" ]]; then
+    task3_gh api graphql -f query="$query" \
+      -F owner=H234598 -F name=Wirtelprimpf-generator \
+      -F number="$generator_pr_number" -f cursor="$cursor" \
+      --jq '.data.repository.pullRequest.reviewThreads'
+  else
+    task3_gh api graphql -f query="$query" \
+      -F owner=H234598 -F name=Wirtelprimpf-generator \
+      -F number="$generator_pr_number" \
+      --jq '.data.repository.pullRequest.reviewThreads'
+  fi
+}
+
+fetch_task3_reviews_page() {
+  local cursor="${1:-}" query
+  query='query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviews(first:100,after:$cursor){nodes{databaseId state author{login}commit{oid}}pageInfo{hasNextPage endCursor}}}}}'
+  if [[ -n "$cursor" ]]; then
+    task3_gh api graphql -f query="$query" \
+      -F owner=H234598 -F name=Wirtelprimpf-generator \
+      -F number="$generator_pr_number" -f cursor="$cursor" \
+      --jq '.data.repository.pullRequest.reviews'
+  else
+    task3_gh api graphql -f query="$query" \
+      -F owner=H234598 -F name=Wirtelprimpf-generator \
+      -F number="$generator_pr_number" \
+      --jq '.data.repository.pullRequest.reviews'
+  fi
+}
+
+assert_task3_current_review() {
+  local required_pr_state="${1:-OPEN}"
+  local overview actor page cursor next_cursor has_next
+  local review_candidates='[]'
+  local -A seen_thread_cursors=() seen_review_cursors=()
+
+  overview="$(fetch_task3_review_overview)"
+  assert_pr_identity "$overview"
+  /usr/bin/jq -e --arg required_pr_state "$required_pr_state" '
+    ($required_pr_state == "OPEN" or $required_pr_state == "MERGED")
+    and .state == $required_pr_state
+    and .reviewDecision == "APPROVED"
+  ' <<<"$overview" >/dev/null
+
+  actor="$(fetch_task3_coderabbit_actor)"
+  /usr/bin/jq -e '
+    .login == "coderabbitai[bot]"
+    and .id == 136622811
+  ' <<<"$actor" >/dev/null
+
+  cursor=
+  while :; do
+    page="$(fetch_task3_review_threads_page "$cursor")"
+    /usr/bin/jq -e '
+      type == "object"
+      and (.nodes | type == "array")
+      and (.pageInfo | type == "object")
+      and (.pageInfo.hasNextPage | type == "boolean")
+      and (.pageInfo.endCursor == null or (.pageInfo.endCursor | type == "string"))
+      and all(.nodes[]; type == "object" and (.isResolved | type == "boolean"))
+      and all(.nodes[]; .isResolved == true)
+    ' <<<"$page" >/dev/null
+    has_next="$(/usr/bin/jq -r '.pageInfo.hasNextPage' <<<"$page")"
+    [[ "$has_next" == true || "$has_next" == false ]]
+    [[ "$has_next" == true ]] || break
+    next_cursor="$(/usr/bin/jq -r '.pageInfo.endCursor // empty' <<<"$page")"
+    test -n "$next_cursor"
+    test "$next_cursor" != "$cursor"
+    [[ -z "${seen_thread_cursors[$next_cursor]+x}" ]]
+    seen_thread_cursors[$next_cursor]=1
+    cursor=$next_cursor
+  done
+
+  cursor=
+  while :; do
+    page="$(fetch_task3_reviews_page "$cursor")"
+    /usr/bin/jq -e '
+      type == "object"
+      and (.nodes | type == "array")
+      and (.pageInfo | type == "object")
+      and (.pageInfo.hasNextPage | type == "boolean")
+      and (.pageInfo.endCursor == null or (.pageInfo.endCursor | type == "string"))
+      and all(.nodes[];
+        type == "object"
+        and (.databaseId | type == "number" and . > 0 and floor == .)
+        and (.state | type == "string")
+        and (.author.login | type == "string")
+        and (.commit.oid | type == "string" and test("^[0-9a-f]{40}$"))
+      )
+    ' <<<"$page" >/dev/null
+    review_candidates="$(
+      /usr/bin/jq -cn \
+        --argjson prior "$review_candidates" \
+        --argjson current "$(
+          /usr/bin/jq -c --arg expected_head "$generator_expected_head" '
+            [.nodes[] | select(
+              .state == "APPROVED"
+              and .author.login == "coderabbitai[bot]"
+              and .commit.oid == $expected_head
+            )]
+          ' <<<"$page"
+        )" \
+        '$prior + $current'
+    )"
+    has_next="$(/usr/bin/jq -r '.pageInfo.hasNextPage' <<<"$page")"
+    [[ "$has_next" == true || "$has_next" == false ]]
+    [[ "$has_next" == true ]] || break
+    next_cursor="$(/usr/bin/jq -r '.pageInfo.endCursor // empty' <<<"$page")"
+    test -n "$next_cursor"
+    test "$next_cursor" != "$cursor"
+    [[ -z "${seen_review_cursors[$next_cursor]+x}" ]]
+    seen_review_cursors[$next_cursor]=1
+    cursor=$next_cursor
+  done
+
+  test "$(/usr/bin/jq 'length' <<<"$review_candidates")" = 1
+  generator_review_id="$(/usr/bin/jq -r '.[0].databaseId' <<<"$review_candidates")"
+  generator_review_author_login="$(/usr/bin/jq -r '.[0].author.login' <<<"$review_candidates")"
+  generator_review_author_id="$(/usr/bin/jq -r '.id' <<<"$actor")"
+  generator_review_commit="$(/usr/bin/jq -r '.[0].commit.oid' <<<"$review_candidates")"
+  generator_review_state="$(/usr/bin/jq -r '.[0].state' <<<"$review_candidates")"
+  [[ "$generator_review_id" =~ ^[1-9][0-9]*$ ]]
+  test "$generator_review_author_login" = 'coderabbitai[bot]'
+  test "$generator_review_author_id" = 136622811
+  test "$generator_review_commit" = "$generator_expected_head"
+  test "$generator_review_state" = APPROVED
+}
+# END TASK3_REVIEW_GATE
+
 assert_no_main_policy() {
   local classic_call_status
   require_task3_auth
@@ -1019,8 +1239,13 @@ write_task3_receipt() (
     --arg merge_date "$generator_merge_date" \
     --arg merge_message "$generator_merge_message" \
     --arg merge_sha "$generator_merge_sha" \
+    --argjson review_id "$generator_review_id" \
+    --arg review_author_login "$generator_review_author_login" \
+    --argjson review_author_id "$generator_review_author_id" \
+    --arg review_commit "$generator_review_commit" \
+    --arg review_state "$generator_review_state" \
     '{
-      version: 2,
+      version: 3,
       state: $state,
       actor_login: $actor_login,
       actor_id: $actor_id,
@@ -1034,7 +1259,12 @@ write_task3_receipt() (
       head_tree: $head_tree,
       merge_date: $merge_date,
       merge_message: $merge_message,
-      merge_sha: $merge_sha
+      merge_sha: $merge_sha,
+      review_id: $review_id,
+      review_author_login: $review_author_login,
+      review_author_id: $review_author_id,
+      review_commit: $review_commit,
+      review_state: $review_state
   }' >"$receipt_tmp"
   chmod 0600 "$receipt_tmp"
   sync -f "$receipt_tmp"
@@ -1098,9 +1328,10 @@ load_task3_receipt() {
         "actor_id", "actor_login", "base_before", "canonical_origin",
         "expected_head", "head_ref", "head_tree", "merge_date",
         "merge_message", "merge_sha", "pr_number", "repository",
-        "repository_id", "state", "version"
+        "repository_id", "review_author_id", "review_author_login",
+        "review_commit", "review_id", "review_state", "state", "version"
       ]
-      and .version == 2
+      and .version == 3
       and (.state == "planned" or .state == "remote_committed" or .state == "verified")
       and .actor_login == $actor_login
       and .actor_id == $actor_id
@@ -1115,6 +1346,11 @@ load_task3_receipt() {
       and (.merge_date | type == "string" and length > 0)
       and (.merge_message | type == "string" and length > 0)
       and (.merge_sha | type == "string" and test("^[0-9a-f]{40}$"))
+      and (.review_id | type == "number" and . > 0 and floor == .)
+      and .review_author_login == "coderabbitai[bot]"
+      and .review_author_id == 136622811
+      and .review_commit == $expected_head
+      and .review_state == "APPROVED"
     ' "$receipt_file" >/dev/null
   receipt_state="$(/usr/bin/jq -r '.state' "$receipt_file")"
   receipt_pr_number="$(/usr/bin/jq -r '.pr_number' "$receipt_file")"
@@ -1123,6 +1359,11 @@ load_task3_receipt() {
   receipt_merge_date="$(/usr/bin/jq -r '.merge_date' "$receipt_file")"
   receipt_merge_message="$(/usr/bin/jq -r '.merge_message' "$receipt_file")"
   receipt_merge_sha="$(/usr/bin/jq -r '.merge_sha' "$receipt_file")"
+  receipt_review_id="$(/usr/bin/jq -r '.review_id' "$receipt_file")"
+  receipt_review_author_login="$(/usr/bin/jq -r '.review_author_login' "$receipt_file")"
+  receipt_review_author_id="$(/usr/bin/jq -r '.review_author_id' "$receipt_file")"
+  receipt_review_commit="$(/usr/bin/jq -r '.review_commit' "$receipt_file")"
+  receipt_review_state="$(/usr/bin/jq -r '.review_state' "$receipt_file")"
 }
 
 validate_task3_receipt_derivation() {
@@ -1132,6 +1373,11 @@ validate_task3_receipt_derivation() {
   test "$receipt_merge_date" = "$generator_merge_date"
   test "$receipt_merge_message" = "$generator_merge_message"
   test "$receipt_merge_sha" = "$generator_merge_sha"
+  test "$receipt_review_id" = "$generator_review_id"
+  test "$receipt_review_author_login" = "$generator_review_author_login"
+  test "$receipt_review_author_id" = "$generator_review_author_id"
+  test "$receipt_review_commit" = "$generator_review_commit"
+  test "$receipt_review_state" = "$generator_review_state"
 }
 # END TASK3_VALIDATE_RECEIPT
 
@@ -1226,14 +1472,17 @@ if [[ "$receipt_state" == absent ]]; then
   # than an authenticated exact 404 stops before commit-tree creates an object.
   assert_no_main_policy
   require_task3_auth
+  assert_task3_current_review
   derive_task3_merge
   write_task3_receipt planned
-  receipt_state=planned
+  load_task3_receipt
+  validate_task3_receipt_derivation
 else
   case "$generator_pr_state" in OPEN|MERGED) ;; *) exit 1 ;; esac
   # Never trust content-derived fields from a persisted receipt. Reconstruct the
   # reviewed tree and deterministic merge from current trusted Git/PR inputs on
   # every retry, then compare every derived receipt field before remote reads.
+  assert_task3_current_review "$generator_pr_state"
   derive_task3_merge
   validate_task3_receipt_derivation
 fi
@@ -1265,6 +1514,8 @@ case "$task3_remote_action" in
     test "$(git_remote ls-remote "$canonical_origin" "refs/heads/$generator_head" | cut -f1)" = \
       "$generator_expected_head"
     require_task3_auth
+    assert_task3_current_review
+    validate_task3_receipt_derivation
     task3_push_started=1
     git_remote push --atomic \
       --force-with-lease=refs/heads/main:$generator_base_before \
@@ -3901,22 +4152,120 @@ test "$(id -u)" = 0
 set -Eeuo pipefail
 test "$(id -u)" = 1000
 test "$(id -g)" = 1000
+receipt_file=/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json
+generator_runtime=/home/teladi/.local/share/wirtelprimpf-generator
 archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
+canonical_generator_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+canonical_archive_origin=https://github.com/H234598/Wirtelprimpf-0001.git
+
+# BEGIN TASK5_FACTORY_RECEIPT
+load_verified_task3_factory_sha() {
+  test -f "$receipt_file" && test ! -L "$receipt_file"
+  test "$(stat -c '%u:%g:%a' "$receipt_file")" = 1000:1000:600
+  /usr/bin/jq -e '
+    keys == [
+      "actor_id", "actor_login", "base_before", "canonical_origin",
+      "expected_head", "head_ref", "head_tree", "merge_date",
+      "merge_message", "merge_sha", "pr_number", "repository",
+      "repository_id", "review_author_id", "review_author_login",
+      "review_commit", "review_id", "review_state", "state", "version"
+    ]
+    and .version == 3 and .state == "verified"
+    and .actor_login == "H234598" and .actor_id == 54270221
+    and .repository_id == "R_kgDOTpr2BA"
+    and .repository == "H234598/Wirtelprimpf-generator"
+    and .canonical_origin == "https://github.com/H234598/Wirtelprimpf-generator.git"
+    and (.pr_number | type == "number" and . > 0 and floor == .)
+    and (.expected_head | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.base_before | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.head_tree | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.merge_sha | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.review_id | type == "number" and . > 0 and floor == .)
+    and .review_author_login == "coderabbitai[bot]"
+    and .review_author_id == 136622811
+    and .review_commit == .expected_head
+    and .review_state == "APPROVED"
+  ' "$receipt_file" >/dev/null
+  /usr/bin/jq -r '.merge_sha' "$receipt_file"
+}
+# END TASK5_FACTORY_RECEIPT
+
+# BEGIN TASK5_GIT_CONFIG_GUARD
+assert_safe_local_git_config() {
+  local repository_path="$1" unsafe_keys
+  unsafe_keys="$(
+    /usr/bin/git -C "$repository_path" config --local --name-only \
+      --get-regexp \
+      '^(include\..*|includeif\..*|url\..*\.(insteadof|pushinsteadof)|http\..*|protocol\..*|alias\..*|credential\..*|core\.(askpass|hookspath|sshcommand|gitproxy|fsmonitor)|remote\..*\.(proxy|vcs|receivepack|uploadpack|pushurl))$' \
+      || :
+  )"
+  test -z "$unsafe_keys" || {
+    printf 'Unsafe local Git routing/execution configuration keys: %s\n' \
+      "$(tr '\n' ' ' <<<"$unsafe_keys")" >&2
+    return 1
+  }
+}
+
+task5_git_remote() {
+  local operation="${1:-}" argument canonical_url_count=0
+  case "$operation" in fetch|ls-remote|push) ;; *) return 1 ;; esac
+  for argument in "$@"; do
+    [[ "$argument" == "$canonical_origin" ]] && \
+      canonical_url_count=$((canonical_url_count + 1))
+  done
+  test "$canonical_url_count" = 1
+  assert_safe_local_git_config "$task5_git_repository"
+  /usr/bin/env -i \
+    HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+    /usr/bin/git \
+      -c http.extraHeader= -c "http.$canonical_origin.extraHeader=" \
+      -c http.proxy= -c http.sslVerify=true -c http.sslCAInfo= \
+      -c http.sslCAPath= -c http.curloptResolve= -c credential.helper= \
+      -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false -c core.sshCommand=/bin/false \
+      -c core.gitProxy=/bin/false -c protocol.allow=never \
+      -c protocol.https.allow=always -c protocol.ext.allow=never \
+      -C "$task5_git_repository" "$@"
+}
+# END TASK5_GIT_CONFIG_GUARD
+
+generator_factory_sha="$(load_verified_task3_factory_sha)"
+[[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+test -d "$generator_runtime" && test ! -L "$generator_runtime"
+test "$(realpath -e -- "$generator_runtime")" = "$generator_runtime"
+test -z "$(find "$generator_runtime" -xdev \
+  \( ! -user teladi -o ! -group teladi \) -print -quit)"
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_runtime" rev-parse HEAD)"
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_runtime" rev-parse origin/main)"
+task5_git_repository=$generator_runtime
+canonical_origin=$canonical_generator_origin
+test "$generator_factory_sha" = \
+  "$(task5_git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
+
 test -d "$archive_checkout" && test ! -L "$archive_checkout"
 test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
 test -z "$(find "$archive_checkout" -xdev \
   \( ! -user teladi -o ! -group teladi \) -print -quit)"
 test "$(/usr/bin/git -C "$archive_checkout" remote get-url origin)" = \
-  https://github.com/H234598/Wirtelprimpf-0001.git
+  "$canonical_archive_origin"
 archive_dirty="$(/usr/bin/git -C "$archive_checkout" status --porcelain)"
 if [[ -n "$archive_dirty" ]]; then
   printf 'Archive checkout is not clean before synchronization.\n' >&2
   printf '%s\n' "$archive_dirty" >&2
   exit 1
 fi
-/usr/bin/git -C "$archive_checkout" fetch origin
+task5_git_repository=$archive_checkout
+canonical_origin=$canonical_archive_origin
+task5_git_remote fetch "$canonical_origin" \
+  '+refs/heads/main:refs/remotes/origin/main'
 /usr/bin/git -C "$archive_checkout" switch main
-/usr/bin/git -C "$archive_checkout" pull --ff-only origin main
+test "$(/usr/bin/git -C "$archive_checkout" rev-parse HEAD)" = \
+  "$(/usr/bin/git -C "$archive_checkout" rev-parse origin/main)"
 test -z "$(/usr/bin/git -C "$archive_checkout" status --porcelain)"
 /usr/bin/git -C "$archive_checkout" switch -c chore/pin-transactional-site-factory
 TASK5_STEP1_TELADI
@@ -3945,18 +4294,94 @@ test "$(id -u)" = 0
 set -Eeuo pipefail
 test "$(id -u)" = 1000
 test "$(id -g)" = 1000
+receipt_file=/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json
 generator_runtime=/home/teladi/.local/share/wirtelprimpf-generator
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+
+# BEGIN TASK5_FACTORY_RECEIPT
+load_verified_task3_factory_sha() {
+  test -f "$receipt_file" && test ! -L "$receipt_file"
+  test "$(stat -c '%u:%g:%a' "$receipt_file")" = 1000:1000:600
+  /usr/bin/jq -e '
+    keys == [
+      "actor_id", "actor_login", "base_before", "canonical_origin",
+      "expected_head", "head_ref", "head_tree", "merge_date",
+      "merge_message", "merge_sha", "pr_number", "repository",
+      "repository_id", "review_author_id", "review_author_login",
+      "review_commit", "review_id", "review_state", "state", "version"
+    ]
+    and .version == 3 and .state == "verified"
+    and .actor_login == "H234598" and .actor_id == 54270221
+    and .repository_id == "R_kgDOTpr2BA"
+    and .repository == "H234598/Wirtelprimpf-generator"
+    and .canonical_origin == "https://github.com/H234598/Wirtelprimpf-generator.git"
+    and (.pr_number | type == "number" and . > 0 and floor == .)
+    and (.expected_head | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.base_before | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.head_tree | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.merge_sha | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.review_id | type == "number" and . > 0 and floor == .)
+    and .review_author_login == "coderabbitai[bot]"
+    and .review_author_id == 136622811
+    and .review_commit == .expected_head
+    and .review_state == "APPROVED"
+  ' "$receipt_file" >/dev/null
+  /usr/bin/jq -r '.merge_sha' "$receipt_file"
+}
+# END TASK5_FACTORY_RECEIPT
+
+# BEGIN TASK5_GIT_CONFIG_GUARD
+assert_safe_local_git_config() {
+  local repository_path="$1" unsafe_keys
+  unsafe_keys="$(
+    /usr/bin/git -C "$repository_path" config --local --name-only \
+      --get-regexp \
+      '^(include\..*|includeif\..*|url\..*\.(insteadof|pushinsteadof)|http\..*|protocol\..*|alias\..*|credential\..*|core\.(askpass|hookspath|sshcommand|gitproxy|fsmonitor)|remote\..*\.(proxy|vcs|receivepack|uploadpack|pushurl))$' \
+      || :
+  )"
+  test -z "$unsafe_keys" || return 1
+}
+task5_git_remote() {
+  local operation="${1:-}" argument canonical_url_count=0
+  case "$operation" in fetch|ls-remote|push) ;; *) return 1 ;; esac
+  for argument in "$@"; do
+    [[ "$argument" == "$canonical_origin" ]] && \
+      canonical_url_count=$((canonical_url_count + 1))
+  done
+  test "$canonical_url_count" = 1
+  assert_safe_local_git_config "$task5_git_repository"
+  /usr/bin/env -i \
+    HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+    /usr/bin/git \
+      -c http.extraHeader= -c "http.$canonical_origin.extraHeader=" \
+      -c http.proxy= -c http.sslVerify=true -c http.sslCAInfo= \
+      -c http.sslCAPath= -c http.curloptResolve= -c credential.helper= \
+      -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false -c core.sshCommand=/bin/false \
+      -c core.gitProxy=/bin/false -c protocol.allow=never \
+      -c protocol.https.allow=always -c protocol.ext.allow=never \
+      -C "$task5_git_repository" "$@"
+}
+# END TASK5_GIT_CONFIG_GUARD
+
 test -d "$generator_runtime" && test ! -L "$generator_runtime"
 test "$(realpath -e -- "$generator_runtime")" = "$generator_runtime"
-git_runtime() {
-  test -z "$(find "$generator_runtime" -xdev \
-    \( ! -user teladi -o ! -group teladi \) -print -quit)"
-  /usr/bin/git -C "$generator_runtime" "$@"
-}
-generator_factory_sha="$(git_runtime rev-parse HEAD)"
-test "$generator_factory_sha" = "$(git_runtime rev-parse origin/main)"
-test "$generator_factory_sha" = "$(git_runtime ls-remote origin refs/heads/main | cut -f1)"
+test -z "$(find "$generator_runtime" -xdev \
+  \( ! -user teladi -o ! -group teladi \) -print -quit)"
+test "$(( $(/usr/bin/git -C "$generator_runtime" remote get-url --all origin | wc -l) ))" = 1
+test "$(/usr/bin/git -C "$generator_runtime" remote get-url origin)" = "$canonical_origin"
+generator_factory_sha="$(load_verified_task3_factory_sha)"
 [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_runtime" rev-parse HEAD)"
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_runtime" rev-parse origin/main)"
+task5_git_repository=$generator_runtime
+test "$generator_factory_sha" = \
+  "$(task5_git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
 printf '%s\n' "$generator_factory_sha"
 TASK5_STEP2_TELADI
 ```
@@ -3990,15 +4415,88 @@ test "$(id -g)" = 1000
 generator_checkout=/home/teladi/.local/share/wirtelprimpf-generator
 archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
 workflow="$archive_checkout/.github/workflows/pages.yml"
+receipt_file=/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+
+# BEGIN TASK5_FACTORY_RECEIPT
+load_verified_task3_factory_sha() {
+  test -f "$receipt_file" && test ! -L "$receipt_file"
+  test "$(stat -c '%u:%g:%a' "$receipt_file")" = 1000:1000:600
+  /usr/bin/jq -e '
+    keys == [
+      "actor_id", "actor_login", "base_before", "canonical_origin",
+      "expected_head", "head_ref", "head_tree", "merge_date",
+      "merge_message", "merge_sha", "pr_number", "repository",
+      "repository_id", "review_author_id", "review_author_login",
+      "review_commit", "review_id", "review_state", "state", "version"
+    ]
+    and .version == 3 and .state == "verified"
+    and .actor_login == "H234598" and .actor_id == 54270221
+    and .repository_id == "R_kgDOTpr2BA"
+    and .repository == "H234598/Wirtelprimpf-generator"
+    and .canonical_origin == "https://github.com/H234598/Wirtelprimpf-generator.git"
+    and (.pr_number | type == "number" and . > 0 and floor == .)
+    and (.expected_head | test("^[0-9a-f]{40}$"))
+    and (.base_before | test("^[0-9a-f]{40}$"))
+    and (.head_tree | test("^[0-9a-f]{40}$"))
+    and (.merge_sha | test("^[0-9a-f]{40}$"))
+    and (.review_id | type == "number" and . > 0 and floor == .)
+    and .review_author_login == "coderabbitai[bot]"
+    and .review_author_id == 136622811
+    and .review_commit == .expected_head
+    and .review_state == "APPROVED"
+  ' "$receipt_file" >/dev/null
+  /usr/bin/jq -r '.merge_sha' "$receipt_file"
+}
+# END TASK5_FACTORY_RECEIPT
+
+# BEGIN TASK5_GIT_CONFIG_GUARD
+assert_safe_local_git_config() {
+  local repository_path="$1" unsafe_keys
+  unsafe_keys="$(/usr/bin/git -C "$repository_path" config --local --name-only \
+    --get-regexp '^(include\..*|includeif\..*|url\..*\.(insteadof|pushinsteadof)|http\..*|protocol\..*|alias\..*|credential\..*|core\.(askpass|hookspath|sshcommand|gitproxy|fsmonitor)|remote\..*\.(proxy|vcs|receivepack|uploadpack|pushurl))$' || :)"
+  test -z "$unsafe_keys"
+}
+task5_git_remote() {
+  local operation="${1:-}" argument canonical_url_count=0
+  case "$operation" in fetch|ls-remote|push) ;; *) return 1 ;; esac
+  for argument in "$@"; do
+    [[ "$argument" == "$canonical_origin" ]] && canonical_url_count=$((canonical_url_count + 1))
+  done
+  test "$canonical_url_count" = 1
+  assert_safe_local_git_config "$task5_git_repository"
+  /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+    /usr/bin/git -c http.extraHeader= \
+      -c "http.$canonical_origin.extraHeader=" -c http.proxy= \
+      -c http.sslVerify=true -c http.sslCAInfo= -c http.sslCAPath= \
+      -c http.curloptResolve= -c credential.helper= \
+      -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false -c core.sshCommand=/bin/false \
+      -c core.gitProxy=/bin/false -c protocol.allow=never \
+      -c protocol.https.allow=always -c protocol.ext.allow=never \
+      -C "$task5_git_repository" "$@"
+}
+# END TASK5_GIT_CONFIG_GUARD
+
 test -d "$generator_checkout" && test ! -L "$generator_checkout"
 test -d "$archive_checkout" && test ! -L "$archive_checkout"
 test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
 test -z "$(find "$archive_checkout" -xdev \
   \( ! -user teladi -o ! -group teladi \) -print -quit)"
-generator_factory_sha="$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
+generator_factory_sha="$(load_verified_task3_factory_sha)"
 [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+test "$(/usr/bin/git -C "$generator_checkout" remote get-url origin)" = \
+  "$canonical_origin"
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
 test "$generator_factory_sha" = \
   "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)"
+task5_git_repository=$generator_checkout
+test "$generator_factory_sha" = \
+  "$(task5_git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
 /usr/bin/python3 - "$workflow" "$generator_factory_sha" <<'TASK5_REWRITE_PY'
 import os
 import re
@@ -4085,15 +4583,91 @@ test "$(id -g)" = 1000
 generator_checkout=/home/teladi/.local/share/wirtelprimpf-generator
 archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
 workflow="$archive_checkout/.github/workflows/pages.yml"
+receipt_file=/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+
+# BEGIN TASK5_FACTORY_RECEIPT
+load_verified_task3_factory_sha() {
+  test -f "$receipt_file" && test ! -L "$receipt_file"
+  test "$(stat -c '%u:%g:%a' "$receipt_file")" = 1000:1000:600
+  /usr/bin/jq -e '
+    keys == [
+      "actor_id", "actor_login", "base_before", "canonical_origin",
+      "expected_head", "head_ref", "head_tree", "merge_date",
+      "merge_message", "merge_sha", "pr_number", "repository",
+      "repository_id", "review_author_id", "review_author_login",
+      "review_commit", "review_id", "review_state", "state", "version"
+    ]
+    and .version == 3 and .state == "verified"
+    and .actor_login == "H234598" and .actor_id == 54270221
+    and .repository_id == "R_kgDOTpr2BA"
+    and .repository == "H234598/Wirtelprimpf-generator"
+    and .canonical_origin == "https://github.com/H234598/Wirtelprimpf-generator.git"
+    and (.pr_number | type == "number" and . > 0 and floor == .)
+    and (.expected_head | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.base_before | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.head_tree | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.merge_sha | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.review_id | type == "number" and . > 0 and floor == .)
+    and .review_author_login == "coderabbitai[bot]"
+    and .review_author_id == 136622811
+    and .review_commit == .expected_head
+    and .review_state == "APPROVED"
+  ' "$receipt_file" >/dev/null
+  /usr/bin/jq -r '.merge_sha' "$receipt_file"
+}
+# END TASK5_FACTORY_RECEIPT
+
+# BEGIN TASK5_GIT_CONFIG_GUARD
+assert_safe_local_git_config() {
+  local repository_path="$1" unsafe_keys
+  unsafe_keys="$(/usr/bin/git -C "$repository_path" config --local --name-only \
+    --get-regexp '^(include\..*|includeif\..*|url\..*\.(insteadof|pushinsteadof)|http\..*|protocol\..*|alias\..*|credential\..*|core\.(askpass|hookspath|sshcommand|gitproxy|fsmonitor)|remote\..*\.(proxy|vcs|receivepack|uploadpack|pushurl))$' || :)"
+  test -z "$unsafe_keys"
+}
+task5_git_remote() {
+  local operation="${1:-}" argument canonical_url_count=0
+  case "$operation" in fetch|ls-remote|push) ;; *) return 1 ;; esac
+  for argument in "$@"; do
+    [[ "$argument" == "$canonical_origin" ]] && canonical_url_count=$((canonical_url_count + 1))
+  done
+  test "$canonical_url_count" = 1
+  assert_safe_local_git_config "$task5_git_repository"
+  /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+    /usr/bin/git -c http.extraHeader= \
+      -c "http.$canonical_origin.extraHeader=" -c http.proxy= \
+      -c http.sslVerify=true -c http.sslCAInfo= -c http.sslCAPath= \
+      -c http.curloptResolve= -c credential.helper= \
+      -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false -c core.sshCommand=/bin/false \
+      -c core.gitProxy=/bin/false -c protocol.allow=never \
+      -c protocol.https.allow=always -c protocol.ext.allow=never \
+      -C "$task5_git_repository" "$@"
+}
+# END TASK5_GIT_CONFIG_GUARD
+
 test -d "$archive_checkout" && test ! -L "$archive_checkout"
 test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
 test -z "$(find "$archive_checkout" -xdev \
   \( ! -user teladi -o ! -group teladi \) -print -quit)"
-generator_factory_sha="$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
+test -d "$generator_checkout" && test ! -L "$generator_checkout"
+test "$(realpath -e -- "$generator_checkout")" = "$generator_checkout"
+test -z "$(find "$generator_checkout" -xdev \
+  \( ! -user teladi -o ! -group teladi \) -print -quit)"
+generator_factory_sha="$(load_verified_task3_factory_sha)"
+[[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+test "$(/usr/bin/git -C "$generator_checkout" remote get-url origin)" = \
+  "$canonical_origin"
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
 test "$generator_factory_sha" = \
   "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)"
+task5_git_repository=$generator_checkout
 test "$generator_factory_sha" = \
-  "$(/usr/bin/git -C "$generator_checkout" ls-remote origin refs/heads/main | cut -f1)"
+  "$(task5_git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
 test "$(/usr/bin/rg -o -- '[0-9a-f]{40}' "$workflow" | sort -u | wc -l)" -eq 1
 test "$(/usr/bin/rg -o -F -- "$generator_factory_sha" "$workflow" | wc -l)" -eq 2
 /usr/bin/rg -F -- "$generator_factory_sha" "$workflow"
@@ -4129,6 +4703,8 @@ task5_token_call() {
     /usr/bin/env -i \
       HOME=/root \
       PATH=/usr/local/bin:/usr/bin:/bin \
+      GIT_CONFIG_NOSYSTEM=1 \
+      GIT_CONFIG_GLOBAL=/dev/null \
       GIT_TERMINAL_PROMPT=0 \
       GIT_ASKPASS=/bin/false \
       SSH_ASKPASS=/bin/false \
@@ -4145,9 +4721,15 @@ task5_token_call() {
 task5_gh() {
   task5_token_call /usr/bin/gh "$@"
 }
+canonical_archive_repository=H234598/Wirtelprimpf-0001
+canonical_archive_repo_id=R_kgDOSg7oRg
 test "$(task5_gh api /user --jq '.login + ":" + (.id | tostring)')" = H234598:54270221
-test "$(task5_gh repo view H234598/Wirtelprimpf-0001 --json nameWithOwner \
-  --jq .nameWithOwner)" = H234598/Wirtelprimpf-0001
+archive_repository_json="$(task5_gh repo view "$canonical_archive_repository" \
+  --json id,nameWithOwner)"
+/usr/bin/jq -e --arg id "$canonical_archive_repo_id" \
+  --arg name "$canonical_archive_repository" \
+  '.id == $id and .nameWithOwner == $name' \
+  <<<"$archive_repository_json" >/dev/null
 exec {task5_token_relay_fd}< <(printf '%s\0' "$task5_ephemeral_token")
 
 set +e
@@ -4173,6 +4755,42 @@ test -n "$task5_ephemeral_token"
 test -z "${GH_TOKEN+x}"
 archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
 canonical_origin=https://github.com/H234598/Wirtelprimpf-0001.git
+generator_checkout=/home/teladi/.local/share/wirtelprimpf-generator
+canonical_generator_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+receipt_file=/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json
+
+# BEGIN TASK5_FACTORY_RECEIPT
+load_verified_task3_factory_sha() {
+  test -f "$receipt_file" && test ! -L "$receipt_file"
+  test "$(stat -c '%u:%g:%a' "$receipt_file")" = 1000:1000:600
+  /usr/bin/jq -e '
+    keys == [
+      "actor_id", "actor_login", "base_before", "canonical_origin",
+      "expected_head", "head_ref", "head_tree", "merge_date",
+      "merge_message", "merge_sha", "pr_number", "repository",
+      "repository_id", "review_author_id", "review_author_login",
+      "review_commit", "review_id", "review_state", "state", "version"
+    ]
+    and .version == 3 and .state == "verified"
+    and .actor_login == "H234598" and .actor_id == 54270221
+    and .repository_id == "R_kgDOTpr2BA"
+    and .repository == "H234598/Wirtelprimpf-generator"
+    and .canonical_origin == "https://github.com/H234598/Wirtelprimpf-generator.git"
+    and (.pr_number | type == "number" and . > 0 and floor == .)
+    and (.expected_head | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.base_before | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.head_tree | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.merge_sha | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.review_id | type == "number" and . > 0 and floor == .)
+    and .review_author_login == "coderabbitai[bot]"
+    and .review_author_id == 136622811
+    and .review_commit == .expected_head
+    and .review_state == "APPROVED"
+  ' "$receipt_file" >/dev/null
+  /usr/bin/jq -r '.merge_sha' "$receipt_file"
+}
+# END TASK5_FACTORY_RECEIPT
+
 test -d "$archive_checkout" && test ! -L "$archive_checkout"
 test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
 test -z "$(find "$archive_checkout" -xdev \
@@ -4183,6 +4801,18 @@ test "$(/usr/bin/git -C "$archive_checkout" remote get-url origin)" = "$canonica
 test "$(/usr/bin/git -C "$archive_checkout" diff --name-only)" = \
   .github/workflows/pages.yml
 
+generator_factory_sha="$(load_verified_task3_factory_sha)"
+[[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+test -d "$generator_checkout" && test ! -L "$generator_checkout"
+test -z "$(find "$generator_checkout" -xdev \
+  \( ! -user teladi -o ! -group teladi \) -print -quit)"
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)"
+test "$(/usr/bin/rg -o -F -- "$generator_factory_sha" \
+  "$archive_checkout/.github/workflows/pages.yml" | wc -l)" = 2
+
 task5_token_call() {
   set +x
   local task5_token_status=0
@@ -4192,6 +4822,8 @@ task5_token_call() {
       USER=teladi \
       LOGNAME=teladi \
       PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+      GIT_CONFIG_NOSYSTEM=1 \
+      GIT_CONFIG_GLOBAL=/dev/null \
       GIT_TERMINAL_PROMPT=0 \
       GIT_ASKPASS=/bin/false \
       SSH_ASKPASS=/bin/false \
@@ -4205,25 +4837,60 @@ task5_token_call() {
       ' task5-token-call "$@" || task5_token_status=$?
   return "$task5_token_status"
 }
-git_remote() {
+# BEGIN TASK5_GIT_CONFIG_GUARD
+assert_safe_local_git_config() {
+  local repository_path="$1" unsafe_keys
+  unsafe_keys="$(/usr/bin/git -C "$repository_path" config --local --name-only \
+    --get-regexp '^(include\..*|includeif\..*|url\..*\.(insteadof|pushinsteadof)|http\..*|protocol\..*|alias\..*|credential\..*|core\.(askpass|hookspath|sshcommand|gitproxy|fsmonitor)|remote\..*\.(proxy|vcs|receivepack|uploadpack|pushurl))$' || :)"
+  test -z "$unsafe_keys"
+}
+task5_git_remote() {
+  local operation="${1:-}" argument canonical_url_count=0
+  case "$operation" in fetch|ls-remote|push) ;; *) return 1 ;; esac
+  for argument in "$@"; do
+    [[ "$argument" == "$canonical_origin" ]] && canonical_url_count=$((canonical_url_count + 1))
+  done
+  test "$canonical_url_count" = 1
+  assert_safe_local_git_config "$task5_git_repository"
   task5_token_call \
     /usr/bin/git \
+      -c http.extraHeader= \
+      -c "http.$canonical_origin.extraHeader=" \
+      -c http.proxy= -c http.sslVerify=true \
+      -c http.sslCAInfo= -c http.sslCAPath= -c http.curloptResolve= \
       -c credential.helper= \
       -c credential.helper='!/usr/bin/gh auth git-credential' \
-      -c core.hooksPath=/dev/null \
-      -c http.https://github.com/.extraheader= \
-      -C "$archive_checkout" "$@"
+      -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false -c core.sshCommand=/bin/false \
+      -c core.gitProxy=/bin/false -c protocol.allow=never \
+      -c protocol.https.allow=always -c protocol.ext.allow=never \
+      -C "$task5_git_repository" "$@"
 }
+# END TASK5_GIT_CONFIG_GUARD
+
+task5_git_repository=$generator_checkout
+canonical_origin=$canonical_generator_origin
+test "$generator_factory_sha" = \
+  "$(task5_git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
+canonical_origin=https://github.com/H234598/Wirtelprimpf-0001.git
+task5_git_repository=$archive_checkout
+archive_base_sha="$(/usr/bin/git -C "$archive_checkout" rev-parse origin/main)"
+[[ "$archive_base_sha" =~ ^[0-9a-f]{40}$ ]]
 
 /usr/bin/git -c core.hooksPath=/dev/null -C "$archive_checkout" \
   add -- .github/workflows/pages.yml
 /usr/bin/git -c core.hooksPath=/dev/null -c user.name=H234598 \
   -c user.email=54270221+H234598@users.noreply.github.com \
   -C "$archive_checkout" commit -m 'chore(pages): pin transactional site factory' >&2
-git_remote push --set-upstream "$canonical_origin" \
+task5_git_remote push --set-upstream "$canonical_origin" \
   chore/pin-transactional-site-factory >&2
 archive_head_sha="$(/usr/bin/git -C "$archive_checkout" rev-parse HEAD)"
 [[ "$archive_head_sha" =~ ^[0-9a-f]{40}$ ]]
+test "$(task5_git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)" = \
+  "$archive_base_sha"
+test "$(task5_git_remote ls-remote "$canonical_origin" \
+  refs/heads/chore/pin-transactional-site-factory | cut -f1)" = \
+  "$archive_head_sha"
 test "$(/usr/bin/git -C "$archive_checkout" diff --name-only origin/main...HEAD)" = \
   .github/workflows/pages.yml
 test "$(/usr/bin/git -C "$archive_checkout" diff --numstat origin/main...HEAD)" = \
@@ -4255,8 +4922,20 @@ archive_pr_url="$(task5_gh pr create \
   --body 'Pins both reusable-workflow references to the reviewed immutable Wirtelprimpf-generator merge SHA. No story, media, DNS, or redirect content changes.')"
 archive_pr_number="${archive_pr_url##*/}"
 [[ "$archive_pr_number" =~ ^[0-9]+$ ]]
-test "$(task5_gh pr view "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 \
-  --json headRefOid --jq .headRefOid)" = "$archive_head_sha"
+archive_pr_json="$(task5_gh pr view "$archive_pr_number" \
+  --repo "$canonical_archive_repository" \
+  --json state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository)"
+/usr/bin/jq -e --arg head "$archive_head_sha" \
+  --arg repo_id "$canonical_archive_repo_id" '
+    .state == "OPEN"
+    and .headRefName == "chore/pin-transactional-site-factory"
+    and .headRefOid == $head
+    and .baseRefName == "main"
+    and .isDraft == false
+    and .isCrossRepository == false
+    and .headRepository.id == $repo_id
+    and .headRepository.nameWithOwner == "H234598/Wirtelprimpf-0001"
+  ' <<<"$archive_pr_json" >/dev/null
 archive_mergeable=UNKNOWN
 for attempt in $(seq 1 15); do
   archive_mergeable="$(task5_gh pr view "$archive_pr_number" \
@@ -4292,16 +4971,46 @@ Expected: the PR head equals the reviewed local commit, GitHub reports it mergea
 Run:
 
 ```bash
-archive_pr_number="$(gh pr list \
-  --repo H234598/Wirtelprimpf-0001 \
-  --head chore/pin-transactional-site-factory \
-  --state open \
-  --limit 1 \
-  --json number \
-  --jq '.[0].number')"
-[[ "$archive_pr_number" =~ ^[0-9]+$ ]]
-gh pr merge "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 --merge --delete-branch
-archive_sha="$(
+set -Eeuo pipefail
+test "$(id -u)" = 0
+set +x
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  printf 'A valid ephemeral GH_TOKEN is required before archive merge.\n' >&2
+  exit 1
+fi
+task5_ephemeral_token=$GH_TOKEN
+unset GH_TOKEN
+task5_token_call() {
+  set +x
+  local task5_token_status=0
+  printf '%s\0' "$task5_ephemeral_token" |
+    /usr/bin/env -i \
+      HOME=/root PATH=/usr/local/bin:/usr/bin:/bin \
+      GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+      GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+      /bin/bash -c '
+        set -Eeuo pipefail
+        set +x
+        task5_call_token=
+        IFS= read -r -d "" task5_call_token
+        exec 0<&-
+        GH_TOKEN="$task5_call_token" exec "$@"
+      ' task5-token-call "$@" || task5_token_status=$?
+  return "$task5_token_status"
+}
+task5_gh() { task5_token_call /usr/bin/gh "$@"; }
+canonical_archive_repository=H234598/Wirtelprimpf-0001
+canonical_archive_repo_id=R_kgDOSg7oRg
+test "$(task5_gh api /user --jq '.login + ":" + (.id | tostring)')" = \
+  H234598:54270221
+archive_repository_json="$(task5_gh repo view "$canonical_archive_repository" \
+  --json id,nameWithOwner)"
+/usr/bin/jq -e --arg id "$canonical_archive_repo_id" \
+  --arg name "$canonical_archive_repository" \
+  '.id == $id and .nameWithOwner == $name' \
+  <<<"$archive_repository_json" >/dev/null
+
+task5_premerge_facts="$(
   /usr/sbin/runuser -u teladi -- /usr/bin/env -i \
     HOME=/home/teladi \
     USER=teladi \
@@ -4309,28 +5018,166 @@ archive_sha="$(
     PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
-    GIT_TERMINAL_PROMPT=0 \
-    GIT_ASKPASS=/bin/false \
-    SSH_ASKPASS=/bin/false \
     /bin/bash -se <<'TASK5_STEP6_TELADI'
 set -Eeuo pipefail
 test "$(id -u)" = 1000
 test "$(id -g)" = 1000
 archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
+generator_checkout=/home/teladi/.local/share/wirtelprimpf-generator
+receipt_file=/home/teladi/.local/state/wirtelprimpf/task3-merge/generator-main-receipt.json
+canonical_generator_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+canonical_archive_origin=https://github.com/H234598/Wirtelprimpf-0001.git
+
+# BEGIN TASK5_FACTORY_RECEIPT
+load_verified_task3_factory_sha() {
+  test -f "$receipt_file" && test ! -L "$receipt_file"
+  test "$(stat -c '%u:%g:%a' "$receipt_file")" = 1000:1000:600
+  /usr/bin/jq -e '
+    keys == [
+      "actor_id", "actor_login", "base_before", "canonical_origin",
+      "expected_head", "head_ref", "head_tree", "merge_date",
+      "merge_message", "merge_sha", "pr_number", "repository",
+      "repository_id", "review_author_id", "review_author_login",
+      "review_commit", "review_id", "review_state", "state", "version"
+    ]
+    and .version == 3 and .state == "verified"
+    and .actor_login == "H234598" and .actor_id == 54270221
+    and .repository_id == "R_kgDOTpr2BA"
+    and .repository == "H234598/Wirtelprimpf-generator"
+    and .canonical_origin == "https://github.com/H234598/Wirtelprimpf-generator.git"
+    and (.pr_number | type == "number" and . > 0 and floor == .)
+    and (.expected_head | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.base_before | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.head_tree | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.merge_sha | type == "string" and test("^[0-9a-f]{40}$"))
+    and (.review_id | type == "number" and . > 0 and floor == .)
+    and .review_author_login == "coderabbitai[bot]"
+    and .review_author_id == 136622811
+    and .review_commit == .expected_head
+    and .review_state == "APPROVED"
+  ' "$receipt_file" >/dev/null
+  /usr/bin/jq -r '.merge_sha' "$receipt_file"
+}
+# END TASK5_FACTORY_RECEIPT
+
+# BEGIN TASK5_GIT_CONFIG_GUARD
+assert_safe_local_git_config() {
+  local repository_path="$1" unsafe_keys
+  unsafe_keys="$(/usr/bin/git -C "$repository_path" config --local --name-only \
+    --get-regexp '^(include\..*|includeif\..*|url\..*\.(insteadof|pushinsteadof)|http\..*|protocol\..*|alias\..*|credential\..*|core\.(askpass|hookspath|sshcommand|gitproxy|fsmonitor)|remote\..*\.(proxy|vcs|receivepack|uploadpack|pushurl))$' || :)"
+  test -z "$unsafe_keys"
+}
+task5_git_remote() {
+  local operation="${1:-}" argument canonical_url_count=0
+  case "$operation" in fetch|ls-remote|push) ;; *) return 1 ;; esac
+  for argument in "$@"; do
+    [[ "$argument" == "$canonical_origin" ]] && canonical_url_count=$((canonical_url_count + 1))
+  done
+  test "$canonical_url_count" = 1
+  assert_safe_local_git_config "$task5_git_repository"
+  /usr/bin/env -i HOME=/home/teladi USER=teladi LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
+    /usr/bin/git -c http.extraHeader= \
+      -c "http.$canonical_origin.extraHeader=" -c http.proxy= \
+      -c http.sslVerify=true -c http.sslCAInfo= -c http.sslCAPath= \
+      -c http.curloptResolve= -c credential.helper= \
+      -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
+      -c core.fsmonitor=false -c core.sshCommand=/bin/false \
+      -c core.gitProxy=/bin/false -c protocol.allow=never \
+      -c protocol.https.allow=always -c protocol.ext.allow=never \
+      -C "$task5_git_repository" "$@"
+}
+# END TASK5_GIT_CONFIG_GUARD
+
 test -d "$archive_checkout" && test ! -L "$archive_checkout"
 test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
 test -z "$(find "$archive_checkout" -xdev \
   \( ! -user teladi -o ! -group teladi \) -print -quit)"
-/usr/bin/git -C "$archive_checkout" switch main >&2
-/usr/bin/git -C "$archive_checkout" pull --ff-only origin main >&2
-/usr/bin/git -C "$archive_checkout" rev-parse HEAD
+test -d "$generator_checkout" && test ! -L "$generator_checkout"
+test -z "$(find "$generator_checkout" -xdev \
+  \( ! -user teladi -o ! -group teladi \) -print -quit)"
+generator_factory_sha="$(load_verified_task3_factory_sha)"
+[[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)"
+task5_git_repository=$generator_checkout
+canonical_origin=$canonical_generator_origin
+test "$generator_factory_sha" = \
+  "$(task5_git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
+
+task5_git_repository=$archive_checkout
+canonical_origin=$canonical_archive_origin
+task5_git_remote fetch "$canonical_origin" \
+  '+refs/heads/main:refs/remotes/origin/main' \
+  '+refs/heads/chore/pin-transactional-site-factory:refs/remotes/origin/chore/pin-transactional-site-factory'
+archive_base_sha="$(/usr/bin/git -C "$archive_checkout" rev-parse origin/main)"
+archive_head_sha="$(/usr/bin/git -C "$archive_checkout" \
+  rev-parse origin/chore/pin-transactional-site-factory)"
+[[ "$archive_base_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ "$archive_head_sha" =~ ^[0-9a-f]{40}$ ]]
+test "$archive_head_sha" = \
+  "$(/usr/bin/git -C "$archive_checkout" rev-parse chore/pin-transactional-site-factory)"
+test "$generator_factory_sha" = "$(/usr/bin/git -C "$archive_checkout" \
+  show "$archive_head_sha:.github/workflows/pages.yml" | \
+  /usr/bin/rg -o -- '[0-9a-f]{40}' | sort -u)"
+test "$(/usr/bin/git -C "$archive_checkout" diff --name-only \
+  "$archive_base_sha...$archive_head_sha")" = .github/workflows/pages.yml
+printf '%s\t%s\t%s\n' "$archive_head_sha" "$archive_base_sha" "$generator_factory_sha"
 TASK5_STEP6_TELADI
 )"
+IFS=$'\t' read -r archive_head_sha archive_base_sha generator_factory_sha \
+  <<<"$task5_premerge_facts"
+[[ "$archive_head_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ "$archive_base_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+
+archive_pr_list="$(task5_gh pr list \
+  --repo "$canonical_archive_repository" \
+  --head chore/pin-transactional-site-factory --state open --limit 100 \
+  --json number,state,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,headRepository)"
+test "$(/usr/bin/jq 'length' <<<"$archive_pr_list")" = 1
+archive_pr_number="$(/usr/bin/jq -r '.[0].number' <<<"$archive_pr_list")"
+[[ "$archive_pr_number" =~ ^[1-9][0-9]*$ ]]
+/usr/bin/jq -e --arg head "$archive_head_sha" \
+  --arg repo_id "$canonical_archive_repo_id" '
+    .[0].state == "OPEN"
+    and .[0].headRefName == "chore/pin-transactional-site-factory"
+    and .[0].headRefOid == $head
+    and .[0].baseRefName == "main"
+    and .[0].isDraft == false
+    and .[0].isCrossRepository == false
+    and .[0].headRepository.id == $repo_id
+  ' <<<"$archive_pr_list" >/dev/null
+test "$(task5_gh pr view "$archive_pr_number" \
+  --repo "$canonical_archive_repository" --json files --jq '.files[].path')" = \
+  .github/workflows/pages.yml
+task5_gh pr checks "$archive_pr_number" \
+  --repo "$canonical_archive_repository" --watch --fail-fast || {
+    test "$(task5_gh pr view "$archive_pr_number" \
+      --repo "$canonical_archive_repository" --json statusCheckRollup \
+      --jq '.statusCheckRollup | length')" = 0
+  }
+test "$(task5_gh api \
+  "repos/$canonical_archive_repository/git/ref/heads/main" --jq .object.sha)" = \
+  "$archive_base_sha"
+test "$(task5_gh api \
+  "repos/$canonical_archive_repository/git/ref/heads/chore/pin-transactional-site-factory" \
+  --jq .object.sha)" = "$archive_head_sha"
+task5_gh pr merge "$archive_pr_number" \
+  --repo "$canonical_archive_repository" --merge --delete-branch \
+  --match-head-commit "$archive_head_sha"
+archive_sha="$(task5_gh pr view "$archive_pr_number" \
+  --repo "$canonical_archive_repository" --json state,mergeCommit \
+  --jq 'select(.state == "MERGED") | .mergeCommit.oid')"
 [[ "$archive_sha" =~ ^[0-9a-f]{40}$ ]]
 archive_run_id=""
 for attempt in $(seq 1 24); do
-  archive_run_id="$(gh run list \
-    --repo H234598/Wirtelprimpf-0001 \
+  archive_run_id="$(task5_gh run list \
+    --repo "$canonical_archive_repository" \
     --workflow pages.yml \
     --branch main \
     --commit "$archive_sha" \
@@ -4341,7 +5188,9 @@ for attempt in $(seq 1 24); do
   sleep 5
 done
 test -n "$archive_run_id"
-gh run watch "$archive_run_id" --repo H234598/Wirtelprimpf-0001 --exit-status
+task5_gh run watch "$archive_run_id" \
+  --repo "$canonical_archive_repository" --exit-status
+unset task5_ephemeral_token
 ```
 
 Expected: archive build, artifact validation, upload, and deploy complete successfully.
@@ -5098,3 +5947,65 @@ Completion requires all of the following:
   DNS-, Cloudflare- oder Upstream-Write. Die einzigen schreibenden Proben
   verwendeten disposable lokale Dateien beziehungsweise Repositories; alle
   Projektdateien und der abschließende Commit bleiben UID/GID `teladi`.
+
+### 2026-08-02 — Additive Schließung der drei verbleibenden Rollout-Blocker
+
+- Diese spätere Autorenschicht setzt exakt auf dem unveränderten lokalen
+  Parent `44aeb9df762b4fd362a60d38787eaaff8708bb49` auf. Sie ersetzt oder kürzt
+  keinen früheren Evidenzabschnitt. Ihr einziger Gegenstand sind die drei im
+  anschließenden Read-only-Sicherheitsreview verbliebenen Blocker: fremde
+  effektive Git-Konfiguration in tokenisierten Kindprozessen, die fehlende
+  bindende Current-Head-Reviewfreigabe vor Task 3 sowie die fehlende
+  Receipt-/Head-CAS-Bindung in Task 5/6.
+- Alle kurzen Task-3- und Task-5-Tokenkinder setzen jetzt ausdrücklich
+  `GIT_CONFIG_NOSYSTEM=1` und `GIT_CONFIG_GLOBAL=/dev/null`; Prompt und beide
+  Askpass-Pfade bleiben deaktiviert. Vor jedem planmäßigen Netzwerk-Git prüft
+  ein ausführbarer Local-Config-Guard fail-closed auf `include/includeIf`,
+  URL-Rewrites, jede lokale HTTP-/Extraheader-/Proxy-/TLS-Konfiguration,
+  Protokoll-, Credential-, Alias-, Hook-, Askpass-, Remote-Helper-, Routing-
+  und Exec-Vektoren. Die danach einzig zulässige Kapsel verwendet das
+  kanonische HTTPS-Literal genau einmal und setzt Helper, Hooks, Askpass,
+  Proxy/TLS und Protokollfreigaben selbst kontrolliert.
+- Task 3 fordert vor dem ersten `planned`-Receipt und unmittelbar vor dem
+  atomaren Exact-Lease-Push erneut denselben offenen PR, denselben Head und
+  `reviewDecision=APPROVED`. Reviewthreads und Reviews werden vollständig mit
+  Cursorprüfung paginiert. Akzeptiert wird genau eine Freigabe des unverändert
+  erwarteten Heads durch `coderabbitai[bot]` mit numerischer GitHub-ID
+  `136622811`; ungelöste Threads, stale/mehrdeutige Reviews, Head-Drift,
+  unbekannte Zustände, kaputte Pagination und API-Fehler stoppen.
+- Das private Receipt besitzt nun die strikte Version 3. Zusätzlich zu Actor,
+  unveränderlicher Generator-Repository-ID, PR, Head, Base, Tree und
+  deterministischem Merge bindet es Review-ID, Review-Login/-ID, Reviewcommit
+  und Zustand `APPROVED`. Jeder Push-Retry liest das Receipt streng, erhebt
+  die Freigabe frisch und vergleicht die Bindung erneut, bevor der atomare
+  Push erreichbar wird; bereits commitete Reconciliation bleibt pushfrei.
+- Jeder Task-5-Step akzeptiert den Factory-SHA ausschließlich aus einem
+  `verified` Task-3-v3-Receipt ohne Zusatzfelder und bindet ihn erneut an
+  Generator-`HEAD`, `origin/main` und das kanonische Remote-Main. Netzwerk-Git
+  läuft auch dort nur durch den gehärteten Literal-Wrapper. Step 5/6 binden
+  Actor `H234598/54270221`, das Archiv
+  `H234598/Wirtelprimpf-0001` und seine verifizierte unveränderliche Node-ID
+  `R_kgDOSg7oRg`; Branch, Base, Head, Dateiliste, Checks und Remote-Refs werden
+  exakt geprüft. Der Merge verwendet zwingend
+  `gh pr merge --match-head-commit "$archive_head_sha"` in demselben
+  kurzlebigen Tokenkontext.
+- TDD-Evidenz: Die sieben neuen fokussierten Verträge liefen zunächst mit 22
+  erwarteten Teilfehlern rot. Nach ausschließlich Plan- und Vertragstest-
+  Änderungen bestanden dieselben `7/7`. Der vollständige Rolloutvertrag
+  bestand anschließend als `teladi` mit `39/39`; seine zwei erwartungsgemäß
+  übersprungenen UID-0-Probes bestanden separat mit `2/2` und unter
+  `PYTHONDONTWRITEBYTECODE=1`.
+- Frische Gesamtverifikation: `make check` bestand als UID/GID `teladi` unter
+  `env -i`; darin Admin-UI `31/31`, SemVer `8/8`, Git-Object-Fallback `3/3`,
+  Release-Publication `3/3`, Helper-Environment `7/7`, Applet-Sync `28/28`,
+  Settings-Schema `15/15`, Story-Directives `31/31` und Rolloutvertrag
+  `39/39` mit den zwei dokumentierten Root-Skips. Die Webtests bestanden
+  `9/9`; Astro prüfte für Hub und Archiv jeweils 22 Dateien mit null Fehlern,
+  Warnungen oder Hinweisen. Da weder Produktions- noch Webcode geändert wurde,
+  wurden keine neuen Siteprofil-Buildartefakte erzeugt.
+- Diese Schließung führte keine Rolloutanweisung aus: kein Credentialzugriff,
+  kein Git-Fetch oder -Push, kein PR-/Merge-Write, keine Runtime-, Archiv-,
+  Ownership-, Install-, Reload-, Service-, Pages-, DNS-, Cloudflare- oder
+  Upstream-Mutation. Der einzige externe Zugriff war die anonyme read-only
+  Bestätigung der bereits existierenden Archiv-Node-ID; alle schreibenden
+  Probes blieben in disposable lokalen Verzeichnissen.

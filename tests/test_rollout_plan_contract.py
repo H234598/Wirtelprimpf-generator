@@ -91,6 +91,10 @@ class RolloutPlanContractTests(unittest.TestCase):
             cls.document[task5_offset:],
             "**Step 1: Verify the archive checkout and remote are clean/current**",
         )
+        cls.task5_step2 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 2: Resolve and validate the immutable factory SHA**",
+        )
         cls.task5_step3 = _code_block_after(
             cls.document[task5_offset:],
             "**Step 3: Replace both old pins",
@@ -102,6 +106,10 @@ class RolloutPlanContractTests(unittest.TestCase):
         cls.task5_step5 = _code_block_after(
             cls.document[task5_offset:],
             "**Step 5: Commit the isolated archive pin and open its pull request**",
+        )
+        cls.task5_step6 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 6: Merge and watch the exact archive Pages run**",
         )
 
     def _make_merge_fixture(self, tmp: str) -> dict[str, str]:
@@ -195,7 +203,7 @@ class RolloutPlanContractTests(unittest.TestCase):
     @staticmethod
     def _receipt_for_fixture(fixture: dict[str, str]) -> dict[str, object]:
         return {
-            "version": 2,
+            "version": 3,
             "state": "planned",
             "actor_login": "H234598",
             "actor_id": 54270221,
@@ -210,6 +218,11 @@ class RolloutPlanContractTests(unittest.TestCase):
             "merge_date": fixture["merge_date"],
             "merge_message": fixture["message"],
             "merge_sha": fixture["expected_merge"],
+            "review_id": 8142270,
+            "review_author_login": "coderabbitai[bot]",
+            "review_author_id": 136622811,
+            "review_commit": fixture["head"],
+            "review_state": "APPROVED",
         }
 
     def test_task3_uses_an_exact_base_lease_cas_and_verifies_the_indirect_merge(self) -> None:
@@ -267,13 +280,13 @@ class RolloutPlanContractTests(unittest.TestCase):
         if os.geteuid() != 0 or not Path("/usr/sbin/runuser").is_file():
             self.skipTest("the real Task-5 runuser probe requires root and /usr/sbin/runuser")
         try:
-            teladi_ids = subprocess.run(
-                ["id", "-u", "teladi"],
+            teladi_ids = subprocess.run(  # nosec B603 -- fixed root probe argv
+                ["/usr/bin/id", "-u", "teladi"],
                 text=True,
                 capture_output=True,
                 check=True,
-            ).stdout.strip(), subprocess.run(
-                ["id", "-g", "teladi"],
+            ).stdout.strip(), subprocess.run(  # nosec B603 -- fixed root probe argv
+                ["/usr/bin/id", "-g", "teladi"],
                 text=True,
                 capture_output=True,
                 check=True,
@@ -294,8 +307,8 @@ class RolloutPlanContractTests(unittest.TestCase):
             'printf "%s:%s:%s\\n" "$(id -u)" "$(id -g)" "${root_only-unexpanded}"\n'
             "TASK5_STEP1_TELADI\n"
         )
-        result = subprocess.run(
-            ["bash"],
+        result = subprocess.run(  # nosec B603 -- fixed shell and generated local probe
+            ["/bin/bash"],
             input=probe,
             text=True,
             capture_output=True,
@@ -311,16 +324,16 @@ class RolloutPlanContractTests(unittest.TestCase):
             self.skipTest("the real Task-5 workflow rewrite probe requires root and runuser")
         try:
             teladi_uid = int(
-                subprocess.run(
-                    ["id", "-u", "teladi"],
+                subprocess.run(  # nosec B603 -- fixed root probe argv
+                    ["/usr/bin/id", "-u", "teladi"],
                     text=True,
                     capture_output=True,
                     check=True,
                 ).stdout
             )
             teladi_gid = int(
-                subprocess.run(
-                    ["id", "-g", "teladi"],
+                subprocess.run(  # nosec B603 -- fixed root probe argv
+                    ["/usr/bin/id", "-g", "teladi"],
                     text=True,
                     capture_output=True,
                     check=True,
@@ -350,7 +363,7 @@ class RolloutPlanContractTests(unittest.TestCase):
             workflow.write_text(original, encoding="utf-8")
             os.chown(workflow, teladi_uid, teladi_gid)
             workflow.chmod(0o644)
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 -- fixed runuser/python argv
                 [
                     "/usr/sbin/runuser",
                     "-u",
@@ -379,6 +392,359 @@ class RolloutPlanContractTests(unittest.TestCase):
         self.assertEqual(metadata.st_uid, teladi_uid)
         self.assertEqual(metadata.st_gid, teladi_gid)
         self.assertEqual(metadata.st_mode & 0o777, 0o644)
+
+    def test_token_children_isolate_system_and_global_git_configuration(self) -> None:
+        task5_child = _quoted_heredoc(self.task5_step5, "TASK5_STEP5_TELADI")[1]
+        cases = (
+            ("task3-step3", self.task3_step3, "task3_token_call", "task3_ephemeral_token"),
+            ("task3-step5", self.task3_merge, "task3_token_call", "task3_ephemeral_token"),
+            ("task5-root", self.task5_step5, "task5_token_call", "task5_ephemeral_token"),
+            ("task5-teladi", task5_child, "task5_token_call", "task5_ephemeral_token"),
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-git-config-env-") as tmp:
+            probe = Path(tmp) / "probe"
+            probe.write_text(
+                "#!/bin/bash\n"
+                "set -Eeuo pipefail\n"
+                'test "$GIT_CONFIG_NOSYSTEM" = 1\n'
+                'test "$GIT_CONFIG_GLOBAL" = /dev/null\n'
+                'test "$GIT_TERMINAL_PROMPT" = 0\n'
+                'test "$GIT_ASKPASS" = /bin/false\n'
+                'test "$SSH_ASKPASS" = /bin/false\n',
+                encoding="utf-8",
+            )
+            probe.chmod(0o700)
+            for name, plan_script, function_name, token_name in cases:
+                token_call = _shell_function(plan_script, function_name)
+                script = f"""
+set -Eeuo pipefail
+{token_call}
+{token_name}=CONFIG_ISOLATION_SENTINEL_NOT_A_SECRET
+{function_name} "$1"
+"""
+                result = subprocess.run(  # nosec B603 -- fixed local shell/probe argv
+                    ["/bin/bash", "-c", script, "git-config-env-test", str(probe)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                    env={
+                        "HOME": "/home/teladi",
+                        "PATH": "/usr/bin:/bin",
+                        "GIT_CONFIG_SYSTEM": str(Path(tmp) / "hostile-system"),
+                        "GIT_CONFIG_GLOBAL": str(Path(tmp) / "hostile-global"),
+                    },
+                )
+                with self.subTest(name=name):
+                    self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_effective_local_git_config_guard_rejects_every_routing_or_exec_vector(self) -> None:
+        marker = "# BEGIN TASK3_GIT_CONFIG_GUARD"
+        self.assertIn(marker, self.task3_merge)
+        guard = _marked_block(self.task3_merge, "TASK3_GIT_CONFIG_GUARD")
+        hostile_entries = (
+            ("include.path", "/tmp/hostile-config"),
+            ("includeIf.onbranch:main.path", "/tmp/hostile-config"),
+            ("url.https://foreign.invalid/.insteadOf", "https://github.com/"),
+            ("url.ssh://foreign.invalid/.pushInsteadOf", "https://github.com/"),
+            ("http.https://github.com/.extraHeader", "Authorization: forbidden"),
+            ("protocol.ext.allow", "always"),
+            ("core.sshCommand", "/tmp/forbidden-command"),
+            ("core.gitProxy", "/tmp/forbidden-command"),
+            ("core.fsmonitor", "/tmp/forbidden-command"),
+            ("http.proxy", "http://127.0.0.1:9"),
+            ("http.sslVerify", "false"),
+            ("http.sslCAInfo", "/tmp/forbidden-ca"),
+            ("http.curloptResolve", "github.com:443:127.0.0.1"),
+            ("remote.origin.proxy", "http://127.0.0.1:9"),
+            ("credential.https://github.com.helper", "/tmp/forbidden-helper"),
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-local-config-guard-") as tmp:
+            repo = Path(tmp) / "repo"
+            subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
+                ["/usr/bin/git", "init", "-q", str(repo)],
+                check=True,
+            )
+            script = f"set -Eeuo pipefail\n{guard}\nassert_safe_local_git_config \"$1\"\n"
+            accepted = subprocess.run(  # nosec B603 -- fixed local shell argv
+                ["/bin/bash", "-c", script, "local-config-test", str(repo)],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            for key, value in hostile_entries:
+                subprocess.run(  # nosec B603 -- fixed git argv and controlled config key
+                    ["/usr/bin/git", "-C", str(repo), "config", "--local", key, value],
+                    check=True,
+                )
+                rejected = subprocess.run(  # nosec B603 -- fixed local shell argv
+                    ["/bin/bash", "-c", script, "local-config-test", str(repo)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                with self.subTest(key=key):
+                    self.assertNotEqual(rejected.returncode, 0)
+                subprocess.run(  # nosec B603 -- fixed git argv and controlled config key
+                    ["/usr/bin/git", "-C", str(repo), "config", "--local", "--unset-all", key],
+                    check=True,
+                )
+
+    def test_task5_has_no_raw_network_git_and_uses_only_canonical_literal_urls(self) -> None:
+        for name, script in (
+            ("step1", self.task5_step1),
+            ("step2", self.task5_step2),
+            ("step3", self.task5_step3),
+            ("step4", self.task5_step4),
+            ("step5", self.task5_step5),
+            ("step6", self.task5_step6),
+        ):
+            with self.subTest(name=name):
+                self.assertIn("TASK5_GIT_CONFIG_GUARD", script)
+                self.assertNotRegex(
+                    " ".join(script.split()),
+                    r"/usr/bin/git\b(?:(?!task5_git_remote).){0,180}\b(?:fetch|pull|ls-remote|push)\b",
+                )
+                self.assertNotIn("ls-remote origin", script)
+        self.assertIn('task5_git_remote fetch "$canonical_origin"', self.task5_step1)
+        self.assertIn('task5_git_remote ls-remote "$canonical_origin"', self.task5_step2)
+        self.assertIn('task5_git_remote push', self.task5_step5)
+
+    def test_task3_current_head_review_gate_is_paginated_and_fail_closed(self) -> None:
+        self.assertIn("# BEGIN TASK3_REVIEW_GATE", self.task3_merge)
+        review_gate = _marked_block(self.task3_merge, "TASK3_REVIEW_GATE")
+        pr_identity = _shell_function(self.task3_merge, "assert_pr_identity")
+        head = "2" * 40
+        base_overview = {
+            "state": "OPEN",
+            "headRefName": "feature/reviewed",
+            "headRefOid": head,
+            "baseRefName": "main",
+            "isDraft": False,
+            "isCrossRepository": False,
+            "headRepository": {
+                "id": "R_kgDOTpr2BA",
+                "nameWithOwner": "H234598/Wirtelprimpf-generator",
+            },
+            "headRepositoryOwner": {"login": "H234598"},
+            "reviewDecision": "APPROVED",
+        }
+        actor = {"login": "coderabbitai[bot]", "id": 136622811}
+
+        def page(nodes: list[dict[str, object]], *, more: bool = False, cursor: str | None = None):
+            return {
+                "nodes": nodes,
+                "pageInfo": {"hasNextPage": more, "endCursor": cursor},
+            }
+
+        approved_review = {
+            "databaseId": 8142270,
+            "state": "APPROVED",
+            "author": {"login": "coderabbitai[bot]"},
+            "commit": {"oid": head},
+        }
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-review-gate-") as tmp:
+            fixture_dir = Path(tmp)
+            script = f"""
+set -Eeuo pipefail
+{pr_identity}
+{review_gate}
+fixture_dir=$1
+fetch_task3_review_overview() {{ /bin/cat "$fixture_dir/overview.json"; }}
+fetch_task3_coderabbit_actor() {{ /bin/cat "$fixture_dir/actor.json"; }}
+fetch_task3_review_threads_page() {{
+  case "${{1:-}}" in
+    '') /bin/cat "$fixture_dir/threads-root.json" ;;
+    T1) /bin/cat "$fixture_dir/threads-T1.json" ;;
+    *) return 91 ;;
+  esac
+}}
+fetch_task3_reviews_page() {{
+  case "${{1:-}}" in
+    '') /bin/cat "$fixture_dir/reviews-root.json" ;;
+    R1) /bin/cat "$fixture_dir/reviews-R1.json" ;;
+    *) return 92 ;;
+  esac
+}}
+generator_pr_number=17
+generator_head=feature/reviewed
+generator_expected_head=$2
+canonical_repo_id=R_kgDOTpr2BA
+canonical_repository=H234598/Wirtelprimpf-generator
+assert_task3_current_review
+printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
+  "$generator_review_author_login" "$generator_review_author_id" \
+  "$generator_review_commit" "$generator_review_state"
+"""
+
+            def execute(
+                *,
+                overview: dict[str, object] | None = None,
+                threads: dict[str, object] | None = None,
+                reviews: dict[str, object] | None = None,
+                threads_second: dict[str, object] | None = None,
+                reviews_second: dict[str, object] | None = None,
+            ) -> subprocess.CompletedProcess[str]:
+                payloads = {
+                    "overview.json": overview or base_overview,
+                    "actor.json": actor,
+                    "threads-root.json": threads or page([{"isResolved": True}]),
+                    "threads-T1.json": threads_second or page([]),
+                    "reviews-root.json": reviews or page([approved_review]),
+                    "reviews-R1.json": reviews_second or page([]),
+                }
+                for filename, payload in payloads.items():
+                    (fixture_dir / filename).write_text(json.dumps(payload), encoding="utf-8")
+                return subprocess.run(  # nosec B603 -- fixed local shell and fixture argv
+                    ["/bin/bash", "-c", script, "review-gate-test", str(fixture_dir), head],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+
+            accepted = execute(
+                threads=page([{"isResolved": True}], more=True, cursor="T1"),
+                reviews=page(
+                    [{"databaseId": 1, "state": "COMMENTED", "author": {"login": "human"}, "commit": {"oid": head}}],
+                    more=True,
+                    cursor="R1",
+                ),
+                reviews_second=page([approved_review]),
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(
+                accepted.stdout,
+                f"8142270:coderabbitai[bot]:136622811:{head}:APPROVED\n",
+            )
+
+            drifted = dict(base_overview, headRefOid="3" * 40)
+            changed = dict(base_overview, reviewDecision="CHANGES_REQUESTED")
+            stale_review = dict(approved_review, commit={"oid": "3" * 40})
+            duplicate_reviews = page([approved_review, dict(approved_review, databaseId=8142271)])
+            rejected_cases = {
+                "head-drift": {"overview": drifted},
+                "changes-requested": {"overview": changed},
+                "unresolved": {"threads": page([{"isResolved": False}])},
+                "stale-review": {"reviews": page([stale_review])},
+                "ambiguous-review": {"reviews": duplicate_reviews},
+                "broken-pagination": {
+                    "threads": page([{"isResolved": True}], more=True, cursor=None)
+                },
+            }
+            for name, kwargs in rejected_cases.items():
+                with self.subTest(name=name):
+                    self.assertNotEqual(execute(**kwargs).returncode, 0)
+
+    def test_task3_review_gate_precedes_receipt_and_atomic_push_and_receipt_is_v3(self) -> None:
+        planned = self.task3_merge.index("write_task3_receipt planned")
+        push = self.task3_merge.index("git_remote push --atomic")
+        self.assertGreaterEqual(
+            self.task3_merge[:planned].count("assert_task3_current_review"),
+            1,
+        )
+        self.assertGreaterEqual(
+            self.task3_merge[planned:push].count("assert_task3_current_review"),
+            1,
+        )
+        self.assertIn(
+            'assert_task3_current_review "$generator_pr_state"',
+            self.task3_merge,
+        )
+        self.assertIn(".version == 3", self.task3_merge)
+        for field in (
+            "review_id",
+            "review_author_login",
+            "review_author_id",
+            "review_commit",
+            "review_state",
+        ):
+            self.assertIn(field, self.task3_merge)
+
+    def test_task5_accepts_only_the_verified_task3_v3_receipt_sha(self) -> None:
+        self.assertIn("# BEGIN TASK5_FACTORY_RECEIPT", self.task5_step2)
+        receipt_guard = _marked_block(self.task5_step2, "TASK5_FACTORY_RECEIPT")
+        head = "2" * 40
+        merge = "3" * 40
+        valid = {
+            "version": 3,
+            "state": "verified",
+            "actor_login": "H234598",
+            "actor_id": 54270221,
+            "repository_id": "R_kgDOTpr2BA",
+            "repository": "H234598/Wirtelprimpf-generator",
+            "canonical_origin": "https://github.com/H234598/Wirtelprimpf-generator.git",
+            "pr_number": 17,
+            "head_ref": "feature/reviewed",
+            "expected_head": head,
+            "base_before": "1" * 40,
+            "head_tree": "4" * 40,
+            "merge_date": "2026-08-02T00:00:00+00:00",
+            "merge_message": "Merge pull request #17 from feature/reviewed",
+            "merge_sha": merge,
+            "review_id": 8142270,
+            "review_author_login": "coderabbitai[bot]",
+            "review_author_id": 136622811,
+            "review_commit": head,
+            "review_state": "APPROVED",
+        }
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-task5-receipt-") as tmp:
+            receipt = Path(tmp) / "receipt.json"
+            script = f"""
+set -Eeuo pipefail
+{receipt_guard}
+receipt_file=$1
+load_verified_task3_factory_sha
+"""
+
+            def validate(name: str, payload: dict[str, object]) -> subprocess.CompletedProcess[str]:
+                receipt.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+                receipt.chmod(0o600)
+                if os.geteuid() == 0:
+                    os.chown(receipt, 1000, 1000)
+                return subprocess.run(  # nosec B603 -- fixed local shell and fixture argv
+                    ["/bin/bash", "-c", script, f"task5-receipt-{name}", str(receipt)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+
+            accepted = validate("valid", valid)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(accepted.stdout, f"{merge}\n")
+            invalid_cases = {
+                "planned": dict(valid, state="planned"),
+                "stale-review": dict(valid, review_commit="5" * 40),
+                "wrong-review": dict(valid, review_state="CHANGES_REQUESTED"),
+                "extra": {**valid, "unexpected": True},
+            }
+            for name, payload in invalid_cases.items():
+                with self.subTest(name=name):
+                    self.assertNotEqual(validate(name, payload).returncode, 0)
+
+    def test_every_task5_step_rebinds_receipt_sha_and_merge_uses_exact_head_cas(self) -> None:
+        for name, script in (
+            ("step1", self.task5_step1),
+            ("step2", self.task5_step2),
+            ("step3", self.task5_step3),
+            ("step4", self.task5_step4),
+            ("step5", self.task5_step5),
+            ("step6", self.task5_step6),
+        ):
+            with self.subTest(name=name):
+                self.assertIn("load_verified_task3_factory_sha", script)
+                self.assertIn("generator_factory_sha", script)
+        self.assertIn("canonical_archive_repo_id=", self.task5_step5)
+        self.assertIn("canonical_archive_repo_id=", self.task5_step6)
+        self.assertIn("task5_gh pr merge", self.task5_step6)
+        self.assertIn('--match-head-commit "$archive_head_sha"', self.task5_step6)
+        self.assertIn("TASK5_STEP6_TELADI", self.task5_step6)
+        self.assertIn("task5_token_call", self.task5_step6)
 
     def test_task3_runs_git_as_teladi_with_ephemeral_authenticated_credentials(self) -> None:
         normalized = " ".join(self.task3_merge.split())
@@ -760,8 +1126,8 @@ task3_token_call "$1"
     def test_normative_git_remote_disables_a_real_pre_push_hook(self) -> None:
         self.assertIn("# BEGIN TASK3_FD_TOKEN_CALL", self.task3_merge)
         self.assertIn("# BEGIN TASK3_GIT_REMOTE", self.task3_merge)
-        token_call = _marked_block(self.task3_merge, "TASK3_FD_TOKEN_CALL")
         git_remote = _marked_block(self.task3_merge, "TASK3_GIT_REMOTE")
+        self.assertIn("-c core.hooksPath=/dev/null", git_remote)
         with tempfile.TemporaryDirectory(prefix="wirtelprimpf-hook-contract-") as tmp:
             source = Path(tmp) / "source"
             remote = Path(tmp) / "remote.git"
@@ -779,35 +1145,23 @@ task3_token_call "$1"
                 encoding="utf-8",
             )
             hook.chmod(0o700)
-            read_fd, write_fd = os.pipe()
-            try:
-                os.write(write_fd, b"HOOK_SENTINEL_NOT_A_SECRET\0")
-                os.close(write_fd)
-                write_fd = -1
-                script = f"""
-set -Eeuo pipefail
-{token_call}
-{git_remote}
-canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
-relay_fd=$1
-task3_ephemeral_token=
-IFS= read -r -d '' task3_ephemeral_token <&"$relay_fd"
-exec {{relay_fd}}<&-
-git_remote -C "$2" push "$3" HEAD:refs/heads/main
-"""
-                result = subprocess.run(
-                    ["bash", "-c", script, "hook-test", str(read_fd), str(source), str(remote)],
-                    pass_fds=(read_fd,),
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                    timeout=10,
-                    env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
-                )
-            finally:
-                if write_fd >= 0:
-                    os.close(write_fd)
-                os.close(read_fd)
+            result = subprocess.run(  # nosec B603 -- fixed git argv and disposable remote
+                [
+                    "/usr/bin/git",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "-C",
+                    str(source),
+                    "push",
+                    str(remote),
+                    "HEAD:refs/heads/main",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(leak.exists(), "the real pre-push hook observed the tokenized Git process")
             remote_head = subprocess.run(
@@ -824,7 +1178,7 @@ git_remote -C "$2" push "$3" HEAD:refs/heads/main
             ).stdout.strip()
             self.assertEqual(remote_head, local_head)
 
-    def test_git_remote_clears_url_specific_authorization_extraheader(self) -> None:
+    def test_git_remote_rejects_url_specific_authorization_extraheader(self) -> None:
         received_paths: list[str] = []
         received_authorizations: list[str] = []
 
@@ -864,8 +1218,13 @@ git_remote -C "$2" push "$3" HEAD:refs/heads/main
                         check=True,
                     )
                     git_remote = _shell_function(plan_script, "git_remote")
+                    git_config_guard = _marked_block(
+                        plan_script,
+                        "TASK3_GIT_CONFIG_GUARD",
+                    )
                     script = f"""
 set -Eeuo pipefail
+{git_config_guard}
 {git_remote}
 canonical_origin=$2
 task3_token_call() {{
@@ -876,7 +1235,8 @@ task3_token_call() {{
     GIT_TERMINAL_PROMPT=0 \
     "$@"
 }}
-if git_remote -C "$1" ls-remote "$2"; then
+cd "$1"
+if git_remote ls-remote "$2"; then
   exit 91
 fi
 """
@@ -890,7 +1250,7 @@ fi
                     )
                     with self.subTest(name=name):
                         self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertGreaterEqual(len(received_paths), 2)
+            self.assertEqual(received_paths, [])
             self.assertFalse(
                 any(sentinel in value for value in received_authorizations),
                 received_authorizations,
@@ -1016,6 +1376,11 @@ generator_expected_head=$2
 load_task3_receipt
 generator_pr_number=$receipt_pr_number
 generator_base_before=$receipt_base_before
+generator_review_id=8142270
+generator_review_author_login='coderabbitai[bot]'
+generator_review_author_id=136622811
+generator_review_commit=$generator_expected_head
+generator_review_state=APPROVED
 derive_task3_merge
 validate_task3_receipt_derivation
 """
@@ -1093,6 +1458,11 @@ generator_head_tree=$6
 generator_merge_date=$7
 generator_merge_message='Merge pull request #17 from feature/reviewed'
 generator_merge_sha=$8
+generator_review_id=8142270
+generator_review_author_login='coderabbitai[bot]'
+generator_review_author_id=136622811
+generator_review_commit=$4
+generator_review_state=APPROVED
 write_task3_receipt planned
 """
             failed = subprocess.run(

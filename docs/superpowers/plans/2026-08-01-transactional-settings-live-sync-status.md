@@ -3053,3 +3053,41 @@ Do not start public deployment merely because Task 10 is green. First compare th
   Task 5 wurde ausschließlich als Planvertrag und gegen disposable lokale
   Fixtures geprüft; seine spätere Remoteausführung bleibt ein getrenntes,
   erneut zu gateendes Rolloutereignis.
+
+### 2026-08-02 — Additive transaktionale Bindung von Review, Receipt und Archiv-CAS
+
+- Diese Ergänzung basiert exakt auf Parent
+  `44aeb9df762b4fd362a60d38787eaaff8708bb49`, lässt sämtliche historische
+  Ledgerpassagen stehen und beschränkt sich auf die drei nach dem letzten
+  Read-only-Sicherheitsreview noch offenen Rolloutgrenzen.
+- Die transaktionale Konfiguration und ihre Live-Synchronisierung bleiben
+  unverändert. Geändert wurden ausschließlich der ausführbare Rolloutplan und
+  sein Vertragstest: Task-3-/Task-5-Tokenkinder ignorieren System- und
+  Global-Git-Konfiguration; Local-Config-Guards verwerfen alle relevanten
+  Include-, Rewrite-, Extraheader-, Credential-, Proxy/TLS-, Remote-Helper-,
+  Routing- und Exec-Vektoren; Netzwerk-Git akzeptiert nur das kanonische
+  Literal durch den gehärteten Wrapper.
+- Das Task-3-Commitpoint-Protokoll besitzt jetzt ein fail-closed, vollständig
+  paginiertes Current-Head-Gate. Genau eine `APPROVED`-Review durch
+  `coderabbitai[bot]`/`136622811` auf dem erwarteten Commit und null ungelöste
+  Threads sind vor Receipt-Erzeugung und unmittelbar vor Push erforderlich.
+  Receipt v3 bindet diese Reviewprovenienz streng und wird bei einem Push-Retry
+  gegen die frisch gelesene Freigabe verglichen.
+- Task 5 liest ausschließlich den Merge-SHA eines streng validierten
+  `verified` Receipt v3 und gleicht ihn in jedem Step mit lokalem
+  Generator-Head, Trackingref und kanonischem Remote-Main ab. Das Archiv ist
+  zusätzlich an `H234598/Wirtelprimpf-0001` und Node-ID `R_kgDOSg7oRg`
+  gebunden. Step 6 erhält einen vollständigen Root-Token-/Teladi-Lokalkontext,
+  prüft exakt Branch, Head, Base, Datei- und Checkzustand sowie Remote-Refs und
+  merged ausschließlich mit `--match-head-commit "$archive_head_sha"`.
+- RED/GREEN: sieben neue Verträge zunächst 22 erwartete Teilfehler, danach
+  `7/7` grün. Vollständiger Rolloutvertrag `39/39` als `teladi` mit zwei
+  erwarteten Root-Skips; die beiden Realprobes separat `2/2` grün. `make check`
+  bestand vollständig; Webtests `9/9`, Astro Hub/Archiv jeweils 22 Dateien und
+  null Diagnostik. Produktions- und Webcode blieben außerhalb des Diffs,
+  daher waren neue Siteprofil-Builds nicht erforderlich.
+- Keine Anweisung aus Task 3–6 wurde live ausgeführt. Es gab keinen
+  Credentialzugriff, Fetch, Push, PR-Write, Merge, Install, Reload, Runtime-,
+  Archiv-, Service-, Pages-, DNS-, Cloudflare- oder Upstream-Write. Lokale
+  Schreibprobes verwendeten ausschließlich temporäre Fixtures; die anonyme
+  GitHub-Abfrage der unveränderlichen Archiv-Node-ID war read-only.
