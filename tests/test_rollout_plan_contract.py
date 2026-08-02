@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import signal
 import subprocess
 import tempfile
@@ -977,6 +978,18 @@ set -Eeuo pipefail
             "commit": {"oid": head},
         }
 
+        reviews_page_function = _shell_function(review_gate, "fetch_task3_reviews_page")
+        author_selection = re.search(
+            r"author\{(?P<actor>[^{}]*?)\.\.\. on Bot\{(?P<bot>[^{}]+)\}\}",
+            reviews_page_function,
+        )
+        self.assertIsNotNone(author_selection)
+        assert author_selection is not None
+        self.assertEqual(author_selection.group("actor").split(), ["__typename", "login"])
+        self.assertEqual(
+            author_selection.group("bot").split(), ["id", "databaseId", "url"]
+        )
+        self.assertEqual(reviews_page_function.count("author{"), 1)
         self.assertIn("__typename", review_gate)
         self.assertIn("databaseId", review_gate)
         self.assertIn("BOT_kgDOCCSy2w", review_gate)

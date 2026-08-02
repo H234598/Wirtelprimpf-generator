@@ -1039,7 +1039,7 @@ fetch_task3_review_threads_page() {
 
 fetch_task3_reviews_page() {
   local cursor="${1:-}" query
-  query='query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviews(first:100,after:$cursor){nodes{databaseId state author{__typename login id url ... on Bot{databaseId}}commit{oid}}pageInfo{hasNextPage endCursor}}}}}'
+  query='query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviews(first:100,after:$cursor){nodes{databaseId state author{__typename login ... on Bot{id databaseId url}}commit{oid}}pageInfo{hasNextPage endCursor}}}}}'
   if [[ -n "$cursor" ]]; then
     task3_gh api graphql -f query="$query" \
       -F owner=H234598 -F name=Wirtelprimpf-generator \
@@ -7276,3 +7276,43 @@ Completion requires all of the following:
   Cloudflare- oder Upstream-Write aus. Der einzige externe Befund war die
   ausdrücklich read-only erhobene API-Identität; sämtliche schreibenden
   Testfixtures blieben lokal und disposable.
+
+### 2026-08-02 — Additive GraphQL-Actor-Schemakorrektur für den Reviewgate
+
+- Diese zweite Follow-up-Schicht basiert exakt auf
+  `3cb67c72db02dc42f8095a61cbba0386f61264ea`. Die root-authentifizierte,
+  read-only ausgeführte Liveprobe des dort festgeschriebenen Querys brach mit
+  `Field 'id' doesn't exist on type 'Actor'` bereits an der GitHub-GraphQL-
+  Schemavalidierung ab. Es entstanden weder Receipt noch Remote-Write. Damit
+  bleibt die zuvor dokumentierte REST-/GraphQL-Loginnormalisierung richtig;
+  ausschließlich die Platzierung der botspezifischen GraphQL-Felder war noch
+  ungültig.
+- Der fehlerhafte Selektor
+  `author{__typename login id url ... on Bot{databaseId}}` fragte Node-ID und
+  URL auf der statischen `Actor`-Ebene ab. Die separat bereits erfolgreich
+  gegen das reale Schema ausgeführte Form und nun normative Query lautet exakt
+  `author{__typename login ... on Bot{id databaseId url}}`: Nur
+  `__typename` und `login` bleiben auf `Actor`; Node-ID, numerische
+  `databaseId` und App-URL werden ausschließlich im `Bot`-Fragment angefordert.
+  Candidate-Filter, REST-ID-Kreuzbindung und Receipt-v3-Felder bleiben
+  unverändert fail-closed.
+- Der Vertragsregressionstest extrahiert jetzt den Author-Selektor aus
+  `fetch_task3_reviews_page`, verlangt auf Actor-Ebene exakt
+  `__typename login`, im Bot-Fragment exakt `id databaseId url` und genau
+  einen Author-Selektor. RED zeigte am Parent explizit die unerlaubte
+  Actor-Feldliste `['__typename', 'login', 'id', 'url']`; nach der
+  Querykorrektur lief derselbe fokussierte Test `1/1` grün.
+- Die vollständige `make check`-Matrix endete anschließend mit Exit 0:
+  Applet-Runtime grün, Admin-UI `31/31`, SemVer `8/8`, Git-Object-Fallback
+  `3/3`, Release-Publication `3/3`, Helper-Environment `7/7`, Applet-Sync
+  `28/28`, Settings-Schema `15/15`, Story-Directives `31/31` und
+  Rolloutvertrag 56 entdeckt, 55 grün ausgeführt sowie genau ein erwarteter
+  Root-/`runuser`-Skip. Ruff und Bandit High endeten ohne Befund; der
+  vollständige normative Task-3-Step-5-Block bestand `bash -n` und ShellCheck
+  auf Error-Severity.
+- Auch diese Korrektur führte keinen Receipt-, Fetch-, Push-, PR-, Merge-,
+  Installations-, Runtime-, Service-, Applet-, Archiv-, Pages-, DNS-,
+  Cloudflare- oder Upstream-Write aus. Die Tests verwendeten ausschließlich
+  lokale, disposable Fixtures; die abschließende Liveprobe des korrigierten
+  Querys bleibt dem getrennten root-authentifizierten Read-only-Lauf
+  vorbehalten.
