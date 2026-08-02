@@ -443,21 +443,21 @@ set -Eeuo pipefail
         self.assertIn(marker, self.task3_merge)
         guard = _marked_block(self.task3_merge, "TASK3_GIT_CONFIG_GUARD")
         hostile_entries = (
-            ("include.path", "/tmp/hostile-config"),
-            ("includeIf.onbranch:main.path", "/tmp/hostile-config"),
+            ("include.path", "/tmp/hostile-config"),  # nosec B108 -- not a tempfile sink
+            ("includeIf.onbranch:main.path", "/tmp/hostile-config"),  # nosec B108 -- not a tempfile sink
             ("url.https://foreign.invalid/.insteadOf", "https://github.com/"),
             ("url.ssh://foreign.invalid/.pushInsteadOf", "https://github.com/"),
             ("http.https://github.com/.extraHeader", "Authorization: forbidden"),
             ("protocol.ext.allow", "always"),
-            ("core.sshCommand", "/tmp/forbidden-command"),
-            ("core.gitProxy", "/tmp/forbidden-command"),
-            ("core.fsmonitor", "/tmp/forbidden-command"),
+            ("core.sshCommand", "/tmp/forbidden-command"),  # nosec B108 -- not a tempfile sink
+            ("core.gitProxy", "/tmp/forbidden-command"),  # nosec B108 -- not a tempfile sink
+            ("core.fsmonitor", "/tmp/forbidden-command"),  # nosec B108 -- not a tempfile sink
             ("http.proxy", "http://127.0.0.1:9"),
             ("http.sslVerify", "false"),
-            ("http.sslCAInfo", "/tmp/forbidden-ca"),
+            ("http.sslCAInfo", "/tmp/forbidden-ca"),  # nosec B108 -- not a tempfile sink
             ("http.curloptResolve", "github.com:443:127.0.0.1"),
             ("remote.origin.proxy", "http://127.0.0.1:9"),
-            ("credential.https://github.com.helper", "/tmp/forbidden-helper"),
+            ("credential.https://github.com.helper", "/tmp/forbidden-helper"),  # nosec B108 -- not a tempfile sink
         )
         with tempfile.TemporaryDirectory(prefix="wirtelprimpf-local-config-guard-") as tmp:
             repo = Path(tmp) / "repo"
@@ -816,11 +816,11 @@ load_verified_task3_factory_sha
                     ["/usr/bin/git", "init", "-q", str(repo)],
                     check=True,
                 )
-                subprocess.run(
+                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
                     ["/usr/bin/git", "-C", str(repo), "config", "user.name", "Contract Test"],
                     check=True,
                 )
-                subprocess.run(
+                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
                     ["/usr/bin/git", "-C", str(repo), "config", "user.email", "contract@example.invalid"],
                     check=True,
                 )
@@ -836,12 +836,14 @@ load_verified_task3_factory_sha
                     f'      factory_ref: "{old_sha}"\n',
                     encoding="utf-8",
                 )
-                subprocess.run(["/usr/bin/git", "-C", str(repo), "add", "."], check=True)
-                subprocess.run(
+                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
+                    ["/usr/bin/git", "-C", str(repo), "add", "."], check=True
+                )
+                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
                     ["/usr/bin/git", "-C", str(repo), "commit", "-q", "-m", "base"],
                     check=True,
                 )
-                base = subprocess.run(
+                base = subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
                     ["/usr/bin/git", "-C", str(repo), "rev-parse", "HEAD"],
                     text=True,
                     capture_output=True,
@@ -850,12 +852,14 @@ load_verified_task3_factory_sha
                 workflow_path.write_text(workflow, encoding="utf-8")
                 if extra_file:
                     (repo / "unexpected").write_text("unexpected\n", encoding="utf-8")
-                subprocess.run(["/usr/bin/git", "-C", str(repo), "add", "."], check=True)
-                subprocess.run(
+                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
+                    ["/usr/bin/git", "-C", str(repo), "add", "."], check=True
+                )
+                subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
                     ["/usr/bin/git", "-C", str(repo), "commit", "-q", "-m", "candidate"],
                     check=True,
                 )
-                head = subprocess.run(
+                head = subprocess.run(  # nosec B603 -- fixed git argv and disposable repository
                     ["/usr/bin/git", "-C", str(repo), "rev-parse", "HEAD"],
                     text=True,
                     capture_output=True,
