@@ -37,6 +37,15 @@ class ValidationError(Exception):
     pass
 
 
+def unique_json_object(pairs: list[tuple[str, object]]) -> dict:
+    value: dict = {}
+    for key, member in pairs:
+        if key in value:
+            fail(f"duplicate JSON key: {key}")
+        value[key] = member
+    return value
+
+
 def fail(message: str) -> None:
     raise ValidationError(message)
 
@@ -44,8 +53,11 @@ def fail(message: str) -> None:
 def read_json(root: Path, relative: Path) -> dict:
     path = root / relative
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=unique_json_object,
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         fail(f"malformed {relative}: {error}")
     if not isinstance(value, dict):
         fail(f"malformed {relative}: object required")

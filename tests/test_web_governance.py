@@ -112,6 +112,27 @@ class WebGovernanceValidationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(message, result.stderr)
 
+    def refresh_plan_digest(self, root: Path) -> None:
+        digest = hashlib.sha256((root / PLAN).read_bytes()).hexdigest()
+        revisions = self.read_revisions(root)
+        revisions["plan_sha256"] = digest
+        self.write_revisions(root, revisions)
+        status = self.read_json(root, STATUS)
+        status["canonical_plan"]["sha256"] = digest
+        self.write_json(root, STATUS, status)
+        for path in (REQUIREMENTS, DECISIONS):
+            value = self.read_json(root, path)
+            value["plan_sha256"] = digest
+            self.write_json(root, path, value)
+        for path in (REQUIREMENTS_DOC, ADR_DOC):
+            document = root / path
+            document.write_text(
+                document.read_text(encoding="utf-8").replace(
+                    "b4b3427e80cabff59e82f9aa9be52978de1d930ea63e06b2433045b8c0dc38fe",
+                    digest,
+                ),
+                encoding="utf-8",
+            )
     def test_accepts_canonical_revision_baseline(self) -> None:
         """Rejects regressions that make frozen and observed evidence inconsistent."""
         result = self.validate(ROOT)
@@ -237,6 +258,116 @@ class WebGovernanceValidationTests(unittest.TestCase):
             self.write_json(root, REQUIREMENTS, requirements)
             result = self.validate(root)
         self.assert_rejected(result, "requirement IDs")
+
+    def test_rejects_top_level_duplicate_json_keys(self) -> None:
+        """Rejects duplicate top-level members in every governance JSON register."""
+        for relative in (REVISIONS, STATUS, REQUIREMENTS, DECISIONS):
+            with self.subTest(relative=relative), self.copied_root() as temporary:
+                root = Path(temporary)
+                path = root / relative
+                content = path.read_text(encoding="utf-8")
+                path.write_text(
+                    content.replace(
+                        '"schema_version": 1',
+                        '"schema_version": 999,\n  "schema_version": 1',
+                        1,
+                    ),
+                    encoding="utf-8",
+                )
+                result = self.validate(root)
+            self.assert_rejected(result, "duplicate JSON key")
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_nested_duplicate_json_keys(self) -> None:
+        """Rejects duplicate nested members in every governance JSON register."""
+        mutations = (
+            (
+                REVISIONS,
+                '"state": "frozen-rollout-drift"',
+                '"state": "mutated", "state": "frozen-rollout-drift"',
+            ),
+            (
+                STATUS,
+                '"version": "2.0.0"',
+                '"version": "0.0.0",\n    "version": "2.0.0"',
+            ),
+            (
+                REQUIREMENTS,
+                '"id": "WEB-REQ-001"',
+                '"id": "WEB-REQ-999",\n      "id": "WEB-REQ-001"',
+            ),
+            (
+                DECISIONS,
+                '"id": "ADR-WEB-001"',
+                '"id": "ADR-WEB-999", "id": "ADR-WEB-001"',
+            ),
+        )
+        for relative, original, mutated in mutations:
+            with self.subTest(relative=relative), self.copied_root() as temporary:
+                root = Path(temporary)
+                path = root / relative
+                content = path.read_text(encoding="utf-8")
+                self.assertIn(original, content)
+                path.write_text(content.replace(original, mutated, 1), encoding="utf-8")
+                result = self.validate(root)
+            self.assert_rejected(result, "duplicate JSON key")
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_unknown_plan_requirement_without_traceback(self) -> None:
+        """Rejects unknown package requirement IDs through controlled stderr."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            plan = root / PLAN
+            content = plan.read_text(encoding="utf-8")
+            original = '- **Anforderungs-IDs:** `WEB-REQ-025`'
+            self.assertIn(original, content)
+            plan.write_text(
+                content.replace(original, '- **Anforderungs-IDs:** `WEB-REQ-999`', 1),
+                encoding="utf-8",
+            )
+            self.refresh_plan_digest(root)
+            result = self.validate(root)
+        self.assert_rejected(result, "unknown plan requirement ID")
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_package_without_requirement_back_reference(self) -> None:
+        """Rejects a plan package omitted from all requirement back-references."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            plan = root / PLAN
+            content = plan.read_text(encoding="utf-8")
+            original = '- **Anforderungs-IDs:** `WEB-REQ-025`'
+            self.assertEqual(content.count(original), 2)
+            first = content.index(original, content.index("### WEB-P01-02"))
+            content = (
+                content[:first]
+                + '- **Anforderungs-IDs:** `WEB-REQ-025`, `WEB-REQ-025`'
+                + content[first + len(original):]
+            )
+            second = content.index(original, content.index("### WEB-P01-03"))
+            content = content[:second] + "- **Anforderungs-IDs:**" + content[second + len(original):]
+            plan.write_text(content, encoding="utf-8")
+            requirements = self.read_json(root, REQUIREMENTS)
+            requirement = next(
+                item for item in requirements["requirements"]
+                if item["id"] == "WEB-REQ-025"
+            )
+            requirement["packages"].remove("WEB-P01-03")
+            requirement["milestones"].remove("M04")
+            self.write_json(root, REQUIREMENTS, requirements)
+            requirements_doc = root / REQUIREMENTS_DOC
+            doc_content = requirements_doc.read_text(encoding="utf-8")
+            requirements_doc.write_text(
+                doc_content.replace(
+                    "`WEB-P01-02`, `WEB-P01-03` | M02, M04",
+                    "`WEB-P01-02` | M02",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            self.refresh_plan_digest(root)
+            result = self.validate(root)
+        self.assert_rejected(result, "requirement package coverage")
 
     def test_rejects_unknown_requirement_package(self) -> None:
         """Rejects requirement assigned outside status register."""
@@ -455,6 +586,20 @@ class WebGovernanceValidationTests(unittest.TestCase):
             )
             result = self.validate(root)
         self.assert_rejected(result, "CI")
+
+    def test_rejects_quoted_flow_style_ci_job(self) -> None:
+        """Rejects an extra quoted flow-style job hidden from block extraction."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            workflow = root / WORKFLOW
+            content = workflow.read_text(encoding="utf-8")
+            workflow.write_text(
+                content
+                + '  "release": {runs-on: ubuntu-24.04, steps: [{name: Release, run: "npx --yes wrangler pages deploy web/dist"}]}\n',
+                encoding="utf-8",
+            )
+            result = self.validate(root)
+        self.assert_rejected(result, "CI jobs")
 
     def test_rejects_unnamed_ci_publication_step(self) -> None:
         """Rejects a publication command hidden in an unnamed workflow step."""

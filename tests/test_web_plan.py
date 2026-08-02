@@ -96,6 +96,72 @@ class WebPlanValidationTests(unittest.TestCase):
         self.assertIn("status schema version", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
+    def test_rejects_top_level_duplicate_json_keys(self) -> None:
+        """Rejects duplicate top-level members in every plan JSON register."""
+        for relative in (STATUS, SUPERSESSION):
+            with self.subTest(relative=relative), self.copied_root() as temporary:
+                root = Path(temporary)
+                path = root / relative
+                content = path.read_text(encoding="utf-8")
+                path.write_text(
+                    content.replace(
+                        '"schema_version": 1',
+                        '"schema_version": 999,\n  "schema_version": 1',
+                        1,
+                    ),
+                    encoding="utf-8",
+                )
+                result = self.validate(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("duplicate JSON key", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_nested_duplicate_json_keys(self) -> None:
+        """Rejects duplicate nested members in every plan JSON register."""
+        mutations = (
+            (
+                STATUS,
+                '"version": "2.0.0"',
+                '"version": "0.0.0",\n    "version": "2.0.0"',
+            ),
+            (
+                SUPERSESSION,
+                '"solution_path": "abgelöst"',
+                '"solution_path": "umgesetzt", "solution_path": "abgelöst"',
+            ),
+        )
+        for relative, original, mutated in mutations:
+            with self.subTest(relative=relative), self.copied_root() as temporary:
+                root = Path(temporary)
+                path = root / relative
+                content = path.read_text(encoding="utf-8")
+                self.assertIn(original, content)
+                path.write_text(content.replace(original, mutated, 1), encoding="utf-8")
+                result = self.validate(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("duplicate JSON key", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_invalid_utf8_status_without_traceback(self) -> None:
+        """Rejects non-UTF-8 status bytes through controlled stderr."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            (root / STATUS).write_bytes(b'{"schema_version": "\xff"}')
+            result = self.validate(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"malformed {STATUS}", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_invalid_utf8_supersession_without_traceback(self) -> None:
+        """Rejects non-UTF-8 supersession bytes through controlled stderr."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            (root / SUPERSESSION).write_bytes(b'{"schema_version": "\xff"}')
+            result = self.validate(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"malformed {SUPERSESSION}", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_rejects_unhashable_package_id_without_traceback(self) -> None:
         """Rejects malformed package identifiers through controlled stderr."""
         with self.copied_root() as temporary:

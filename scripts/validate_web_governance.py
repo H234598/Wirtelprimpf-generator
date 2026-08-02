@@ -183,6 +183,14 @@ class ValidationError(Exception):
     """Controlled validation failure."""
 
 
+def unique_json_object(pairs: list[tuple[str, object]]) -> dict:
+    value: dict = {}
+    for key, member in pairs:
+        require(key not in value, f"duplicate JSON key: {key}")
+        value[key] = member
+    return value
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ValidationError(message)
@@ -197,7 +205,10 @@ def read_text(root: Path, relative: Path) -> str:
 
 def read_json(root: Path) -> dict:
     try:
-        value = json.loads(read_text(root, REVISIONS_PATH))
+        value = json.loads(
+            read_text(root, REVISIONS_PATH),
+            object_pairs_hook=unique_json_object,
+        )
     except json.JSONDecodeError as error:
         raise ValidationError(f"malformed {REVISIONS_PATH}: {error}") from error
     require(isinstance(value, dict), "revision register object")
@@ -206,7 +217,10 @@ def read_json(root: Path) -> dict:
 
 def read_json_path(root: Path, path: Path) -> dict:
     try:
-        value = json.loads(read_text(root, path))
+        value = json.loads(
+            read_text(root, path),
+            object_pairs_hook=unique_json_object,
+        )
     except json.JSONDecodeError as error:
         raise ValidationError(f"malformed {path}: {error}") from error
     require(isinstance(value, dict), f"{path} object")
@@ -275,6 +289,15 @@ def validate_ci_integration(root: Path) -> None:
     parts = workflow.split("\njobs:\n", 1)
     require(len(parts) == 2, "CI jobs")
     jobs_section = parts[1]
+    top_level_lines = tuple(
+        line for line in jobs_section.splitlines()
+        if line.startswith("  ") and not line.startswith("    ")
+    )
+    require(
+        len(top_level_lines) == len(EXPECTED_CI_JOBS)
+        and set(top_level_lines) == {f"  {name}:" for name in EXPECTED_CI_JOBS},
+        "CI jobs",
+    )
     jobs = set(re.findall(r"^  ([a-z][a-z0-9_-]*):\n", jobs_section, re.MULTILINE))
     require(jobs == EXPECTED_CI_JOBS, "CI jobs")
     actions = Counter(re.findall(r"^\s+uses:\s+(\S+)(?:\s+#.*)?$", workflow, re.MULTILINE))
@@ -528,7 +551,13 @@ def validate(root: Path) -> None:
     packages = plan_packages(plan)
     for package, values in packages.items():
         for identifier in values["requirements"]:
+            require(identifier in expected_mapping, "unknown plan requirement ID")
             expected_mapping[identifier].add(package)
+    referenced_packages = {
+        package for mapped_packages in expected_mapping.values()
+        for package in mapped_packages
+    }
+    require(referenced_packages == set(package_milestones), "requirement package coverage")
     for item in items:
         packages_value, milestones, verification = item["packages"], item["milestones"], item["verification"]
         require(isinstance(item["text"], str) and item["text"].strip(), "requirement text")
