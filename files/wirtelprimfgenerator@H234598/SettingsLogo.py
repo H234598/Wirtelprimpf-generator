@@ -952,10 +952,7 @@ class GeneratorConfigEditor(SettingsWidget):
                 )
             )
         except Exception as exc:
-            if self.sync_coordinator is not None:
-                self.sync_coordinator.dispose()
-            else:
-                self._executor.shutdown(wait=False, cancel_futures=True)
+            self._dispose_failed_sync_coordinator()
             self._set_status(
                 f"Transaktionale Einstellungen sind nicht verfügbar: {exc}"
             )
@@ -1044,7 +1041,30 @@ class GeneratorConfigEditor(SettingsWidget):
         self.secret_discard_buttons[key] = discard
         return row
 
-    def _make_value_widget(self, key, kind, choices, current):
+    def _integer_range(self, payload, key):
+        fallback = self.integer_ranges[key]
+        invariants = payload.get("invariants", {})
+        if not isinstance(invariants, dict):
+            return fallback
+        numeric_bounds = invariants.get("numeric_bounds", {})
+        if not isinstance(numeric_bounds, dict):
+            return fallback
+        bounds = numeric_bounds.get(key, {})
+        if not isinstance(bounds, dict):
+            return fallback
+        minimum = bounds.get("minimum")
+        maximum = bounds.get("maximum")
+        if (
+            isinstance(minimum, int)
+            and not isinstance(minimum, bool)
+            and isinstance(maximum, int)
+            and not isinstance(maximum, bool)
+            and minimum <= maximum
+        ):
+            return minimum, maximum
+        return fallback
+
+    def _make_value_widget(self, key, kind, choices, current, integer_range=None):
         if kind in ("choice", "model"):
             return self._make_catalog_combo(choices, current)
         if kind == "boolean":
@@ -1052,7 +1072,7 @@ class GeneratorConfigEditor(SettingsWidget):
             switch.set_halign(Gtk.Align.START)
             return switch
         if kind == "integer":
-            minimum, maximum = self.integer_ranges[key]
+            minimum, maximum = integer_range or self.integer_ranges[key]
             spin = Gtk.SpinButton.new_with_range(minimum, maximum, 1)
             spin.set_numeric(True)
             spin.set_hexpand(True)
@@ -1088,7 +1108,16 @@ class GeneratorConfigEditor(SettingsWidget):
             for key, label, kind, choice_key in fields:
                 choices = choices_payload.get(choice_key, []) if choice_key else []
                 current = visible.get(key)
-                widget = self._make_value_widget(key, kind, choices, current)
+                integer_range = (
+                    self._integer_range(payload, key) if kind == "integer" else None
+                )
+                widget = self._make_value_widget(
+                    key,
+                    kind,
+                    choices,
+                    current,
+                    integer_range,
+                )
                 self._set_widget_public_value(widget, current)
                 self.widgets[key] = widget
                 self.settings_content.pack_start(
@@ -1160,6 +1189,8 @@ class GeneratorConfigEditor(SettingsWidget):
                             choices_payload.get(choice_key, []),
                             visible.get(key),
                         )
+                    elif kind == "integer" and widget is not None:
+                        widget.set_range(*self._integer_range(payload, key))
             for key, widget in self.widgets.items():
                 self._set_widget_public_value(widget, visible.get(key))
         finally:
@@ -1415,6 +1446,17 @@ class GeneratorConfigEditor(SettingsWidget):
         else:
             self._executor.shutdown(wait=False, cancel_futures=True)
         return False
+
+    def _dispose_failed_sync_coordinator(self):
+        coordinator = self.sync_coordinator
+        if coordinator is None:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            return
+        self.sync_coordinator = None
+        try:
+            coordinator.dispose()
+        except Exception:
+            self._executor.shutdown(wait=False, cancel_futures=True)
 
     def _on_start_generator(self, _button):
         self._run_operation(

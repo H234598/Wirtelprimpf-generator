@@ -111,6 +111,34 @@ class CatalogCombo:
         self.active_id = value if any(option == value for option, _label in self.options) else None
 
 
+class RangeSpin:
+    def __init__(self) -> None:
+        self.range = None
+        self.value = None
+
+    def set_range(self, minimum: int, maximum: int) -> None:
+        self.range = (minimum, maximum)
+
+    def set_value(self, value: int) -> None:
+        self.value = value
+
+
+class TextEntry:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def set_text(self, text: str) -> None:
+        self.text = text
+
+
+class Toggle:
+    def __init__(self, active: bool) -> None:
+        self.active = active
+
+    def set_active(self, active: bool) -> None:
+        self.active = bool(active)
+
+
 def bare_editor(module):
     editor = object.__new__(module.GeneratorConfigEditor)
     editor._save_busy = False
@@ -120,6 +148,7 @@ def bare_editor(module):
     editor.secret_entries = {}
     editor.secret_delete_checks = {}
     editor.sync_state = None
+    editor._suppress_dirty = False
     editor.save_button = SensitiveWidget(False)
     editor.discard_all_button = SensitiveWidget(False)
     editor.run_button = SensitiveWidget()
@@ -243,6 +272,48 @@ class SettingsSchemaTests(unittest.TestCase):
         self.assertTrue(all(suppress_states))
         self.assertFalse(editor._suppress_dirty)
 
+    def test_integer_widgets_prefer_served_bounds_and_keep_local_fallbacks(self) -> None:
+        module = load_settings_logo_module()
+
+        class OtherWidget:
+            pass
+
+        module.Gtk = SimpleNamespace(
+            ComboBoxText=CatalogCombo,
+            Switch=OtherWidget,
+            SpinButton=RangeSpin,
+        )
+        editor = bare_editor(module)
+        interval = RangeSpin()
+        randomized_delay = RangeSpin()
+        editor.widgets = {
+            "generation_interval_minutes": interval,
+            "timer_randomized_delay_seconds": randomized_delay,
+        }
+
+        editor._apply_visible_values(
+            {
+                "choices": {},
+                "invariants": {
+                    "numeric_bounds": {
+                        "generation_interval_minutes": {
+                            "minimum": 60,
+                            "maximum": 240,
+                        }
+                    }
+                },
+            },
+            {
+                "generation_interval_minutes": 120,
+                "timer_randomized_delay_seconds": 30,
+            },
+        )
+
+        self.assertEqual(interval.range, (60, 240))
+        self.assertEqual(randomized_delay.range, (0, 86_400))
+        self.assertEqual(interval.value, 120)
+        self.assertEqual(randomized_delay.value, 30)
+
     def test_sync_helper_is_packaged_and_exports_the_coordinator(self) -> None:
         self.assertTrue(SYNC_PATH.is_file())
         spec = importlib.util.spec_from_file_location("settings_sync_schema_smoke", SYNC_PATH)
@@ -256,6 +327,44 @@ class SettingsSchemaTests(unittest.TestCase):
             sys.modules.pop(spec.name, None)
         self.assertTrue(callable(module.SettingsSyncCoordinator))
         self.assertTrue(callable(module.SettingsCliClient))
+
+    def test_failed_sync_start_cleanup_clears_the_disposed_coordinator(self) -> None:
+        module = load_settings_logo_module()
+        editor = bare_editor(module)
+        coordinator = mock.Mock()
+        editor.sync_coordinator = coordinator
+        editor._executor = mock.Mock()
+
+        editor._dispose_failed_sync_coordinator()
+
+        coordinator.dispose.assert_called_once_with()
+        self.assertIsNone(editor.sync_coordinator)
+        editor._executor.shutdown.assert_not_called()
+
+        editor._dispose_failed_sync_coordinator()
+        editor._executor.shutdown.assert_called_once_with(
+            wait=False,
+            cancel_futures=True,
+        )
+
+        failing_editor = bare_editor(module)
+        failing_editor.sync_coordinator = mock.Mock()
+        failing_editor.sync_coordinator.dispose.side_effect = RuntimeError(
+            "private disposal detail"
+        )
+        failing_editor._executor = mock.Mock()
+        failing_editor._dispose_failed_sync_coordinator()
+        self.assertIsNone(failing_editor.sync_coordinator)
+        failing_editor._executor.shutdown.assert_called_once_with(
+            wait=False,
+            cancel_futures=True,
+        )
+
+    def test_root_readme_describes_secrets_as_write_only_and_never_readable(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("write-only", readme)
+        self.assertIn("nie lesbar", readme)
+        self.assertNotIn("OpenAI-Schlüssel wird dort nur\nschreibgeschützt", readme)
 
     def test_generator_dropin_does_not_clear_private_runtime_environment(self) -> None:
         source = SETTINGS_LOGO_PATH.read_text(encoding="utf-8")
@@ -298,6 +407,59 @@ class SettingsSchemaTests(unittest.TestCase):
         self.assertIs(captured["kwargs"]["transient_for"], toplevel)
         self.assertEqual(captured["kwargs"]["flags"], "modal")
         self.assertTrue(captured["destroyed"])
+
+    def test_confirmed_discard_clears_public_and_secret_drafts(self) -> None:
+        module = load_settings_logo_module()
+
+        class Window:
+            pass
+
+        class Dialog:
+            def __init__(self, **_kwargs) -> None:
+                pass
+
+            def run(self):
+                return "ok"
+
+            def destroy(self) -> None:
+                pass
+
+        module.Gtk = SimpleNamespace(
+            Window=Window,
+            MessageDialog=Dialog,
+            DialogFlags=SimpleNamespace(MODAL="modal"),
+            MessageType=SimpleNamespace(QUESTION="question"),
+            ButtonsType=SimpleNamespace(OK_CANCEL="ok-cancel"),
+            ResponseType=SimpleNamespace(OK="ok"),
+        )
+        editor = bare_editor(module)
+        state = module.settings_sync.DirtySnapshotState(
+            {"revision": "r1", "settings": {"operandi": "story"}}
+        )
+        state.change("operandi", "both")
+        state.mark_secret_dirty("openai_api_key")
+        public_widget = SimpleNamespace(value="both")
+        secret_entry = TextEntry("replacement")
+        delete_toggle = Toggle(True)
+        editor.sync_state = state
+        editor.widgets = {"operandi": public_widget}
+        editor.secret_entries = {"openai_api_key": secret_entry}
+        editor.secret_delete_checks = {"openai_api_key": delete_toggle}
+        editor.get_toplevel = Window
+        editor._set_widget_public_value = lambda widget, value: setattr(
+            widget, "value", value
+        )
+        editor._render_field_states = lambda: None
+
+        editor._on_discard_all(None)
+
+        self.assertEqual(state.dirty, set())
+        self.assertEqual(state.secret_dirty, set())
+        self.assertEqual(public_widget.value, "story")
+        self.assertEqual(secret_entry.text, "")
+        self.assertFalse(delete_toggle.active)
+        self.assertFalse(editor._suppress_dirty)
+        self.assertEqual(editor.status_text, "Lokale Entwürfe verworfen.")
 
     def test_operational_buttons_follow_the_shared_interaction_guard_behavior(self) -> None:
         module = load_settings_logo_module()

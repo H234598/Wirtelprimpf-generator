@@ -1066,8 +1066,6 @@ printf '%s:%s:%s:%s:%s\n' "$generator_review_id" \
                             "author": {
                                 "__typename": "User",
                                 "login": "human",
-                                "id": "U_human",
-                                "url": "https://github.com/human",
                             },
                             "commit": {"oid": head},
                         }
@@ -1994,16 +1992,25 @@ task3_token_call "$1"
         canonical = "https://github.com/H234598/Wirtelprimpf-generator.git"
         with tempfile.TemporaryDirectory(prefix="wirtelprimpf-origin-contract-") as tmp:
             repo = Path(tmp) / "repo"
+            poisoned_global = Path(tmp) / "poisoned-global.gitconfig"
+            poisoned_global.write_text(
+                '[url "https://attacker.invalid/"]\n'
+                "\tinsteadOf = https://github.com/\n",
+                encoding="utf-8",
+            )
+            poisoned_probe_env = dict(_FIXTURE_GIT_ENV)
+            poisoned_probe_env["GIT_CONFIG_GLOBAL"] = str(poisoned_global)
             _fixture_git(["init", "-q", str(repo)], check=True)
             _fixture_git(["-C", str(repo), "remote", "add", "origin", canonical], check=True)
             check_script = f"set -Eeuo pipefail\n{predicate}\ncanonical_origin=$1\nassert_canonical_origin origin\n"
             accepted = subprocess.run(
-                ["bash", "-c", check_script, "origin-test", canonical],
+                ["/bin/bash", "-c", check_script, "origin-test", canonical],
                 cwd=repo,
                 text=True,
                 capture_output=True,
                 check=False,
                 timeout=10,
+                env=poisoned_probe_env,
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
 
@@ -2025,12 +2032,13 @@ task3_token_call "$1"
                 check=True,
             )
             rejected = subprocess.run(
-                ["bash", "-c", check_script, "origin-test", canonical],
+                ["/bin/bash", "-c", check_script, "origin-test", canonical],
                 cwd=repo,
                 text=True,
                 capture_output=True,
                 check=False,
                 timeout=10,
+                env=poisoned_probe_env,
             )
             self.assertNotEqual(rejected.returncode, 0)
 
@@ -2562,7 +2570,10 @@ classify_task3_remote_action "$1" "$2" "$3" "$4" "$5" "$6"
             "canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git",
             self.task3_merge,
         )
-        self.assertIn("git remote get-url --push --all origin", self.task3_merge)
+        self.assertIn(
+            "task3_git_probe remote get-url --push --all origin",
+            self.task3_merge,
+        )
         self.assertIn(
             'generator_merge_message="Merge pull request #${generator_pr_number} from ${generator_head}"',
             self.task3_merge,
@@ -2640,15 +2651,32 @@ classify_task3_remote_action "$1" "$2" "$3" "$4" "$5" "$6"
         self.assertIn("remote-committed-api-failure", self.harness)
         self.assertIn("verified-without-second-push", self.harness)
 
+    def test_step10_runtime_cas_moves_main_from_the_old_commit_to_the_target(self) -> None:
+        detach_old = 'git -C "$runtime_harness" switch --detach -q "$runtime_sha_before"'
+        update_main = (
+            'git -C "$runtime_harness" update-ref refs/heads/main \\\n'
+            '  "$target_sha" "$runtime_sha_before"'
+        )
+        self.assertIn(detach_old, self.harness)
+        self.assertIn(update_main, self.harness)
+        self.assertLess(
+            self.harness.index(detach_old),
+            self.harness.index("printf 'target-tree\\n'"),
+        )
+
     def test_normative_quiesce_handles_auto_restart_without_stopping_a_running_job(self) -> None:
         self.assertIn("# BEGIN TASK4_GENERATOR_QUIESCE", self.deployment)
         quiesce = _marked_block(self.deployment, "TASK4_GENERATOR_QUIESCE")
+        quiesce_generator = _shell_function(f"{quiesce}\n", "quiesce_generator")
         self.assertIn("deadline=$((SECONDS + 300))", quiesce)
         self.assertIn(
             "systemctl --user --job-mode=fail stop wirtelprimpf.service",
             quiesce,
         )
-        self.assertNotIn("systemctl --user stop wirtelprimpf.service", quiesce)
+        self.assertNotIn(
+            "systemctl --user stop wirtelprimpf.service",
+            quiesce_generator,
+        )
         self.assertIn(
             "systemctl --user show wirtelprimpf.service -p LoadState --value",
             quiesce,
@@ -2900,6 +2928,79 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
                         self.assertIn("natural-wait", event_lines)
                     self.assertNotIn("destructive-default-service-stop", event_lines)
 
+    def test_fail_closed_runtime_stops_then_masks_after_quiescence_failure(self) -> None:
+        fail_closed = _shell_function(self.deployment, "fail_closed_runtime")
+        script = f"""
+set -Eeuo pipefail
+{fail_closed}
+events=$1
+wait_calls=0
+runtime_service_masked=0
+
+wait_generator_inactive() {{
+  wait_calls=$((wait_calls + 1))
+  printf 'wait:%s\n' "$wait_calls" >>"$events"
+  (( wait_calls > 1 ))
+}}
+mask_timer_runtime_stopped() {{ printf 'timer-mask\n' >>"$events"; }}
+mask_generator_runtime() {{
+  printf 'service-mask\n' >>"$events"
+  runtime_service_masked=1
+}}
+systemctl() {{
+  case "$*" in
+    '--user stop wirtelprimpf-admin.service')
+      printf 'admin-stop\n' >>"$events"
+      ;;
+    '--user stop wirtelprimpf.service')
+      printf 'service-stop\n' >>"$events"
+      ;;
+    '--user is-active wirtelprimpf-admin.service'|'--user is-active wirtelprimpf.timer')
+      printf 'inactive\n'
+      ;;
+    '--user is-enabled wirtelprimpf.timer'|'--user is-enabled wirtelprimpf.service')
+      printf 'masked-runtime\n'
+      ;;
+    '--user show wirtelprimpf.service -p LoadState --value')
+      printf 'masked\n'
+      ;;
+    *) return 97 ;;
+  esac
+}}
+
+set +e
+fail_closed_runtime
+status=$?
+set -e
+test "$status" = 1
+test "$runtime_service_masked" = 1
+"""
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-fail-closed-") as tmp:
+            events = Path(tmp) / "events"
+            result = subprocess.run(  # nosec B603 -- fixed Bash argv and local stub
+                ["/bin/bash", "-c", script, "fail-closed-test", str(events)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+                env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+            )
+            event_lines = events.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            event_lines,
+            [
+                "admin-stop",
+                "timer-mask",
+                "wait:1",
+                "service-stop",
+                "wait:2",
+                "service-mask",
+            ],
+        )
+
     def test_restore_unmasks_an_inactive_generator_without_starting_it(self) -> None:
         unmask = _shell_function(self.deployment, "unmask_generator_runtime")
         first_inactive_proof = unmask.index("assert_generator_inactive")
@@ -3090,12 +3191,14 @@ while :; do sleep 0.01; done
 
     def test_disposable_step10_harness_executes_successfully(self) -> None:
         result = subprocess.run(
-            ["bash"],
+            ["/bin/bash"],
             input=self.harness,
+            cwd=ROOT,
             text=True,
             capture_output=True,
             check=False,
             timeout=30,
+            env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 

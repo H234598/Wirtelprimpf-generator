@@ -183,6 +183,18 @@ export function modelOptions(catalog, current) {
   return options;
 }
 
+export function buildSecretActions(entries) {
+  const actions = {};
+  for (const { name, value, deleteSelected } of entries) {
+    if (deleteSelected && value) {
+      throw new TypeError("Löschen und Ersetzen sind gleichzeitig gewählt.");
+    }
+    if (deleteSelected) actions[name] = { action: "delete" };
+    else if (value) actions[name] = { action: "replace", value };
+  }
+  return actions;
+}
+
 export function controlValue(control) {
   if (control.type === "checkbox") return control.checked;
   if (control.type === "number") {
@@ -621,17 +633,14 @@ async function bootstrap(documentRef) {
   }
 
   function secretActions() {
-    const actions = {};
-    for (const [name, deleteId] of [
+    return buildSecretActions([
       ["openai_api_key", "delete_openai_api_key"],
       ["cloudflare_api_token", "delete_cloudflare_api_token"],
-    ]) {
-      const input = documentRef.querySelector(`#${name}`);
-      const deletion = documentRef.querySelector(`#${deleteId}`);
-      if (deletion.checked) actions[name] = { action: "delete" };
-      else if (input.value) actions[name] = { action: "replace", value: input.value };
-    }
-    return actions;
+    ].map(([name, deleteId]) => ({
+      name,
+      value: documentRef.querySelector(`#${name}`).value,
+      deleteSelected: documentRef.querySelector(`#${deleteId}`).checked,
+    })));
   }
 
   for (const row of documentRef.querySelectorAll("[data-field]")) {
@@ -669,7 +678,15 @@ async function bootstrap(documentRef) {
       saveStatus.textContent = "Einstellungen sind noch nicht sicher geladen.";
       return;
     }
-    const actions = secretActions();
+    let actions;
+    try {
+      actions = secretActions();
+    } catch (error) {
+      saveStatus.textContent = error instanceof TypeError
+        ? error.message
+        : "Secret-Aktion ist ungültig.";
+      return;
+    }
     if (syncState.dirty.size === 0 && Object.keys(actions).length === 0) {
       saveStatus.textContent = "Keine lokalen Änderungen.";
       return;

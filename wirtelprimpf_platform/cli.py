@@ -38,7 +38,10 @@ from .state import PlatformState, StateStore, state_to_dict, status_to_dict
 from .systemd_user import SystemdUserManager
 from .target_switch import GeneratorTargetSwitcher, GitCatalogPublisher
 
+CONFLICT_EXIT_CODE = 3
 VALIDATION_ERROR_EXIT_CODE = 4
+LOCK_BUSY_EXIT_CODE = 5
+APPLY_FAILURE_EXIT_CODE = 6
 UNAVAILABLE_ERROR_EXIT_CODE = 7
 
 
@@ -124,13 +127,13 @@ def _run_settings_command(command: str, manager: SettingsManager) -> int:
                 "snapshot": exc.snapshot.to_public_dict(),
             }
         )
-        return 3
+        return CONFLICT_EXIT_CODE
     except (UnicodeError, json.JSONDecodeError, SettingsValidationFailure) as exc:
         _json({"ok": False, "error": str(exc)})
         return VALIDATION_ERROR_EXIT_CODE
     except SettingsLockBusy:
         _json({"ok": False, "error": "settings lock is busy"})
-        return 5
+        return LOCK_BUSY_EXIT_CODE
     except SettingsApplyFailure as exc:
         _json(
             {
@@ -139,7 +142,7 @@ def _run_settings_command(command: str, manager: SettingsManager) -> int:
                 "rollback_succeeded": exc.rollback_succeeded,
             }
         )
-        return 6
+        return APPLY_FAILURE_EXIT_CODE
     except Exception:
         _json({"ok": False, "error": "settings operation unavailable"})
         return UNAVAILABLE_ERROR_EXIT_CODE

@@ -12,16 +12,21 @@ import fcntl
 import json
 import logging
 import os
+import select
+import selectors
 import stat
 import subprocess
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
 MAX_RESPONSE_BYTES = 1024 * 1024
 SNAPSHOT_TIMEOUT_SECONDS = 10
+APPLY_WATCHDOG_SECONDS = 300
+_PIPE_CHUNK_BYTES = 64 * 1024
 _LOGGER = logging.getLogger(__name__)
 
 # Cinnamon cannot import the platform package reliably.  This presentation
@@ -76,6 +81,11 @@ _APPLET_CHOICE_KEYS = frozenset(
         "media_mode",
         "flex_processing",
     }
+)
+_APPLET_NUMERIC_KEYS = (
+    "generation_interval_minutes",
+    "story_finish_parts_min",
+    "story_finish_parts_max",
 )
 
 
@@ -180,13 +190,226 @@ def trusted_executable(path: str) -> bool:
     return stat.S_ISREG(metadata.st_mode) and os.access(candidate, os.X_OK)
 
 
+class _BoundedProcessIO:
+    """Nonblocking pipe pump with capped capture and lossless draining."""
+
+    def __init__(
+        self,
+        process: subprocess.Popen[bytes],
+        input_bytes: bytes,
+    ) -> None:
+        self.process = process
+        self.selector: selectors.BaseSelector | None = None
+        self.input_bytes = input_bytes
+        self.input_offset = 0
+        self.stdout = bytearray()
+        self.stderr = bytearray()
+        self.stdout_oversized = False
+        if process.stdout is None or process.stderr is None or process.stdin is None:
+            raise OSError("settings CLI pipes are unavailable")
+        self._read_streams: set[str] = {"stdout", "stderr"}
+        self._stdin_open = bool(input_bytes)
+
+    def initialize(self) -> None:
+        """Prepare nonblocking I/O, falling back if selector setup is unavailable."""
+
+        assert self.process.stdout is not None
+        assert self.process.stderr is not None
+        assert self.process.stdin is not None
+        streams = (
+            ("stdout", self.process.stdout),
+            ("stderr", self.process.stderr),
+        )
+        for _name, stream in streams:
+            os.set_blocking(stream.fileno(), False)
+        if self.input_bytes:
+            os.set_blocking(self.process.stdin.fileno(), False)
+        else:
+            self.process.stdin.close()
+
+        selector: selectors.BaseSelector | None = None
+        try:
+            selector = selectors.DefaultSelector()
+            for name, stream in streams:
+                selector.register(stream, selectors.EVENT_READ, name)
+            if self._stdin_open:
+                selector.register(self.process.stdin, selectors.EVENT_WRITE, "stdin")
+        except BaseException as exc:
+            if selector is not None:
+                try:
+                    selector.close()
+                except Exception as close_error:
+                    _LOGGER.debug(
+                        "settings CLI selector close failure type=%s",
+                        type(close_error).__name__,
+                    )
+            _LOGGER.debug(
+                "settings CLI selector fallback type=%s",
+                type(exc).__name__,
+            )
+        else:
+            self.selector = selector
+
+    @property
+    def complete(self) -> bool:
+        return self.process.poll() is not None and not self._read_streams
+
+    def _close_stream(self, stream: Any, name: str) -> None:
+        if self.selector is not None:
+            try:
+                self.selector.unregister(stream)
+            except Exception as close_error:
+                _LOGGER.debug(
+                    "settings CLI selector unregister failure type=%s",
+                    type(close_error).__name__,
+                )
+        try:
+            stream.close()
+        except Exception as close_error:
+            _LOGGER.debug(
+                "settings CLI stream close failure type=%s",
+                type(close_error).__name__,
+            )
+        if name == "stdin":
+            self._stdin_open = False
+            # Do not retain a submitted secret after delivery or BrokenPipe.
+            self.input_bytes = b""
+            self.input_offset = 0
+        else:
+            self._read_streams.discard(name)
+
+    @staticmethod
+    def _append_capped(target: bytearray, chunk: bytes) -> None:
+        remaining = (MAX_RESPONSE_BYTES + 1) - len(target)
+        if remaining > 0:
+            target.extend(chunk[:remaining])
+
+    def _direct_ready_streams(
+        self,
+        timeout_seconds: float | None,
+    ) -> list[tuple[Any, str]]:
+        read_streams = []
+        assert self.process.stdout is not None
+        assert self.process.stderr is not None
+        if "stdout" in self._read_streams:
+            read_streams.append(self.process.stdout)
+        if "stderr" in self._read_streams:
+            read_streams.append(self.process.stderr)
+        write_streams = []
+        if self._stdin_open:
+            assert self.process.stdin is not None
+            write_streams.append(self.process.stdin)
+        readable, writable, _exceptional = select.select(
+            read_streams,
+            write_streams,
+            [],
+            timeout_seconds,
+        )
+        ready = [
+            (
+                stream,
+                "stdout" if stream is self.process.stdout else "stderr",
+            )
+            for stream in readable
+        ]
+        ready.extend((stream, "stdin") for stream in writable)
+        return ready
+
+    def _ready_streams(
+        self,
+        timeout_seconds: float | None,
+    ) -> list[tuple[Any, str]]:
+        if self.selector is None:
+            return self._direct_ready_streams(timeout_seconds)
+        try:
+            return [
+                (key.fileobj, str(key.data))
+                for key, _mask in self.selector.select(timeout_seconds)
+            ]
+        except BaseException as exc:
+            self._close_selector()
+            _LOGGER.debug(
+                "settings CLI selector pump fallback type=%s",
+                type(exc).__name__,
+            )
+            return self._direct_ready_streams(timeout_seconds)
+
+    def pump(self, timeout_seconds: float | None) -> None:
+        for stream, name in self._ready_streams(timeout_seconds):
+            if name == "stdin":
+                try:
+                    written = os.write(
+                        stream.fileno(),
+                        self.input_bytes[
+                            self.input_offset : self.input_offset + _PIPE_CHUNK_BYTES
+                        ],
+                    )
+                except (BlockingIOError, InterruptedError):
+                    continue
+                except (BrokenPipeError, OSError):
+                    self._close_stream(stream, name)
+                    continue
+                self.input_offset += written
+                if self.input_offset >= len(self.input_bytes):
+                    self._close_stream(stream, name)
+                continue
+            try:
+                chunk = os.read(stream.fileno(), _PIPE_CHUNK_BYTES)
+            except (BlockingIOError, InterruptedError):
+                continue
+            if not chunk:
+                self._close_stream(stream, name)
+                continue
+            target = self.stdout if name == "stdout" else self.stderr
+            self._append_capped(target, chunk)
+            if name == "stdout" and len(self.stdout) > MAX_RESPONSE_BYTES:
+                self.stdout_oversized = True
+        if self.process.poll() is not None and self._stdin_open:
+            assert self.process.stdin is not None
+            self._close_stream(self.process.stdin, "stdin")
+
+    def completed_process(self, command: list[str]) -> subprocess.CompletedProcess[str]:
+        returncode = self.process.wait()
+        try:
+            stdout = bytes(self.stdout).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise SettingsCliError("Einstellungsantwort ist kein gültiges JSON") from exc
+        stderr = bytes(self.stderr).decode("utf-8", errors="replace")
+        return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+
+    def _close_selector(self) -> None:
+        selector = self.selector
+        self.selector = None
+        if selector is None:
+            return
+        try:
+            selector.close()
+        except Exception as close_error:
+            _LOGGER.debug(
+                "settings CLI selector close failure type=%s",
+                type(close_error).__name__,
+            )
+
+    def close(self) -> None:
+        if self._stdin_open and self.process.stdin is not None:
+            self._close_stream(self.process.stdin, "stdin")
+        for name, stream in (
+            ("stdout", self.process.stdout),
+            ("stderr", self.process.stderr),
+        ):
+            if name in self._read_streams and stream is not None:
+                self._close_stream(stream, name)
+        self._close_selector()
+
+
 class SettingsCliClient:
     def __init__(
         self,
         executable: str,
         *,
-        runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+        runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
         executable_check: Callable[[str], bool] = trusted_executable,
+        apply_watchdog_seconds: float = APPLY_WATCHDOG_SECONDS,
     ) -> None:
         expanded = os.path.expanduser(executable)
         if not os.path.isabs(expanded):
@@ -194,10 +417,182 @@ class SettingsCliClient:
         self.executable = os.path.normpath(expanded)
         self.runner = runner
         self.executable_check = executable_check
+        self.apply_watchdog_seconds = float(apply_watchdog_seconds)
+        if self.apply_watchdog_seconds <= 0:
+            raise SettingsCliError("Der Einstellungen-Watchdog muss positiv sein")
+        self._command_lock = threading.Lock()
+        self._active_lock = threading.Lock()
+        self._active_process: subprocess.Popen[bytes] | None = None
+        self._active_process_io: _BoundedProcessIO | None = None
+        self._active_reaper: threading.Thread | None = None
         if not self.executable_check(self.executable):
             raise SettingsCliError(
                 "Keine vertrauenswürdige reguläre ausführbare Einstellungen-CLI"
             )
+
+    def _reject_if_process_still_active(self) -> None:
+        completed_io: _BoundedProcessIO | None = None
+        with self._active_lock:
+            process = self._active_process
+            reaper = self._active_reaper
+            if process is None:
+                return
+            if (reaper is not None and reaper.is_alive()) or process.poll() is None:
+                raise SettingsCliError(
+                    "Eine vorherige Einstellungstransaktion läuft noch"
+                )
+            completed_io = self._active_process_io
+            self._active_reaper = None
+            self._active_process = None
+            self._active_process_io = None
+        if completed_io is not None:
+            try:
+                completed_io.process.wait()
+            finally:
+                completed_io.close()
+
+    def _reap_detached(self, process_io: _BoundedProcessIO) -> None:
+        failure_logged = False
+        try:
+            while not process_io.complete:
+                try:
+                    process_io.pump(0.25)
+                except BaseException as exc:
+                    if not failure_logged:
+                        _LOGGER.warning(
+                            "settings CLI background pump failure type=%s",
+                            type(exc).__name__,
+                        )
+                        failure_logged = True
+                    if process_io.process.poll() is not None:
+                        break
+                    time.sleep(0.25)
+            process_io.process.wait()
+        except BaseException as exc:
+            _LOGGER.warning(
+                "settings CLI background reap failure type=%s",
+                type(exc).__name__,
+            )
+        finally:
+            try:
+                process_io.close()
+            finally:
+                with self._active_lock:
+                    if self._active_process is process_io.process:
+                        self._active_process = None
+                        self._active_process_io = None
+                        self._active_reaper = None
+
+    def _detach_for_reap(self, process_io: _BoundedProcessIO) -> bool:
+        reaper = threading.Thread(
+            target=self._reap_detached,
+            args=(process_io,),
+            name="wirtel-settings-cli-reaper",
+            daemon=True,
+        )
+        with self._active_lock:
+            if self._active_reaper is not None:
+                raise SettingsCliError(
+                    "Eine vorherige Einstellungstransaktion läuft noch"
+                )
+            self._active_process = process_io.process
+            self._active_process_io = process_io
+            self._active_reaper = reaper
+        try:
+            reaper.start()
+        except BaseException as exc:
+            # Keep the live child and every pipe strongly referenced.  Future
+            # calls remain fail-closed; signalling the active transaction or
+            # synchronously waiting here would violate apply semantics.
+            _LOGGER.critical(
+                "settings CLI reaper start failure type=%s",
+                type(exc).__name__,
+            )
+            return False
+        return True
+
+    @staticmethod
+    def _kill_snapshot_and_reap(process_io: _BoundedProcessIO) -> None:
+        try:
+            if process_io.process.poll() is None:
+                with suppress(ProcessLookupError):
+                    process_io.process.kill()
+        finally:
+            # A killed snapshot cannot produce more bytes.  Closing first also
+            # guarantees that a broken selector/pump cannot strand descriptors.
+            process_io.close()
+            process_io.process.wait()
+
+    def _run_bounded_process(
+        self,
+        command: list[str],
+        input_text: str | None,
+        action: str,
+    ) -> subprocess.CompletedProcess[str]:
+        self._reject_if_process_still_active()
+        input_bytes = b"" if input_text is None else input_text.encode("utf-8")
+        if len(input_bytes) > MAX_RESPONSE_BYTES:
+            raise SettingsCliError("Einstellungsanfrage ist zu groß")
+        with self._command_lock:
+            self._reject_if_process_still_active()
+            process = subprocess.Popen(  # nosec B603 -- fixed trusted absolute CLI argv
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,
+                bufsize=0,
+                shell=False,
+            )
+            process_io = _BoundedProcessIO(process, input_bytes)
+            try:
+                process_io.initialize()
+            except BaseException as exc:
+                if action == "snapshot":
+                    self._kill_snapshot_and_reap(process_io)
+                else:
+                    self._detach_for_reap(process_io)
+                raise SettingsCliError(
+                    "Einstellungen-CLI konnte nicht sicher ausgeführt werden"
+                ) from exc
+            timeout_seconds = (
+                SNAPSHOT_TIMEOUT_SECONDS
+                if action == "snapshot"
+                else self.apply_watchdog_seconds
+            )
+            deadline = time.monotonic() + timeout_seconds
+            while not process_io.complete:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    if action == "snapshot":
+                        self._kill_snapshot_and_reap(process_io)
+                        raise SettingsCliError(
+                            "Einstellungen-CLI konnte nicht sicher ausgeführt werden"
+                        )
+                    self._detach_for_reap(process_io)
+                    raise SettingsCliError(
+                        "Einstellungstransaktion läuft im Hintergrund weiter"
+                    )
+                try:
+                    process_io.pump(min(0.1, remaining))
+                except BaseException as exc:
+                    if action == "snapshot":
+                        self._kill_snapshot_and_reap(process_io)
+                    else:
+                        self._detach_for_reap(process_io)
+                    raise SettingsCliError(
+                        "Einstellungen-CLI konnte nicht sicher ausgeführt werden"
+                    ) from exc
+                if process_io.stdout_oversized:
+                    if action == "snapshot":
+                        self._kill_snapshot_and_reap(process_io)
+                    else:
+                        self._detach_for_reap(process_io)
+                    raise SettingsCliError("Einstellungsantwort ist zu groß")
+            try:
+                return process_io.completed_process(command)
+            finally:
+                process_io.close()
 
     def _run(self, action: str, request: Mapping[str, object] | None = None) -> dict[str, object]:
         if action not in {"snapshot", "apply"}:
@@ -215,22 +610,28 @@ class SettingsCliClient:
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
-        # Apply owns a multi-step write/validate/rollback transaction.  The
-        # asynchronous UI client must never kill that owner between write and
-        # rollback; every external child spawned by the CLI is bounded there.
-        timeout = SNAPSHOT_TIMEOUT_SECONDS if action == "snapshot" else None
+        timeout = (
+            SNAPSHOT_TIMEOUT_SECONDS
+            if action == "snapshot"
+            else self.apply_watchdog_seconds
+        )
         command = [self.executable, action]
         try:
-            result = self.runner(
-                command,
-                input=input_text,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=timeout,
-                check=False,
-                shell=False,
-            )
+            if self.runner is None:
+                result = self._run_bounded_process(command, input_text, action)
+            else:
+                result = self.runner(
+                    command,
+                    input=input_text,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=timeout,
+                    check=False,
+                    shell=False,
+                )
+        except SettingsCliError:
+            raise
         except (OSError, subprocess.SubprocessError) as exc:
             raise SettingsCliError("Einstellungen-CLI konnte nicht sicher ausgeführt werden") from exc
         stdout = result.stdout
@@ -274,6 +675,30 @@ def _snapshot_parts(payload: object) -> tuple[str, dict[str, object]]:
     if not isinstance(settings, Mapping):
         raise SettingsCliError("Einstellungssnapshot enthält keine Einstellungen")
     return revision, copy.deepcopy(dict(settings))
+
+
+def _numeric_bounds_hold(
+    invariants: Mapping[str, object],
+    settings: Mapping[str, object],
+) -> bool:
+    bounds_map = invariants.get("numeric_bounds")
+    if not isinstance(bounds_map, Mapping):
+        return False
+    for name in _APPLET_NUMERIC_KEYS:
+        bounds = bounds_map.get(name)
+        if not isinstance(bounds, Mapping):
+            return False
+        minimum = bounds.get("minimum")
+        maximum = bounds.get("maximum")
+        value = settings.get(name)
+        if not all(
+            isinstance(item, int) and not isinstance(item, bool)
+            for item in (minimum, maximum, value)
+        ):
+            return False
+        if minimum > maximum or not minimum <= value <= maximum:
+            return False
+    return True
 
 
 def _is_complete_public_snapshot(
@@ -323,6 +748,9 @@ def _is_complete_public_snapshot(
         and isinstance(secrets.get("openai_api_key_present"), bool)
         and isinstance(secrets.get("cloudflare_api_token_present"), bool)
         and isinstance(invariants, Mapping)
+        and _numeric_bounds_hold(invariants, settings)
+        and settings["story_finish_parts_min"]
+        <= settings["story_finish_parts_max"]
         and isinstance(warnings, list)
         and all(isinstance(warning, str) for warning in warnings)
     )
@@ -733,8 +1161,11 @@ class SettingsSyncCoordinator:
         for monitor in self._monitors:
             try:
                 monitor.cancel()
-            except BaseException:
-                continue
+            except BaseException as exc:
+                _LOGGER.debug(
+                    "settings monitor cancellation failure type=%s",
+                    type(exc).__name__,
+                )
         self._monitors.clear()
         self._failed_monitor_paths.clear()
         self.executor.shutdown(wait=False, cancel_futures=True)

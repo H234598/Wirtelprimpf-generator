@@ -3344,3 +3344,89 @@ Do not start public deployment merely because Task 10 is green. First compare th
   Cloudflare- oder Upstream-Write aus. Sämtliche schreibenden Testaktionen
   bleiben auf temporäre lokale Dateien begrenzt; insbesondere wird kein reales
   `systemctl` ausgeführt.
+
+### 2026-08-02 — Additive Schließung des Vollreviews `4838065930`
+
+- Diese Schicht basiert exakt auf dem von CodeRabbit geprüften Parent
+  `0007091f7482ae9657fb5c207d31628351ee58dc` und ersetzt oder kürzt keinen
+  älteren Plan- oder Evidenzabschnitt. Vollständig bearbeitet wurden alle sieben
+  Inline-Threads `3698662185`, `3698662192`, `3698662196`, `3698662199`,
+  `3698662201`, `3698662208` und `3698662217`, der im Reviewtext wiederholte
+  fail-closed-Runtimebefund sowie sämtliche zehn Nitpicks. Die gesamte
+  812-zeilige Reviewbeschreibung wurde vor der Änderung vollständig gelesen.
+- Der Applet-CLI-Client besitzt jetzt getrennte Laufzeitgrenzen: Snapshots
+  behalten den kurzen harten Kill-/Reap-Timeout, eine laufende Apply-Transaktion
+  wird nach einem großzügigen Watchdog dagegen niemals signalisiert oder
+  getötet. stdin wird unter derselben nonblocking Pump stückweise geschrieben;
+  stdout und stderr werden gleichzeitig vollständig geleert, aber jeweils nur
+  bis zur festen Speichergrenze gehalten. Danach verfolgt genau ein
+  Hintergrund-Reaper den Child weiter. Weitere Aufrufe bleiben bis zum Reap
+  fail-closed; auch ein fehlgeschlagener Threadstart wartet nicht synchron,
+  signalisiert nicht und lässt Child sowie FDs stark referenziert. Selector-,
+  Pump- und Decodefehler schließen beziehungsweise reapen garantiert; das
+  Schließen ist idempotent. Der JSON-Request mit möglichen Secret-Replacements
+  wird unmittelbar nach vollständigem stdin-Write oder BrokenPipe aus der
+  In-Memory-Referenz entfernt.
+- Der öffentliche Applet-Snapshot validiert die gelieferten numerischen Grenzen
+  und die Min-/Max-Storybeziehung. Der GTK-Editor verwendet diese gelieferten
+  Grenzen für die drei kanonischen Felder, behält für den nicht ausgelieferten
+  Timerwert den lokalen Fallback und setzt einen bei fehlgeschlagenem Start
+  entsorgten Coordinator sofort auf `None`; selbst ein Fehler beim Dispose
+  erzwingt noch den Executor-Shutdown. Monitor-Cancel-Fehler werden nur nach
+  Exceptiontyp redigiert protokolliert.
+- Die Adminoberfläche lehnt ein gleichzeitig gewähltes Secret-Löschen und
+  -Ersetzen mit exakt `Löschen und Ersetzen sind gleichzeitig gewählt.` vor
+  jedem Request ab. Revisionen bleiben strikt 64-stellig lowercase hex. Die
+  README bezeichnet den OpenAI-Schlüssel ausdrücklich als `write-only` und
+  `nie lesbar`; die CLI verwendet benannte Exitkonstanten für Konflikt, Lock
+  und Applyfehler. `open_choices` ist nun eindeutig als zentral erweiterbarer
+  Katalog und nicht als Freitextfreigabe erläutert. Der lokale Statuscollector
+  meldet einen Widerspruch zwischen Story-/Archivzustand und Hubquelle, bevor
+  die aktuellere Hubangabe weiterhin sichtbar gewinnt; der No-Network-Vertrag
+  führt mindestens eine reale lokale Collectorabfrage aus.
+- Der ausführbare Rolloutplan akzeptiert reguläre GraphQL-`User`-Reviews ohne
+  botspezifische Node-ID, URL oder `databaseId`, während der einzige zulässige
+  CodeRabbit-Kandidat weiterhin alle Botfelder exakt erfüllen muss. Die
+  Originprüfung läuft in einem eigenen `env -i`-äquivalenten Git-Kontext ohne
+  System-/Globalconfig. Nach einem fehlgeschlagenen natürlichen Quiesce stoppt
+  der fail-closed-Pfad gezielt den Generator, wartet erneut und setzt erst dann
+  die Runtime-Maske. Der Step-10-Harness erzeugt den Targetcommit detached,
+  hält `main` bis zu den Lock-/Ancestry-/Old-main-Beweisen auf dem alten Commit
+  und führt anschließend exakt
+  `update-ref refs/heads/main "$target_sha" "$runtime_sha_before"` aus.
+- TDD blieb transparent: Die erste fokussierte Python-RED-Ausführung enthielt
+  zehn erwartete Failures und drei erwartete Errors; der neue Admin-
+  Secretvertrag war rot, während die bereits korrekten Revisions- und
+  Confirmed-Discard-Verträge grün blieben. Ein erster gemeinsamer
+  Zwischenlauf entdeckte 151 Tests und endete mit genau einem Failure und einem
+  Error, beide ausschließlich durch noch nicht nachgezogene Testextraktionen
+  für den isolierten Git-Probenamen und das newlinefreie Ende des markierten
+  Quiesceblocks. Nach deren Korrektur bestand die fokussierte Fünf-Modul-Matrix
+  155 entdeckt, 154 grün und ein erwarteter Skip; Admin-Node bestand `33/33`.
+- Die Abschlussverifikation bestand `make check` mit Exit 0. Wegen des
+  absichtlich paketlosen Namespace-Testlayouts wurde Full-Discover korrekt in
+  `discover -s tests` mit 168 entdeckt, 167 grün und einem erwarteten Skip sowie
+  `discover -s tests/platform` mit `166/166` geteilt: zusammen 334 entdeckt,
+  333 grün, ein erwarteter Skip, null Failures und null Errors. Der zuerst
+  versuchte, für dieses Layout ungeeignete Aufruf mit `-t .` endete bereits vor
+  Discovery mit `Start directory is not importable` und wurde nicht als
+  Testresultat gezählt. Step 5, Step 9 und Step 10 bestanden jeweils separat
+  `bash -n` und ShellCheck auf Error-Severity; Bandit High bestand über alle
+  geänderten Pythonpfade. Ruff bestand über sämtliche geänderten Pythonpfade
+  außer `SettingsLogo.py`; dort sind exakt dieselben zwölf Bestandsmeldungen
+  wie auf Parent `0007091f` vorhanden und keine neue. Der einzige durch diese
+  Runde neu erzeugte Ruffbefund wurde vor dem Abschluss beseitigt.
+- Der Remediation-Agent rief das öffentliche Review anonym und read-only ab;
+  die unabhängige Root-Reconciliation von PR und Threads nutzte den bereits
+  vorhandenen authentifizierten `gh`-Kontext ebenfalls ausschließlich lesend.
+  Kein Token wurde ausgegeben, exportiert oder neu gespeichert. Es erfolgten
+  kein Fetch, Push, PR-Write,
+  Thread-Write, Merge, Install, Reload, Deploy, Runtime-, Service-, Applet-,
+  Archiv-, Pages-, DNS-, Cloudflare- oder Upstream-Write. Alle Child-, Git-,
+  Status- und Shellproben waren lokale disposable Fixtures und liefen als
+  UID/GID `1000:1000` unter isolierter Umgebung.
+- Der unabhängige Root-Critical-Audit bestand vor Commit mit 169 Python-Tests,
+  davon 168 grün und ein erwarteter Skip, Admin-Node `33/33`,
+  `git diff --check`, Ruff auf allen geänderten Nichtbaseline-Pythonpfaden und
+  Bandit High mit null High-Findings. `SettingsLogo.py` zeigte ausschließlich
+  die zwölf bestätigten Parent-Baseline-Meldungen.

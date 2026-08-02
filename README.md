@@ -57,8 +57,8 @@ niemals zurück. Ein vollständiges, kommentiertes Konfigurationsbeispiel steht 
 
 Webadmin und Cinnamon-Applet besitzen keine getrennten Writer. Beide verwenden denselben Schema-, Revisions-,
 Validierungs-, systemd- und Rollback-Kern. Öffentliche Werte liegen in
-`~/.config/wirtelprimpf/openai.env`; der OpenAI-Schlüssel wird dort nur
-schreibgeschützt behandelt. Der Cloudflare-Token bleibt getrennt in
+`~/.config/wirtelprimpf/openai.env`; der OpenAI-Schlüssel ist für beide Oberflächen
+write-only und nie lesbar. Der Cloudflare-Token bleibt getrennt in
 `~/.config/cloudflare/api-token.env`. Private Verzeichnisse werden mit `0700`, private Dateien mit `0600`
 und der Timer-Drop-in höchstens mit `0644` verwaltet. Der revisionsfreie Koordinationslock und das
 geheimnisfreie Revisionssignal liegen unter `~/.config/wirtelprimpf/`; letzteres heißt

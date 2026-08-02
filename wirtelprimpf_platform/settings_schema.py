@@ -302,6 +302,9 @@ def validate_changes(changes: Mapping[str, object], current: Mapping[str, object
                 raise SettingsValidationError(f"{key} exceeds {spec.max_length} characters")
             if value and spec.pattern is not None and spec.pattern.fullmatch(value) is None:
                 raise SettingsValidationError(f"{key} has an invalid format")
+            # ``open_choices`` means the centrally served catalog may evolve;
+            # it does not authorize free-form client submissions.  A legacy
+            # value may only remain byte-for-byte unchanged.
             if spec.choices and value not in spec.choices and value != current.get(key):
                 raise SettingsValidationError(f"{key} must be selected from the catalog")
         validated[key] = value

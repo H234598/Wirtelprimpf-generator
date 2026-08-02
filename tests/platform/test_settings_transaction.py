@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import time
 import unittest
@@ -490,7 +491,7 @@ class SettingsTransactionTests(unittest.TestCase):
         executable = self.paths.generator_root / ".venv/bin/wirtelprimpf-generator"
         executable.parent.mkdir(parents=True)
         executable.write_text(
-            "#!/usr/bin/python3\n"
+            f"#!{sys.executable}\n"
             "import sys, time\n"
             "sys.stdout.buffer.write(b'x' * 65537)\n"
             "sys.stdout.buffer.flush()\n"
@@ -500,9 +501,14 @@ class SettingsTransactionTests(unittest.TestCase):
         executable.chmod(0o700)
 
         started = time.monotonic()
-        with self.assertRaisesRegex(RuntimeError, "generator configuration validation failed"):
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "generator configuration validation failed",
+        ) as caught:
             validate_generator_environment(self.paths.generator_root, {"PATH": "/usr/bin:/bin"})
 
+        self.assertIsInstance(caught.exception.__cause__, ValueError)
+        self.assertIn("stdout exceeds limit", str(caught.exception.__cause__))
         self.assertLess(time.monotonic() - started, 1.5)
 
     def test_request_envelope_and_secret_actions_are_strict(self) -> None:

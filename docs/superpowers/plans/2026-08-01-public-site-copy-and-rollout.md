@@ -915,10 +915,21 @@ git_remote() {
 # END TASK3_GIT_REMOTE
 
 # BEGIN TASK3_CANONICAL_ORIGIN
+task3_git_probe() {
+  /usr/bin/env -i \
+    HOME=/home/teladi \
+    USER=teladi \
+    LOGNAME=teladi \
+    PATH=/usr/bin:/bin \
+    GIT_CONFIG_NOSYSTEM=1 \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    /usr/bin/git "$@"
+}
+
 assert_canonical_origin() {
   local -a task3_fetch_urls=() task3_push_urls=()
-  mapfile -t task3_fetch_urls < <(/usr/bin/git remote get-url --all origin)
-  mapfile -t task3_push_urls < <(/usr/bin/git remote get-url --push --all origin)
+  mapfile -t task3_fetch_urls < <(task3_git_probe remote get-url --all origin)
+  mapfile -t task3_push_urls < <(task3_git_probe remote get-url --push --all origin)
   test "${#task3_fetch_urls[@]}" = 1
   test "${#task3_push_urls[@]}" = 1
   test "${task3_fetch_urls[0]}" = "$canonical_origin"
@@ -1114,12 +1125,14 @@ assert_task3_current_review() {
         and (.author | type == "object")
         and (.author.__typename | type == "string")
         and (.author.login | type == "string")
-        and (.author.id | type == "string")
-        and (.author.url | type == "string")
         and (
           .author.__typename != "Bot"
-          or (.author.databaseId |
-            type == "number" and . > 0 and floor == .)
+          or (
+            (.author.id | type == "string")
+            and (.author.url | type == "string")
+            and (.author.databaseId |
+              type == "number" and . > 0 and floor == .)
+          )
         )
         and (.commit.oid | type == "string" and test("^[0-9a-f]{40}$"))
       )
@@ -2690,6 +2703,9 @@ fail_closed_runtime() {
     mask_generator_runtime || failed=1
   else
     failed=1
+    systemctl --user stop wirtelprimpf.service || failed=1
+    wait_generator_inactive || failed=1
+    mask_generator_runtime || failed=1
   fi
   test "$(systemctl --user is-active wirtelprimpf-admin.service || true)" = inactive || failed=1
   test "$(systemctl --user is-active wirtelprimpf.timer || true)" = inactive || failed=1
@@ -3866,13 +3882,11 @@ printf 'old-tree\n' >"$runtime_harness/application.txt"
 git -C "$runtime_harness" add application.txt
 git -C "$runtime_harness" commit -qm old
 runtime_sha_before="$(git -C "$runtime_harness" rev-parse HEAD)"
+git -C "$runtime_harness" switch --detach -q "$runtime_sha_before"
 printf 'target-tree\n' >"$runtime_harness/application.txt"
 git -C "$runtime_harness" commit -qam target
 target_sha="$(git -C "$runtime_harness" rev-parse HEAD)"
 target_tree="$(git -C "$runtime_harness" rev-parse "$target_sha^{tree}")"
-git -C "$runtime_harness" switch --detach -q "$target_sha"
-git -C "$runtime_harness" update-ref refs/heads/main \
-  "$runtime_sha_before" "$target_sha"
 test "$(<"$runtime_harness/application.txt")" = target-tree
 
 assert_final_lock_held() {
@@ -7316,3 +7330,39 @@ Completion requires all of the following:
   lokale, disposable Fixtures; die abschließende Liveprobe des korrigierten
   Querys bleibt dem getrennten root-authentifizierten Read-only-Lauf
   vorbehalten.
+
+### 2026-08-02 — Additive Reviewgate-, Quiesce- und Step-10-CAS-Schließung
+
+- Diese Ergänzung basiert exakt auf Parent
+  `0007091f7482ae9657fb5c207d31628351ee58dc` und schließt die Rolloutanteile
+  von CodeRabbit-Review `4838065930`, ohne ältere Belege zu ersetzen. Die
+  vollständige Reviewseite und sämtliche Inline-Threads wurden gelesen.
+- Die paginierte Reviewvalidierung verlangt `id`, `databaseId` und `url` nur
+  noch für `__typename=Bot`, genau wie die normative GraphQL-Query. Ein
+  gewöhnlicher `User` mit ausschließlich `__typename` und `login` ist deshalb
+  ein gültiger Nichtkandidat; der einzig autorisierende CodeRabbit-Bot bleibt
+  weiterhin strikt an Login, REST-ID, GraphQL-ID, Node-ID, App-URL, Approval
+  und den exakten Head gebunden.
+- `assert_canonical_origin` verwendet einen eigenen vollständig geleerten
+  Prozesskontext mit deaktivierter System- und Global-Gitkonfiguration. Der
+  ausführbare Vertrag bestand auch mit einer absichtlich vergifteten globalen
+  `url.*.insteadOf`-Fixture und weist weiterhin zusätzliche Push-URLs zurück.
+- `fail_closed_runtime` stoppt nach einem fehlgeschlagenen ersten
+  Inaktivitätsnachweis gezielt den Generator, wiederholt den Nachweis und
+  versucht danach die Runtime-Maske; der Rückgabestatus bleibt fehlgeschlagen.
+  Der Step-10-Harness commitet das Target detached vom alten Commit, lässt
+  `main` bis nach Lock-, Ancestry- und Old-main-Beweisen unverändert und führt
+  erst dann die korrekte Old→Target-CAS aus. Die inverse vorbereitende
+  `update-ref`-Operation ist entfernt.
+- Der Rolloutvertrag bestand abschließend 58 entdeckt, 57 grün und ein
+  erwarteter realer Root-Skip. Die vollständigen Step-5-, Step-9- und
+  Step-10-Blöcke bestanden separat `bash -n` und ShellCheck auf
+  Error-Severity. Sämtliche Proben blieben lokale disposable Fixtures; es gab
+  keine Git-Remote-, Receipt-, Runtime-, Installations-, DNS-, Cloudflare- oder
+  Upstream-Writes. Der Remediation-Agent las das öffentliche Review anonym;
+  die Root-Reconciliation von PR und Threads verwendete den bereits vorhandenen
+  authentifizierten `gh`-Kontext nur lesend. Kein Token wurde ausgegeben,
+  exportiert oder neu gespeichert. Der unabhängige Root-Critical-Audit bestand
+  zusätzlich mit 169 Python-Tests (168 grün, ein erwarteter Skip), Admin
+  `33/33`, `git diff --check`, Ruff für alle geänderten
+  Nichtbaseline-Pythonpfade und Bandit High ohne High-Finding.

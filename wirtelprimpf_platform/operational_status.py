@@ -464,6 +464,14 @@ class OperationalStatusCollector:
         }
         archive = status["archive"]
         assert isinstance(archive, dict)
+        previous_repository = archive.get("repository")
+        if (
+            isinstance(previous_repository, str)
+            and previous_repository != repository
+        ):
+            warnings = status["warnings"]
+            assert isinstance(warnings, list)
+            warnings.append("hub_archive_repository_mismatch")
         archive["repository"] = repository
 
     def _collect_catalog(self, status: dict[str, object]) -> None:

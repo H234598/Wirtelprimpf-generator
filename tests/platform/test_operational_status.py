@@ -160,6 +160,32 @@ class OperationalStatusTests(unittest.TestCase):
         self.assertEqual(status["archive"]["repository"], "Wirtelprimpf-0001")
         self.assertEqual(status["timer"]["interval_minutes"], 120)
 
+    def test_hub_repository_mismatch_is_visible_before_the_hub_value_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = StatusPaths.for_root(root)
+            StateStore(paths.platform_state).save(PlatformState(active_archive_index=1))
+            paths.hub_source.parent.mkdir(parents=True, exist_ok=True)
+            paths.hub_source.write_text(
+                json.dumps(
+                    {
+                        "repository": "Wirtelprimpf-0002",
+                        "revision": "a" * 40,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            snapshot = snapshot_for_test(revision="b" * 64, settings={})
+            status = OperationalStatusCollector(
+                paths=paths,
+                snapshot_reader=lambda: snapshot,
+                timer_reader=active_timer,
+                service_reader=lambda: {"active_state": "inactive"},
+            ).collect()
+
+        self.assertEqual(status["archive"]["repository"], "Wirtelprimpf-0002")
+        self.assertIn("hub_archive_repository_mismatch", status["warnings"])
+
     def test_one_broken_local_source_is_degraded_and_explicitly_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -386,7 +412,12 @@ class OperationalStatusTests(unittest.TestCase):
             root = Path(temporary)
             paths = StatusPaths.for_root(root)
             StateStore(paths.platform_state).save(PlatformState())
-            snapshot = snapshot_for_test(revision="b" * 64, settings={})
+            repository = root / "archive"
+            repository.mkdir()
+            snapshot = snapshot_for_test(
+                revision="b" * 64,
+                settings={"repo_path": str(repository)},
+            )
             collector = OperationalStatusCollector(
                 paths=paths,
                 snapshot_reader=lambda: snapshot,
@@ -396,10 +427,14 @@ class OperationalStatusTests(unittest.TestCase):
                     "result": "success",
                     "exec_main_status": 0,
                 },
-                local_runner=lambda command, timeout: commands.append(command),
+                local_runner=lambda command, timeout: (
+                    commands.append(command)
+                    or subprocess.CompletedProcess(command, 0, f"{'a' * 40}\n", "")
+                ),
                 clock=lambda: datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
             )
             collector.collect()
+        self.assertTrue(commands)
         self.assertTrue(all(command[0] not in forbidden for command in commands))
 
     def test_service_timeout_is_redacted_and_degraded(self) -> None:

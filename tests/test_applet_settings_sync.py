@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import os
@@ -7,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
@@ -345,7 +347,7 @@ class AppletSettingsSyncTests(unittest.TestCase):
             [("gpt-image-2", "gpt-image-2", False)],
         )
 
-    def test_cli_apply_leaves_transaction_lifecycle_to_the_server_process(self) -> None:
+    def test_cli_apply_keeps_secrets_out_of_argv_and_receives_the_watchdog_bound(self) -> None:
         calls = []
 
         def runner(command, **kwargs):
@@ -373,7 +375,7 @@ class AppletSettingsSyncTests(unittest.TestCase):
         command, kwargs = calls[0]
         self.assertNotIn("private-secret-value", " ".join(command))
         self.assertIn("private-secret-value", kwargs["input"])
-        self.assertIsNone(kwargs["timeout"])
+        self.assertEqual(kwargs["timeout"], SYNC.APPLY_WATCHDOG_SECONDS)
         self.assertFalse(kwargs["shell"])
 
     def test_snapshot_uses_the_short_read_timeout(self) -> None:
@@ -390,6 +392,344 @@ class AppletSettingsSyncTests(unittest.TestCase):
         )
         client.snapshot()
         self.assertEqual(calls[0][1]["timeout"], 10)
+
+    def test_apply_watchdog_returns_without_signalling_and_allows_only_one_reaper(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-apply-watchdog-") as temporary:
+            root = Path(temporary)
+            executable = root / "settings-cli"
+            starts = root / "starts"
+            pid_file = root / "pid"
+            signalled = root / "signalled"
+            completed = root / "completed"
+            payload = json.dumps(snapshot("d" * 64))
+            executable.write_text(
+                f"#!{sys.executable}\n"
+                "import pathlib, signal, sys, time\n"
+                f"starts = pathlib.Path({str(starts)!r})\n"
+                f"pid_file = pathlib.Path({str(pid_file)!r})\n"
+                f"signalled = pathlib.Path({str(signalled)!r})\n"
+                f"completed = pathlib.Path({str(completed)!r})\n"
+                "with starts.open('a', encoding='utf-8') as stream:\n"
+                "    stream.write(sys.argv[1] + '\\n')\n"
+                "sys.stdin.read()\n"
+                "def record_signal(number, _frame):\n"
+                "    signalled.write_text(str(number), encoding='utf-8')\n"
+                "signal.signal(signal.SIGTERM, record_signal)\n"
+                "signal.signal(signal.SIGINT, record_signal)\n"
+                "if sys.argv[1] == 'apply':\n"
+                "    pid_file.write_text(str(__import__('os').getpid()), encoding='utf-8')\n"
+                "    time.sleep(0.5)\n"
+                "completed.write_text(sys.argv[1], encoding='utf-8')\n"
+                f"print({payload!r})\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o700)
+            client = SettingsCliClient(
+                str(executable),
+                apply_watchdog_seconds=0.05,
+            )
+
+            started = time.monotonic()
+            with self.assertRaisesRegex(SYNC.SettingsCliError, "Hintergrund"):
+                client.apply(
+                    {
+                        "base_revision": "a" * 64,
+                        "changes": {},
+                        "base_values": {},
+                        "secret_actions": {},
+                    }
+                )
+            self.assertLess(time.monotonic() - started, 0.3)
+            pid_deadline = time.monotonic() + 1
+            while not pid_file.is_file() and time.monotonic() < pid_deadline:
+                threading.Event().wait(0.01)
+            self.assertTrue(pid_file.is_file())
+            child_pid = int(pid_file.read_text(encoding="utf-8"))
+            os.kill(child_pid, 0)
+            self.assertFalse(signalled.exists())
+            reaper = client._active_reaper
+            self.assertIsNotNone(reaper)
+            assert reaper is not None
+            self.assertTrue(reaper.is_alive())
+
+            with self.assertRaisesRegex(SYNC.SettingsCliError, "läuft noch"):
+                client.snapshot()
+            self.assertIs(client._active_reaper, reaper)
+            self.assertEqual(starts.read_text(encoding="utf-8").splitlines(), ["apply"])
+
+            deadline = time.monotonic() + 2
+            while not completed.exists() and time.monotonic() < deadline:
+                threading.Event().wait(0.01)
+            self.assertTrue(completed.exists())
+            while client._active_reaper is not None and time.monotonic() < deadline:
+                threading.Event().wait(0.01)
+            self.assertIsNone(client._active_reaper)
+            self.assertFalse(signalled.exists())
+            self.assertEqual(client.snapshot()["revision"], "d" * 64)
+            self.assertEqual(
+                starts.read_text(encoding="utf-8").splitlines(),
+                ["apply", "snapshot"],
+            )
+
+    def test_apply_pump_failure_detaches_without_signalling_and_reaps_later(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-apply-pump-") as temporary:
+            root = Path(temporary)
+            executable = root / "settings-cli"
+            pid_file = root / "pid"
+            signalled = root / "signalled"
+            completed = root / "completed"
+            executable.write_text(
+                f"#!{sys.executable}\n"
+                "import os, pathlib, signal, sys, time\n"
+                f"pid_file = pathlib.Path({str(pid_file)!r})\n"
+                f"signalled = pathlib.Path({str(signalled)!r})\n"
+                f"completed = pathlib.Path({str(completed)!r})\n"
+                "def record_signal(number, _frame):\n"
+                "    signalled.write_text(str(number), encoding='utf-8')\n"
+                "signal.signal(signal.SIGTERM, record_signal)\n"
+                "signal.signal(signal.SIGINT, record_signal)\n"
+                "pid_file.write_text(str(os.getpid()), encoding='utf-8')\n"
+                "sys.stdin.read()\n"
+                "time.sleep(0.1)\n"
+                "completed.write_text('done', encoding='utf-8')\n"
+                f"print({json.dumps(snapshot('e' * 64))!r})\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o700)
+            client = SettingsCliClient(str(executable), apply_watchdog_seconds=2)
+            original_pump = SYNC._BoundedProcessIO.pump
+            failed_once = False
+
+            def fail_once(process_io, timeout_seconds):
+                nonlocal failed_once
+                if not failed_once:
+                    failed_once = True
+                    raise OSError("simulated selector/pump failure")
+                return original_pump(process_io, timeout_seconds)
+
+            with (
+                mock.patch.object(SYNC._BoundedProcessIO, "pump", new=fail_once),
+                self.assertRaisesRegex(SYNC.SettingsCliError, "sicher ausgeführt"),
+            ):
+                client.apply(
+                    {
+                        "base_revision": "a" * 64,
+                        "changes": {},
+                        "base_values": {},
+                        "secret_actions": {},
+                    }
+                )
+
+            pid_deadline = time.monotonic() + 1
+            while not pid_file.is_file() and time.monotonic() < pid_deadline:
+                threading.Event().wait(0.01)
+            self.assertTrue(pid_file.is_file())
+            os.kill(int(pid_file.read_text(encoding="utf-8")), 0)
+            self.assertFalse(signalled.exists())
+            deadline = time.monotonic() + 2
+            while client._active_process is not None and time.monotonic() < deadline:
+                threading.Event().wait(0.01)
+            self.assertTrue(completed.is_file())
+            self.assertIsNone(client._active_process)
+            self.assertIsNone(client._active_process_io)
+            self.assertFalse(signalled.exists())
+
+    def test_reaper_start_failure_keeps_live_apply_tracked_and_fail_closed(self) -> None:
+        client = SettingsCliClient(
+            "/trusted/wirtelprimpf-settings",
+            executable_check=lambda _path: True,
+        )
+        process = mock.Mock()
+        process.poll.return_value = None
+        process_io = mock.Mock(process=process)
+        failed_thread = mock.Mock()
+        failed_thread.is_alive.return_value = False
+        failed_thread.start.side_effect = RuntimeError("no thread capacity")
+
+        with mock.patch.object(SYNC.threading, "Thread", return_value=failed_thread):
+            self.assertFalse(client._detach_for_reap(process_io))
+
+        self.assertIs(client._active_process, process)
+        self.assertIs(client._active_process_io, process_io)
+        self.assertIs(client._active_reaper, failed_thread)
+        process.kill.assert_not_called()
+        process.wait.assert_not_called()
+        process_io.close.assert_not_called()
+        with self.assertRaisesRegex(SYNC.SettingsCliError, "läuft noch"):
+            client._reject_if_process_still_active()
+
+    def test_bounded_pipe_close_is_idempotent_and_drops_delivered_secret_input(self) -> None:
+        process = subprocess.Popen(  # nosec B603 -- fixed local executable
+            ["/bin/cat"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+            bufsize=0,
+            shell=False,
+        )
+        process_io = SYNC._BoundedProcessIO(process, b"private-secret-input")
+        process_io.initialize()
+        deadline = time.monotonic() + 2
+        while not process_io.complete and time.monotonic() < deadline:
+            process_io.pump(0.05)
+
+        self.assertTrue(process_io.complete)
+        self.assertEqual(process_io.input_bytes, b"")
+        self.assertEqual(bytes(process_io.stdout), b"private-secret-input")
+        process.wait()
+        process_io.close()
+        process_io.close()
+        assert process.stdin is not None
+        assert process.stdout is not None
+        assert process.stderr is not None
+        self.assertTrue(process.stdin.closed)
+        self.assertTrue(process.stdout.closed)
+        self.assertTrue(process.stderr.closed)
+
+    def test_selector_setup_failure_uses_bounded_direct_pipe_fallback(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-selector-fallback-") as temporary:
+            executable = Path(temporary) / "settings-cli"
+            executable.write_text(
+                f"#!{sys.executable}\n"
+                "import sys\n"
+                "sys.stdin.read()\n"
+                f"print({json.dumps(snapshot('f' * 64))!r})\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o700)
+            client = SettingsCliClient(str(executable))
+
+            with mock.patch.object(
+                SYNC.selectors,
+                "DefaultSelector",
+                side_effect=OSError("simulated selector setup failure"),
+            ):
+                self.assertEqual(client.snapshot()["revision"], "f" * 64)
+
+    def test_snapshot_pump_failure_kills_reaps_and_closes_every_pipe(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-snapshot-pump-") as temporary:
+            executable = Path(temporary) / "settings-cli"
+            executable.write_text(
+                f"#!{sys.executable}\n"
+                "import time\n"
+                "time.sleep(30)\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o700)
+            client = SettingsCliClient(str(executable))
+            spawned = []
+            real_popen = SYNC.subprocess.Popen
+
+            def capture_popen(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                spawned.append(process)
+                return process
+
+            with (
+                mock.patch.object(SYNC.subprocess, "Popen", new=capture_popen),
+                mock.patch.object(
+                    SYNC._BoundedProcessIO,
+                    "pump",
+                    side_effect=OSError("simulated pump failure"),
+                ),
+                self.assertRaisesRegex(SYNC.SettingsCliError, "sicher ausgeführt"),
+            ):
+                client.snapshot()
+
+            self.assertEqual(len(spawned), 1)
+            process = spawned[0]
+            self.assertIsNotNone(process.poll())
+            for stream in (process.stdin, process.stdout, process.stderr):
+                assert stream is not None
+                self.assertTrue(stream.closed)
+            self.assertIsNone(client._active_process)
+            self.assertIsNone(client._active_process_io)
+
+    def test_invalid_utf8_snapshot_is_reaped_and_closed_before_decode_error(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-snapshot-decode-") as temporary:
+            executable = Path(temporary) / "settings-cli"
+            executable.write_text(
+                f"#!{sys.executable}\n"
+                "import sys\n"
+                "sys.stdout.buffer.write(b'\\xff')\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o700)
+            client = SettingsCliClient(str(executable))
+            spawned = []
+            real_popen = SYNC.subprocess.Popen
+
+            def capture_popen(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                spawned.append(process)
+                return process
+
+            with (
+                mock.patch.object(SYNC.subprocess, "Popen", new=capture_popen),
+                self.assertRaisesRegex(SYNC.SettingsCliError, "gültiges JSON"),
+            ):
+                client.snapshot()
+
+            self.assertEqual(len(spawned), 1)
+            process = spawned[0]
+            self.assertIsNotNone(process.poll())
+            for stream in (process.stdin, process.stdout, process.stderr):
+                assert stream is not None
+                self.assertTrue(stream.closed)
+
+    def test_oversized_apply_output_is_bounded_without_killing_the_child(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-apply-output-") as temporary:
+            root = Path(temporary)
+            executable = root / "settings-cli"
+            pid_file = root / "pid"
+            signalled = root / "signalled"
+            completed = root / "completed"
+            executable.write_text(
+                f"#!{sys.executable}\n"
+                "import os, pathlib, signal, sys, time\n"
+                f"pid_file = pathlib.Path({str(pid_file)!r})\n"
+                f"signalled = pathlib.Path({str(signalled)!r})\n"
+                f"completed = pathlib.Path({str(completed)!r})\n"
+                "sys.stdin.read()\n"
+                "def record_signal(number, _frame):\n"
+                "    signalled.write_text(str(number), encoding='utf-8')\n"
+                "signal.signal(signal.SIGTERM, record_signal)\n"
+                "signal.signal(signal.SIGINT, record_signal)\n"
+                "pid_file.write_text(str(os.getpid()), encoding='utf-8')\n"
+                f"sys.stdout.buffer.write(b'x' * ({SYNC.MAX_RESPONSE_BYTES} + 65536))\n"
+                "sys.stdout.buffer.flush()\n"
+                "time.sleep(0.5)\n"
+                "completed.write_text('done', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o700)
+            client = SettingsCliClient(
+                str(executable),
+                apply_watchdog_seconds=2,
+            )
+
+            started = time.monotonic()
+            with self.assertRaisesRegex(SYNC.SettingsCliError, "zu groß"):
+                client.apply(
+                    {
+                        "base_revision": "a" * 64,
+                        "changes": {},
+                        "base_values": {},
+                        "secret_actions": {},
+                    }
+                )
+            self.assertLess(time.monotonic() - started, 0.4)
+            os.kill(int(pid_file.read_text(encoding="utf-8")), 0)
+            self.assertFalse(signalled.exists())
+            deadline = time.monotonic() + 2
+            while not completed.exists() and time.monotonic() < deadline:
+                threading.Event().wait(0.01)
+            self.assertTrue(completed.exists())
+            while client._active_reaper is not None and time.monotonic() < deadline:
+                threading.Event().wait(0.01)
+            self.assertIsNone(client._active_reaper)
+            self.assertFalse(signalled.exists())
 
     def test_successful_cli_snapshot_rejects_incomplete_state_or_empty_catalog(self) -> None:
         missing_setting = snapshot("b" * 64)
@@ -414,6 +754,26 @@ class AppletSettingsSyncTests(unittest.TestCase):
                 "vollständig",
             ):
                 client.snapshot()
+
+    def test_applet_snapshot_rejects_invalid_numeric_invariants_and_story_range(self) -> None:
+        valid = snapshot("b" * 64)
+        self.assertTrue(SYNC._is_complete_public_snapshot(valid))
+
+        malformed = []
+        missing_bounds = copy.deepcopy(valid)
+        missing_bounds["invariants"] = {}
+        malformed.append(missing_bounds)
+        out_of_bounds = copy.deepcopy(valid)
+        out_of_bounds["settings"]["generation_interval_minutes"] = 29
+        malformed.append(out_of_bounds)
+        reversed_story_range = copy.deepcopy(valid)
+        reversed_story_range["settings"]["story_finish_parts_min"] = 8
+        reversed_story_range["settings"]["story_finish_parts_max"] = 4
+        malformed.append(reversed_story_range)
+
+        for payload in malformed:
+            with self.subTest(payload=payload):
+                self.assertFalse(SYNC._is_complete_public_snapshot(payload))
 
     def test_applet_snapshot_contract_matches_the_canonical_visible_schema(self) -> None:
         expected = {
@@ -698,6 +1058,49 @@ class AppletSettingsSyncTests(unittest.TestCase):
         )
         self.assertEqual(observed, [])
         self.assertFalse(coordinator.queue_refresh())
+
+    def test_dispose_logs_monitor_cancellation_type_without_sensitive_text(self) -> None:
+        secret = "OPENAI_API_KEY=must-never-escape"
+
+        class FailingMonitor:
+            def cancel(self) -> None:
+                raise RuntimeError(secret)
+
+        coordinator, _scheduler, _monitors, _executor, _completions = coordinator_for(
+            QueueClient()
+        )
+        coordinator._monitors.append(FailingMonitor())
+        with self.assertLogs(SYNC.__name__, level="DEBUG") as captured:
+            coordinator.dispose()
+
+        rendered = "\n".join(captured.output)
+        self.assertIn("RuntimeError", rendered)
+        self.assertNotIn(secret, rendered)
+        self.assertEqual(coordinator._monitors, [])
+
+    def test_watchdog_save_failure_releases_coordinator_for_a_later_save(self) -> None:
+        busy = []
+        client = QueueClient(
+            snapshots=[snapshot("r1", operandi="story")],
+            applies=[SYNC.SettingsCliError("watchdog")],
+        )
+        coordinator, _scheduler, _monitors, executor, completions = coordinator_for(
+            client,
+            on_busy=busy.append,
+        )
+        coordinator.queue_refresh()
+        executor.run_next()
+        completions.run_next()
+        coordinator.state.change("operandi", "both")
+        request = coordinator.state.build_request({"operandi": "both"}, {})
+
+        self.assertTrue(coordinator.submit_save(request))
+        executor.run_next()
+        completions.run_next()
+
+        self.assertEqual(busy, [True, False])
+        self.assertFalse(coordinator._save_in_flight)
+        self.assertTrue(coordinator.submit_save(request))
 
     def test_blocking_cli_runs_off_caller_thread_and_completion_is_dispatched(self) -> None:
         caller_thread = threading.get_ident()

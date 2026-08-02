@@ -8,6 +8,7 @@ const {
   FormSyncState,
   InteractionGate,
   RequestEpochGate,
+  buildSecretActions,
   classifySettingsSaveResponse,
   controlValue,
   isConflictPayload,
@@ -241,6 +242,37 @@ test("settings snapshots explicitly require ok true", () => {
   unsuccessful.ok = false;
   assert.equal(isSettingsSnapshot(unsuccessful), false);
   assert.equal(isSettingsSnapshot(completeAdminSnapshot()), true);
+});
+
+test("settings snapshots require a 64-character lowercase hexadecimal revision", () => {
+  for (const revision of ["r1", "C".repeat(64), "c".repeat(63), `${"c".repeat(64)}d`]) {
+    const snapshot = completeAdminSnapshot();
+    snapshot.revision = revision;
+    assert.equal(isSettingsSnapshot(snapshot), false);
+  }
+  assert.equal(isSettingsSnapshot(completeAdminSnapshot()), true);
+});
+
+test("secret actions reject simultaneous deletion and replacement", () => {
+  assert.deepEqual(
+    buildSecretActions([
+      { name: "openai_api_key", value: "", deleteSelected: true },
+      { name: "cloudflare_api_token", value: "replacement", deleteSelected: false },
+    ]),
+    {
+      openai_api_key: { action: "delete" },
+      cloudflare_api_token: { action: "replace", value: "replacement" },
+    },
+  );
+  assert.throws(
+    () => buildSecretActions([
+      { name: "openai_api_key", value: "replacement", deleteSelected: true },
+    ]),
+    {
+      name: "TypeError",
+      message: "Löschen und Ersetzen sind gleichzeitig gewählt.",
+    },
+  );
 });
 
 test("missing status timer and story sections render as wholly unknown", () => {
