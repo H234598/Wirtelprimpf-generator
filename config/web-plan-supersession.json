@@ -1,0 +1,13 @@
+{
+  "authority_order": ["v2.0.0 chapters 0-28", "approved generator and rollout plans", "v1 historical appendix"],
+  "generator_pr_4": {
+    "commit_message_mentions_pr": 4,
+    "content_present_on_main": true,
+    "evidence_class": "manual-main-integration",
+    "github_pr_merged": false,
+    "github_pr_state": "closed",
+    "integration_commit": "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"
+  },
+  "old_p00_pr": {"github_pr_merged": false, "github_pr_state": "closed", "number": 1, "solution_path": "abgelöst"},
+  "schema_version": 1
+}
