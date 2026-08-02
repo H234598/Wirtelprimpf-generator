@@ -1046,13 +1046,7 @@ class GeneratorConfigEditor(SettingsWidget):
 
     def _make_value_widget(self, key, kind, choices, current):
         if kind in ("choice", "model"):
-            if kind == "model":
-                return self._make_catalog_combo(choices, current)
-            combo = Gtk.ComboBoxText()
-            for option in choices:
-                combo.append(str(option), str(option))
-            combo.set_hexpand(True)
-            return combo
+            return self._make_catalog_combo(choices, current)
         if kind == "boolean":
             switch = Gtk.Switch()
             switch.set_halign(Gtk.Align.START)
@@ -1157,14 +1151,15 @@ class GeneratorConfigEditor(SettingsWidget):
             choices_payload = {}
         self._suppress_dirty = True
         try:
-            for key in ("image_model", "story_model"):
-                widget = self.widgets.get(key)
-                if widget is not None:
-                    self._populate_catalog_combo(
-                        widget,
-                        choices_payload.get(key, []),
-                        visible.get(key),
-                    )
+            for _section, fields in self.field_sections:
+                for key, _label, kind, choice_key in fields:
+                    widget = self.widgets.get(key)
+                    if kind in ("choice", "model") and widget is not None:
+                        self._populate_catalog_combo(
+                            widget,
+                            choices_payload.get(choice_key, []),
+                            visible.get(key),
+                        )
             for key, widget in self.widgets.items():
                 self._set_widget_public_value(widget, visible.get(key))
         finally:

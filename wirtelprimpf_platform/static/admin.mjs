@@ -318,6 +318,24 @@ export function isConflictPayload(data) {
     && data.conflicts.every((name) => typeof name === "string");
 }
 
+export async function classifySettingsSaveResponse(response) {
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    data = undefined;
+  }
+  if (response.status === 409) return { kind: "conflict", data };
+  if (!response.ok) {
+    const error = isRecord(data) && typeof data.error === "string" ? data.error.trim() : "";
+    return { kind: "rejected", message: error || "Änderung abgelehnt." };
+  }
+  if (!isSettingsSnapshot(data)) {
+    throw new TypeError("complete settings snapshot required");
+  }
+  return { kind: "success", snapshot: data };
+}
+
 function text(value, fallback = "Unbekannt") {
   return value === null || value === undefined || value === "" ? fallback : String(value);
 }
@@ -353,10 +371,83 @@ export function fetchLivePoll(resource) {
   });
 }
 
-async function bootstrap() {
-  const form = document.querySelector("#settings");
-  const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-  const saveStatus = document.querySelector("#save-status");
+export async function pollSettingsOnce({
+  requestGate,
+  pollStatus,
+  fetchSettings = () => fetchLivePoll("settings"),
+  applySnapshot,
+}) {
+  const requestEpoch = requestGate.beginPoll();
+  if (requestEpoch === null) return false;
+  try {
+    const response = await fetchSettings();
+    if (!response.ok) throw new Error("settings unavailable");
+    const snapshot = await response.json();
+    if (!isSettingsSnapshot(snapshot)) throw new TypeError("complete settings snapshot required");
+    if (requestGate.acceptPoll(requestEpoch)) applySnapshot(snapshot);
+    pollStatus.textContent = "";
+    return true;
+  } catch {
+    pollStatus.textContent = "Einstellungen konnten nicht aktualisiert werden.";
+    return false;
+  }
+}
+
+function setFormControlsEnabled(form, enabled) {
+  for (const control of form.querySelectorAll("input, select, textarea, button")) {
+    control.disabled = !enabled;
+  }
+}
+
+export function prepareBootstrap(documentRef) {
+  const form = documentRef.querySelector("#settings");
+  const saveStatus = documentRef.querySelector("#save-status");
+  if (!form || !saveStatus) throw new TypeError("admin bootstrap surface is incomplete");
+  setFormControlsEnabled(form, false);
+
+  const csrfMeta = documentRef.querySelector('meta[name="csrf-token"]');
+  if (!csrfMeta || typeof csrfMeta.content !== "string" || csrfMeta.content.trim() === "") {
+    saveStatus.textContent = "Sicherheitskonfiguration fehlt; Einstellungen bleiben gesperrt.";
+    return null;
+  }
+  const pollStatus = documentRef.querySelector("#poll-status");
+  if (!pollStatus) throw new TypeError("admin polling status surface is incomplete");
+  return {
+    csrfToken: csrfMeta.content,
+    form,
+    pollStatus,
+    saveStatus,
+  };
+}
+
+function reportBootstrapFailure(documentRef) {
+  const form = documentRef.querySelector("#settings");
+  if (form) setFormControlsEnabled(form, false);
+  const saveStatus = documentRef.querySelector("#save-status");
+  if (saveStatus) {
+    saveStatus.textContent = "Steuerkonsole konnte nicht sicher initialisiert werden; Einstellungen bleiben gesperrt.";
+  }
+}
+
+export async function runBootstrapFailClosed(documentRef, operation = bootstrap) {
+  try {
+    await operation(documentRef);
+    return true;
+  } catch {
+    reportBootstrapFailure(documentRef);
+    return false;
+  }
+}
+
+async function bootstrap(documentRef) {
+  const prepared = prepareBootstrap(documentRef);
+  if (prepared === null) return;
+  const {
+    csrfToken,
+    form,
+    pollStatus: settingsPollStatus,
+    saveStatus,
+  } = prepared;
   const requestGate = new RequestEpochGate();
   const interactionGate = new InteractionGate();
   let syncState = null;
@@ -367,12 +458,8 @@ async function bootstrap() {
   const settingControl = (name) => form.elements.namedItem(name);
 
   function setInterfaceEnabled(enabled) {
-    for (const control of form.querySelectorAll("input, select, textarea, button")) {
-      control.disabled = !enabled;
-    }
+    setFormControlsEnabled(form, enabled);
   }
-
-  setInterfaceEnabled(false);
 
   function populateSelect(name, catalog, current, models = false) {
     const select = settingControl(name);
@@ -382,7 +469,7 @@ async function bootstrap() {
     if (optionValuesMatch(select, options)) return;
     select.replaceChildren(
       ...options.map((item) => {
-        const option = document.createElement("option");
+        const option = documentRef.createElement("option");
         option.value = item.value;
         option.textContent = item.label;
         option.dataset.legacy = item.legacy ? "true" : "false";
@@ -397,9 +484,9 @@ async function bootstrap() {
   }
 
   function renderFieldStates() {
-    for (const row of document.querySelectorAll("[data-field]")) {
+    for (const row of documentRef.querySelectorAll("[data-field]")) {
       const name = row.dataset.field;
-      const state = document.querySelector(`#${name}-state`);
+      const state = documentRef.querySelector(`#${name}-state`);
       const invalid = syncState.visible[name] === null;
       row.classList.toggle("is-dirty", syncState.dirty.has(name));
       row.classList.toggle("has-conflict", syncState.conflicts.has(name));
@@ -408,10 +495,10 @@ async function bootstrap() {
       let lineBreak = state.querySelector("br");
       let button = state.querySelector("button");
       if (!message || !lineBreak || !button) {
-        message = document.createElement("span");
+        message = documentRef.createElement("span");
         message.dataset.role = "field-message";
-        lineBreak = document.createElement("br");
-        button = document.createElement("button");
+        lineBreak = documentRef.createElement("br");
+        button = documentRef.createElement("button");
         button.type = "button";
         button.className = "secondary";
         button.textContent = "Externen Wert übernehmen";
@@ -430,16 +517,16 @@ async function bootstrap() {
       lineBreak.hidden = !syncState.dirty.has(name);
       button.hidden = !syncState.dirty.has(name);
     }
-    document.querySelector("#status-sync").textContent = syncState.dirty.size || syncState.secretDirty.size
+    documentRef.querySelector("#status-sync").textContent = syncState.dirty.size || syncState.secretDirty.size
       ? `${syncState.dirty.size + syncState.secretDirty.size} lokale Entwürfe`
       : "Synchron";
   }
 
   function renderSecretPresence(snapshot) {
-    document.querySelector("#openai-presence").textContent = snapshot.secrets.openai_api_key_present
+    documentRef.querySelector("#openai-presence").textContent = snapshot.secrets.openai_api_key_present
       ? "Vorhandener Schlüssel: ja"
       : "Vorhandener Schlüssel: nein";
-    document.querySelector("#cloudflare-presence").textContent = snapshot.secrets.cloudflare_api_token_present
+    documentRef.querySelector("#cloudflare-presence").textContent = snapshot.secrets.cloudflare_api_token_present
       ? "Vorhandener Token: ja"
       : "Vorhandener Token: nein";
   }
@@ -463,7 +550,7 @@ async function bootstrap() {
       }
     }
     for (const [name, value] of Object.entries(visible)) {
-      reconcileControlValue(settingControl(name), value, document.activeElement);
+      reconcileControlValue(settingControl(name), value, documentRef.activeElement);
     }
     renderSecretPresence(snapshot);
     renderFieldStates();
@@ -488,27 +575,24 @@ async function bootstrap() {
 
   function renderStatus(status) {
     const labels = statusLabels(status);
-    document.querySelector("#status-health").textContent = labels.health;
-    document.querySelector("#status-last-run").textContent = labels.lastRun;
-    document.querySelector("#status-next-run").textContent = labels.nextRun;
-    document.querySelector("#status-timer").textContent = labels.timer;
-    document.querySelector("#status-story").textContent = labels.story;
-    document.querySelector("#status-repository").textContent = labels.repository;
-    document.querySelector("#status-result").textContent = labels.result;
+    documentRef.querySelector("#status-health").textContent = labels.health;
+    documentRef.querySelector("#status-last-run").textContent = labels.lastRun;
+    documentRef.querySelector("#status-next-run").textContent = labels.nextRun;
+    documentRef.querySelector("#status-timer").textContent = labels.timer;
+    documentRef.querySelector("#status-story").textContent = labels.story;
+    documentRef.querySelector("#status-repository").textContent = labels.repository;
+    documentRef.querySelector("#status-result").textContent = labels.result;
   }
 
   async function pollSettings() {
     if (settingsInFlight) return;
-    const requestEpoch = requestGate.beginPoll();
-    if (requestEpoch === null) return;
     settingsInFlight = true;
     try {
-      const response = await fetchLivePoll("settings");
-      if (!response.ok) throw new Error("settings unavailable");
-      const snapshot = await response.json();
-      if (requestGate.acceptPoll(requestEpoch)) applySettingsSnapshot(snapshot);
-    } catch {
-      saveStatus.textContent = "Einstellungen konnten nicht aktualisiert werden.";
+      await pollSettingsOnce({
+        requestGate,
+        pollStatus: settingsPollStatus,
+        applySnapshot: applySettingsSnapshot,
+      });
     } finally {
       settingsInFlight = false;
     }
@@ -522,7 +606,7 @@ async function bootstrap() {
       if (!response.ok) throw new Error("status unavailable");
       renderStatus(await response.json());
     } catch {
-      document.querySelector("#status-health").textContent = "Nicht verfügbar";
+      documentRef.querySelector("#status-health").textContent = "Nicht verfügbar";
     } finally {
       statusInFlight = false;
     }
@@ -542,15 +626,15 @@ async function bootstrap() {
       ["openai_api_key", "delete_openai_api_key"],
       ["cloudflare_api_token", "delete_cloudflare_api_token"],
     ]) {
-      const input = document.querySelector(`#${name}`);
-      const deletion = document.querySelector(`#${deleteId}`);
+      const input = documentRef.querySelector(`#${name}`);
+      const deletion = documentRef.querySelector(`#${deleteId}`);
       if (deletion.checked) actions[name] = { action: "delete" };
       else if (input.value) actions[name] = { action: "replace", value: input.value };
     }
     return actions;
   }
 
-  for (const row of document.querySelectorAll("[data-field]")) {
+  for (const row of documentRef.querySelectorAll("[data-field]")) {
     const name = row.dataset.field;
     const control = settingControl(name);
     const eventName = control.tagName === "SELECT" || control.type === "checkbox" ? "change" : "input";
@@ -566,8 +650,8 @@ async function bootstrap() {
     ["openai_api_key", "delete_openai_api_key"],
     ["cloudflare_api_token", "delete_cloudflare_api_token"],
   ]) {
-    const input = document.querySelector(`#${name}`);
-    const deletion = document.querySelector(`#${deleteId}`);
+    const input = documentRef.querySelector(`#${name}`);
+    const deletion = documentRef.querySelector(`#${deleteId}`);
     const update = () => {
       interactionGate.run(() => {
         if (input.value || deletion.checked) syncState.markSecretDirty(name);
@@ -609,29 +693,31 @@ async function bootstrap() {
           },
           body: JSON.stringify(request),
         });
-        const data = await response.json();
-        if (response.status === 409) {
-          if (!isConflictPayload(data)) {
+        const outcome = await classifySettingsSaveResponse(response);
+        if (outcome.kind === "conflict") {
+          if (!isConflictPayload(outcome.data)) {
             saveStatus.textContent = "Konfliktantwort war ungültig; lokale Entwürfe bleiben erhalten.";
             return;
           }
-          const visible = mergeConflictSnapshot(syncState, data.snapshot, data.conflicts);
-          renderSettingsSnapshot(data.snapshot, visible);
+          const visible = mergeConflictSnapshot(
+            syncState,
+            outcome.data.snapshot,
+            outcome.data.conflicts,
+          );
+          renderSettingsSnapshot(outcome.data.snapshot, visible);
           saveStatus.textContent = "Konflikt: lokale Entwürfe wurden nicht überschrieben.";
           return;
         }
-        if (!response.ok) {
-          saveStatus.textContent = data.error || "Änderung abgelehnt.";
+        if (outcome.kind === "rejected") {
+          saveStatus.textContent = outcome.message;
           return;
         }
-        if (!isSettingsSnapshot(data)) {
-          throw new TypeError("complete settings snapshot required");
-        }
+        const data = outcome.snapshot;
         syncState.acceptSavedSnapshot(data);
-        document.querySelector("#openai_api_key").value = "";
-        document.querySelector("#cloudflare_api_token").value = "";
-        document.querySelector("#delete_openai_api_key").checked = false;
-        document.querySelector("#delete_cloudflare_api_token").checked = false;
+        documentRef.querySelector("#openai_api_key").value = "";
+        documentRef.querySelector("#cloudflare_api_token").value = "";
+        documentRef.querySelector("#delete_openai_api_key").checked = false;
+        documentRef.querySelector("#delete_cloudflare_api_token").checked = false;
         renderSettingsSnapshot(data, structuredClone(syncState.visible));
         saveStatus.textContent = "Atomar gespeichert und validiert.";
       } catch {
@@ -647,15 +733,15 @@ async function bootstrap() {
     }
   });
 
-  document.querySelector("#discard-all").addEventListener("click", () => {
+  documentRef.querySelector("#discard-all").addEventListener("click", () => {
     interactionGate.run(() => {
       if (!window.confirm("Alle lokalen, noch nicht gespeicherten Entwürfe verwerfen?")) return;
       for (const name of [...syncState.dirty]) discardField(name);
       for (const name of [...syncState.secretDirty]) syncState.discardSecret(name);
-      document.querySelector("#openai_api_key").value = "";
-      document.querySelector("#cloudflare_api_token").value = "";
-      document.querySelector("#delete_openai_api_key").checked = false;
-      document.querySelector("#delete_cloudflare_api_token").checked = false;
+      documentRef.querySelector("#openai_api_key").value = "";
+      documentRef.querySelector("#cloudflare_api_token").value = "";
+      documentRef.querySelector("#delete_openai_api_key").checked = false;
+      documentRef.querySelector("#delete_cloudflare_api_token").checked = false;
       renderFieldStates();
       saveStatus.textContent = "Lokale Entwürfe verworfen.";
     });
@@ -668,5 +754,5 @@ async function bootstrap() {
 }
 
 if (typeof document !== "undefined") {
-  void bootstrap();
+  void runBootstrapFailClosed(document);
 }

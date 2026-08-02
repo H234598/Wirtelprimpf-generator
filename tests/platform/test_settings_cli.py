@@ -3,7 +3,14 @@ from __future__ import annotations
 import io
 import json
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
+
+if __package__:
+    from ._settings_fixtures import snapshot_for_test
+else:
+    from _settings_fixtures import snapshot_for_test
 
 from wirtelprimpf_platform import cli
 from wirtelprimpf_platform.settings import (
@@ -13,22 +20,6 @@ from wirtelprimpf_platform.settings import (
     SettingsSnapshot,
     SettingsValidationFailure,
 )
-
-
-def snapshot_for_test(*, revision: str, settings: dict[str, object]) -> SettingsSnapshot:
-    return SettingsSnapshot(
-        schema_version="2.0.0",
-        revision=revision,
-        settings=settings,
-        choices={},
-        secrets={
-            "openai_api_key_present": False,
-            "cloudflare_api_token_present": False,
-            "github_auth_present": False,
-        },
-        invariants={},
-        warnings=(),
-    )
 
 
 class FakeManager:
@@ -45,6 +36,30 @@ class FakeManager:
 
 
 class SettingsCLITests(unittest.TestCase):
+    def test_admin_rejects_a_noncanonical_settings_path_as_redacted_json(self) -> None:
+        supplied_path = Path("/private/CLOUDFLARE_API_TOKEN=must-never-escape.env")
+        manager = SimpleNamespace(
+            paths=SimpleNamespace(env_file=Path("/expected/openai.env")),
+        )
+        output = io.StringIO()
+        with (
+            patch.object(cli, "build_settings_manager", return_value=manager),
+            patch.object(cli, "serve_admin") as serve_admin,
+            patch("sys.stdout", output),
+        ):
+            code = cli.main(["admin", "--settings", str(supplied_path)])
+
+        self.assertEqual(code, cli.VALIDATION_ERROR_EXIT_CODE)
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {
+                "ok": False,
+                "error": "admin settings path must match the transactional manager path",
+            },
+        )
+        self.assertNotIn(str(supplied_path), output.getvalue())
+        serve_admin.assert_not_called()
+
     def test_snapshot_prints_only_the_public_contract(self) -> None:
         snapshot = snapshot_for_test(revision="a" * 64, settings={"operandi": "story"})
         output = io.StringIO()

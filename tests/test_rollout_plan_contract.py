@@ -38,6 +38,14 @@ def _shell_function(script: str, name: str) -> str:
     return script[start:end]
 
 
+def _quoted_heredoc(script: str, marker: str) -> tuple[str, str]:
+    opener = f"<<'{marker}'"
+    opener_offset = script.index(opener) + len(opener)
+    body_offset = script.index("\n", opener_offset) + 1
+    body_end = script.index(f"\n{marker}", body_offset)
+    return script[:body_offset], script[body_offset:body_end]
+
+
 class RolloutPlanContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -77,6 +85,23 @@ class RolloutPlanContractTests(unittest.TestCase):
         cls.harness = _code_block_after(
             cls.document,
             "**Step 10: Syntax-check and failure-inject the restore semantics in isolation**",
+        )
+        task5_offset = cls.document.index("### Task 5:")
+        cls.task5_step1 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 1: Verify the archive checkout and remote are clean/current**",
+        )
+        cls.task5_step3 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 3: Replace both old pins",
+        )
+        cls.task5_step4 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 4: Validate the two pins and exact diff**",
+        )
+        cls.task5_step5 = _code_block_after(
+            cls.document[task5_offset:],
+            "**Step 5: Commit the isolated archive pin and open its pull request**",
         )
 
     def _make_merge_fixture(self, tmp: str) -> dict[str, str]:
@@ -207,6 +232,153 @@ class RolloutPlanContractTests(unittest.TestCase):
         self.assertIn("indirect-merges", self.document)
         self.assertIn("== MERGED", self.task3_merge)
         self.assertIn(".mergeCommit.oid", self.task3_merge)
+
+    def test_task5_archive_operations_are_inside_literal_teladi_fences(self) -> None:
+        archive_path = "/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001"
+        for name, script, marker in (
+            ("step1", self.task5_step1, "TASK5_STEP1_TELADI"),
+            ("step3", self.task5_step3, "TASK5_STEP3_TELADI"),
+            ("step4", self.task5_step4, "TASK5_STEP4_TELADI"),
+            ("step5", self.task5_step5, "TASK5_STEP5_TELADI"),
+        ):
+            with self.subTest(name=name):
+                outer, child = _quoted_heredoc(script, marker)
+                normalized_outer = " ".join(outer.split())
+                self.assertIn("test \"$(id -u)\" = 0", outer)
+                self.assertIn(
+                    "/usr/sbin/runuser -u teladi -- /usr/bin/env -i",
+                    normalized_outer,
+                )
+                self.assertIn("HOME=/home/teladi", normalized_outer)
+                self.assertIn('test "$(id -u)" = 1000', child)
+                self.assertIn('test "$(id -g)" = 1000', child)
+                self.assertIn(archive_path, child)
+                root_shell = script.replace(child, "", 1)
+                self.assertNotIn(archive_path, root_shell)
+                self.assertNotIn("$archive_checkout", root_shell)
+
+        self.assertIn("os.replace(part, workflow)", self.task5_step3)
+        self.assertIn("workflow.lstat()", self.task5_step3)
+        self.assertIn("st.st_uid == 1000 and st.st_gid == 1000", self.task5_step3)
+        self.assertIn("if old_count != 2", self.task5_step3)
+        self.assertIn("if new_count != 2", self.task5_step3)
+
+    def test_task5_literal_fence_executes_as_teladi_without_root_expansion(self) -> None:
+        if os.geteuid() != 0 or not Path("/usr/sbin/runuser").is_file():
+            self.skipTest("the real Task-5 runuser probe requires root and /usr/sbin/runuser")
+        try:
+            teladi_ids = subprocess.run(
+                ["id", "-u", "teladi"],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip(), subprocess.run(
+                ["id", "-g", "teladi"],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+        except subprocess.CalledProcessError:
+            self.skipTest("the real Task-5 runuser probe requires the teladi account")
+        if teladi_ids != ("1000", "1000"):
+            self.skipTest("the Task-5 contract pins teladi to UID/GID 1000")
+
+        prefix, _child = _quoted_heredoc(self.task5_step1, "TASK5_STEP1_TELADI")
+        probe = (
+            "root_only=ROOT_MUST_NOT_EXPAND_THIS\n"
+            f"{prefix}"
+            "set -Eeuo pipefail\n"
+            'test "$(id -u)" = 1000\n'
+            'test "$(id -g)" = 1000\n'
+            'test "${root_only-unexpanded}" = unexpanded\n'
+            'printf "%s:%s:%s\\n" "$(id -u)" "$(id -g)" "${root_only-unexpanded}"\n'
+            "TASK5_STEP1_TELADI\n"
+        )
+        result = subprocess.run(
+            ["bash"],
+            input=probe,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "1000:1000:unexpanded\n")
+        self.assertNotIn("ROOT_MUST_NOT_EXPAND_THIS", result.stdout + result.stderr)
+
+    def test_task5_workflow_rewriter_executes_as_teladi_and_changes_only_two_pins(self) -> None:
+        if os.geteuid() != 0 or not Path("/usr/sbin/runuser").is_file():
+            self.skipTest("the real Task-5 workflow rewrite probe requires root and runuser")
+        try:
+            teladi_uid = int(
+                subprocess.run(
+                    ["id", "-u", "teladi"],
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ).stdout
+            )
+            teladi_gid = int(
+                subprocess.run(
+                    ["id", "-g", "teladi"],
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ).stdout
+            )
+        except subprocess.CalledProcessError:
+            self.skipTest("the real Task-5 workflow rewrite probe requires the teladi account")
+        if (teladi_uid, teladi_gid) != (1000, 1000):
+            self.skipTest("the Task-5 contract pins teladi to UID/GID 1000")
+
+        _prefix, rewrite = _quoted_heredoc(self.task5_step3, "TASK5_REWRITE_PY")
+        old_sha = "1" * 40
+        new_sha = "2" * 40
+        original = (
+            "jobs:\n"
+            "  publish:\n"
+            "    uses: H234598/Wirtelprimpf-generator/.github/workflows/"
+            f"archive-pages.yml@{old_sha}\n"
+            "    with:\n"
+            f'      factory_ref: "{old_sha}"\n'
+        )
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-task5-rewrite-") as tmp:
+            root = Path(tmp)
+            os.chown(root, teladi_uid, teladi_gid)
+            root.chmod(0o700)
+            workflow = root / "pages.yml"
+            workflow.write_text(original, encoding="utf-8")
+            os.chown(workflow, teladi_uid, teladi_gid)
+            workflow.chmod(0o644)
+            result = subprocess.run(
+                [
+                    "/usr/sbin/runuser",
+                    "-u",
+                    "teladi",
+                    "--",
+                    "/usr/bin/env",
+                    "-i",
+                    "HOME=/home/teladi",
+                    "PATH=/usr/local/bin:/usr/bin:/bin",
+                    "/usr/bin/python3",
+                    "-",
+                    str(workflow),
+                    new_sha,
+                ],
+                input=rewrite,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            updated = workflow.read_text(encoding="utf-8")
+            metadata = workflow.stat()
+        self.assertEqual(updated.count(new_sha), 2)
+        self.assertNotIn(old_sha, updated)
+        self.assertEqual(metadata.st_uid, teladi_uid)
+        self.assertEqual(metadata.st_gid, teladi_gid)
+        self.assertEqual(metadata.st_mode & 0o777, 0o644)
 
     def test_task3_runs_git_as_teladi_with_ephemeral_authenticated_credentials(self) -> None:
         normalized = " ".join(self.task3_merge.split())

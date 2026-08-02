@@ -7,28 +7,19 @@ import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+if __package__:
+    from ._settings_fixtures import snapshot_for_test
+else:
+    from _settings_fixtures import snapshot_for_test
 
 from wirtelprimpf_platform.catalog import CatalogEntry, CatalogStore, PublicationCatalog
 from wirtelprimpf_platform.operational_status import OperationalStatusCollector, StatusPaths
-from wirtelprimpf_platform.settings import SettingsPaths, SettingsSnapshot
+from wirtelprimpf_platform.settings import SettingsPaths
 from wirtelprimpf_platform.state import PlatformState, StateStore
 from wirtelprimpf_platform.systemd_user import TimerConfiguration, TimerObservation
-
-
-def snapshot_for_test(*, revision: str, settings: dict[str, object]) -> SettingsSnapshot:
-    return SettingsSnapshot(
-        schema_version="2.0.0",
-        revision=revision,
-        settings=settings,
-        choices={},
-        secrets={
-            "openai_api_key_present": False,
-            "cloudflare_api_token_present": False,
-            "github_auth_present": False,
-        },
-        invariants={},
-        warnings=(),
-    )
 
 
 def active_timer() -> TimerObservation:
@@ -39,6 +30,83 @@ def active_timer() -> TimerObservation:
 
 
 class OperationalStatusTests(unittest.TestCase):
+    def test_unexpected_invalid_state_reader_result_degrades_only_the_story_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = StatusPaths.for_root(Path(temporary))
+            paths.platform_state.parent.mkdir(parents=True, exist_ok=True)
+            paths.platform_state.touch(mode=0o600)
+            invalid_state = SimpleNamespace(
+                completed_volumes=0,
+                current_volume=object(),
+                active_archive_index=1,
+                active_repository="Wirtelprimpf-0001",
+                generation_blocked=False,
+                rotation=None,
+            )
+            snapshot = snapshot_for_test(revision="b" * 64, settings={})
+            collector = OperationalStatusCollector(
+                paths=paths,
+                snapshot_reader=lambda: snapshot,
+                timer_reader=active_timer,
+                service_reader=lambda: {
+                    "active_state": "inactive",
+                    "result": "success",
+                    "exec_main_status": 0,
+                },
+                clock=lambda: datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+            )
+            with patch(
+                "wirtelprimpf_platform.operational_status.StateStore",
+                return_value=SimpleNamespace(load=lambda: invalid_state),
+            ):
+                status = collector.collect()
+
+        self.assertEqual(status["health"], "degraded")
+        self.assertEqual(status["configuration"]["state"], "valid")
+        self.assertEqual(status["story"]["state"], "unknown")
+        self.assertIsNone(status["story"]["current_volume"])
+        self.assertEqual(
+            status["errors"],
+            [{"source": "platform_state", "message": "local source unavailable"}],
+        )
+
+    def test_malformed_current_volume_json_is_already_redacted_and_degraded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = StatusPaths.for_root(Path(temporary))
+            paths.platform_state.parent.mkdir(parents=True, exist_ok=True)
+            paths.platform_state.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.0.0",
+                        "completed_volumes": 0,
+                        "current_volume": "not an integer",
+                        "active_archive_index": 1,
+                        "rotation": None,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paths.platform_state.chmod(0o600)
+            snapshot = snapshot_for_test(revision="b" * 64, settings={})
+            status = OperationalStatusCollector(
+                paths=paths,
+                snapshot_reader=lambda: snapshot,
+                timer_reader=active_timer,
+                service_reader=lambda: {
+                    "active_state": "inactive",
+                    "result": "success",
+                    "exec_main_status": 0,
+                },
+                clock=lambda: datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+            ).collect()
+
+        self.assertEqual(status["health"], "degraded")
+        self.assertEqual(status["story"]["state"], "unknown")
+        self.assertEqual(
+            status["errors"],
+            [{"source": "platform_state", "message": "local source unavailable"}],
+        )
+
     def test_configuration_status_paths_are_owned_by_settings_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -38,6 +38,8 @@ from .state import PlatformState, StateStore, state_to_dict, status_to_dict
 from .systemd_user import SystemdUserManager
 from .target_switch import GeneratorTargetSwitcher, GitCatalogPublisher
 
+VALIDATION_ERROR_EXIT_CODE = 4
+
 
 def _json(payload: object) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
@@ -124,7 +126,7 @@ def _run_settings_command(command: str, manager: SettingsManager) -> int:
         return 3
     except (UnicodeError, json.JSONDecodeError, SettingsValidationFailure) as exc:
         _json({"ok": False, "error": str(exc)})
-        return 4
+        return VALIDATION_ERROR_EXIT_CODE
     except SettingsLockBusy:
         _json({"ok": False, "error": "settings lock is busy"})
         return 5
@@ -265,7 +267,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "admin":
         manager = build_settings_manager()
         if args.settings != manager.paths.env_file:
-            raise RuntimeError("admin settings path must match the transactional manager path")
+            _json(
+                {
+                    "ok": False,
+                    "error": "admin settings path must match the transactional manager path",
+                }
+            )
+            return VALIDATION_ERROR_EXIT_CODE
         serve_admin(
             manager,
             build_status_collector(manager),

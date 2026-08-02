@@ -1,22 +1,37 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import * as AdminUI from "../wirtelprimpf_platform/static/admin.mjs";
 
-import {
+const {
   FormSyncState,
   InteractionGate,
   RequestEpochGate,
+  classifySettingsSaveResponse,
   controlValue,
   isConflictPayload,
+  isSettingsSnapshot,
   mergeConflictSnapshot,
   modelOptions,
   numericBounds,
   optionValuesMatch,
+  pollSettingsOnce,
+  prepareBootstrap,
   reconcileControlValue,
+  runBootstrapFailClosed,
   statusLabels,
   withInteractionSave,
-} from "../wirtelprimpf_platform/static/admin.mjs";
+} = AdminUI;
+
+const ADMIN_HTML = readFileSync(
+  new URL("../wirtelprimpf_platform/static/admin.html", import.meta.url),
+  "utf8",
+);
+const ADMIN_CSS = readFileSync(
+  new URL("../wirtelprimpf_platform/static/admin.css", import.meta.url),
+  "utf8",
+);
 
 function completeAdminSnapshot() {
   return {
@@ -57,6 +72,29 @@ function completeAdminSnapshot() {
     },
     warnings: [],
   };
+}
+
+function bootstrapDocument({ csrf = "csrf-for-tests" } = {}) {
+  const controls = [{ disabled: false }, { disabled: false }];
+  const form = {
+    querySelectorAll() {
+      return controls;
+    },
+  };
+  const saveStatus = { textContent: "" };
+  const pollStatus = { textContent: "" };
+  const meta = csrf === null ? null : { content: csrf };
+  const document = {
+    querySelector(selector) {
+      return new Map([
+        ["#settings", form],
+        ["#save-status", saveStatus],
+        ["#poll-status", pollStatus],
+        ['meta[name="csrf-token"]', meta],
+      ]).get(selector) ?? null;
+    },
+  };
+  return { controls, document, form, pollStatus, saveStatus };
 }
 
 test("polling updates clean fields but preserves and marks a dirty conflict", () => {
@@ -194,6 +232,17 @@ test("admin snapshots require valid bounds for every rendered numeric control", 
   }
 });
 
+test("settings snapshots explicitly require ok true", () => {
+  const absent = completeAdminSnapshot();
+  delete absent.ok;
+  assert.equal(isSettingsSnapshot(absent), false);
+
+  const unsuccessful = completeAdminSnapshot();
+  unsuccessful.ok = false;
+  assert.equal(isSettingsSnapshot(unsuccessful), false);
+  assert.equal(isSettingsSnapshot(completeAdminSnapshot()), true);
+});
+
 test("missing status timer and story sections render as wholly unknown", () => {
   for (const status of [{}, { timer: null, story: null }]) {
     const labels = statusLabels(status);
@@ -209,12 +258,142 @@ test("conflict payloads require a usable snapshot and a conflicts array", () => 
     conflicts: ["site_title"],
   };
   assert.equal(isConflictPayload(valid), true);
+  const explicitlyUnsuccessful = structuredClone(valid);
+  explicitlyUnsuccessful.snapshot.ok = false;
+  assert.equal(isConflictPayload(explicitlyUnsuccessful), true);
   assert.equal(isConflictPayload({ snapshot: null, conflicts: [] }), false);
   assert.equal(isConflictPayload({ snapshot: valid.snapshot, conflicts: null }), false);
   assert.equal(isConflictPayload({ snapshot: {}, conflicts: [] }), false);
   const incomplete = structuredClone(valid);
   delete incomplete.snapshot.warnings;
   assert.equal(isConflictPayload(incomplete), false);
+});
+
+test("save response classification handles empty malformed and non-string rejections", async () => {
+  const malformed = await classifySettingsSaveResponse({
+    ok: false,
+    status: 400,
+    async json() { throw new SyntaxError("empty response"); },
+  });
+  assert.deepEqual(malformed, { kind: "rejected", message: "Änderung abgelehnt." });
+
+  for (const error of [17, null, {}, "   "]) {
+    const classified = await classifySettingsSaveResponse({
+      ok: false,
+      status: 422,
+      async json() { return { error }; },
+    });
+    assert.deepEqual(classified, { kind: "rejected", message: "Änderung abgelehnt." });
+  }
+
+  const readable = await classifySettingsSaveResponse({
+    ok: false,
+    status: 422,
+    async json() { return { error: "Wert außerhalb des zulässigen Bereichs" }; },
+  });
+  assert.deepEqual(readable, {
+    kind: "rejected",
+    message: "Wert außerhalb des zulässigen Bereichs",
+  });
+});
+
+test("save response classification preserves conflict and success contracts", async () => {
+  const { ok: _ok, ...conflictSnapshot } = completeAdminSnapshot();
+  const conflict = { snapshot: conflictSnapshot, conflicts: ["site_title"] };
+  assert.deepEqual(
+    await classifySettingsSaveResponse({
+      ok: false,
+      status: 409,
+      async json() { return conflict; },
+    }),
+    { kind: "conflict", data: conflict },
+  );
+
+  const success = completeAdminSnapshot();
+  assert.deepEqual(
+    await classifySettingsSaveResponse({
+      ok: true,
+      status: 200,
+      async json() { return success; },
+    }),
+    { kind: "success", snapshot: success },
+  );
+  await assert.rejects(
+    classifySettingsSaveResponse({
+      ok: true,
+      status: 200,
+      async json() { return "not a snapshot"; },
+    }),
+    /complete settings snapshot/,
+  );
+});
+
+test("settings poll reports through its own live region and clears it on success", async () => {
+  const requestGate = new RequestEpochGate();
+  const pollStatus = { textContent: "" };
+  const saveStatus = { textContent: "Konflikt: lokaler Entwurf bleibt erhalten." };
+  let applied = 0;
+
+  assert.equal(
+    await pollSettingsOnce({
+      requestGate,
+      pollStatus,
+      fetchSettings: async () => ({ ok: false }),
+      applySnapshot: () => { applied += 1; },
+    }),
+    false,
+  );
+  assert.equal(pollStatus.textContent, "Einstellungen konnten nicht aktualisiert werden.");
+  assert.equal(saveStatus.textContent, "Konflikt: lokaler Entwurf bleibt erhalten.");
+
+  assert.equal(
+    await pollSettingsOnce({
+      requestGate,
+      pollStatus,
+      fetchSettings: async () => ({
+        ok: true,
+        async json() { return completeAdminSnapshot(); },
+      }),
+      applySnapshot: () => { applied += 1; },
+    }),
+    true,
+  );
+  assert.equal(applied, 1);
+  assert.equal(pollStatus.textContent, "");
+  assert.equal(saveStatus.textContent, "Konflikt: lokaler Entwurf bleibt erhalten.");
+});
+
+test("missing CSRF keeps every setting control disabled and reports visibly", () => {
+  const fixture = bootstrapDocument({ csrf: null });
+  assert.equal(prepareBootstrap(fixture.document), null);
+  assert.ok(fixture.controls.every((control) => control.disabled));
+  assert.match(fixture.saveStatus.textContent, /Sicherheitskonfiguration fehlt/);
+});
+
+test("unexpected bootstrap rejection is visible and restores fail-closed controls", async () => {
+  const fixture = bootstrapDocument();
+  const started = await runBootstrapFailClosed(fixture.document, async () => {
+    for (const control of fixture.controls) control.disabled = false;
+    throw new Error("private failure detail must stay hidden");
+  });
+  assert.equal(started, false);
+  assert.ok(fixture.controls.every((control) => control.disabled));
+  assert.equal(
+    fixture.saveStatus.textContent,
+    "Steuerkonsole konnte nicht sicher initialisiert werden; Einstellungen bleiben gesperrt.",
+  );
+  assert.doesNotMatch(fixture.saveStatus.textContent, /private failure detail/);
+});
+
+test("admin assets expose a dedicated poll live region and a visible invalid state", () => {
+  assert.match(
+    ADMIN_HTML,
+    /<p[^>]*id="poll-status"[^>]*role="status"[^>]*aria-live="polite"[^>]*>/,
+  );
+  const invalidRule = ADMIN_CSS.match(/\.field\.is-invalid\{([^}]*)\}/);
+  assert.ok(invalidRule, "missing .field.is-invalid CSS rule");
+  assert.match(invalidRule[1], /border-color:var\(--rose\)/);
+  assert.match(invalidRule[1], /box-shadow:/);
 });
 
 test("initial interaction unlocks only after one complete success snapshot", () => {

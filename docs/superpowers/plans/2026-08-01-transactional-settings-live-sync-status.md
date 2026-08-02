@@ -2974,3 +2974,82 @@ Do not start public deployment merely because Task 10 is green. First compare th
   Install, Reload, Deploy, Runtime-/Ownership-/Service-/Pages-/DNS-/Cloudflare-
   oder Upstream-Write. Testwerte enthielten keine produktiven Geheimnisse; der
   lokale `teladi`-Commit wird in der Übergabe ausgewiesen.
+
+### 2026-08-02 — Additive transaktionale Vollreview-Schließung, Run `814f2270-ed94-415a-a8bc-f460663dd0a3`
+
+- Grundlage ist exakt der von CodeRabbit geprüfte SHA
+  `a2f0cff98450b25bbd8ffe20f95b612cdd039e9b`; das Ergebnis war
+  `CHANGES_REQUESTED` mit sechs Actionable Comments und sieben Nitpicks. Diese
+  additive Autorenschicht schließt sämtliche 13 Hinweise, ohne historische
+  Entscheidungen oder Evidenz aus dem Ledger zu entfernen.
+- Applet und Weboberfläche bewahren nun für **alle** Choice- und Modellfelder
+  externe, nicht mehr katalogisierte Werte als ausdrücklich beschriftete
+  Legacy-Option. Das Applet verwendet dafür einen gemeinsamen Katalog-Combo-
+  Pfad und baut bei jedem Snapshot alle passenden Felder unter
+  `_suppress_dirty` neu auf; dadurch wird weder ein fremder gültiger Wert
+  verworfen noch eine bloße Live-Aktualisierung als lokaler Entwurf markiert.
+- Der CLI-Adminpfad behandelt ein vom kanonischen transaktionalen Managerpfad
+  abweichendes `--settings` als redigierten Validierungsfehler: stabiles JSON,
+  Exitcode 4, kein Traceback, keine Wiedergabe des gelieferten Pfades und kein
+  Serverstart. Derselbe benannte Exitcode gilt auch für die bestehende
+  Settingsvalidierung.
+- Die Storyposition und `book_target_for_story` werden jetzt zusammen als eine
+  lokale Statusquelle gelesen und abgeleitet. Nur der erwartete Typfehler
+  dieser Ableitung wird in die bereits redigierte Quellenausnahme übersetzt;
+  andere Programmierfehler werden nicht pauschal verschluckt. Der im Review
+  genannte malformed-JSON-Fall war bereits durch `StateStore` zu `RuntimeError`
+  normalisiert und damit degradiert; ein eigener Baseline-Test dokumentiert
+  das. Der neue rote Regressionsfall adressiert stattdessen den tatsächlich
+  offenen, kontrolliert simulierten Nachlade-Typfehler und bestätigt, dass nur
+  die Storyquelle ausfällt, während die Konfiguration gültig bleibt.
+- Die Admin-Save-Grenze liest JSON defensiv und klassifiziert 409-Konflikt,
+  sonstige Ablehnung und Erfolg anhand des HTTP-Status. Leere, kaputte oder
+  typwidrige Fehlerpayloads erhalten einen festen redigierten Fallback;
+  erfolgreiche Antworten müssen ein vollständiger Snapshot mit ausdrücklich
+  `ok: true` sein. Konfliktpayloads behalten ihren separaten öffentlichen
+  Snapshotvertrag, der serverseitig absichtlich kein Erfolgsflag benötigt.
+- Settings-Polls melden Fehler ausschließlich in `#poll-status` und löschen
+  diese Meldung nach der nächsten gültigen Antwort, ohne `#save-status` und
+  damit Konflikt-/Speicherevidenz zu überschreiben. Die eigene Liveregion ist
+  `role=status`/`aria-live=polite`. Numerisch ungültige Felder besitzen neben
+  dem bestehenden semantischen Zustand nun eine sichtbare `.is-invalid`-
+  Kontur.
+- Der Bootstrap ist fail-closed: Die Settingscontrols werden vor dem
+  CSRF-Zugriff gesperrt. Fehlendes oder leeres CSRF erzeugt eine sichtbare,
+  redigierte Meldung und lässt sie gesperrt; jede unerwartete asynchrone
+  Initialisierungsablehnung wird am obersten Einstieg abgefangen, erneut
+  gesperrt und ohne interne Fehlerdetails angezeigt. Ein vollständiger,
+  validierter erster Snapshot bleibt die einzige Freigabegrenze.
+- Die zwei früheren Quelltext-Substringtests wurden durch Verhaltensproben für
+  transienten modalen Dialog samt Cleanup und für sämtliche Kombinationen des
+  gemeinsamen Save-/Operation-Busy-Guards ersetzt. Die beiden identischen
+  Plattform-Snapshotbuilder liegen nun in
+  `tests/platform/_settings_fixtures.py`; Paket- und direkte Discovery-Imports
+  werden beide unterstützt.
+- RED-Evidenz: Task-5-Fence zunächst zwei neue Tests mit vier Errors/einem
+  Failure; Applet-Legacy-Refresh ein Failure; CLI-Mismatch ein Error;
+  Storyableitung ein Error; Adminmatrix sechs Failures. GREEN: reale
+  Task-5-Rootproben `3/3`, Rolloutvertrag `32/32`, Admin `31/31`, Applet-Sync
+  `28/28`, Schema `15/15`, komplette Plattform-Discovery `147/147`, Webtests
+  `9/9` und Astro-Check 22 Dateien ohne Diagnostik.
+- `make check` bestand frisch als UID/GID `teladi` unter `env -i`; die zwei
+  rootgebundenen Task-5-Ausführungsproben sind im normalen Teladi-Lauf die
+  einzigen erwarteten Skips. Beide vollständigen, unveränderlichen
+  Siteprofile bestanden mit jeweils 823 Dateien, 818 HTML und 10.840 geprüften
+  internen Links. Hub-Baum-SHA-256:
+  `0acc6695654d3e82e450a3467d96995da89e59d954d00340d5a5028916ab1bb6`;
+  Archiv-Baum-SHA-256:
+  `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
+- `compileall`, `node --check` und `git diff --check` waren grün. Ruff meldete
+  auf allen geänderten Pythonpfaden keinen neuen Befund; nur die schon am
+  geprüften Basis-SHA vorhandenen dateiweiten Baselineausnahmen des Applets
+  und die unveränderten `I001`-/`RUF001`-Altstellen im Rollouttest wurden
+  explizit ausgeklammert. Eigentumsscan: null Abweichungen von
+  `teladi:teladi`; High-Confidence-Secretmusterscan über Diff und neue Fixture:
+  null Treffer.
+- Diese Runde blieb lokal und geheimnisfrei: kein Zugriff auf Credentials,
+  kein Fetch, Push, PR-Write, Merge, Install, Reload, Deploy, Runtime-,
+  Service-, Applet-, Archiv-, Pages-, DNS-, Cloudflare- oder Upstream-Write.
+  Task 5 wurde ausschließlich als Planvertrag und gegen disposable lokale
+  Fixtures geprüft; seine spätere Remoteausführung bleibt ein getrenntes,
+  erneut zu gateendes Rolloutereignis.

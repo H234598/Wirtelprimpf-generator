@@ -294,14 +294,25 @@ class OperationalStatusCollector:
         if not self.paths.platform_state.exists():
             self._source_error(status, "platform_state")
             return
-        state = self._collect_source(
+
+        def read_story_state() -> tuple[object, object]:
+            state = StateStore(self.paths.platform_state).load()
+            try:
+                target = book_target_for_story(state.current_volume)
+            except TypeError as exc:
+                raise ValueError("platform story position is invalid") from exc
+            return state, target
+
+        story_source = self._collect_source(
             status,
             "platform_state",
-            lambda: StateStore(self.paths.platform_state).load(),
+            read_story_state,
         )
-        if state is None:
+        if not isinstance(story_source, tuple) or len(story_source) != 2:
+            if story_source is not None:
+                self._source_error(status, "platform_state")
             return
-        target = book_target_for_story(state.current_volume)
+        state, target = story_source
         status["story"] = {
             "state": "blocked" if state.generation_blocked else "active",
             "completed_volumes": state.completed_volumes,

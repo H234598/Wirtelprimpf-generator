@@ -87,6 +87,30 @@ class SensitiveWidget:
         self.sensitive = bool(sensitive)
 
 
+class CatalogCombo:
+    def __init__(self, observe_mutation=None) -> None:
+        self.observe_mutation = observe_mutation or (lambda: None)
+        self.options = []
+        self.active_id = None
+        self.hexpand = False
+
+    def set_hexpand(self, enabled: bool) -> None:
+        self.hexpand = bool(enabled)
+
+    def remove_all(self) -> None:
+        self.observe_mutation()
+        self.options = []
+        self.active_id = None
+
+    def append(self, value: str, label: str) -> None:
+        self.observe_mutation()
+        self.options.append((value, label))
+
+    def set_active_id(self, value: str) -> None:
+        self.observe_mutation()
+        self.active_id = value if any(option == value for option, _label in self.options) else None
+
+
 def bare_editor(module):
     editor = object.__new__(module.GeneratorConfigEditor)
     editor._save_busy = False
@@ -174,6 +198,51 @@ class SettingsSchemaTests(unittest.TestCase):
         }
         self.assertEqual(defined & forbidden, set())
 
+    def test_choice_and_model_widgets_preserve_external_legacy_values_during_refresh(self) -> None:
+        module = load_settings_logo_module()
+        module.Gtk.ComboBoxText = CatalogCombo
+        editor = bare_editor(module)
+        editor._suppress_dirty = False
+
+        choice = editor._make_value_widget(
+            "operandi",
+            "choice",
+            ["classic", "story", "both"],
+            "external-operandi",
+        )
+        model = editor._make_value_widget(
+            "story_model",
+            "model",
+            ["gpt-5.5"],
+            "external-story-model",
+        )
+        self.assertEqual(choice.options[0][0], "external-operandi")
+        self.assertIn("nicht mehr im empfohlenen Katalog", choice.options[0][1])
+        self.assertEqual(model.options[0][0], "external-story-model")
+
+        suppress_states = []
+        choice.observe_mutation = lambda: suppress_states.append(editor._suppress_dirty)
+        model.observe_mutation = lambda: suppress_states.append(editor._suppress_dirty)
+        editor.widgets = {"operandi": choice, "story_model": model}
+        editor._apply_visible_values(
+            {
+                "choices": {
+                    "operandi": ["classic", "story", "both"],
+                    "story_model": ["gpt-5.5"],
+                }
+            },
+            {
+                "operandi": "remote-custom-operandi",
+                "story_model": "remote-custom-story-model",
+            },
+        )
+
+        self.assertEqual(choice.active_id, "remote-custom-operandi")
+        self.assertEqual(model.active_id, "remote-custom-story-model")
+        self.assertTrue(suppress_states)
+        self.assertTrue(all(suppress_states))
+        self.assertFalse(editor._suppress_dirty)
+
     def test_sync_helper_is_packaged_and_exports_the_coordinator(self) -> None:
         self.assertTrue(SYNC_PATH.is_file())
         spec = importlib.util.spec_from_file_location("settings_sync_schema_smoke", SYNC_PATH)
@@ -193,19 +262,59 @@ class SettingsSchemaTests(unittest.TestCase):
         self.assertNotIn('"Environment=",', source)
 
     def test_discard_confirmation_is_modal_for_the_settings_toplevel(self) -> None:
-        source = SETTINGS_LOGO_PATH.read_text(encoding="utf-8")
-        self.assertIn("transient_for = self.get_toplevel()", source)
-        self.assertIn("isinstance(transient_for, Gtk.Window)", source)
-        self.assertIn("transient_for=transient_for", source)
-        self.assertIn("flags=Gtk.DialogFlags.MODAL", source)
+        module = load_settings_logo_module()
 
-    def test_operational_buttons_share_one_completion_guard(self) -> None:
-        source = SETTINGS_LOGO_PATH.read_text(encoding="utf-8")
-        self.assertIn("self._operation_busy = False", source)
-        self.assertIn("self.run_button = Gtk.Button", source)
-        self.assertIn("self.timer_button = Gtk.Button", source)
-        self.assertIn("if self._interaction_busy() or self._disposed:", source)
-        self.assertIn("GLib.idle_add(self._finish_operation_idle, message)", source)
+        class Window:
+            pass
+
+        captured = {}
+
+        class Dialog:
+            def __init__(self, **kwargs) -> None:
+                captured["kwargs"] = kwargs
+                captured["destroyed"] = False
+
+            def run(self):
+                return "cancel"
+
+            def destroy(self) -> None:
+                captured["destroyed"] = True
+
+        module.Gtk = SimpleNamespace(
+            Window=Window,
+            MessageDialog=Dialog,
+            DialogFlags=SimpleNamespace(MODAL="modal"),
+            MessageType=SimpleNamespace(QUESTION="question"),
+            ButtonsType=SimpleNamespace(OK_CANCEL="ok-cancel"),
+            ResponseType=SimpleNamespace(OK="ok"),
+        )
+        editor = bare_editor(module)
+        editor.sync_state = SimpleNamespace()
+        toplevel = Window()
+        editor.get_toplevel = lambda: toplevel
+
+        editor._on_discard_all(None)
+
+        self.assertIs(captured["kwargs"]["transient_for"], toplevel)
+        self.assertEqual(captured["kwargs"]["flags"], "modal")
+        self.assertTrue(captured["destroyed"])
+
+    def test_operational_buttons_follow_the_shared_interaction_guard_behavior(self) -> None:
+        module = load_settings_logo_module()
+        editor = bare_editor(module)
+        for save_busy, operation_busy, expected_busy in (
+            (False, False, False),
+            (True, False, True),
+            (False, True, True),
+            (True, True, True),
+        ):
+            with self.subTest(save_busy=save_busy, operation_busy=operation_busy):
+                editor._save_busy = save_busy
+                editor._operation_busy = operation_busy
+                self.assertEqual(editor._interaction_busy(), expected_busy)
+                editor._update_operation_sensitivity()
+                self.assertEqual(editor.run_button.sensitive, not expected_busy)
+                self.assertEqual(editor.timer_button.sensitive, not expected_busy)
 
     def test_background_operation_cannot_start_while_save_is_busy(self) -> None:
         module = load_settings_logo_module()

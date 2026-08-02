@@ -3885,18 +3885,41 @@ Root-`safe.directory`-Workaround als Laufzeitevidenz in Task 6 eingehen.
 Run:
 
 ```bash
+set -Eeuo pipefail
+test "$(id -u)" = 0
+/usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+  HOME=/home/teladi \
+  USER=teladi \
+  LOGNAME=teladi \
+  PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  GIT_TERMINAL_PROMPT=0 \
+  GIT_ASKPASS=/bin/false \
+  SSH_ASKPASS=/bin/false \
+  /bin/bash -se <<'TASK5_STEP1_TELADI'
+set -Eeuo pipefail
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
 archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
-archive_dirty="$(git -C "$archive_checkout" status --porcelain)"
+test -d "$archive_checkout" && test ! -L "$archive_checkout"
+test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
+test -z "$(find "$archive_checkout" -xdev \
+  \( ! -user teladi -o ! -group teladi \) -print -quit)"
+test "$(/usr/bin/git -C "$archive_checkout" remote get-url origin)" = \
+  https://github.com/H234598/Wirtelprimpf-0001.git
+archive_dirty="$(/usr/bin/git -C "$archive_checkout" status --porcelain)"
 if [[ -n "$archive_dirty" ]]; then
   printf 'Archive checkout is not clean before synchronization.\n' >&2
   printf '%s\n' "$archive_dirty" >&2
   exit 1
 fi
-git -C "$archive_checkout" fetch origin
-git -C "$archive_checkout" switch main
-git -C "$archive_checkout" pull --ff-only origin main
-test -z "$(git -C "$archive_checkout" status --porcelain)"
-git -C "$archive_checkout" switch -c chore/pin-transactional-site-factory
+/usr/bin/git -C "$archive_checkout" fetch origin
+/usr/bin/git -C "$archive_checkout" switch main
+/usr/bin/git -C "$archive_checkout" pull --ff-only origin main
+test -z "$(/usr/bin/git -C "$archive_checkout" status --porcelain)"
+/usr/bin/git -C "$archive_checkout" switch -c chore/pin-transactional-site-factory
+TASK5_STEP1_TELADI
 ```
 
 Expected: clean checkout; stop if unrelated user changes appear.
@@ -3906,42 +3929,181 @@ Expected: clean checkout; stop if unrelated user changes appear.
 Run:
 
 ```bash
+set -Eeuo pipefail
+test "$(id -u)" = 0
+/usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+  HOME=/home/teladi \
+  USER=teladi \
+  LOGNAME=teladi \
+  PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  GIT_TERMINAL_PROMPT=0 \
+  GIT_ASKPASS=/bin/false \
+  SSH_ASKPASS=/bin/false \
+  /bin/bash -se <<'TASK5_STEP2_TELADI'
+set -Eeuo pipefail
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
 generator_runtime=/home/teladi/.local/share/wirtelprimpf-generator
+test -d "$generator_runtime" && test ! -L "$generator_runtime"
+test "$(realpath -e -- "$generator_runtime")" = "$generator_runtime"
 git_runtime() {
   test -z "$(find "$generator_runtime" -xdev \
     \( ! -user teladi -o ! -group teladi \) -print -quit)"
-  git -C "$generator_runtime" "$@"
+  /usr/bin/git -C "$generator_runtime" "$@"
 }
 generator_factory_sha="$(git_runtime rev-parse HEAD)"
 test "$generator_factory_sha" = "$(git_runtime rev-parse origin/main)"
+test "$generator_factory_sha" = "$(git_runtime ls-remote origin refs/heads/main | cut -f1)"
 [[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
 printf '%s\n' "$generator_factory_sha"
+TASK5_STEP2_TELADI
 ```
 
 Expected: one valid SHA equal to merged generator main.
 
-- [ ] **Step 3: Replace both old pins with the printed literal using `apply_patch`**
+- [ ] **Step 3: Replace both old pins with the validated literal inside the teladi fence**
 
-In `.github/workflows/pages.yml`, replace the SHA after `archive-pages.yml@` and the quoted `factory_ref` value with the exact same printed 40-character literal. Do not change triggers, permissions, archive index, custom domain, or any content file.
+Run the following exact, mechanically bounded replacement. It derives the SHA
+again inside the unexpanded `teladi` child, requires exactly the two intended
+old SHA fields, rejects symlinks/wrong ownership/wrong mode, and atomically
+replaces only `pages.yml`:
+
+```bash
+set -Eeuo pipefail
+test "$(id -u)" = 0
+/usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+  HOME=/home/teladi \
+  USER=teladi \
+  LOGNAME=teladi \
+  PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  GIT_TERMINAL_PROMPT=0 \
+  GIT_ASKPASS=/bin/false \
+  SSH_ASKPASS=/bin/false \
+  /bin/bash -se <<'TASK5_STEP3_TELADI'
+set -Eeuo pipefail
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
+generator_checkout=/home/teladi/.local/share/wirtelprimpf-generator
+archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
+workflow="$archive_checkout/.github/workflows/pages.yml"
+test -d "$generator_checkout" && test ! -L "$generator_checkout"
+test -d "$archive_checkout" && test ! -L "$archive_checkout"
+test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
+test -z "$(find "$archive_checkout" -xdev \
+  \( ! -user teladi -o ! -group teladi \) -print -quit)"
+generator_factory_sha="$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
+[[ "$generator_factory_sha" =~ ^[0-9a-f]{40}$ ]]
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)"
+/usr/bin/python3 - "$workflow" "$generator_factory_sha" <<'TASK5_REWRITE_PY'
+import os
+import re
+import stat
+import sys
+from pathlib import Path
+
+workflow = Path(sys.argv[1])
+new_sha = sys.argv[2]
+if not re.fullmatch(r"[0-9a-f]{40}", new_sha):
+    raise SystemExit("invalid immutable generator SHA")
+st = workflow.lstat()
+if not stat.S_ISREG(st.st_mode) or not (st.st_uid == 1000 and st.st_gid == 1000):
+    raise SystemExit("archive workflow must be a teladi-owned regular file")
+if stat.S_IMODE(st.st_mode) != 0o644:
+    raise SystemExit("archive workflow mode must be 0644")
+original = workflow.read_text(encoding="utf-8")
+patterns = (
+    re.compile(
+        r"(?m)^(\s*uses:\s+H234598/Wirtelprimpf-generator/"
+        r"\.github/workflows/archive-pages\.yml@)([0-9a-f]{40})(\s*)$"
+    ),
+    re.compile(r'(?m)^(\s*factory_ref:\s*")([0-9a-f]{40})("\s*)$'),
+)
+matches = [list(pattern.finditer(original)) for pattern in patterns]
+old_count = sum(len(group) for group in matches)
+if old_count != 2 or any(len(group) != 1 for group in matches):
+    raise SystemExit("archive workflow does not contain exactly the two pin fields")
+old_values = [group[0].group(2) for group in matches]
+if old_values == [new_sha, new_sha]:
+    raise SystemExit("archive workflow is already pinned to the requested SHA")
+updated = original
+for pattern in patterns:
+    updated = pattern.sub(lambda match: f"{match.group(1)}{new_sha}{match.group(3)}", updated)
+new_count = len(re.findall(re.escape(new_sha), updated))
+if new_count != 2 or re.findall(r"[0-9a-f]{40}", updated) != [new_sha, new_sha]:
+    raise SystemExit("archive workflow pin replacement was not exact")
+part = workflow.with_name(f".{workflow.name}.{os.getpid()}.part")
+try:
+    descriptor = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+        handle.write(updated)
+        handle.flush()
+        os.fsync(handle.fileno())
+        os.fchmod(handle.fileno(), 0o644)
+    os.replace(part, workflow)
+    directory_fd = os.open(workflow.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+finally:
+    part.unlink(missing_ok=True)
+TASK5_REWRITE_PY
+TASK5_STEP3_TELADI
+```
+
+Do not change triggers, permissions, archive index, custom domain, or any
+content file. The earlier unqualified `apply_patch` direction is superseded by
+this executable UID/GID-bound replacement because root must not expand or
+write the archive path, arguments, or contents.
 
 - [ ] **Step 4: Validate the two pins and exact diff**
 
 Run:
 
 ```bash
-generator_factory_sha="$(git -C /home/teladi/.local/share/wirtelprimpf-generator rev-parse HEAD)"
+set -Eeuo pipefail
+test "$(id -u)" = 0
+/usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+  HOME=/home/teladi \
+  USER=teladi \
+  LOGNAME=teladi \
+  PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  GIT_TERMINAL_PROMPT=0 \
+  GIT_ASKPASS=/bin/false \
+  SSH_ASKPASS=/bin/false \
+  /bin/bash -se <<'TASK5_STEP4_TELADI'
+set -Eeuo pipefail
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
 generator_checkout=/home/teladi/.local/share/wirtelprimpf-generator
 archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
 workflow="$archive_checkout/.github/workflows/pages.yml"
-test "$generator_factory_sha" = "$(git -C "$generator_checkout" rev-parse origin/main)"
-test "$generator_factory_sha" = "$(git -C "$generator_checkout" ls-remote origin refs/heads/main | cut -f1)"
-test "$(rg -o -- '[0-9a-f]{40}' "$workflow" | sort -u | wc -l)" -eq 1
-test "$(rg -o -F -- "$generator_factory_sha" "$workflow" | wc -l)" -eq 2
-rg -F -- "$generator_factory_sha" "$workflow"
-test "$(git -C "$archive_checkout" diff --name-only)" = .github/workflows/pages.yml
-test "$(git -C "$archive_checkout" diff --numstat)" = $'2\t2\t.github/workflows/pages.yml'
-git -C "$archive_checkout" diff --check
-git -C "$archive_checkout" diff -- .github/workflows/pages.yml
+test -d "$archive_checkout" && test ! -L "$archive_checkout"
+test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
+test -z "$(find "$archive_checkout" -xdev \
+  \( ! -user teladi -o ! -group teladi \) -print -quit)"
+generator_factory_sha="$(/usr/bin/git -C "$generator_checkout" rev-parse HEAD)"
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_checkout" rev-parse origin/main)"
+test "$generator_factory_sha" = \
+  "$(/usr/bin/git -C "$generator_checkout" ls-remote origin refs/heads/main | cut -f1)"
+test "$(/usr/bin/rg -o -- '[0-9a-f]{40}' "$workflow" | sort -u | wc -l)" -eq 1
+test "$(/usr/bin/rg -o -F -- "$generator_factory_sha" "$workflow" | wc -l)" -eq 2
+/usr/bin/rg -F -- "$generator_factory_sha" "$workflow"
+test "$(/usr/bin/git -C "$archive_checkout" diff --name-only)" = \
+  .github/workflows/pages.yml
+test "$(/usr/bin/git -C "$archive_checkout" diff --numstat)" = \
+  $'2\t2\t.github/workflows/pages.yml'
+/usr/bin/git -C "$archive_checkout" diff --check
+/usr/bin/git -C "$archive_checkout" diff -- .github/workflows/pages.yml
+TASK5_STEP4_TELADI
 ```
 
 Expected: exactly two occurrences of one SHA and a two-line value-only diff.
@@ -3951,10 +4113,141 @@ Expected: exactly two occurrences of one SHA and a two-line value-only diff.
 Run:
 
 ```bash
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 add .github/workflows/pages.yml
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 commit -m 'chore(pages): pin transactional site factory'
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 push --set-upstream origin chore/pin-transactional-site-factory
-archive_pr_url="$(gh pr create \
+set -Eeuo pipefail
+test "$(id -u)" = 0
+set +x
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  printf 'A valid ephemeral GH_TOKEN is required before archive writes.\n' >&2
+  exit 1
+fi
+task5_ephemeral_token=$GH_TOKEN
+unset GH_TOKEN
+task5_token_call() {
+  set +x
+  local task5_token_status=0
+  printf '%s\0' "$task5_ephemeral_token" |
+    /usr/bin/env -i \
+      HOME=/root \
+      PATH=/usr/local/bin:/usr/bin:/bin \
+      GIT_TERMINAL_PROMPT=0 \
+      GIT_ASKPASS=/bin/false \
+      SSH_ASKPASS=/bin/false \
+      /bin/bash -c '
+        set -Eeuo pipefail
+        set +x
+        task5_call_token=
+        IFS= read -r -d "" task5_call_token
+        exec 0<&-
+        GH_TOKEN="$task5_call_token" exec "$@"
+      ' task5-token-call "$@" || task5_token_status=$?
+  return "$task5_token_status"
+}
+task5_gh() {
+  task5_token_call /usr/bin/gh "$@"
+}
+test "$(task5_gh api /user --jq '.login + ":" + (.id | tostring)')" = H234598:54270221
+test "$(task5_gh repo view H234598/Wirtelprimpf-0001 --json nameWithOwner \
+  --jq .nameWithOwner)" = H234598/Wirtelprimpf-0001
+exec {task5_token_relay_fd}< <(printf '%s\0' "$task5_ephemeral_token")
+
+set +e
+task5_archive_facts="$(
+  /usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+    HOME=/home/teladi \
+    USER=teladi \
+    LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    /bin/bash -se "$task5_token_relay_fd" <<'TASK5_STEP5_TELADI'
+set -Eeuo pipefail
+set +x
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
+task5_token_relay_fd=$1
+[[ "$task5_token_relay_fd" =~ ^[0-9]+$ ]]
+task5_ephemeral_token=
+IFS= read -r -d '' task5_ephemeral_token <&"$task5_token_relay_fd"
+exec {task5_token_relay_fd}<&-
+test -n "$task5_ephemeral_token"
+test -z "${GH_TOKEN+x}"
+archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
+canonical_origin=https://github.com/H234598/Wirtelprimpf-0001.git
+test -d "$archive_checkout" && test ! -L "$archive_checkout"
+test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
+test -z "$(find "$archive_checkout" -xdev \
+  \( ! -user teladi -o ! -group teladi \) -print -quit)"
+test "$(/usr/bin/git -C "$archive_checkout" branch --show-current)" = \
+  chore/pin-transactional-site-factory
+test "$(/usr/bin/git -C "$archive_checkout" remote get-url origin)" = "$canonical_origin"
+test "$(/usr/bin/git -C "$archive_checkout" diff --name-only)" = \
+  .github/workflows/pages.yml
+
+task5_token_call() {
+  set +x
+  local task5_token_status=0
+  printf '%s\0' "$task5_ephemeral_token" |
+    /usr/bin/env -i \
+      HOME=/home/teladi \
+      USER=teladi \
+      LOGNAME=teladi \
+      PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+      GIT_TERMINAL_PROMPT=0 \
+      GIT_ASKPASS=/bin/false \
+      SSH_ASKPASS=/bin/false \
+      /bin/bash -c '
+        set -Eeuo pipefail
+        set +x
+        task5_call_token=
+        IFS= read -r -d "" task5_call_token
+        exec 0<&-
+        GH_TOKEN="$task5_call_token" exec "$@"
+      ' task5-token-call "$@" || task5_token_status=$?
+  return "$task5_token_status"
+}
+git_remote() {
+  task5_token_call \
+    /usr/bin/git \
+      -c credential.helper= \
+      -c credential.helper='!/usr/bin/gh auth git-credential' \
+      -c core.hooksPath=/dev/null \
+      -c http.https://github.com/.extraheader= \
+      -C "$archive_checkout" "$@"
+}
+
+/usr/bin/git -c core.hooksPath=/dev/null -C "$archive_checkout" \
+  add -- .github/workflows/pages.yml
+/usr/bin/git -c core.hooksPath=/dev/null -c user.name=H234598 \
+  -c user.email=54270221+H234598@users.noreply.github.com \
+  -C "$archive_checkout" commit -m 'chore(pages): pin transactional site factory' >&2
+git_remote push --set-upstream "$canonical_origin" \
+  chore/pin-transactional-site-factory >&2
+archive_head_sha="$(/usr/bin/git -C "$archive_checkout" rev-parse HEAD)"
+[[ "$archive_head_sha" =~ ^[0-9a-f]{40}$ ]]
+test "$(/usr/bin/git -C "$archive_checkout" diff --name-only origin/main...HEAD)" = \
+  .github/workflows/pages.yml
+test "$(/usr/bin/git -C "$archive_checkout" diff --numstat origin/main...HEAD)" = \
+  $'2\t2\t.github/workflows/pages.yml'
+if /usr/bin/rg -q -- '^\s*pull_request\s*:' \
+  "$archive_checkout/.github/workflows/pages.yml"; then
+  archive_has_pr_trigger=1
+else
+  archive_has_pr_trigger=0
+fi
+unset task5_ephemeral_token
+printf '%s\n%s\n' "$archive_head_sha" "$archive_has_pr_trigger"
+TASK5_STEP5_TELADI
+)"
+task5_step5_status=$?
+set -e
+exec {task5_token_relay_fd}<&-
+test "$task5_step5_status" = 0
+archive_head_sha="${task5_archive_facts%%$'\n'*}"
+archive_has_pr_trigger="${task5_archive_facts##*$'\n'}"
+[[ "$archive_head_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ "$archive_has_pr_trigger" =~ ^[01]$ ]]
+
+archive_pr_url="$(task5_gh pr create \
   --repo H234598/Wirtelprimpf-0001 \
   --base main \
   --head chore/pin-transactional-site-factory \
@@ -3962,11 +4255,12 @@ archive_pr_url="$(gh pr create \
   --body 'Pins both reusable-workflow references to the reviewed immutable Wirtelprimpf-generator merge SHA. No story, media, DNS, or redirect content changes.')"
 archive_pr_number="${archive_pr_url##*/}"
 [[ "$archive_pr_number" =~ ^[0-9]+$ ]]
-archive_head_sha="$(git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 rev-parse HEAD)"
-test "$(gh pr view "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 --json headRefOid --jq .headRefOid)" = "$archive_head_sha"
+test "$(task5_gh pr view "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 \
+  --json headRefOid --jq .headRefOid)" = "$archive_head_sha"
 archive_mergeable=UNKNOWN
 for attempt in $(seq 1 15); do
-  archive_mergeable="$(gh pr view "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 --json mergeable --jq .mergeable)"
+  archive_mergeable="$(task5_gh pr view "$archive_pr_number" \
+    --repo H234598/Wirtelprimpf-0001 --json mergeable --jq .mergeable)"
   case "$archive_mergeable" in
     MERGEABLE) break ;;
     CONFLICTING) printf 'Archive pin PR is conflicting.\n' >&2; exit 1 ;;
@@ -3975,19 +4269,20 @@ for attempt in $(seq 1 15); do
   esac
 done
 test "$archive_mergeable" = MERGEABLE
-test "$(gh pr view "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 --json files --jq '.files[].path')" = .github/workflows/pages.yml
-test "$(git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 diff --name-only origin/main...HEAD)" = .github/workflows/pages.yml
-test "$(git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 diff --numstat origin/main...HEAD)" = $'2\t2\t.github/workflows/pages.yml'
-check_count="$(gh pr view "$archive_pr_number" \
+test "$(task5_gh pr view "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 \
+  --json files --jq '.files[].path')" = .github/workflows/pages.yml
+check_count="$(task5_gh pr view "$archive_pr_number" \
   --repo H234598/Wirtelprimpf-0001 \
   --json statusCheckRollup \
   --jq '.statusCheckRollup | length')"
 if (( check_count > 0 )); then
-  gh pr checks "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 --watch --fail-fast
+  task5_gh pr checks "$archive_pr_number" \
+    --repo H234598/Wirtelprimpf-0001 --watch --fail-fast
 else
   printf '%s\n' 'No pull-request checks are configured for pages.yml; this is an accepted absence of PR CI, not a CI success.'
-  rg -n -- '^\s*pull_request\s*:' /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001/.github/workflows/pages.yml && exit 1 || true
+  test "$archive_has_pr_trigger" = 0
 fi
+unset task5_ephemeral_token
 ```
 
 Expected: the PR head equals the reviewed local commit, GitHub reports it mergeable, the file list contains only `pages.yml`, and the committed diff is exactly two removed plus two added SHA-value lines. Every check that exists succeeds. Because the current `pages.yml` has no `pull_request` trigger, a genuine zero-check result is explicitly accepted only as **no PR CI configured**, never reported as CI success. The post-merge `main` Pages run in Step 6 is the real build/deploy gate.
@@ -4006,9 +4301,32 @@ archive_pr_number="$(gh pr list \
   --jq '.[0].number')"
 [[ "$archive_pr_number" =~ ^[0-9]+$ ]]
 gh pr merge "$archive_pr_number" --repo H234598/Wirtelprimpf-0001 --merge --delete-branch
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 switch main
-git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 pull --ff-only origin main
-archive_sha="$(git -C /home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001 rev-parse HEAD)"
+archive_sha="$(
+  /usr/sbin/runuser -u teladi -- /usr/bin/env -i \
+    HOME=/home/teladi \
+    USER=teladi \
+    LOGNAME=teladi \
+    PATH=/home/teladi/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    GIT_TERMINAL_PROMPT=0 \
+    GIT_ASKPASS=/bin/false \
+    SSH_ASKPASS=/bin/false \
+    /bin/bash -se <<'TASK5_STEP6_TELADI'
+set -Eeuo pipefail
+test "$(id -u)" = 1000
+test "$(id -g)" = 1000
+archive_checkout=/home/teladi/.local/share/wirtelprimpf/archives/Wirtelprimpf-0001
+test -d "$archive_checkout" && test ! -L "$archive_checkout"
+test "$(realpath -e -- "$archive_checkout")" = "$archive_checkout"
+test -z "$(find "$archive_checkout" -xdev \
+  \( ! -user teladi -o ! -group teladi \) -print -quit)"
+/usr/bin/git -C "$archive_checkout" switch main >&2
+/usr/bin/git -C "$archive_checkout" pull --ff-only origin main >&2
+/usr/bin/git -C "$archive_checkout" rev-parse HEAD
+TASK5_STEP6_TELADI
+)"
+[[ "$archive_sha" =~ ^[0-9a-f]{40}$ ]]
 archive_run_id=""
 for attempt in $(seq 1 24); do
   archive_run_id="$(gh run list \
@@ -4699,3 +5017,84 @@ Completion requires all of the following:
   Runtime-/Ownership-/Service-/Pages-/DNS-/Cloudflare- oder Upstream-Write.
   Der korrigierte lokale `teladi`-Commit wird vor jeder späteren Rolloutmutation
   erneut durch die bereits normierten Head-/Tree-/Policy-Gates gebunden.
+
+### 2026-08-02 — Additive Vollreview-Schließung für CodeRabbit-Run `814f2270-ed94-415a-a8bc-f460663dd0a3`
+
+- Diese Autorenschicht bezieht sich exakt auf den geprüften Generator-Head
+  `a2f0cff98450b25bbd8ffe20f95b612cdd039e9b` und schließt die sechs
+  Actionable Comments sowie sieben Nitpicks des Ergebnisses
+  `CHANGES_REQUESTED`. Frühere Planfassungen und Evidenz bleiben unverändert
+  als Auditspur erhalten; dieser spätere Abschnitt beschreibt den jetzt
+  maßgeblichen lokalen Stand.
+- Task 5 führt die lokalen Archiv- und Generatoroperationen der Steps 1 bis 6
+  nun unter wörtlich gequoteten `runuser`-/`env -i`-Grenzen aus. UID/GID 1000,
+  kanonische reale Checkoutpfade,
+  Teladi-Eigentum und ein sauberer Diff werden im Kind geprüft; der Root-Shell
+  stehen weder expandierte Archivpfade noch Workflowargumente oder
+  Workflowinhalte zur Verfügung. Step 5 beschränkt Root auf die bewachten
+  kurzen GitHub-Aufrufe und reicht das ephemere Geheimnis ausschließlich über
+  einen anonymen Deskriptor an das Teladi-Kind weiter. **Keiner dieser
+  Rolloutschritte wurde in dieser Autorenschicht ausgeführt.**
+- Der frühere unqualifizierte Workflow-Edit ist durch einen ausführbaren,
+  mechanisch begrenzten Writer ersetzt. Er akzeptiert ausschließlich eine
+  reguläre, nicht verlinkte, UID/GID-1000-eigene `0644`-Datei, verlangt genau
+  je ein `uses`- und `factory_ref`-Pin, ersetzt genau diese beiden 40-stelligen
+  Werte, schreibt über eine exklusive private Part-Datei, synchronisiert Datei
+  und Verzeichnis und beendet sich bei jedem Form-, Mengen-, Eigentums- oder
+  Modusfehler geschlossen.
+- Die übrigen Reviewkorrekturen sind ebenfalls vollständig abgedeckt: Applet-
+  Auswahl- und Modellfelder teilen den Legacy-erhaltenden Katalogpfad und
+  werden bei externen Snapshots vollständig unter Dirty-Unterdrückung neu
+  aufgebaut; ein abweichender Admin-Settingspfad liefert redigiertes JSON und
+  den einheitlichen Validierungs-Exitcode statt Traceback oder Pfadleck; die
+  Story-Zielableitung liegt innerhalb der redigierenden Statusquellengrenze;
+  Save-Antworten werden defensiv und statusabhängig klassifiziert;
+  Erfolgssnapshots erfordern ausdrücklich `ok: true`, während der bewusst
+  andere Konfliktsnapshotvertrag erhalten bleibt; Pollfehler besitzen eine
+  eigene ARIA-Liveregion und überschreiben keinen Save-/Konfliktstatus;
+  fehlendes CSRF und unerwartete Bootstrapfehler lassen alle Controls sichtbar
+  gesperrt; und `.field.is-invalid` ist nun visuell erkennbar.
+- Zwei fragile Quelltexttests prüfen jetzt das tatsächliche modale Dialog- und
+  gemeinsame Busy-Guard-Verhalten. Doppelte `snapshot_for_test`-Definitionen
+  wurden in eine einzige lokale Plattform-Testfixture überführt. Die
+  Produktionsänderungen wurden nicht durch neue Suppressionskommentare
+  verdeckt.
+- Die gemeldete Variante eines malformed-JSON-`current_volume` war am
+  geprüften Head bereits redigiert: `StateStore` übersetzt den Typfehler beim
+  Einlesen in eine von `_collect_source` behandelte Ausnahme. Ein
+  Baseline-Regressionsfall hält diese Tatsache fest. Der tatsächlich noch
+  offene Nachladepfad wurde separat zunächst rot nachgewiesen: Liefert ein
+  kontrollierter Store ein unerwartet typwidriges Objekt, wird nun nur
+  `platform_state` degradiert und die gültige Konfiguration bleibt erhalten;
+  ein globales Verschlucken beliebiger `TypeError` wurde bewusst vermieden.
+- Test-first-Evidenz vor der Produktionsänderung: zwei neue Task-5-Tests
+  erzeugten vier Errors und einen Failure, Applet-Legacy-Refresh einen
+  Failure, der CLI-Pfad einen Error, die unerwartete Storyableitung einen
+  Error und die Adminmatrix sechs Failures. GREEN sind anschließend die drei
+  realen Task-5-Rootproben `3/3`, der vollständige Rolloutvertrag `32/32`,
+  Admin-UI `31/31`, Applet-Sync `28/28`, Settings-Schema `15/15` und die
+  Plattform-Discovery `147/147`.
+- `make check` lief frisch als `teladi` unter `env -i` mit Exit 0; im normalen
+  Teladi-Lauf bestanden `30` Rollouttests und nur die zwei ausdrücklich
+  rootgebundenen Realproben wurden erwartungsgemäß übersprungen. Zusätzlich
+  bestanden die Webtests `9/9` und Astro prüfte 22 Dateien mit null Fehlern,
+  Warnungen oder Hinweisen. Beide immutable Siteprofile bestanden Build und
+  Validator mit jeweils 823 Dateien, 818 HTML und 10.840 internen Links. Hub-
+  SHA-256:
+  `0acc6695654d3e82e450a3467d96995da89e59d954d00340d5a5028916ab1bb6`;
+  Archiv-SHA-256:
+  `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
+- `compileall` über Sourcecode, Plattform, Skripte und Tests, `node --check`
+  für das Adminmodul sowie `git diff --check` bestanden. Ruff prüfte alle
+  geänderten Pythonpfade ohne neuen Befund; ausschließlich die bereits am
+  Basis-SHA vorhandenen dateiweiten Baselineausnahmen von `SettingsLogo.py`
+  und die unveränderten `I001`-/`RUF001`-Altstellen des Rollouttests wurden
+  explizit ausgeklammert. Der abschließende Eigentumsscan ergab null von
+  `teladi:teladi` abweichende Einträge, der High-Confidence-Secretmusterscan
+  über Diff und neue Fixture null Treffer.
+- Diese Vollreview-Schließung blieb vollständig im isolierten lokalen
+  Generator-Worktree: kein Credentialzugriff, Fetch, Push, PR-Kommentar,
+  Merge, Install, Reload, Deploy, Runtime-/Service-/Applet-/Archiv-/Pages-,
+  DNS-, Cloudflare- oder Upstream-Write. Die einzigen schreibenden Proben
+  verwendeten disposable lokale Dateien beziehungsweise Repositories; alle
+  Projektdateien und der abschließende Commit bleiben UID/GID `teladi`.

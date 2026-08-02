@@ -311,9 +311,11 @@ class AppletSettingsSyncTests(unittest.TestCase):
         self.assertEqual(state.conflicts, {"image_model"})
 
     def test_returning_to_typed_server_value_clears_the_public_draft(self) -> None:
-        state = DirtySnapshotState(snapshot("r1", timer_enabled=True, site_title="Alt"))
-        state.change("site_title", "Neu")
-        state.change("site_title", "Alt")
+        state = DirtySnapshotState(
+            snapshot("r1", timer_enabled=True, story_document="story-old.md")
+        )
+        state.change("story_document", "story-new.md")
+        state.change("story_document", "story-old.md")
 
         self.assertEqual(state.dirty, set())
         self.assertEqual(state.base_values, {})
