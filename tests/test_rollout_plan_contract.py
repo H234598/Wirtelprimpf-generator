@@ -544,6 +544,32 @@ set -Eeuo pipefail
                     self.assertNotIn(sentinel, result.stdout)
                     self.assertNotIn(sentinel, result.stderr)
 
+    def test_every_network_git_wrapper_uses_system_trust_without_empty_ca_overrides(self) -> None:
+        cases = (
+            ("task3-step3", self.task3_step3, "git_remote", "TASK3_GIT_CONFIG_GUARD"),
+            ("task3-step5", self.task3_merge, "git_remote", "TASK3_GIT_CONFIG_GUARD"),
+            ("task5-step1", self.task5_step1, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step2", self.task5_step2, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step3", self.task5_step3, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step4", self.task5_step4, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step5", self.task5_step5, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+            ("task5-step6", self.task5_step6, "task5_git_remote", "TASK5_GIT_CONFIG_GUARD"),
+        )
+        for name, script, function_name, guard_marker in cases:
+            wrapper = _shell_function(script, function_name)
+            normalized_wrapper = " ".join(wrapper.split())
+            with self.subTest(name=name):
+                self.assertIn(guard_marker, script)
+                self.assertIn("GIT_CONFIG_NOSYSTEM=1", script)
+                self.assertIn("GIT_CONFIG_GLOBAL=/dev/null", script)
+                self.assertIn("-c http.sslVerify=true", normalized_wrapper)
+                self.assertNotIn("-c http.sslCAInfo=", normalized_wrapper)
+                self.assertNotIn("-c http.sslCAPath=", normalized_wrapper)
+                self.assertRegex(
+                    script,
+                    r"https://github\.com/H234598/Wirtelprimpf-(?:generator|0001)\.git",
+                )
+
     def test_task5_has_no_raw_network_git_and_uses_only_canonical_literal_urls(self) -> None:
         for name, script in (
             ("step1", self.task5_step1),

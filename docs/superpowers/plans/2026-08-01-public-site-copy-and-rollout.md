@@ -426,8 +426,6 @@ git_remote() {
     -c "http.$canonical_origin.extraHeader=" \
     -c http.proxy= \
     -c http.sslVerify=true \
-    -c http.sslCAInfo= \
-    -c http.sslCAPath= \
     -c http.curloptResolve= \
     -c credential.helper= \
     -c 'credential.helper=!/usr/bin/gh auth git-credential' \
@@ -885,8 +883,6 @@ git_remote() {
     -c "http.$canonical_origin.extraHeader=" \
     -c http.proxy= \
     -c http.sslVerify=true \
-    -c http.sslCAInfo= \
-    -c http.sslCAPath= \
     -c http.curloptResolve= \
     -c credential.helper= \
     -c 'credential.helper=!/usr/bin/gh auth git-credential' \
@@ -4219,8 +4215,8 @@ task5_git_remote() {
     GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
     /usr/bin/git \
       -c http.extraHeader= -c "http.$canonical_origin.extraHeader=" \
-      -c http.proxy= -c http.sslVerify=true -c http.sslCAInfo= \
-      -c http.sslCAPath= -c http.curloptResolve= -c credential.helper= \
+      -c http.proxy= -c http.sslVerify=true \
+      -c http.curloptResolve= -c credential.helper= \
       -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
       -c core.fsmonitor=false -c core.sshCommand=/bin/false \
       -c core.gitProxy=/bin/false -c protocol.allow=never \
@@ -4354,8 +4350,8 @@ task5_git_remote() {
     GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
     /usr/bin/git \
       -c http.extraHeader= -c "http.$canonical_origin.extraHeader=" \
-      -c http.proxy= -c http.sslVerify=true -c http.sslCAInfo= \
-      -c http.sslCAPath= -c http.curloptResolve= -c credential.helper= \
+      -c http.proxy= -c http.sslVerify=true \
+      -c http.curloptResolve= -c credential.helper= \
       -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
       -c core.fsmonitor=false -c core.sshCommand=/bin/false \
       -c core.gitProxy=/bin/false -c protocol.allow=never \
@@ -4468,7 +4464,7 @@ task5_git_remote() {
     GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
     /usr/bin/git -c http.extraHeader= \
       -c "http.$canonical_origin.extraHeader=" -c http.proxy= \
-      -c http.sslVerify=true -c http.sslCAInfo= -c http.sslCAPath= \
+      -c http.sslVerify=true \
       -c http.curloptResolve= -c credential.helper= \
       -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
       -c core.fsmonitor=false -c core.sshCommand=/bin/false \
@@ -4636,7 +4632,7 @@ task5_git_remote() {
     GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
     /usr/bin/git -c http.extraHeader= \
       -c "http.$canonical_origin.extraHeader=" -c http.proxy= \
-      -c http.sslVerify=true -c http.sslCAInfo= -c http.sslCAPath= \
+      -c http.sslVerify=true \
       -c http.curloptResolve= -c credential.helper= \
       -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
       -c core.fsmonitor=false -c core.sshCommand=/bin/false \
@@ -4854,7 +4850,7 @@ task5_git_remote() {
       -c http.extraHeader= \
       -c "http.$canonical_origin.extraHeader=" \
       -c http.proxy= -c http.sslVerify=true \
-      -c http.sslCAInfo= -c http.sslCAPath= -c http.curloptResolve= \
+      -c http.curloptResolve= \
       -c credential.helper= \
       -c credential.helper='!/usr/bin/gh auth git-credential' \
       -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
@@ -5108,7 +5104,7 @@ task5_git_remote() {
     GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false \
     /usr/bin/git -c http.extraHeader= \
       -c "http.$canonical_origin.extraHeader=" -c http.proxy= \
-      -c http.sslVerify=true -c http.sslCAInfo= -c http.sslCAPath= \
+      -c http.sslVerify=true \
       -c http.curloptResolve= -c credential.helper= \
       -c core.askPass=/bin/false -c core.hooksPath=/dev/null \
       -c core.fsmonitor=false -c core.sshCommand=/bin/false \
@@ -6131,3 +6127,35 @@ Completion requires all of the following:
   Archiv-, Install-, Reload-, Service-, Pages-, DNS-, Cloudflare- oder
   Upstream-Write fand statt; alle schreibenden Tests nutzten disposable lokale
   Repositories.
+
+### 2026-08-02 — Additive TLS-Truststore-Korrektur nach sicherem Push-Preflight-Abbruch
+
+- Diese Ergänzung basiert exakt auf Parent
+  `8855e65b58ec83e38547f3e8cd2387e252af2c2b` und lässt alle früheren
+  Ledgerpassagen unverändert. Der erste autorisierte Pushversuch endete im
+  sauberen `teladi`-Kontext beim ersten authentifizierten `git ls-remote`, also
+  vor jedem Remote-Write. PR-Head
+  `a2f0cff98450b25bbd8ffe20f95b612cdd039e9b` und Remote-Main
+  `b00d824adee47341e3251bc18e09239fde1c5939` blieben unverändert.
+- Die Root-Reproduktion unter `env -i` isolierte den Fehler: Mit
+  `-c http.sslCAInfo=` endete der read-only Transport mit Status 128 und
+  `error adding trust anchors from file:`; `-c http.sslCAPath=` allein sowie
+  die vollständige Wrappermatrix ohne beide leeren CA-Overrides erreichten
+  Status 0. Ein leerer `http.sslCAInfo`-Wert ist damit ein leerer CA-Dateipfad
+  und keine neutrale Aufhebung fremder Konfiguration.
+- Alle acht normativen Netzwerk-Git-Wrapper — zwei in Task 3 und sechs in
+  Task 5 — lassen deshalb ausschließlich diese beiden Leer-Overrides fort und
+  verwenden wieder den System-Truststore. `http.sslVerify=true`, kanonische
+  HTTPS-Literale, `env -i`, `GIT_CONFIG_NOSYSTEM=1`,
+  `GIT_CONFIG_GLOBAL=/dev/null`, Prompt-/Askpass-Sperren und die fail-closed
+  Local-Config-Guards bleiben unverändert erhalten.
+- TDD-Evidenz: Der neue Vertrag lief vor der Planänderung mit acht erwarteten
+  Unterfallfehlern rot, je einem pro Wrapper. Danach bestanden die sieben
+  fokussierten TLS-/Config-/Remote-Sicherheitsverträge `7/7`, der vollständige
+  Rolloutvertrag `44/44` mit zwei erwarteten Root-Skips und die beiden
+  rootgebundenen Runuser-Probes separat `2/2`.
+- Diese Korrekturrunde führte keinen Credentialzugriff, Fetch, Push,
+  PR-Write, Merge, Install, Reload, Runtime-, Archiv-, Service-, Pages-, DNS-,
+  Cloudflare- oder Upstream-Write aus. Die abgebrochene autorisierte
+  Vorphase ist ausschließlich als unveränderte historische Evidenz
+  protokolliert; alle schreibenden Testproben blieben lokal und disposable.
