@@ -25,7 +25,7 @@ REQUIREMENTS_DOC = Path("docs/requirements/WIRTELPRIMPF-WEBSEITE.md")
 ADR_DOC = Path("docs/adr/README.md")
 PROVENANCE = Path("PROVENANCE.md")
 MAKEFILE = ROOT / "Makefile"
-WORKFLOW = ROOT / ".github" / "workflows" / "check.yml"
+WORKFLOW = Path(".github/workflows/check.yml")
 README = ROOT / "README.md"
 
 PRESERVED_CHECK_COMMANDS = (
@@ -71,7 +71,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
     def copied_root(self) -> tempfile.TemporaryDirectory[str]:
         temporary = tempfile.TemporaryDirectory()
         target = Path(temporary.name)
-        for relative in (PLAN, BASELINE, REVISIONS, STATUS, REQUIREMENTS, DECISIONS, REQUIREMENTS_DOC, ADR_DOC, PROVENANCE):
+        for relative in (PLAN, BASELINE, REVISIONS, STATUS, REQUIREMENTS, DECISIONS, REQUIREMENTS_DOC, ADR_DOC, PROVENANCE, WORKFLOW):
             destination = target / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / relative, destination)
@@ -377,7 +377,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
 
     def test_applet_ci_checkout_includes_governance_inputs_without_deploy_scope(self) -> None:
         """Keeps governance inputs available in read-only, non-deploy applet CI."""
-        workflow = WORKFLOW.read_text(encoding="utf-8")
+        workflow = (ROOT / WORKFLOW).read_text(encoding="utf-8")
         applet = re.search(r"^  applet:\n(?P<body>.*?)(?=^  [a-z]+:)", workflow, re.MULTILINE | re.DOTALL)
         self.assertIsNotNone(applet)
         applet_body = applet.group("body")
@@ -389,6 +389,33 @@ class WebGovernanceValidationTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertNotRegex(workflow, r"(?i)\bwrite\b")
         self.assertNotRegex(workflow, r"(?i)\bdeploy(?:ment)?\b")
+
+    def test_rejects_weakened_ci_safeguards(self) -> None:
+        """Rejects mutations that weaken pinned, read-only repository checks."""
+        mutations = (
+            ("contents: read", "contents: write"),
+            ("runs-on: ubuntu-24.04", "runs-on: ubuntu-22.04"),
+            ("timeout-minutes: 20", "timeout-minutes: 19"),
+            ("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/checkout@main"),
+            ("actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1", "actions/setup-python@main"),
+            ("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020", "actions/setup-node@main"),
+            ('python-version: "3.12"', 'python-version: "3.11"'),
+            ('node-version: "24.13.1"', 'node-version: "24.13.0"'),
+            ("persist-credentials: false", "persist-credentials: true"),
+            ("lfs: false", "lfs: true"),
+            ("  platform:\n", "  platform-removed:\n"),
+            ("run: make check", "run: true"),
+            ("run: wirtelprimpf-platform mapping 51", "run: true"),
+            ("          npm test", "          true"),
+        )
+        for original, mutated in mutations:
+            with self.subTest(original=original), self.copied_root() as temporary:
+                root = Path(temporary)
+                workflow = root / WORKFLOW
+                content = workflow.read_text(encoding="utf-8")
+                self.assertIn(original, content)
+                workflow.write_text(content.replace(original, mutated, 1), encoding="utf-8")
+                self.assert_rejected(self.validate(root), "CI")
 
     def test_readme_links_governance_authority_and_local_checks(self) -> None:
         """Makes governance artifacts and commands discoverable from README."""

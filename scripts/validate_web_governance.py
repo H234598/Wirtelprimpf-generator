@@ -20,6 +20,7 @@ DECISIONS_PATH = Path("config/architecture-decisions.json")
 REQUIREMENTS_DOC_PATH = Path("docs/requirements/WIRTELPRIMPF-WEBSEITE.md")
 ADR_DOC_PATH = Path("docs/adr/README.md")
 PROVENANCE_PATH = Path("PROVENANCE.md")
+WORKFLOW_PATH = Path(".github/workflows/check.yml")
 EXPECTED_REPOSITORIES = {
     "H234598/Wirtelprimpf-generator": (
         "Generator, Plattform, Applet, Admin, Seitenfabrik, Hub",
@@ -63,6 +64,43 @@ EXPECTED_BOUNDARIES = {
     "secrets",
     "Actions policy",
     "live content of both domains",
+}
+EXPECTED_CI_JOBS = {"applet", "platform", "web"}
+EXPECTED_APPLET_PATHS = {
+    ".github", "Makefile", "Sourcecode", "files", "scripts", "tests", "docs",
+    "config", "README.md", "PROVENANCE.md", "wirtelprimpf_platform", "pyproject.toml",
+}
+CI_JOB_COMMANDS = {
+    "applet": (
+        "Install runtime test dependencies",
+        "python -m pip install --disable-pip-version-check -r Sourcecode/requirements.txt",
+        "Run repository checks",
+        "run: make check",
+    ),
+    "platform": (
+        "Install generator package",
+        "python -m pip install --disable-pip-version-check -e .",
+        "Verify transactional settings entrypoint",
+        "wirtelprimpf-settings --help >/dev/null",
+        "Run platform contract tests",
+        "python -m unittest discover -s tests/platform -p 'test_*.py' -v",
+        "Compile all Python sources",
+        "python -m compileall -q Sourcecode wirtelprimpf_platform scripts",
+        "Verify CLI entrypoint",
+        "wirtelprimpf-platform mapping 51",
+    ),
+    "web": (
+        "Install exact web dependencies",
+        "npm ci --ignore-scripts",
+        "Test and type-check the site factory",
+        "npm test",
+        "npm run check",
+        "Build and validate hub profile",
+        "npm --prefix web run build",
+        "validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org",
+        "Build and validate archive profile",
+        "validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org",
+    ),
 }
 
 
@@ -114,6 +152,51 @@ def plan_packages(plan: str) -> dict[str, dict[str, object]]:
             "verification": command_block.group(1).splitlines() if command_block else [],
         }
     return result
+
+
+def ci_job(workflow: str, name: str) -> str:
+    job = re.search(
+        rf"^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:|\Z)",
+        workflow,
+        re.MULTILINE | re.DOTALL,
+    )
+    require(job is not None, "CI jobs")
+    return job.group("body")
+
+
+def validate_ci_integration(root: Path) -> None:
+    """Keep fixed, read-only CI safeguards and required checks intact."""
+    workflow = read_text(root, WORKFLOW_PATH)
+    require("permissions:\n  contents: read\n\n" in workflow, "CI permissions")
+    require(re.search(r"\bwrite\b", workflow, re.IGNORECASE) is None, "CI permissions")
+    require(re.search(r"\bdeploy(?:ment)?\b", workflow, re.IGNORECASE) is None, "CI deployment")
+    parts = workflow.split("\njobs:\n", 1)
+    require(len(parts) == 2, "CI jobs")
+    jobs_section = parts[1]
+    jobs = set(re.findall(r"^  ([a-z][a-z0-9_-]*):\n", jobs_section, re.MULTILINE))
+    require(jobs == EXPECTED_CI_JOBS, "CI jobs")
+
+    bodies = {name: ci_job(jobs_section, name) for name in EXPECTED_CI_JOBS}
+    for body in bodies.values():
+        require("runs-on: ubuntu-24.04" in body, "CI runner")
+        require("timeout-minutes: 20" in body, "CI timeout")
+        require(re.search(r"uses: actions/checkout@[0-9a-f]{40}(?:\s|$)", body) is not None, "CI action pin")
+        require("persist-credentials: false" in body, "CI checkout credentials")
+    require("lfs: false" in bodies["applet"], "CI checkout LFS")
+
+    for name in ("applet", "platform"):
+        require(re.search(r"uses: actions/setup-python@[0-9a-f]{40}(?:\s|$)", bodies[name]) is not None, "CI action pin")
+        require('python-version: "3.12"' in bodies[name], "CI Python runtime")
+    for name in ("applet", "web"):
+        require(re.search(r"uses: actions/setup-node@[0-9a-f]{40}(?:\s|$)", bodies[name]) is not None, "CI action pin")
+        require('node-version: "24.13.1"' in bodies[name], "CI Node runtime")
+
+    sparse_checkout = re.search(r"sparse-checkout: \|\n(?P<paths>(?:            .*\n)+)", bodies["applet"])
+    require(sparse_checkout is not None, "CI applet sparse checkout")
+    paths = {line.strip() for line in sparse_checkout.group("paths").splitlines()}
+    require(paths == EXPECTED_APPLET_PATHS, "CI applet sparse checkout")
+    for name, commands in CI_JOB_COMMANDS.items():
+        require(all(command in bodies[name] for command in commands), "CI job commands")
 
 
 def render_requirements(requirements: dict) -> str:
@@ -229,6 +312,7 @@ def validate_repository(entry: object) -> None:
 
 
 def validate(root: Path) -> None:
+    validate_ci_integration(root)
     plan = read_text(root, PLAN_PATH)
     baseline = read_text(root, BASELINE_PATH)
     revisions = read_json(root)
