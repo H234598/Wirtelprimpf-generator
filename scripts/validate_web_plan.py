@@ -67,10 +67,23 @@ def validate(root: Path) -> None:
     status = read_json(root, STATUS_PATH)
     supersession = read_json(root, SUPERSESSION_PATH)
 
-    require(status.get("schema_version") == 1, "status schema version")
-    require(supersession.get("schema_version") == 1, "supersession schema version")
+    require(set(status) == {
+        "archive_factory_pin", "canonical_plan", "historical_plan_sha256",
+        "packages", "requirements", "schema_version",
+    }, "status record fields")
+    require(set(supersession) == {
+        "authority_order", "generator_pr_4", "old_p00_pr", "schema_version",
+    }, "supersession record fields")
+    require(type(status.get("schema_version")) is int and status["schema_version"] == 1, "status schema version")
+    require(
+        type(supersession.get("schema_version")) is int and supersession["schema_version"] == 1,
+        "supersession schema version",
+    )
     canonical = status.get("canonical_plan")
-    require(isinstance(canonical, dict), "canonical plan metadata")
+    require(
+        isinstance(canonical, dict) and set(canonical) == {"document_id", "sha256", "version"},
+        "canonical plan metadata",
+    )
     require(canonical.get("document_id") == "WIRTEL-WEB-PLAN-001", "canonical document ID")
     require(canonical.get("version") == "2.0.0", "canonical plan version")
     digest = hashlib.sha256(plan_bytes).hexdigest()
@@ -95,12 +108,16 @@ def validate(root: Path) -> None:
 
     packages = status.get("packages")
     require(isinstance(packages, list), "package register")
-    package_ids = [entry.get("id") for entry in packages if isinstance(entry, dict)]
+    require(
+        all(isinstance(entry, dict) and set(entry) == {"id", "milestone", "status"} for entry in packages),
+        "package register",
+    )
+    package_ids = [entry.get("id") for entry in packages]
+    require(all(isinstance(package_id, str) for package_id in package_ids), "package IDs")
     require(len(package_ids) == 48 and len(set(package_ids)) == 48 and set(package_ids) == expected_packages, "package IDs")
     for entry in packages:
-        require(isinstance(entry, dict), "package register")
         package_id, state, milestone = entry.get("id"), entry.get("status"), entry.get("milestone")
-        require(state in STATUSES, "invalid status")
+        require(isinstance(state, str) and state in STATUSES, "invalid status")
         require(isinstance(milestone, str) and all(part in MILESTONES for part in milestone.split("/")), "unknown milestone")
         require(rows[package_id] == (state, milestone), "plan/register consistency")
     for milestone in MILESTONES - {"Pflege"}:
@@ -109,6 +126,7 @@ def validate(root: Path) -> None:
     requirements = status.get("requirements")
     expected_requirements = {f"WEB-REQ-{number:03d}" for number in range(1, 61)}
     require(isinstance(requirements, list), "requirement register")
+    require(all(isinstance(requirement, str) for requirement in requirements), "requirement IDs")
     require(len(requirements) == 60 and len(set(requirements)) == 60 and set(requirements) == expected_requirements, "requirement IDs")
     plan_requirements = REQUIREMENT_PATTERN.findall(plan)
     require(
@@ -122,13 +140,25 @@ def validate(root: Path) -> None:
         "v2.0.0 chapters 0-28", "approved generator and rollout plans", "v1 historical appendix"
     ], "authority order")
     old_p00 = supersession.get("old_p00_pr")
-    require(isinstance(old_p00, dict) and old_p00.get("number") == 1, "old P00 evidence")
+    require(
+        isinstance(old_p00, dict)
+        and set(old_p00) == {"github_pr_merged", "github_pr_state", "number", "solution_path"},
+        "old P00 evidence",
+    )
+    require(type(old_p00.get("number")) is int and old_p00["number"] == 1, "old P00 evidence")
     require(old_p00.get("github_pr_state") == "closed" and old_p00.get("github_pr_merged") is False, "old P00 evidence")
     require(old_p00.get("solution_path") == "abgelöst", "old P00 classified as implemented")
     pr4 = supersession.get("generator_pr_4")
-    require(isinstance(pr4, dict), "PR #4 evidence")
+    require(
+        isinstance(pr4, dict)
+        and set(pr4) == {
+            "commit_message_mentions_pr", "content_present_on_main", "evidence_class",
+            "github_pr_merged", "github_pr_state", "integration_commit",
+        },
+        "PR #4 evidence",
+    )
     require(pr4.get("integration_commit") == "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f", "PR #4 integration commit")
-    require(pr4.get("commit_message_mentions_pr") == 4, "PR #4 commit message")
+    require(type(pr4.get("commit_message_mentions_pr")) is int and pr4["commit_message_mentions_pr"] == 4, "PR #4 commit message")
     require(pr4.get("github_pr_state") == "closed" and pr4.get("github_pr_merged") is False, "PR #4 classified as merged")
     require(pr4.get("content_present_on_main") is True, "PR #4 main evidence")
     require(pr4.get("evidence_class") == "manual-main-integration", "PR #4 evidence class")

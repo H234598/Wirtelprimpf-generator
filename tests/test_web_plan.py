@@ -84,6 +84,42 @@ class WebPlanValidationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("requirement IDs", result.stderr)
 
+    def test_rejects_boolean_schema_version(self) -> None:
+        """Rejects JSON booleans masquerading as integer schema versions."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            status = self.read_json(root, STATUS)
+            status["schema_version"] = True
+            self.write_json(root, STATUS, status)
+            result = self.validate(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("status schema version", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_unhashable_package_id_without_traceback(self) -> None:
+        """Rejects malformed package identifiers through controlled stderr."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            status = self.read_json(root, STATUS)
+            status["packages"][0]["id"] = []
+            self.write_json(root, STATUS, status)
+            result = self.validate(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("package IDs", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_unhashable_requirement_without_traceback(self) -> None:
+        """Rejects malformed requirement identifiers through controlled stderr."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            status = self.read_json(root, STATUS)
+            status["requirements"][0] = []
+            self.write_json(root, STATUS, status)
+            result = self.validate(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requirement IDs", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_rejects_invalid_status(self) -> None:
         """Rejects package state outside controlled status vocabulary."""
         with self.copied_root() as temporary:

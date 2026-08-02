@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import hashlib
 import json
 import re
@@ -21,6 +22,9 @@ REQUIREMENTS_DOC_PATH = Path("docs/requirements/WIRTELPRIMPF-WEBSEITE.md")
 ADR_DOC_PATH = Path("docs/adr/README.md")
 PROVENANCE_PATH = Path("PROVENANCE.md")
 WORKFLOW_PATH = Path(".github/workflows/check.yml")
+MAKEFILE_PATH = Path("Makefile")
+README_PATH = Path("README.md")
+GITIGNORE_PATH = Path(".gitignore")
 EXPECTED_REPOSITORIES = {
     "H234598/Wirtelprimpf-generator": (
         "Generator, Plattform, Applet, Admin, Seitenfabrik, Hub",
@@ -70,37 +74,108 @@ EXPECTED_APPLET_PATHS = {
     ".github", "Makefile", "Sourcecode", "files", "scripts", "tests", "docs",
     "config", "README.md", "PROVENANCE.md", "wirtelprimpf_platform", "pyproject.toml",
 }
-CI_JOB_COMMANDS = {
+EXPECTED_ACTIONS = Counter({
+    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1": 3,
+    "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1": 2,
+    "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020": 2,
+})
+CI_JOB_ACTIONS = {
     "applet": (
-        "Install runtime test dependencies",
-        "python -m pip install --disable-pip-version-check -r Sourcecode/requirements.txt",
-        "Run repository checks",
-        "run: make check",
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+        "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
     ),
     "platform": (
-        "Install generator package",
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+    ),
+    "web": (
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+    ),
+}
+CI_STEP_NAMES = {
+    "applet": (
+        "Checkout relevant repository paths", "Set up Python", "Set up Node.js",
+        "Install runtime test dependencies", "Run repository checks",
+    ),
+    "platform": (
+        "Checkout generator sources", "Set up Python", "Install generator package",
+        "Verify transactional settings entrypoint", "Run platform contract tests",
+        "Compile all Python sources", "Verify CLI entrypoint",
+    ),
+    "web": (
+        "Checkout site factory", "Set up Node.js", "Install exact web dependencies",
+        "Test and type-check the site factory", "Build and validate hub profile",
+        "Build and validate archive profile",
+    ),
+}
+CI_JOB_COMMANDS = {
+    "applet": (
+        "python -m pip install --disable-pip-version-check -r Sourcecode/requirements.txt",
+        "make check",
+    ),
+    "platform": (
         "python -m pip install --disable-pip-version-check -e .",
-        "Verify transactional settings entrypoint",
         "wirtelprimpf-settings --help >/dev/null",
-        "Run platform contract tests",
         "python -m unittest discover -s tests/platform -p 'test_*.py' -v",
-        "Compile all Python sources",
         "python -m compileall -q Sourcecode wirtelprimpf_platform scripts",
-        "Verify CLI entrypoint",
         "wirtelprimpf-platform mapping 51",
     ),
     "web": (
-        "Install exact web dependencies",
         "npm ci --ignore-scripts",
-        "Test and type-check the site factory",
         "npm test",
         "npm run check",
-        "Build and validate hub profile",
         "npm --prefix web run build",
-        "validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org",
-        "Build and validate archive profile",
-        "validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org",
+        "python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org",
+        "npm --prefix web run build",
+        "python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org",
     ),
+}
+REQUIRED_MAKE_CHECK_COMMANDS = (
+    "$(PYTHON) -m json.tool files/$(UUID)/metadata.json >/dev/null",
+    "$(PYTHON) -m json.tool files/$(UUID)/settings-schema.json >/dev/null",
+    "$(PYTHON) -m py_compile Sourcecode/wirtelprimpf_generator.py",
+    "$(PYTHON) -m py_compile files/$(UUID)/helper.py files/$(UUID)/SettingsLogo.py files/$(UUID)/settings_sync.py",
+    "$(PYTHON) -m py_compile files/$(UUID)/story_directives_core.py files/$(UUID)/StoryDirectives.py",
+    "$(PYTHON) -m py_compile scripts/validate_web_plan.py scripts/validate_web_governance.py",
+    "node --check files/$(UUID)/applet.js", "node tests/test_applet_runtime.js",
+    "node --test tests/test_admin_ui.mjs", "$(PYTHON) -m unittest tests.test_semver",
+    "$(PYTHON) -m unittest tests.test_git_object_fallback",
+    "$(PYTHON) -m unittest tests.test_release_publication",
+    "$(PYTHON) -m unittest tests.test_helper_env",
+    "$(PYTHON) -m unittest tests.test_applet_settings_sync",
+    "$(PYTHON) -m unittest tests.test_settings_schema",
+    "$(PYTHON) -m unittest tests.test_story_directives",
+    "$(PYTHON) -m unittest tests.test_rollout_plan_contract",
+    "$(PYTHON) -m unittest tests.test_web_plan", "$(PYTHON) tests/test_web_governance.py",
+    "$(PYTHON) scripts/validate_web_plan.py --root .",
+    "$(PYTHON) scripts/validate_web_governance.py --root .",
+    "@test -f files/$(UUID)/assets/settings-header-logo.png",
+    "@test -f files/$(UUID)/assets/settings-footer-logo.png",
+    "@test -f files/$(UUID)/assets/settings-generator-atelier.png",
+    "@test -f files/$(UUID)/assets/settings-generator-machine.png",
+    "@test -f files/$(UUID)/assets/settings-about-story.png",
+    "@test -f files/$(UUID)/assets/settings-about-book.png",
+    "@test -f files/$(UUID)/assets/panel-icon.png",
+    "@test -f files/$(UUID)/assets/panel-icon-moon.png",
+    "@test -f files/$(UUID)/assets/panel-icon-spark.png",
+)
+README_LINKS = (
+    "docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md",
+    "docs/REVISIONSBASELINE.md", "docs/requirements/WIRTELPRIMPF-WEBSEITE.md",
+    "docs/adr/README.md", "PROVENANCE.md",
+)
+README_COMMANDS = (
+    "make check", "python3 scripts/validate_web_plan.py --root .",
+    "python3 scripts/validate_web_governance.py --root .",
+)
+PROVENANCE_MODES = {
+    "H234598/Wirtelprimpf-generator": "adapted",
+    "H234598/Wirtelprimpf-0001": "concept",
+    "H234598/desinfect": "concept",
+    "H234598/ADHS-Lernpfad": "concept",
+    "H234598/Cheatsheets": "concept",
 }
 
 
@@ -164,23 +239,51 @@ def ci_job(workflow: str, name: str) -> str:
     return job.group("body")
 
 
+def ci_run_commands(job: str) -> tuple[str, ...]:
+    """Extract executable scalar and literal-block run commands from one job."""
+    lines = job.splitlines()
+    commands: list[str] = []
+    index = 0
+    while index < len(lines):
+        match = re.fullmatch(r"        run:\s*(.*)", lines[index])
+        if match is None:
+            index += 1
+            continue
+        value = match.group(1).strip()
+        if value not in {"|", ">", "|-", ">-"}:
+            require(bool(value) and not value.startswith("#"), "CI job commands")
+            commands.append(value)
+            index += 1
+            continue
+        index += 1
+        while index < len(lines):
+            line = lines[index]
+            if line and len(line) - len(line.lstrip(" ")) <= 8:
+                break
+            command = line.strip()
+            if command and not command.startswith("#"):
+                commands.append(command)
+            index += 1
+    return tuple(commands)
+
+
 def validate_ci_integration(root: Path) -> None:
     """Keep fixed, read-only CI safeguards and required checks intact."""
     workflow = read_text(root, WORKFLOW_PATH)
     require("permissions:\n  contents: read\n\n" in workflow, "CI permissions")
     require(re.search(r"\bwrite\b", workflow, re.IGNORECASE) is None, "CI permissions")
-    require(re.search(r"\bdeploy(?:ment)?\b", workflow, re.IGNORECASE) is None, "CI deployment")
     parts = workflow.split("\njobs:\n", 1)
     require(len(parts) == 2, "CI jobs")
     jobs_section = parts[1]
     jobs = set(re.findall(r"^  ([a-z][a-z0-9_-]*):\n", jobs_section, re.MULTILINE))
     require(jobs == EXPECTED_CI_JOBS, "CI jobs")
+    actions = Counter(re.findall(r"^\s+uses:\s+(\S+)(?:\s+#.*)?$", workflow, re.MULTILINE))
+    require(actions == EXPECTED_ACTIONS, "CI action pin")
 
     bodies = {name: ci_job(jobs_section, name) for name in EXPECTED_CI_JOBS}
     for body in bodies.values():
         require("runs-on: ubuntu-24.04" in body, "CI runner")
         require("timeout-minutes: 20" in body, "CI timeout")
-        require(re.search(r"uses: actions/checkout@[0-9a-f]{40}(?:\s|$)", body) is not None, "CI action pin")
         require("persist-credentials: false" in body, "CI checkout credentials")
     require("lfs: false" in bodies["applet"], "CI checkout LFS")
 
@@ -196,7 +299,38 @@ def validate_ci_integration(root: Path) -> None:
     paths = {line.strip() for line in sparse_checkout.group("paths").splitlines()}
     require(paths == EXPECTED_APPLET_PATHS, "CI applet sparse checkout")
     for name, commands in CI_JOB_COMMANDS.items():
-        require(all(command in bodies[name] for command in commands), "CI job commands")
+        job_actions = tuple(re.findall(r"^\s+uses:\s+(\S+)(?:\s+#.*)?$", bodies[name], re.MULTILINE))
+        require(job_actions == CI_JOB_ACTIONS[name], "CI action pin")
+        names = tuple(re.findall(r"^      - name: (.+)$", bodies[name], re.MULTILINE))
+        require(names == CI_STEP_NAMES[name], "CI job steps")
+        executable = ci_run_commands(bodies[name])
+        require(
+            not any(re.search(r"\b(?:deploy|publish)\b", command, re.IGNORECASE) for command in executable),
+            "CI publication command",
+        )
+        require(executable == commands, "CI job commands")
+
+
+def validate_repository_integration(root: Path) -> None:
+    """Keep direct validation wired into local checks and documentation."""
+    makefile = read_text(root, MAKEFILE_PATH)
+    check = re.search(r"^check:\n(?P<body>(?:\t.*\n)+)", makefile, re.MULTILINE)
+    require(check is not None, "Make check")
+    commands = [line[1:] for line in check.group("body").splitlines()]
+    require(all(command in commands for command in REQUIRED_MAKE_CHECK_COMMANDS), "Make check")
+    positions = [commands.index(command) for command in REQUIRED_MAKE_CHECK_COMMANDS]
+    require(positions == sorted(positions), "Make check order")
+
+    readme = read_text(root, README_PATH)
+    require("## Web-Governance" in readme, "README governance")
+    require(all(f"]({link})" in readme for link in README_LINKS), "README governance links")
+    require(all(command in readme for command in README_COMMANDS), "README governance commands")
+
+    ignore_lines = {
+        line.strip() for line in read_text(root, GITIGNORE_PATH).splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    require("build/" in ignore_lines, "build reports ignore")
 
 
 def render_requirements(requirements: dict) -> str:
@@ -222,6 +356,35 @@ def render_adrs(decisions: dict) -> str:
     for item in decisions["decisions"]:
         lines.append(f"| `{item['id']}` | {item['decision']} | {item['status']} | {item['reevaluation_trigger']} |")
     return "\n".join(lines) + "\n"
+
+
+def render_provenance(revisions: dict) -> str:
+    """Render exact reuse claims from validated frozen repository records."""
+    lines = [
+        "# Provenienz",
+        "",
+        "M00-Governance übernimmt keine Implementierungscodes oder Assets Dritter.",
+        "",
+        "| Repository | Freeze-SHA | Beitrag zum Plan | Wiederverwendung |",
+        "| --- | --- | --- | --- |",
+    ]
+    for repository in revisions["repositories"]:
+        identifier = repository["id"]
+        lines.append(
+            f"| {identifier} | `{repository['frozen_sha']}` | {repository['role']} | {PROVENANCE_MODES[identifier]} |"
+        )
+    lines.extend([
+        "",
+        "## Nicht übernommen",
+        "",
+        "- `not-used`: Direkte Watchdog-/RKI-Logik aus `H234598/desinfect` wird nicht übernommen.",
+        "- `not-used`: MkDocs-/Material-Theme aus `H234598/Cheatsheets` wird nicht übernommen.",
+        "",
+        "Alle Referenzen sind eingefrorene Commit-SHAs, keine beweglichen Branches.",
+        "Lizenzfreigaben werden hier nicht behauptet.",
+        "",
+    ])
+    return "\n".join(lines)
 
 
 def exact_set(value: object, expected: set[str], message: str) -> None:
@@ -313,6 +476,7 @@ def validate_repository(entry: object) -> None:
 
 def validate(root: Path) -> None:
     validate_ci_integration(root)
+    validate_repository_integration(root)
     plan = read_text(root, PLAN_PATH)
     baseline = read_text(root, BASELINE_PATH)
     revisions = read_json(root)
@@ -391,10 +555,7 @@ def validate(root: Path) -> None:
     actual_rows = [(item.get("id"), item.get("decision"), item.get("status"), item.get("reevaluation_trigger")) for item in records]
     require(actual_rows == expected_rows, "current ADR rows")
     require(read_text(root, ADR_DOC_PATH) == render_adrs(decisions), "ADR doc differs from ADR register")
-    provenance = read_text(root, PROVENANCE_PATH)
-    require("keine Implementierungscodes oder Assets Dritter" in provenance and "main" not in provenance, "provenance")
-    for repository, (_, frozen_sha, _) in EXPECTED_REPOSITORIES.items():
-        require(repository in provenance and frozen_sha in provenance, "provenance")
+    require(read_text(root, PROVENANCE_PATH) == render_provenance(revisions), "provenance")
 
 
 def main() -> int:

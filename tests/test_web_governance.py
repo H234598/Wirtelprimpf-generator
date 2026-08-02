@@ -24,9 +24,10 @@ DECISIONS = Path("config/architecture-decisions.json")
 REQUIREMENTS_DOC = Path("docs/requirements/WIRTELPRIMPF-WEBSEITE.md")
 ADR_DOC = Path("docs/adr/README.md")
 PROVENANCE = Path("PROVENANCE.md")
-MAKEFILE = ROOT / "Makefile"
+MAKEFILE = Path("Makefile")
 WORKFLOW = Path(".github/workflows/check.yml")
-README = ROOT / "README.md"
+README = Path("README.md")
+GITIGNORE = Path(".gitignore")
 
 PRESERVED_CHECK_COMMANDS = (
     "$(PYTHON) -m json.tool files/$(UUID)/metadata.json >/dev/null",
@@ -71,7 +72,11 @@ class WebGovernanceValidationTests(unittest.TestCase):
     def copied_root(self) -> tempfile.TemporaryDirectory[str]:
         temporary = tempfile.TemporaryDirectory()
         target = Path(temporary.name)
-        for relative in (PLAN, BASELINE, REVISIONS, STATUS, REQUIREMENTS, DECISIONS, REQUIREMENTS_DOC, ADR_DOC, PROVENANCE, WORKFLOW):
+        for relative in (
+            PLAN, BASELINE, REVISIONS, STATUS, REQUIREMENTS, DECISIONS,
+            REQUIREMENTS_DOC, ADR_DOC, PROVENANCE, WORKFLOW, MAKEFILE,
+            README, GITIGNORE,
+        ):
             destination = target / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / relative, destination)
@@ -308,6 +313,25 @@ class WebGovernanceValidationTests(unittest.TestCase):
             result = self.validate(root)
         self.assert_rejected(result, "provenance")
 
+    def test_rejects_mutated_provenance_projection(self) -> None:
+        """Rejects changed rows, reuse modes, exclusions, or surrounding claims."""
+        mutations = (
+            ("Generator, Plattform, Applet, Admin, Seitenfabrik, Hub", "Generator"),
+            ("| adapted |", "| concept |"),
+            ("H234598/Cheatsheets |", "H234598/extra |"),
+            ("Direkte Watchdog-/RKI-Logik aus `H234598/desinfect` wird nicht übernommen.", ""),
+            ("MkDocs-/Material-Theme aus `H234598/Cheatsheets` wird nicht übernommen.", ""),
+            ("Lizenzfreigaben werden hier nicht behauptet.", "Lizenzfreigaben liegen vor."),
+        )
+        for original, mutated in mutations:
+            with self.subTest(original=original), self.copied_root() as temporary:
+                root = Path(temporary)
+                provenance = root / PROVENANCE
+                content = provenance.read_text(encoding="utf-8")
+                self.assertIn(original, content)
+                provenance.write_text(content.replace(original, mutated, 1), encoding="utf-8")
+                self.assert_rejected(self.validate(root), "provenance")
+
     def test_rejects_unhashable_requirement_package_without_traceback(self) -> None:
         """Rejects malformed nested package list through controlled stderr."""
         with self.copied_root() as temporary:
@@ -407,6 +431,8 @@ class WebGovernanceValidationTests(unittest.TestCase):
             ("run: make check", "run: true"),
             ("run: wirtelprimpf-platform mapping 51", "run: true"),
             ("          npm test", "          true"),
+            ("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/checkout@0000000000000000000000000000000000000000"),
+            ("          npm test", "          # npm test"),
         )
         for original, mutated in mutations:
             with self.subTest(original=original), self.copied_root() as temporary:
@@ -417,9 +443,22 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 workflow.write_text(content.replace(original, mutated, 1), encoding="utf-8")
                 self.assert_rejected(self.validate(root), "CI")
 
+    def test_rejects_executable_ci_publication_command(self) -> None:
+        """Rejects publication added to an executable run block."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            workflow = root / WORKFLOW
+            content = workflow.read_text(encoding="utf-8")
+            workflow.write_text(
+                content.replace("          npm run check", "          npm run check\n          wrangler pages publish web/dist", 1),
+                encoding="utf-8",
+            )
+            result = self.validate(root)
+        self.assert_rejected(result, "CI")
+
     def test_readme_links_governance_authority_and_local_checks(self) -> None:
         """Makes governance artifacts and commands discoverable from README."""
-        readme = README.read_text(encoding="utf-8")
+        readme = (ROOT / README).read_text(encoding="utf-8")
         self.assertIn("## Web-Governance", readme)
         for link in (
             "docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md",
@@ -444,6 +483,36 @@ class WebGovernanceValidationTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0)
+
+    def test_direct_validator_rejects_missing_make_gate(self) -> None:
+        """Keeps Make integration in direct governance validation."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            makefile = root / MAKEFILE
+            content = makefile.read_text(encoding="utf-8")
+            makefile.write_text(content.replace("\t$(PYTHON) -m unittest tests.test_web_plan\n", "", 1), encoding="utf-8")
+            result = self.validate(root)
+        self.assert_rejected(result, "Make check")
+
+    def test_direct_validator_rejects_missing_readme_command(self) -> None:
+        """Keeps README integration in direct governance validation."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            readme = root / README
+            content = readme.read_text(encoding="utf-8")
+            readme.write_text(content.replace("python3 scripts/validate_web_plan.py --root .", "", 1), encoding="utf-8")
+            result = self.validate(root)
+        self.assert_rejected(result, "README governance")
+
+    def test_direct_validator_rejects_missing_build_ignore(self) -> None:
+        """Keeps generated governance reports ignored through build/."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            gitignore = root / GITIGNORE
+            content = gitignore.read_text(encoding="utf-8")
+            gitignore.write_text(content.replace("build/\n", "", 1), encoding="utf-8")
+            result = self.validate(root)
+        self.assert_rejected(result, "build reports ignore")
 
 
 if __name__ == "__main__":
