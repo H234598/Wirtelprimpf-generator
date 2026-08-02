@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import signal
+import socket
 import subprocess
 import tempfile
 import threading
@@ -3018,12 +3019,240 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
         self.assertIn(self.smoke_api, self.deployment)
         self.assertIn(self.smoke_sync, self.deployment)
         self.assertNotIn("Execute the exact Step-5", self.deployment)
+        admin_start = self.deployment.index(
+            "systemctl --user start wirtelprimpf-admin.service"
+        )
+        readiness = self.deployment.index("\nwait_admin_ready_loopback 8765\n")
+        first_settings_smoke = self.deployment.index(self.smoke_api)
+        self.assertEqual(self.deployment.count("\nwait_admin_ready_loopback 8765\n"), 1)
+        self.assertLess(admin_start, readiness)
+        self.assertLess(readiness, first_settings_smoke)
         producer = self.deployment.index("marker_path.write_text")
         consumer = self.deployment.index(
             "smoke_owned_revision=\"$(jq -er '.revision' "
             '"$deploy_backup/smoke-owned-revision.json")"'
         )
         self.assertLess(producer, consumer)
+
+    def test_admin_readiness_gate_waits_for_a_delayed_loopback_listener(self) -> None:
+        self.assertIn("wait_admin_ready_loopback() {\n", self.deployment)
+        readiness = _shell_function(self.deployment, "wait_admin_ready_loopback")
+        self.assertEqual(
+            readiness.count('"http://127.0.0.1:${port}/api/status"'),
+            1,
+        )
+        self.assertNotIn("--retry", readiness)
+        received_paths: list[str] = []
+        server_holder: list[ThreadingHTTPServer] = []
+        server_error: list[BaseException] = []
+        server_started = threading.Event()
+
+        class DelayedReadinessHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                received_paths.append(self.path)
+                if self.path != "/api/status":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                body = b"{}"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, format: str, *args: object) -> None:
+                del format, args
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as candidate:
+            candidate.bind(("127.0.0.1", 0))
+            port = candidate.getsockname()[1]
+
+        def delayed_server() -> None:
+            time.sleep(0.25)
+            try:
+                server = ThreadingHTTPServer(
+                    ("127.0.0.1", port),
+                    DelayedReadinessHandler,
+                )
+                server_holder.append(server)
+                server_started.set()
+                server.serve_forever()
+            except BaseException as error:  # pragma: no cover - diagnostic path
+                server_error.append(error)
+                server_started.set()
+
+        thread = threading.Thread(target=delayed_server, daemon=True)
+        thread.start()
+        script = f"""
+set -Eeuo pipefail
+{readiness}
+systemctl() {{
+  case "$*" in
+    '--user show wirtelprimpf-admin.service -p ActiveState --value')
+      printf 'active\n'
+      ;;
+    '--user show wirtelprimpf-admin.service -p SubState --value')
+      printf 'running\n'
+      ;;
+    '--user show wirtelprimpf-admin.service -p InvocationID --value')
+      printf '11111111111111111111111111111111\n'
+      ;;
+    *) return 97 ;;
+  esac
+}}
+wait_admin_ready_loopback "$1"
+"""
+        started = time.monotonic()
+        try:
+            result = subprocess.run(  # nosec B603 -- exact helper and real loopback server
+                ["/bin/bash", "-c", script, "admin-readiness-delayed", str(port)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=8,
+                env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+            )
+            elapsed = time.monotonic() - started
+        finally:
+            server_started.wait(timeout=3)
+            if server_holder:
+                server_holder[0].shutdown()
+                server_holder[0].server_close()
+            thread.join(timeout=5)
+
+        self.assertEqual(server_error, [])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertGreaterEqual(elapsed, 0.20)
+        self.assertLess(elapsed, 5.0)
+        self.assertEqual(received_paths, ["/api/status"])
+
+    def test_admin_readiness_gate_fails_closed_within_a_fixed_bound(self) -> None:
+        self.assertIn("wait_admin_ready_loopback() {\n", self.deployment)
+        readiness = _shell_function(self.deployment, "wait_admin_ready_loopback")
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as candidate:
+            candidate.bind(("127.0.0.1", 0))
+            port = candidate.getsockname()[1]
+
+        script = f"""
+set -Eeuo pipefail
+{readiness}
+systemctl() {{
+  case "$*" in
+    '--user show wirtelprimpf-admin.service -p ActiveState --value')
+      printf 'active\n'
+      ;;
+    '--user show wirtelprimpf-admin.service -p SubState --value')
+      printf 'running\n'
+      ;;
+    '--user show wirtelprimpf-admin.service -p InvocationID --value')
+      printf '22222222222222222222222222222222\n'
+      ;;
+    *) return 97 ;;
+  esac
+}}
+wait_admin_ready_loopback "$1"
+"""
+        started = time.monotonic()
+        result = subprocess.run(  # nosec B603 -- exact helper against unused loopback port
+            ["/bin/bash", "-c", script, "admin-readiness-unbound", str(port)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=8,
+            env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+        )
+        elapsed = time.monotonic() - started
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertLess(elapsed, 7.0)
+        self.assertIn("admin readiness deadline exhausted", result.stderr)
+
+        invalid = subprocess.run(  # nosec B603 -- exact helper rejects non-port input
+            ["/bin/bash", "-c", script, "admin-readiness-invalid", "example.invalid"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=2,
+            env={"HOME": "/home/teladi", "PATH": "/usr/bin:/bin"},
+        )
+        self.assertNotEqual(invalid.returncode, 0)
+
+    def test_admin_readiness_gate_rejects_activation_change_during_probe(self) -> None:
+        self.assertIn("wait_admin_ready_loopback() {\n", self.deployment)
+        readiness = _shell_function(self.deployment, "wait_admin_ready_loopback")
+        received_paths: list[str] = []
+
+        class ImmediateReadinessHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                received_paths.append(self.path)
+                body = b"{}"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, format: str, *args: object) -> None:
+                del format, args
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), ImmediateReadinessHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        port = server.server_address[1]
+        try:
+            with tempfile.TemporaryDirectory(prefix="wirtelprimpf-admin-readiness-") as tmp:
+                invocation_calls = Path(tmp) / "invocation-calls"
+                invocation_calls.write_text("0\n", encoding="utf-8")
+                script = f"""
+set -Eeuo pipefail
+{readiness}
+systemctl() {{
+  case "$*" in
+    '--user show wirtelprimpf-admin.service -p ActiveState --value')
+      printf 'active\n'
+      ;;
+    '--user show wirtelprimpf-admin.service -p SubState --value')
+      printf 'running\n'
+      ;;
+    '--user show wirtelprimpf-admin.service -p InvocationID --value')
+      count="$(<"$INVOCATION_CALLS")"
+      count=$((count + 1))
+      printf '%s\n' "$count" >"$INVOCATION_CALLS"
+      if [[ "$count" == 1 ]]; then
+        printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'
+      else
+        printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
+      fi
+      ;;
+    *) return 97 ;;
+  esac
+}}
+wait_admin_ready_loopback "$1"
+"""
+                result = subprocess.run(  # nosec B603 -- exact helper and real loopback server
+                    ["/bin/bash", "-c", script, "admin-readiness-race", str(port)],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=5,
+                    env={
+                        "HOME": "/home/teladi",
+                        "PATH": "/usr/bin:/bin",
+                        "INVOCATION_CALLS": str(invocation_calls),
+                    },
+                )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("admin activation changed during readiness probe", result.stderr)
+        self.assertEqual(received_paths, ["/api/status"])
 
     def test_step9_provisions_one_exact_backend_wheel_then_builds_offline_both_ways(self) -> None:
         backend = _marked_block(

@@ -4319,6 +4319,16 @@ ephemeral build isolation in strictly offline `--no-index --find-links`
 mode. An existing corrupt bundle is rejected without deletion, redownload or
 blind retry.
 
+`Type=simple` bestätigt nur den Prozessstart, nicht die Bindung des
+Loopback-Sockets. Deshalb liegt unmittelbar vor dem unveränderten ersten
+`/api/settings`-Smoke ein eigenes endliches Readiness-Gate. Es probiert
+ausschließlich `http://127.0.0.1:<gebundener Port>/api/status`, deaktiviert
+Proxybenutzung, besitzt pro Versuch feste Curl-Grenzen und wiederholt nur,
+solange ActiveState/SubState zulässig und dieselbe systemd-`InvocationID`
+vor sowie nach dem Probeversuch nachweisbar sind. Ein Neustart, unerwarteter
+Unitzustand oder das Erreichen der festen Versuchszahl endet fail-closed im
+bereits vorhandenen Rollback.
+
 ```bash
 set -Eeuo pipefail
 
@@ -4587,6 +4597,69 @@ provision_build_backend_bundle() {
     "$backend_constraint_sha256"
 }
 # END TASK4_BUILD_BACKEND_BUNDLE
+
+# BEGIN TASK4_ADMIN_READINESS_GATE
+wait_admin_ready_loopback() {
+  local port="$1" attempt
+  local active_before sub_before invocation_before
+  local active_after sub_after invocation_after
+  local max_attempts=60
+  [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || return 1
+  (( port <= 65535 )) || return 1
+
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    active_before="$(systemctl --user show wirtelprimpf-admin.service \
+      -p ActiveState --value)" || return 1
+    sub_before="$(systemctl --user show wirtelprimpf-admin.service \
+      -p SubState --value)" || return 1
+    invocation_before="$(systemctl --user show wirtelprimpf-admin.service \
+      -p InvocationID --value)" || return 1
+    [[ "$invocation_before" =~ ^[0-9a-f]{32}$ ]] || return 1
+    case "$active_before/$sub_before" in
+      activating/start-pre|activating/start|active/running) ;;
+      *) return 1 ;;
+    esac
+
+    if /usr/bin/curl --fail --silent --noproxy '*' \
+      --connect-timeout 0.2 --max-time 0.5 --output /dev/null \
+      "http://127.0.0.1:${port}/api/status"; then
+      active_after="$(systemctl --user show wirtelprimpf-admin.service \
+        -p ActiveState --value)" || return 1
+      sub_after="$(systemctl --user show wirtelprimpf-admin.service \
+        -p SubState --value)" || return 1
+      invocation_after="$(systemctl --user show wirtelprimpf-admin.service \
+        -p InvocationID --value)" || return 1
+      if [[ "$active_after/$sub_after" != active/running || \
+        "$invocation_after" != "$invocation_before" ]]; then
+        printf 'admin activation changed during readiness probe\n' >&2
+        return 1
+      fi
+      return 0
+    fi
+
+    active_after="$(systemctl --user show wirtelprimpf-admin.service \
+      -p ActiveState --value)" || return 1
+    sub_after="$(systemctl --user show wirtelprimpf-admin.service \
+      -p SubState --value)" || return 1
+    invocation_after="$(systemctl --user show wirtelprimpf-admin.service \
+      -p InvocationID --value)" || return 1
+    if [[ "$invocation_after" != "$invocation_before" ]]; then
+      printf 'admin activation changed during readiness probe\n' >&2
+      return 1
+    fi
+    case "$active_after/$sub_after" in
+      activating/start-pre|activating/start|active/running) ;;
+      *) return 1 ;;
+    esac
+    if (( attempt == max_attempts )); then
+      printf 'admin readiness deadline exhausted\n' >&2
+      return 1
+    fi
+    /bin/sleep 0.05
+  done
+  return 1
+}
+# END TASK4_ADMIN_READINESS_GATE
 
 runtime_control_dir=/run/user/1000/systemd/user.control
 runtime_legacy_dir=/run/user/1000/systemd/user
@@ -6023,6 +6096,7 @@ test "$(systemctl --user is-enabled wirtelprimpf.timer || true)" = \
 test "$(systemctl --user show wirtelprimpf.service \
   -p ActiveState --value)" = inactive
 test "$(systemctl --user is-enabled wirtelprimpf.service || true)" = masked-runtime
+wait_admin_ready_loopback 8765
 export WIRTELPRIMPF_SMOKE_OWNERSHIP_MARKER="$deploy_backup/smoke-owned-revision.json"
 # The following Step-5 and Step-6 bodies are materialized byte-for-byte from
 # their audited source blocks. They execute synchronously in this transaction;
@@ -6451,8 +6525,17 @@ audited Step-5/Step-6 bodies byte-for-byte inside Step 9, proves marker-producer
 ordering, executes the actual backend provision/install helpers with a
 single-call fake downloader and offline fake Pip, rejects a pre-existing
 corrupt wheel without retry, and calls the identical install helper in both
-forward and rollback positions. It also executes the exact interrupted-attempt
-validator against a disposable two-node chain, rejects two current leaves and
+forward and rollback positions. It executes außerdem das exakte
+`wait_admin_ready_loopback` gegen einen realen, absichtlich verzögert
+bindenden Loopback-HTTP-Server und gegen einen nie bindenden Port. Der erste
+Fall muss innerhalb der festen Grenze erfolgreich werden, der zweite muss
+innerhalb derselben festen Grenze nonzero enden; ein Wechsel der
+systemd-`InvocationID` während eines erfolgreichen Probe-GETs wird separat
+fail-closed verworfen. Der Produktionsaufruf bleibt genau einmal zwischen
+Adminstart und dem byte-identisch materialisierten ersten
+`/api/settings`-Smoke. Der Vertrag führt keine Netzprobe außerhalb von
+`127.0.0.1` aus. Er führt außerdem den exakten Interrupted-Attempt-Validator
+gegen eine disposable two-node chain aus, rejects two current leaves and
 binds the live constants to historical `HNkEdc`, current `f1iePQ`, all current
 barrier Inodes and complete manifest/payload metadata. Finally it
 failure-injects the separate 16-entry shared-Git FD transaction and proves
@@ -10728,3 +10811,63 @@ Completion requires all of the following:
   Cloudflare- oder Upstream-Write aus. Sie verändert ausschließlich diesen
   versionierten Plan und seinen ausführbaren Vertragsregressionstest und wird
   als genau ein lokaler Commit unter dem Benutzer `teladi` übergeben.
+
+### 2026-08-02 — Additives Admin-Readiness-Gate nach dem zweiten Task-4-Retry
+
+- Der exakt einmalige Retry des zuvor gebundenen Step-9-Scripts mit SHA-256
+  `aa5bd6035abae492348bfbef415089cb956b97fc14155810783eca66dcd8b4b6`
+  erreichte die Zielinstallation 1.1.0 und startete danach
+  `wirtelprimpf-admin.service`. systemd protokollierte die Unit um
+  18:31:08.152 als `Started`; der unmittelbar folgende erste Curl auf
+  `127.0.0.1:8765` endete jedoch reproduzierbar mit Exit 7, bevor der Prozess
+  seinen Socket gebunden hatte. Der Rollback stoppte die Unit um
+  18:31:09.527 und hatte den vollständigen alten aktiven Zustand um
+  18:31:14.935 wiederhergestellt. Ein späterer ausschließlich lesender
+  manueller GET antwortete 200. Damit ist der Buildbackend als Fehlerursache
+  widerlegt; die Ursache ist die `Type=simple`-Lücke zwischen erfolgreichem
+  Prozessstart und HTTP-Readiness.
+- Das neue `wait_admin_ready_loopback` akzeptiert ausschließlich einen
+  validierten numerischen Port und konstruiert selbst die einzige Probe-URL
+  `http://127.0.0.1:<port>/api/status`. Es besitzt exakt 60 Versuche,
+  `--connect-timeout 0.2`, `--max-time 0.5`, `--noproxy '*'`, keinen
+  Curl-Retry und eine feste Pause von 0,05 Sekunden. Vor und nach jedem
+  Probeversuch werden ActiveState, SubState und die 32-stellige
+  systemd-`InvocationID` erhoben. Nur `activating/start-pre`,
+  `activating/start` oder `active/running` derselben Aktivierung dürfen den
+  nächsten Versuch erreichen; Erfolg verlangt zusätzlich
+  `active/running` und dieselbe InvocationID nach dem HTTP-200. Jeder andere
+  Zustand, Aktivierungswechsel oder die ausgeschöpfte Versuchszahl endet
+  nonzero und damit im bestehenden fail-closed Rollback.
+- Der Produktionsaufruf steht genau einmal nach Adminstart, Appletbeweis und
+  Quieszenzbeweis sowie unmittelbar vor dem unverändert byte-identisch
+  materialisierten ersten `/api/settings`-Smoke. Es wurde kein allgemeiner
+  Netzretry und kein Ziel außerhalb von `127.0.0.1` ergänzt. Der vollständige
+  Step-9-Block einschließlich Abschluss-LF hat nun SHA-256
+  `40bbf4c5f2f4ffa7075b4e1a2fc2fa78e72cbf6ee5bafc22167055389b225233`;
+  der isolierte Readiness-Block einschließlich Abschluss-LF hat SHA-256
+  `28cdb9d69c083db10be6df744541d7a6a35af4b424df55a9cea512b82187f872`.
+- TDD begann mit drei neuen Verträgen, die am unveränderten Parent vollständig
+  rot liefen, weil der Helper fehlte. Nach der Minimalimplementierung liefen
+  dieselben `3/3` grün: Ein echter HTTP-Server bindet absichtlich verzögert
+  und wird erfolgreich abgewartet; ein nie bindender Loopbackport endet
+  innerhalb der festen Testobergrenze nonzero; und ein simulierter
+  InvocationID-Wechsel wird trotz HTTP-200 fail-closed verworfen. Diese Tests
+  führen die exakte produktive Shellfunktion aus und sind keine bloßen
+  Textprüfungen.
+- Die frische Abschlussmatrix lief als UID/GID `1000:1000`: Der
+  Rolloutvertrag entdeckte 84 Tests, führte 83 grün aus und übersprang genau
+  die bekannte Root-/`runuser`-Probe. `make check` endete mit Exit 0;
+  Plattform `166/166`; Web `9/9`; Astro prüfte 22 Dateien mit null Fehlern,
+  Warnungen oder Hinweisen. Hub und Archiv validierten jeweils 823 Dateien,
+  818 HTML-Dokumente und 10.840 interne Links mit den unveränderten
+  Baumhashes
+  `0acc6695654d3e82e450a3467d96995da89e59d954d00340d5a5028916ab1bb6`
+  und `f6e682fa639f72863f8911bb2b94d416ba83e913613797334361e439308a91bd`.
+  Ruff sowie die extrahierten Step-9- und Step-10-Blöcke unter `bash -n` und
+  ShellCheck auf Error-Severity bestanden ebenfalls.
+- Dieser Follow-up führte keinen weiteren Task-4-Versuch und keinen Runtime-,
+  API-, Service-, Installations-, Git-Remote-, Receipt-, Applet-, Archiv-,
+  Pages-, DNS-, Cloudflare-, Obsidian- oder Upstream-Write aus. Er verändert
+  ausschließlich den versionierten Plan und dessen ausführbaren
+  Vertragsregressionstest und wird als genau ein lokaler Commit unter dem
+  Benutzer `teladi` übergeben.
