@@ -3025,6 +3025,170 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
         )
         self.assertLess(producer, consumer)
 
+    def test_step9_provisions_one_exact_backend_wheel_then_builds_offline_both_ways(self) -> None:
+        backend = _marked_block(
+            self.deployment,
+            "TASK4_BUILD_BACKEND_BUNDLE",
+        )
+        self.assertIn("setuptools-83.0.0-py3-none-any.whl", backend)
+        self.assertIn(
+            "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3",
+            backend,
+        )
+        self.assertIn("1008090", backend)
+        self.assertIn(
+            "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl",
+            backend,
+        )
+        self.assertIn("setuptools==83.0.0", backend)
+        self.assertIn("4723b97f4d3f3c1d817e4896c0f7d59642e326ad891c7037482d2455b8a6bb4c", backend)
+        self.assertIn("--retry 0", backend)
+        self.assertIn("--no-index", backend)
+        self.assertIn("--find-links", backend)
+        self.assertIn("--build-constraint", backend)
+        self.assertNotIn("--no-build-isolation", self.deployment)
+        self.assertEqual(
+            self.deployment.count('install_editable_offline_bounded "$runtime"'),
+            2,
+        )
+        self.assertLess(
+            self.deployment.index("provision_build_backend_bundle"),
+            self.deployment.index("# The first operational mutation"),
+        )
+
+    def test_backend_bundle_helpers_are_hash_bound_atomic_idempotent_and_no_retry(self) -> None:
+        backend = _marked_block(
+            self.deployment,
+            "TASK4_BUILD_BACKEND_BUNDLE",
+        )
+        validate = _shell_function(backend, "validate_exact_build_backend_file")
+        download = _shell_function(backend, "download_exact_build_backend")
+        install = _shell_function(backend, "install_editable_offline_bounded")
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-backend-bundle-") as tmp:
+            root = Path(tmp)
+            fakebin = root / "bin"
+            fakebin.mkdir()
+            fixture = root / "fixture.whl"
+            fixture.write_bytes(b"exact-wheel\n")
+            expected_hash = hashlib.sha256(fixture.read_bytes()).hexdigest()
+            calls = root / "curl-calls"
+            pip_log = root / "pip-log"
+            fake_curl = fakebin / "curl"
+            fake_curl.write_text(
+                "#!/bin/bash\n"
+                "set -Eeuo pipefail\n"
+                ": \"${BACKEND_FIXTURE:?}\" \"${BACKEND_CALLS:?}\"\n"
+                "printf 'call\\n' >>\"$BACKEND_CALLS\"\n"
+                "destination=\n"
+                "while (($#)); do\n"
+                "  case \"$1\" in\n"
+                "    --output) destination=\"$2\"; shift 2 ;;\n"
+                "    *) shift ;;\n"
+                "  esac\n"
+                "done\n"
+                "test -n \"$destination\"\n"
+                "cp -- \"$BACKEND_FIXTURE\" \"$destination\"\n",
+                encoding="utf-8",
+            )
+            fake_curl.chmod(0o755)
+            runtime = root / "runtime"
+            python = runtime / ".venv" / "bin" / "python"
+            python.parent.mkdir(parents=True)
+            python.write_text(
+                "#!/bin/bash\n"
+                "set -Eeuo pipefail\n"
+                ": \"${PIP_LOG:?}\"\n"
+                "printf 'NO_INDEX=%s\\nFIND_LINKS=%s\\nCACHE=%s\\nTMP=%s\\n' "
+                "\"${PIP_NO_INDEX:-}\" \"${PIP_FIND_LINKS:-}\" \"${PIP_CACHE_DIR:-}\" "
+                "\"${TMPDIR:-}\" >>\"$PIP_LOG\"\n"
+                "printf '%q ' \"$@\" >>\"$PIP_LOG\"\n"
+                "printf '\\n' >>\"$PIP_LOG\"\n",
+                encoding="utf-8",
+            )
+            python.chmod(0o755)
+            wheelhouse = root / "wheelhouse"
+            wheelhouse.mkdir(mode=0o700)
+            destination = wheelhouse / fixture.name
+            constraint = wheelhouse / "build-constraint.txt"
+            constraint.write_text("fixture==1\n", encoding="utf-8")
+            constraint.chmod(0o600)
+            constraint_hash = hashlib.sha256(constraint.read_bytes()).hexdigest()
+            script = "\n".join(
+                (
+                    "set -Eeuo pipefail",
+                    "runtime=$RUNTIME",
+                    "backend_constraint_value=fixture==1",
+                    validate,
+                    download,
+                    install,
+                    'download_exact_build_backend "https://example.invalid/exact.whl" '
+                    '"$DESTINATION" "$EXPECTED_SIZE" "$EXPECTED_HASH"',
+                    'download_exact_build_backend "https://example.invalid/exact.whl" '
+                    '"$DESTINATION" "$EXPECTED_SIZE" "$EXPECTED_HASH"',
+                    'install_editable_offline_bounded "$RUNTIME" "$WHEELHOUSE" '
+                    '"$DESTINATION" "$EXPECTED_SIZE" "$EXPECTED_HASH" '
+                    '"$CONSTRAINT" "$CONSTRAINT_HASH"',
+                )
+            )
+            environment = {
+                "PATH": f"{fakebin}:/usr/bin:/bin",
+                "HOME": str(root),
+                "BACKEND_FIXTURE": str(fixture),
+                "BACKEND_CALLS": str(calls),
+                "PIP_LOG": str(pip_log),
+                "DESTINATION": str(destination),
+                "EXPECTED_SIZE": str(fixture.stat().st_size),
+                "EXPECTED_HASH": expected_hash,
+                "RUNTIME": str(runtime),
+                "WHEELHOUSE": str(wheelhouse),
+                "CONSTRAINT": str(constraint),
+                "CONSTRAINT_HASH": constraint_hash,
+                "PIP_CACHE_DIR": str(root / "pip-cache"),
+                "TMPDIR": str(root / "pip-tmp"),
+            }
+            result = subprocess.run(  # nosec B603 -- reviewed plan functions and isolated fakes
+                ["/bin/bash", "-c", script],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=15,
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(calls.read_text(encoding="utf-8"), "call\n")
+            pip_arguments = pip_log.read_text(encoding="utf-8")
+            self.assertIn("NO_INDEX=1", pip_arguments)
+            self.assertIn(f"FIND_LINKS={wheelhouse}", pip_arguments)
+            self.assertIn(f"CACHE={root / 'pip-cache'}", pip_arguments)
+            self.assertIn(f"TMP={root / 'pip-tmp'}", pip_arguments)
+            self.assertIn("--build-constraint", pip_arguments)
+            self.assertNotIn("--no-build-isolation", pip_arguments)
+
+            destination.write_bytes(b"corrupt\n")
+            rejected = subprocess.run(  # nosec B603 -- reviewed plan functions and isolated fakes
+                [
+                    "/bin/bash",
+                    "-c",
+                    "\n".join(
+                        (
+                            "set -Eeuo pipefail",
+                            validate,
+                            download,
+                            'download_exact_build_backend "https://example.invalid/exact.whl" '
+                            '"$DESTINATION" "$EXPECTED_SIZE" "$EXPECTED_HASH"',
+                        )
+                    ),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=15,
+                env=environment,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertEqual(calls.read_text(encoding="utf-8"), "call\n")
+
     def test_erratum_keeps_runtime_old_until_the_guarded_task4_cas(self) -> None:
         self.assertIn(
             "Task 3 verändert den Runtime-Checkout nicht",
@@ -3036,6 +3200,340 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
             self.document,
         )
 
+    def test_shared_git_and_agent_worktree_repair_is_an_exact_two_root_gate(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_SHARED_GIT_OWNERSHIP_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "shared_git_contract_test"}
+        exec(compile(program, "<task4-shared-git-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        records = namespace["EXPECTED_SHARED_GIT_INVENTORY"]
+        digest = namespace["canonical_shared_git_inventory_digest"]
+        self.assertEqual(len(records), 16)
+        self.assertEqual(
+            digest(records),
+            namespace["EXPECTED_SHARED_GIT_INVENTORY_SHA256"],
+        )
+        by_path = {record["path"]: record for record in records}
+        self.assertEqual(
+            set(by_path),
+            {
+                "objects/36/5ac97aa8e7d6e5e57a8cbd28fd4d6fb726f305",
+                "objects/72",
+                "objects/72/32f8d030b796cfc3f3f3d58ab5c4274b7a9d15",
+                "objects/88",
+                "objects/88/728187e9d0b9b06f0d645f12292c2ba4433a5f",
+                "objects/95",
+                "objects/95/6c9fa1c5f623e5c5280a5f76e32c4266b95e90",
+                "objects/a1",
+                "objects/a1/1733f4032575b4ff75ccff8d8875dcdc0c8fd5",
+                "objects/b2",
+                "objects/b2/51ed552f7eaf74e18dd0362b9e10db50a3001a",
+                "objects/c8",
+                "objects/c8/4d957dee6206774a4d98689726dce38472e4b3",
+                "objects/cb/0cea7105f5cc3fd1ae622e6513ea09681821b0",
+                "refs/heads/agent/pr4-closed-merge-reconcile",
+                "worktrees/Wirtelprimpf-generator-transactional/index",
+            },
+        )
+        self.assertEqual(
+            {
+                path
+                for path, record in by_path.items()
+                if record.get("mutable_after_handoff")
+            },
+            {
+                "refs/heads/agent/pr4-closed-merge-reconcile",
+                "worktrees/Wirtelprimpf-generator-transactional/index",
+            },
+        )
+        expected_files = {
+            "objects/36/5ac97aa8e7d6e5e57a8cbd28fd4d6fb726f305": (
+                8255432,
+                122911,
+                "f30bc04feea78c722b9e5ceedc538cb37f71a8c3c1afb3d6bc57cf160a5c8580",
+            ),
+            "objects/72/32f8d030b796cfc3f3f3d58ab5c4274b7a9d15": (
+                8255441,
+                54,
+                "deb7ce19bde9b9581efa0e4a09a4c070749cd67112fb8d253d1a7b085d962397",
+            ),
+            "objects/88/728187e9d0b9b06f0d645f12292c2ba4433a5f": (
+                8255439,
+                110,
+                "a03625cf425d2f01446ba96f47d5b78bcb076e2d96e76ade42bb81d4a9ea205c",
+            ),
+            "objects/95/6c9fa1c5f623e5c5280a5f76e32c4266b95e90": (
+                8255434,
+                42909,
+                "9b392082ba24bb04ed012787f64d85bb26347716b298825ce29849c3963fbccb",
+            ),
+            "objects/a1/1733f4032575b4ff75ccff8d8875dcdc0c8fd5": (
+                8255437,
+                212,
+                "e264dcdbf636ec8d7f9bb099a2bb98d51cacae5068181897d1d2d18d78671c87",
+            ),
+            "objects/b2/51ed552f7eaf74e18dd0362b9e10db50a3001a": (
+                8255444,
+                542,
+                "afa9a26b1fa7f6a53a5d5566ac90732141c8ad5a322e1d06ec8fe4f9370e8857",
+            ),
+            "objects/c8/4d957dee6206774a4d98689726dce38472e4b3": (
+                8255446,
+                185,
+                "d4a47fdefa6800ac688b9ebb72f069a60137a72c08e15809d4883a6c5fa8d8bc",
+            ),
+            "objects/cb/0cea7105f5cc3fd1ae622e6513ea09681821b0": (
+                8255442,
+                453,
+                "a4f55d1f9586d51eeaa44c7a6f2e3161e51f23c59b9cd128545eed1c28f64c5a",
+            ),
+            "refs/heads/agent/pr4-closed-merge-reconcile": (
+                8255448,
+                41,
+                "3f80500cb40140e6642e336b26e8246d538cb3d82d6351724b79dd460e9a8633",
+            ),
+            "worktrees/Wirtelprimpf-generator-transactional/index": (
+                8255435,
+                16384,
+                "27711dcae0f8384c048416b540b052dfebd27ce790e67ba6717230653defd10b",
+            ),
+        }
+        self.assertEqual(
+            {
+                path: (record["ino"], record["size"], record["sha256"])
+                for path, record in by_path.items()
+                if record["type"] == "f"
+            },
+            expected_files,
+        )
+        self.assertTrue(all(record["dev"] == 53 for record in records))
+        worktree_records = namespace["EXPECTED_AGENT_WORKTREE_INVENTORY"]
+        self.assertEqual(len(worktree_records), 7)
+        self.assertEqual(
+            digest(worktree_records),
+            namespace["EXPECTED_AGENT_WORKTREE_INVENTORY_SHA256"],
+        )
+        self.assertEqual(
+            {
+                record["path"]: (
+                    record["ino"],
+                    record["size"],
+                    record["sha256"],
+                )
+                for record in worktree_records
+            },
+            {
+                "Sourcecode/__pycache__/wirtelprimpf_generator.cpython-314.pyc": (
+                    8260528,
+                    179978,
+                    "a87459c4d56cb0f4a19c8c9887b2e063bd4439cfbd103420f3e43aa563c90ba4",
+                ),
+                "files/wirtelprimfgenerator@H234598/__pycache__/SettingsLogo.cpython-314.pyc": (
+                    8260530,
+                    79049,
+                    "88da66685a5126fa15f86ef0dbd4ff8f87d81cc9acd018bc92845f566c64b6a8",
+                ),
+                "files/wirtelprimfgenerator@H234598/__pycache__/StoryDirectives.cpython-314.pyc": (
+                    8260533,
+                    17229,
+                    "c2db579a19d9ab4fc6da858ab4794bb12fd50a6f4b148c94956901d73a173f72",
+                ),
+                "files/wirtelprimfgenerator@H234598/__pycache__/helper.cpython-314.pyc": (
+                    8260529,
+                    103680,
+                    "4c4eb97a67f1699ead445bed3caa703522b99470f97eecdbd4b3118023619a25",
+                ),
+                "files/wirtelprimfgenerator@H234598/__pycache__/settings_sync.cpython-314.pyc": (
+                    8260531,
+                    71684,
+                    "2dd89ccf346e4215a49a425a4755aeea51b5c106865e25a53b5f4122629ff41d",
+                ),
+                "files/wirtelprimfgenerator@H234598/__pycache__/story_directives_core.cpython-314.pyc": (
+                    8260532,
+                    40742,
+                    "ced12684398a0f49b4f581ce393809150cc4f1e0d7f3ce3ac2d8e4a0b2e4dc68",
+                ),
+                "tests/__pycache__/test_rollout_plan_contract.cpython-314.pyc": (
+                    8255088,
+                    233891,
+                    "1d2bf1c7cccad0c82e0e224f8546a47a0e2992144db0187cf3e44adcf86da377",
+                ),
+            },
+        )
+        self.assertTrue(
+            all(
+                record["dev"] == 53
+                and record["mode"] == 0o644
+                and record["nlink"] == 1
+                and record["mutable_after_handoff"] is False
+                for record in worktree_records
+            )
+        )
+        self.assertIn("expected_agent_worktree_inventory_count=7", self.ownership_gate)
+        self.assertIn(
+            "capture_shared_git_repair_inventory",
+            namespace,
+        )
+
+    def test_shared_git_repair_rejects_foreign_or_hash_drift_and_rolls_back(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_SHARED_GIT_OWNERSHIP_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "shared_git_contract_test"}
+        exec(compile(program, "<task4-shared-git-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        capture = namespace["capture_shared_git_repair_inventory"]
+        bind = namespace["bind_shared_git_inventory_fds"]
+        apply_transaction = namespace["apply_shared_git_ownership_transaction"]
+        close_bound = namespace["close_bound_shared_git_inventory"]
+        contract_os = namespace["os"]
+        source, target, third = _ownership_test_owner_pairs()
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-shared-git-") as tmp:
+            root = Path(tmp).resolve()
+            objects = root / "objects"
+            shard = objects / "aa"
+            shard.mkdir(parents=True)
+            payload = shard / "0123456789abcdef"
+            payload.write_bytes(b"bound object\n")
+            os.chown(root, *target)
+            os.chown(objects, *target)
+            expected = (
+                {
+                    "type": "d",
+                    "path": "objects/aa",
+                    "dev": shard.stat().st_dev,
+                    "ino": shard.stat().st_ino,
+                    "mode": shard.stat().st_mode & 0o7777,
+                    "nlink": shard.stat().st_nlink,
+                    "mutable_after_handoff": False,
+                },
+                {
+                    "type": "f",
+                    "path": "objects/aa/0123456789abcdef",
+                    "dev": payload.stat().st_dev,
+                    "ino": payload.stat().st_ino,
+                    "mode": payload.stat().st_mode & 0o7777,
+                    "nlink": payload.stat().st_nlink,
+                    "size": payload.stat().st_size,
+                    "sha256": hashlib.sha256(payload.read_bytes()).hexdigest(),
+                    "mutable_after_handoff": False,
+                },
+            )
+            records = capture(str(root), expected, *source, *target)
+            bound = bind(str(root), records, *source, *target)
+            original_fchown = contract_os.fchown
+            calls = 0
+
+            def fail_second_target_write(fd: int, uid: int, gid: int) -> None:
+                nonlocal calls
+                if (uid, gid) == target:
+                    calls += 1
+                    if calls == 2:
+                        raise OSError("injected shared-git ownership failure")
+                original_fchown(fd, uid, gid)
+
+            contract_os.fchown = fail_second_target_write
+            try:
+                with self.assertRaisesRegex(RuntimeError, "rollback complete"):
+                    apply_transaction(bound, *source, *target)
+                self.assertEqual((shard.stat().st_uid, shard.stat().st_gid), source)
+                self.assertEqual((payload.stat().st_uid, payload.stat().st_gid), source)
+            finally:
+                contract_os.fchown = original_fchown
+                close_bound(bound)
+
+            payload.write_bytes(b"other object\n")
+            with self.assertRaisesRegex(RuntimeError, "digest drift"):
+                capture(str(root), expected, *source, *target)
+            payload.write_bytes(b"bound object\n")
+            foreign = root / "foreign"
+            foreign.write_text("foreign\n", encoding="utf-8")
+            os.chown(foreign, *third)
+            with self.assertRaisesRegex(RuntimeError, "unexpected foreign"):
+                capture(str(root), expected, *source, *target)
+            foreign.unlink()
+
+            expected[1]["mutable_after_handoff"] = True
+            records = capture(str(root), expected, *source, *target)
+            bound = bind(str(root), records, *source, *target)
+            try:
+                apply_transaction(bound, *source, *target)
+            finally:
+                close_bound(bound)
+            self.assertEqual((shard.stat().st_uid, shard.stat().st_gid), target)
+            self.assertEqual((payload.stat().st_uid, payload.stat().st_gid), target)
+
+            payload.unlink()
+            payload.write_bytes(b"target-owned replacement after handoff\n")
+            payload.chmod(expected[1]["mode"])
+            os.chown(payload, *target)
+            capture(str(root), expected, *source, *target)
+
+    def test_exact_ownership_transaction_rolls_back_across_both_roots(self) -> None:
+        _prefix, program = _quoted_heredoc(
+            self.ownership_gate,
+            "TASK4_SHARED_GIT_OWNERSHIP_PY",
+        )
+        namespace: dict[str, object] = {"__name__": "two_root_contract_test"}
+        exec(compile(program, "<task4-two-root-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
+        capture = namespace["capture_shared_git_repair_inventory"]
+        bind = namespace["bind_shared_git_inventory_fds"]
+        apply_transaction = namespace["apply_shared_git_ownership_transaction"]
+        close_bound = namespace["close_bound_shared_git_inventory"]
+        contract_os = namespace["os"]
+        source, target, _third = _ownership_test_owner_pairs()
+
+        with tempfile.TemporaryDirectory(prefix="wirtelprimpf-two-root-") as tmp:
+            roots = [Path(tmp) / "shared", Path(tmp) / "worktree"]
+            bound: list[dict[str, object]] = []
+            candidates = []
+            for index, root in enumerate(roots):
+                root.mkdir()
+                os.chown(root, *target)
+                candidate = root / f"candidate-{index}"
+                candidate.write_bytes(f"root-{index}\n".encode())
+                candidates.append(candidate)
+                expected = (
+                    {
+                        "type": "f",
+                        "path": candidate.name,
+                        "dev": candidate.stat().st_dev,
+                        "ino": candidate.stat().st_ino,
+                        "mode": candidate.stat().st_mode & 0o7777,
+                        "nlink": candidate.stat().st_nlink,
+                        "size": candidate.stat().st_size,
+                        "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
+                        "mutable_after_handoff": False,
+                    },
+                )
+                observed = capture(str(root), expected, *source, *target)
+                bound.extend(bind(str(root), observed, *source, *target))
+
+            original_fchown = contract_os.fchown
+            writes = 0
+
+            def fail_second_root(fd: int, uid: int, gid: int) -> None:
+                nonlocal writes
+                if (uid, gid) == target:
+                    writes += 1
+                    if writes == 2:
+                        raise OSError("injected second-root failure")
+                original_fchown(fd, uid, gid)
+
+            contract_os.fchown = fail_second_root
+            try:
+                with self.assertRaisesRegex(RuntimeError, "rollback complete"):
+                    apply_transaction(bound, *source, *target)
+                self.assertEqual(
+                    [(path.stat().st_uid, path.stat().st_gid) for path in candidates],
+                    [source, source],
+                )
+            finally:
+                contract_os.fchown = original_fchown
+                close_bound(bound)  # type: ignore[arg-type]
+
     def test_task4_ownership_program_uses_its_normative_isolated_interpreter(self) -> None:
         prefix, program = _quoted_heredoc(
             self.ownership_gate,
@@ -3044,7 +3542,7 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
         invocation_line = next(
             line
             for line in prefix.splitlines()
-            if line.startswith("/usr/bin/python3 ")
+            if line.startswith("/usr/bin/python3 ") and '"$runtime"' in line
         ).rstrip()
         self.assertTrue(invocation_line.endswith("\\"))
         invocation = shlex.split(invocation_line[:-1].rstrip())
@@ -3533,6 +4031,10 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
         self.assertIn("planned-remote-committed-reconciled", self.harness)
         self.assertIn("remote-committed-api-failure", self.harness)
         self.assertIn("verified-without-second-push", self.harness)
+        self.assertIn("backend-single-fetch", self.harness)
+        self.assertIn("backend-offline-forward", self.harness)
+        self.assertIn("backend-offline-rollback", self.harness)
+        self.assertIn("backend-corruption-rejected", self.harness)
 
     def test_step10_models_search_precedence_and_the_interrupted_retry(self) -> None:
         for state_file in (
@@ -3546,6 +4048,8 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
         self.assertIn("lower-priority-mask-is-ineffective", self.harness)
         self.assertIn("interrupted-four-link-adoption", self.harness)
         self.assertIn("timer-recovery-normalized", self.harness)
+        self.assertIn("historical-HNkEdc-evidence", self.harness)
+        self.assertIn("current-f1iePQ-inode-hash-chain", self.harness)
 
         quiesce = _shell_function(self.harness, "quiesce_generator_harness")
         lower = quiesce.index("service-legacy-mask")
@@ -3607,7 +4111,18 @@ assert_private_backup_root "$1" "$2" "$3" "$4" "$5" "$6"
             gid = os.getegid()
 
             valid = subprocess.run(  # nosec B603 -- fixed Bash argv and local fixture
-                ["/bin/bash", "-c", script, "backup-root-test", str(root), str(root), str(uid), str(gid), str(root.stat().st_dev), str(root.stat().st_ino)],
+                [
+                    "/bin/bash",
+                    "-c",
+                    script,
+                    "backup-root-test",
+                    str(root),
+                    str(root),
+                    str(uid),
+                    str(gid),
+                    str(root.stat().st_dev),
+                    str(root.stat().st_ino),
+                ],
                 text=True,
                 capture_output=True,
                 check=False,
@@ -3618,7 +4133,18 @@ assert_private_backup_root "$1" "$2" "$3" "$4" "$5" "$6"
 
             root.chmod(0o755)
             wrong_mode = subprocess.run(  # nosec B603 -- fixed Bash argv and local fixture
-                ["/bin/bash", "-c", script, "backup-root-test", str(root), str(root), str(uid), str(gid), str(root.stat().st_dev), str(root.stat().st_ino)],
+                [
+                    "/bin/bash",
+                    "-c",
+                    script,
+                    "backup-root-test",
+                    str(root),
+                    str(root),
+                    str(uid),
+                    str(gid),
+                    str(root.stat().st_dev),
+                    str(root.stat().st_ino),
+                ],
                 text=True,
                 capture_output=True,
                 check=False,
@@ -3632,7 +4158,18 @@ assert_private_backup_root "$1" "$2" "$3" "$4" "$5" "$6"
             alias = Path(tmp) / "backup-alias"
             alias.symlink_to(root, target_is_directory=True)
             symlink = subprocess.run(  # nosec B603 -- fixed Bash argv and local fixture
-                ["/bin/bash", "-c", script, "backup-root-test", str(alias), str(alias), str(uid), str(gid), str(root.stat().st_dev), str(root.stat().st_ino)],
+                [
+                    "/bin/bash",
+                    "-c",
+                    script,
+                    "backup-root-test",
+                    str(alias),
+                    str(alias),
+                    str(uid),
+                    str(gid),
+                    str(root.stat().st_dev),
+                    str(root.stat().st_ino),
+                ],
                 text=True,
                 capture_output=True,
                 check=False,
@@ -3643,7 +4180,18 @@ assert_private_backup_root "$1" "$2" "$3" "$4" "$5" "$6"
             self.assertTrue(alias.is_symlink())
 
             wrong_inode = subprocess.run(  # nosec B603 -- fixed Bash argv and local fixture
-                ["/bin/bash", "-c", script, "backup-root-test", str(root), str(root), str(uid), str(gid), str(root.stat().st_dev), str(root.stat().st_ino + 1)],
+                [
+                    "/bin/bash",
+                    "-c",
+                    script,
+                    "backup-root-test",
+                    str(root),
+                    str(root),
+                    str(uid),
+                    str(gid),
+                    str(root.stat().st_dev),
+                    str(root.stat().st_ino + 1),
+                ],
                 text=True,
                 capture_output=True,
                 check=False,
@@ -3766,41 +4314,103 @@ assert_private_backup_root "$1" "$2" "$3" "$4" "$5" "$6"
         namespace: dict[str, object] = {"__name__": "runtime_barrier_contract_test"}
         exec(compile(program, "<task4-runtime-barrier-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
         validate_prestate = namespace["validate_interrupted_prestate"]
-        interrupted_prestate = namespace["INTERRUPTED_PRESTATE"]
-        interrupted_barriers = namespace["INTERRUPTED_BARRIERS"]
+        validate_chain = namespace["validate_interrupted_attempt_chain"]
+        interrupted_chain = namespace["INTERRUPTED_ATTEMPT_CHAIN"]
+        barrier_history = namespace["INTERRUPTED_BARRIER_HISTORY"]
+        current_attempt = namespace["CURRENT_INTERRUPTED_ATTEMPT"]
 
-        self.assertEqual(interrupted_prestate["path"], "/home/teladi/.local/state/wirtelprimpf/deploy-backups/20260801-admin-live.HNkEdc")
+        self.assertEqual(current_attempt, "f1iePQ")
         self.assertEqual(
-            (interrupted_prestate["dev"], interrupted_prestate["ino"]),
+            [(record["name"], record["path"], record["current"]) for record in interrupted_chain],
+            [
+                (
+                    "HNkEdc",
+                    "/home/teladi/.local/state/wirtelprimpf/deploy-backups/20260801-admin-live.HNkEdc",
+                    False,
+                ),
+                (
+                    "f1iePQ",
+                    "/home/teladi/.local/state/wirtelprimpf/deploy-backups/20260801-admin-live.f1iePQ",
+                    True,
+                ),
+            ],
+        )
+        historical_prestate, current_prestate = interrupted_chain
+        self.assertEqual(
+            (historical_prestate["dev"], historical_prestate["ino"]),
             (53, 8250927),
+        )
+        self.assertEqual(
+            (current_prestate["dev"], current_prestate["ino"]),
+            (53, 8256518),
         )
         self.assertEqual(
             {
                 name: (record["ino"], record["sha256"])
-                for name, record in interrupted_prestate["files"].items()
+                for name, record in current_prestate["files"].items()
             },
             {
-                "runtime-sha-before": (8250928, "c884bec764a03e4c876acf6beaee32b17ad55b863c11b22b5d80724f51392873"),
-                "runtime-branch-before": (8250929, "6403203dd5a0867eb14d104ee8a73730bd72dd9ad92e78d996a6dba0a5dcfc01"),
-                "target-sha": (8250930, "784140f1bd8201950fe8f91ba37775371cc87530643efe6fb3d814203ca81aa2"),
-                "timer-enabled-before": (8250931, "e056a35db086947e2f5969d747f0a7517bff00c7ffff1f9e7b47b72bfac9d948"),
-                "timer-active-before": (8250932, "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659"),
-                "admin-active-before": (8250933, "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659"),
-                "service-unit-state-before": (8250934, "652cabf0de6cd70f66f72b17d6409203b84909be9864261feb614943f2e6cc62"),
-                "service-load-state-before": (8250935, "25dbd4fa5b9f0710b9f27009c1e38969b8cbb2806502388beae5063d460a85f5"),
+                "runtime-sha-before": (8256519, "c884bec764a03e4c876acf6beaee32b17ad55b863c11b22b5d80724f51392873"),
+                "runtime-branch-before": (8256520, "6403203dd5a0867eb14d104ee8a73730bd72dd9ad92e78d996a6dba0a5dcfc01"),
+                "target-sha": (8256521, "784140f1bd8201950fe8f91ba37775371cc87530643efe6fb3d814203ca81aa2"),
+                "timer-enabled-before": (8256522, "e056a35db086947e2f5969d747f0a7517bff00c7ffff1f9e7b47b72bfac9d948"),
+                "timer-active-before": (8256523, "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659"),
+                "admin-active-before": (8256524, "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659"),
+                "service-unit-state-before": (
+                    8256525,
+                    "652cabf0de6cd70f66f72b17d6409203b84909be9864261feb614943f2e6cc62",
+                ),
+                "service-load-state-before": (
+                    8256526,
+                    "25dbd4fa5b9f0710b9f27009c1e38969b8cbb2806502388beae5063d460a85f5",
+                ),
             },
         )
         self.assertEqual(
             {
+                name: (record["ino"], record["sha256"])
+                for name, record in current_prestate["evidence_files"].items()
+            },
+            {
+                "config-manifest.tsv": (8256539, "76aaf7d6461ae8460b62c6abdec2976fe0c3cc7920c7159e7ef705fdee2cdbd3"),
+                "install-manifest.tsv": (8256540, "806f2a93095233058b2e787abde9f1a9196c5292db412f66fbc1f44c5336c486"),
+                "directory-modes-before.tsv": (
+                    8256541,
+                    "9eb4d6d28e9058ff0297965dee2f2d1eaa5649fb849549a1bbd2deb71c416c89",
+                ),
+            },
+        )
+        self.assertEqual(
+            current_prestate["payload_directory"],
+            {
+                "path": "files",
+                "dev": 53,
+                "ino": 8256538,
+                "mode": 0o700,
+                "entries": {
+                    "001": {"type": "f", "dev": 53, "ino": 8256542, "mode": 0o600, "nlink": 1, "size": 2080},
+                    "002": {"type": "f", "dev": 53, "ino": 8256543, "mode": 0o600, "nlink": 1, "size": 75},
+                    "003": {"type": "f", "dev": 53, "ino": 8256544, "mode": 0o644, "nlink": 1, "size": 128},
+                    "005": {"type": "d", "dev": 53, "ino": 8256545, "mode": 0o755, "nlink": 1, "size": 326},
+                    "007": {"type": "f", "dev": 53, "ino": 8256571, "mode": 0o755, "nlink": 1, "size": 24639},
+                    "008": {"type": "f", "dev": 53, "ino": 8256572, "mode": 0o644, "nlink": 1, "size": 1047},
+                    "009": {"type": "f", "dev": 53, "ino": 8256573, "mode": 0o644, "nlink": 1, "size": 187},
+                    "010": {"type": "f", "dev": 53, "ino": 8256574, "mode": 0o644, "nlink": 1, "size": 968},
+                },
+            },
+        )
+        current_barriers = barrier_history[current_attempt]
+        self.assertEqual(
+            {
                 (side, unit): (record["dev"], record["ino"])
-                for side, units in interrupted_barriers.items()
+                for side, units in current_barriers["links"].items()
                 for unit, record in units.items()
             },
             {
                 ("control", "wirtelprimpf.service"): (84, 48465),
-                ("control", "wirtelprimpf.timer"): (84, 48466),
+                ("control", "wirtelprimpf.timer"): (84, 49929),
                 ("legacy", "wirtelprimpf.service"): (84, 47828),
-                ("legacy", "wirtelprimpf.timer"): (84, 48126),
+                ("legacy", "wirtelprimpf.timer"): (84, 49854),
             },
         )
 
@@ -3815,36 +4425,52 @@ assert_private_backup_root "$1" "$2" "$3" "$4" "$5" "$6"
             "service-load-state-before": "loaded",
         }
         with tempfile.TemporaryDirectory(prefix="wirtelprimpf-interrupted-prestate-") as tmp:
-            root = Path(tmp) / "failed-attempt"
-            root.mkdir(mode=0o700)
-            for name, value in values.items():
-                path = root / name
-                path.write_text(value + "\n", encoding="utf-8")
-                path.chmod(0o600)
-            expected = {
-                "path": str(root),
-                "dev": root.stat().st_dev,
-                "ino": root.stat().st_ino,
-                "files": {
-                    name: {
-                        "dev": (root / name).stat().st_dev,
-                        "ino": (root / name).stat().st_ino,
-                        "sha256": hashlib.sha256((value + "\n").encode()).hexdigest(),
+            chain_fixture = []
+            for index, attempt_name in enumerate(("old", "current")):
+                root = Path(tmp) / attempt_name
+                root.mkdir(mode=0o700)
+                for name, value in values.items():
+                    path = root / name
+                    path.write_text(value + "\n", encoding="utf-8")
+                    path.chmod(0o600)
+                chain_fixture.append(
+                    {
+                        "name": attempt_name,
+                        "current": index == 1,
+                        "path": str(root),
+                        "dev": root.stat().st_dev,
+                        "ino": root.stat().st_ino,
+                        "files": {
+                            name: {
+                                "dev": (root / name).stat().st_dev,
+                                "ino": (root / name).stat().st_ino,
+                                "sha256": hashlib.sha256((value + "\n").encode()).hexdigest(),
+                            }
+                            for name, value in values.items()
+                        },
                     }
-                    for name, value in values.items()
-                },
-            }
+                )
+            expected = chain_fixture[-1]
             validated = validate_prestate(
-                str(root), expected, os.geteuid(), os.getegid()
+                expected["path"], expected, os.geteuid(), os.getegid()
             )
             self.assertEqual(validated, values)
+            self.assertEqual(
+                validate_chain(tuple(chain_fixture), os.geteuid(), os.getegid()),
+                values,
+            )
 
-            replaced = root / "admin-active-before"
+            ambiguous = copy.deepcopy(chain_fixture)
+            ambiguous[0]["current"] = True
+            with self.assertRaisesRegex(RuntimeError, "unique current"):
+                validate_chain(tuple(ambiguous), os.geteuid(), os.getegid())
+
+            replaced = Path(expected["path"]) / "admin-active-before"
             replaced.unlink()
             replaced.write_text("active\n", encoding="utf-8")
             replaced.chmod(0o600)
             with self.assertRaises(RuntimeError):
-                validate_prestate(str(root), expected, os.geteuid(), os.getegid())
+                validate_prestate(expected["path"], expected, os.geteuid(), os.getegid())
 
         recovery = _marked_block(
             self.deployment,
@@ -4395,6 +5021,12 @@ runtime_sha_before=1111111111111111111111111111111111111111
 runtime_branch_before=main
 runtime=/nonexistent/runtime
 deploy_backup=/nonexistent/backup
+backend_wheelhouse=/nonexistent/wheelhouse
+backend_wheel=/nonexistent/wheelhouse/backend.whl
+backend_wheel_size=1
+backend_wheel_sha256={'0' * 64}
+backend_constraint=/nonexistent/wheelhouse/constraint.txt
+backend_constraint_sha256={'1' * 64}
 timer_enabled_before=disabled
 timer_active_before=inactive
 admin_active_before=inactive
@@ -4435,6 +5067,7 @@ systemctl() {{
   esac
 }}
 timeout() {{ return 0; }}
+install_editable_offline_bounded() {{ return 0; }}
 cmp() {{ return 0; }}
 diff() {{ return 0; }}
 gdbus() {{ printf '(@as [],)\\n'; }}

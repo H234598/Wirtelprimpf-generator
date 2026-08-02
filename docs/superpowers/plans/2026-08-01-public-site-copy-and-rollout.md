@@ -2306,20 +2306,38 @@ Ziel-SHA entsprechen. Jede frühere Gleichheit ist ein harter Abbruchgrund.
 #### Verbindliches Ownership-Gate vor jedem Runtime-Gitlauf
 
 Die frühere Zahl 450 war ein veralteter Snapshot und darf keine Besitzänderung
-mehr autorisieren. Der aktuelle read-only Ausgangsbefund umfasst exakt 84
-`root:root`-Einträge. Ihre relativen Pfade und Typen sind unten als unveränderliche
-Allowlist plus SHA-256 gebunden; es gibt keinen Modus, der diese Allowlist bei
-Drift neu erzeugt. Ein Erstlauf darf alle 84 Einträge als `root:root`, ein
-idempotenter Wiederholungslauf alle als `1000:1000` und ein Wiederanlauf nach
-SIGKILL oder Stromverlust eine beliebige Mischung genau dieser beiden
-Besitzpaare vorfinden. Eine solche Mischung wird ausschließlich zielwärts auf
-`1000:1000` vervollständigt; bereits zielrichtige Einträge werden nie auf Root
-zurückgesetzt. Jeder dritte Besitzer, jeder zusätzliche fremdbesessene Pfad,
-jede fehlende Allowlistposition, Symlinks oder Special Files in der
-Fremdbesitzmenge, mehrfach verlinkte reguläre Allowlistdateien, Submounts und
-nichtkanonische Pfade stoppen vor dem ersten Write. Bereits korrekt
-`teladi`-eigene Runtimeobjekte und venv-Symlinks werden weder in die statische
-Fremdbesitz-Allowlist aufgenommen noch verfolgt oder verändert.
+mehr autorisieren. Die unmittelbar vorherige 84-Pfad-Runtime-Allowlist bleibt
+historisch und idempotent unverändert; ihr separater Live-Runtime-Arbeitsbaum
+ist nach dem bereits abgeschlossenen Handoff vollständig `1000:1000`. Ein
+irrtümlich als Root erzeugter lokaler Commit schrieb jedoch exakt 16 neue
+`root:root`-Einträge in das von allen Worktrees gemeinsam verwendete
+`/home/teladi/.local/share/wirtelprimpf-generator/.git`: acht lose Objekte,
+sechs dazugehörige Shard-Verzeichnisse, den Branchref und den verknüpften
+Worktree-Index. Der aktuelle read-only Befund bindet diese 16 Positionen mit
+Device, Inode, Typ, Modus, Linkzahl und bei Dateien zusätzlich Größe und
+SHA-256; kein Modus erzeugt die Allowlist bei Drift neu. Davon strikt getrennt
+liegen sieben root-eigene Pyc-Dateien ausschließlich im Agent-Worktree
+`/home/teladi/codex_worktrees/Wirtelprimpf-generator-transactional`. Sechs
+entstanden bei einem vorzeitig im Root-Kontext gestarteten und vor jeder
+Installation/Laufzeitaktion abgebrochenen Matrixlauf; ein Rollout-Pyc bestand
+schon zuvor. Auch diese sieben Dateien sind mit Root-Device/Inode, Modus,
+Linkzahl, Größe und SHA-256 unveränderlich gebunden. Sie werden weder als Teil
+der Live-Runtime noch als Erweiterung der 84-Pfad-Allowlist behandelt.
+
+Der exakte Zwei-Root-Gate läuft deshalb zuerst. Er darf jede der 16
+Shared-Git- und sieben Agent-Worktree-Positionen
+entweder als exakten `root:root`-Eintritt oder als bereits übergebenes
+`1000:1000`-Objekt finden und vervollständigt ausschließlich zielwärts. Für die
+14 unveränderlichen Objektpositionen bleiben Inode und Dateiinhalt auch nach
+dem Handoff fest. Nur Ref und Index dürfen nach vollständiger Übergabe durch
+einen späteren Git-Write als `teladi` atomar ersetzt werden; ein neuer
+root-eigener Ref/Index-Inode wird niemals gelernt oder repariert. Jeder dritte
+Besitzer, jeder zusätzliche fremdbesessene Pfad, eine fehlende Position,
+Symlinks oder Special Files in der Fremdbesitzmenge, mehrfach verlinkte
+reguläre Dateien, Submounts und nichtkanonische Pfade stoppen vor dem ersten
+Write. Erst danach bestätigt der unveränderte 84-Pfad-Gate, dass auch der
+Runtime-Arbeitsbaum vollständig `teladi` gehört. Bereits korrekte venv-Symlinks
+werden weiterhin weder verfolgt noch verändert.
 
 Danach öffnet Root jeden aufgezeichneten Pfad komponentenweise relativ zu einem
 kanonischen Runtime-Directory-FD mit `O_NOFOLLOW`, bindet Device, Inode, Typ,
@@ -2335,22 +2353,723 @@ macht den Rollback ausdrücklich `INCOMPLETE` und ist ein eigener harter Fehler.
 Ein signalbedingter, vollständiger Rollback endet mit `128 + Signalnummer` und
 druckt niemals die Erfolgsmeldung.
 
-Der finale Commitpunkt blockiert HUP, INT und TERM, konsumiert bereits
-anstehende Transaktionssignale und stellt die vorherigen Signalhandler noch vor
+Beide finalen Commitpunkte blockieren HUP, INT und TERM, konsumieren bereits
+anstehende Transaktionssignale und stellen die vorherigen Signalhandler noch vor
 dem Entsperren wieder her; ein spät eintreffendes Signal kann daher nicht als
 scheinbarer Erfolg verschluckt werden. SIGKILL ist nicht abfangbar: Ein dadurch
-zurückbleibender Mischzustand wird beim nächsten Lauf aus derselben statischen
-84-Pfad-Allowlist erkannt und zielwärts beendet, niemals aus einem neu erzeugten
-Inventar. Der Heredoc startet ausschließlich mit dem absoluten Interpreter und
-`-I`; das Programm selbst prüft `isolated` und `safe_path` vor jedem
-schattenbaren Import. Es gibt keine `safe.directory`-Ausnahme und keinen
-pfadbasierten rekursiven `chown`:
+zurückbleibender Mischzustand wird beim nächsten Lauf aus denselben statischen
+16-, 7- beziehungsweise 84-Pfad-Allowlisten erkannt und zielwärts beendet, niemals
+aus einem neu erzeugten Inventar. Beide Heredocs starten ausschließlich mit dem
+absoluten Interpreter und `-I`; die Programme prüfen `isolated` und `safe_path`
+vor jedem schattenbaren Import. Es gibt keine `safe.directory`-Ausnahme und
+keinen pfadbasierten rekursiven `chown`:
 
 ```bash
 test "$(id -u)" = 0
 runtime=/home/teladi/.local/share/wirtelprimpf-generator
 test -d "$runtime" && test ! -L "$runtime"
 test "$(realpath -e -- "$runtime")" = "$runtime"
+
+# The shared common Git directory is repaired first. The branch ref and linked
+# worktree index are exact root-owned handoff records now, but Git may replace
+# their inode/content after this handoff once every write runs as teladi. Such
+# target-owned post-handoff drift is accepted; a newly root-owned replacement
+# is never inferred or repaired. Every object record remains immutable.
+shared_git_common=/home/teladi/.local/share/wirtelprimpf-generator/.git
+expected_shared_git_inventory_count=16
+expected_shared_git_inventory_sha256=1567d717e89da2f2acaf88ea1c2d7cba6c7a4e5fa646ab4c3a94f0e008aa8bf0
+agent_worktree=/home/teladi/codex_worktrees/Wirtelprimpf-generator-transactional
+expected_agent_worktree_inventory_count=7
+expected_agent_worktree_inventory_sha256=7c35636e7407ea0ce0edc52010a932e858dc749e0f0a0354fd3debe49ccb361a
+/usr/bin/python3 -I - "$shared_git_common" \
+  "$expected_shared_git_inventory_count" \
+  "$expected_shared_git_inventory_sha256" \
+  "$agent_worktree" \
+  "$expected_agent_worktree_inventory_count" \
+  "$expected_agent_worktree_inventory_sha256" <<'TASK4_SHARED_GIT_OWNERSHIP_PY'
+from __future__ import annotations
+
+import sys
+
+if __name__ == "__main__" and (
+    sys.flags.isolated != 1 or sys.flags.safe_path != 1
+):
+    raise SystemExit("shared Git ownership gate requires isolated safe-path Python")
+
+import hashlib
+import json
+import os
+import signal
+import stat
+from pathlib import Path
+from typing import Any
+
+
+EXPECTED_SHARED_GIT_ROOT = {
+    "dev": 53,
+    "ino": 7962067,
+    "mode": 0o755,
+}
+EXPECTED_AGENT_WORKTREE_ROOT = {
+    "dev": 53,
+    "ino": 8063998,
+    "mode": 0o755,
+}
+EXPECTED_OWNERSHIP_ROOTS = {
+    "/home/teladi/.local/share/wirtelprimpf-generator/.git": EXPECTED_SHARED_GIT_ROOT,
+    "/home/teladi/codex_worktrees/Wirtelprimpf-generator-transactional": EXPECTED_AGENT_WORKTREE_ROOT,
+}
+EXPECTED_SHARED_GIT_INVENTORY = (
+    {
+        "type": "f",
+        "path": "objects/36/5ac97aa8e7d6e5e57a8cbd28fd4d6fb726f305",
+        "dev": 53,
+        "ino": 8255432,
+        "mode": 0o444,
+        "nlink": 1,
+        "size": 122911,
+        "sha256": "f30bc04feea78c722b9e5ceedc538cb37f71a8c3c1afb3d6bc57cf160a5c8580",
+        "mutable_after_handoff": False,
+    },
+    {"type": "d", "path": "objects/72", "dev": 53, "ino": 8255440, "mode": 0o755, "nlink": 1, "mutable_after_handoff": False},
+    {
+        "type": "f",
+        "path": "objects/72/32f8d030b796cfc3f3f3d58ab5c4274b7a9d15",
+        "dev": 53,
+        "ino": 8255441,
+        "mode": 0o444,
+        "nlink": 1,
+        "size": 54,
+        "sha256": "deb7ce19bde9b9581efa0e4a09a4c070749cd67112fb8d253d1a7b085d962397",
+        "mutable_after_handoff": False,
+    },
+    {"type": "d", "path": "objects/88", "dev": 53, "ino": 8255438, "mode": 0o755, "nlink": 1, "mutable_after_handoff": False},
+    {
+        "type": "f",
+        "path": "objects/88/728187e9d0b9b06f0d645f12292c2ba4433a5f",
+        "dev": 53,
+        "ino": 8255439,
+        "mode": 0o444,
+        "nlink": 1,
+        "size": 110,
+        "sha256": "a03625cf425d2f01446ba96f47d5b78bcb076e2d96e76ade42bb81d4a9ea205c",
+        "mutable_after_handoff": False,
+    },
+    {"type": "d", "path": "objects/95", "dev": 53, "ino": 8255433, "mode": 0o755, "nlink": 1, "mutable_after_handoff": False},
+    {
+        "type": "f",
+        "path": "objects/95/6c9fa1c5f623e5c5280a5f76e32c4266b95e90",
+        "dev": 53,
+        "ino": 8255434,
+        "mode": 0o444,
+        "nlink": 1,
+        "size": 42909,
+        "sha256": "9b392082ba24bb04ed012787f64d85bb26347716b298825ce29849c3963fbccb",
+        "mutable_after_handoff": False,
+    },
+    {"type": "d", "path": "objects/a1", "dev": 53, "ino": 8255436, "mode": 0o755, "nlink": 1, "mutable_after_handoff": False},
+    {
+        "type": "f",
+        "path": "objects/a1/1733f4032575b4ff75ccff8d8875dcdc0c8fd5",
+        "dev": 53,
+        "ino": 8255437,
+        "mode": 0o444,
+        "nlink": 1,
+        "size": 212,
+        "sha256": "e264dcdbf636ec8d7f9bb099a2bb98d51cacae5068181897d1d2d18d78671c87",
+        "mutable_after_handoff": False,
+    },
+    {"type": "d", "path": "objects/b2", "dev": 53, "ino": 8255443, "mode": 0o755, "nlink": 1, "mutable_after_handoff": False},
+    {
+        "type": "f",
+        "path": "objects/b2/51ed552f7eaf74e18dd0362b9e10db50a3001a",
+        "dev": 53,
+        "ino": 8255444,
+        "mode": 0o444,
+        "nlink": 1,
+        "size": 542,
+        "sha256": "afa9a26b1fa7f6a53a5d5566ac90732141c8ad5a322e1d06ec8fe4f9370e8857",
+        "mutable_after_handoff": False,
+    },
+    {"type": "d", "path": "objects/c8", "dev": 53, "ino": 8255445, "mode": 0o755, "nlink": 1, "mutable_after_handoff": False},
+    {
+        "type": "f",
+        "path": "objects/c8/4d957dee6206774a4d98689726dce38472e4b3",
+        "dev": 53,
+        "ino": 8255446,
+        "mode": 0o444,
+        "nlink": 1,
+        "size": 185,
+        "sha256": "d4a47fdefa6800ac688b9ebb72f069a60137a72c08e15809d4883a6c5fa8d8bc",
+        "mutable_after_handoff": False,
+    },
+    {
+        "type": "f",
+        "path": "objects/cb/0cea7105f5cc3fd1ae622e6513ea09681821b0",
+        "dev": 53,
+        "ino": 8255442,
+        "mode": 0o444,
+        "nlink": 1,
+        "size": 453,
+        "sha256": "a4f55d1f9586d51eeaa44c7a6f2e3161e51f23c59b9cd128545eed1c28f64c5a",
+        "mutable_after_handoff": False,
+    },
+    {
+        "type": "f",
+        "path": "refs/heads/agent/pr4-closed-merge-reconcile",
+        "dev": 53,
+        "ino": 8255448,
+        "mode": 0o644,
+        "nlink": 1,
+        "size": 41,
+        "sha256": "3f80500cb40140e6642e336b26e8246d538cb3d82d6351724b79dd460e9a8633",
+        "mutable_after_handoff": True,
+    },
+    {
+        "type": "f",
+        "path": "worktrees/Wirtelprimpf-generator-transactional/index",
+        "dev": 53,
+        "ino": 8255435,
+        "mode": 0o644,
+        "nlink": 1,
+        "size": 16384,
+        "sha256": "27711dcae0f8384c048416b540b052dfebd27ce790e67ba6717230653defd10b",
+        "mutable_after_handoff": True,
+    },
+)
+EXPECTED_SHARED_GIT_INVENTORY_SHA256 = "1567d717e89da2f2acaf88ea1c2d7cba6c7a4e5fa646ab4c3a94f0e008aa8bf0"
+EXPECTED_AGENT_WORKTREE_INVENTORY = (
+    {
+        "type": "f",
+        "path": "Sourcecode/__pycache__/wirtelprimpf_generator.cpython-314.pyc",
+        "dev": 53,
+        "ino": 8260528,
+        "mode": 0o644,
+        "nlink": 1,
+        "size": 179978,
+        "sha256": "a87459c4d56cb0f4a19c8c9887b2e063bd4439cfbd103420f3e43aa563c90ba4",
+        "mutable_after_handoff": False,
+    },
+    {
+        "type": "f",
+        "path": "files/wirtelprimfgenerator@H234598/__pycache__/SettingsLogo.cpython-314.pyc",
+        "dev": 53,
+        "ino": 8260530,
+        "mode": 0o644,
+        "nlink": 1,
+        "size": 79049,
+        "sha256": "88da66685a5126fa15f86ef0dbd4ff8f87d81cc9acd018bc92845f566c64b6a8",
+        "mutable_after_handoff": False,
+    },
+    {
+        "type": "f",
+        "path": "files/wirtelprimfgenerator@H234598/__pycache__/StoryDirectives.cpython-314.pyc",
+        "dev": 53,
+        "ino": 8260533,
+        "mode": 0o644,
+        "nlink": 1,
+        "size": 17229,
+        "sha256": "c2db579a19d9ab4fc6da858ab4794bb12fd50a6f4b148c94956901d73a173f72",
+        "mutable_after_handoff": False,
+    },
+    {
+        "type": "f",
+        "path": "files/wirtelprimfgenerator@H234598/__pycache__/helper.cpython-314.pyc",
+        "dev": 53,
+        "ino": 8260529,
+        "mode": 0o644,
+        "nlink": 1,
+        "size": 103680,
+        "sha256": "4c4eb97a67f1699ead445bed3caa703522b99470f97eecdbd4b3118023619a25",
+        "mutable_after_handoff": False,
+    },
+    {
+        "type": "f",
+        "path": "files/wirtelprimfgenerator@H234598/__pycache__/settings_sync.cpython-314.pyc",
+        "dev": 53,
+        "ino": 8260531,
+        "mode": 0o644,
+        "nlink": 1,
+        "size": 71684,
+        "sha256": "2dd89ccf346e4215a49a425a4755aeea51b5c106865e25a53b5f4122629ff41d",
+        "mutable_after_handoff": False,
+    },
+    {
+        "type": "f",
+        "path": "files/wirtelprimfgenerator@H234598/__pycache__/story_directives_core.cpython-314.pyc",
+        "dev": 53,
+        "ino": 8260532,
+        "mode": 0o644,
+        "nlink": 1,
+        "size": 40742,
+        "sha256": "ced12684398a0f49b4f581ce393809150cc4f1e0d7f3ce3ac2d8e4a0b2e4dc68",
+        "mutable_after_handoff": False,
+    },
+    {
+        "type": "f",
+        "path": "tests/__pycache__/test_rollout_plan_contract.cpython-314.pyc",
+        "dev": 53,
+        "ino": 8255088,
+        "mode": 0o644,
+        "nlink": 1,
+        "size": 233891,
+        "sha256": "1d2bf1c7cccad0c82e0e224f8546a47a0e2992144db0187cf3e44adcf86da377",
+        "mutable_after_handoff": False,
+    },
+)
+EXPECTED_AGENT_WORKTREE_INVENTORY_SHA256 = "7c35636e7407ea0ce0edc52010a932e858dc749e0f0a0354fd3debe49ccb361a"
+TRANSACTION_SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+
+
+class SharedGitOwnershipInterrupted(RuntimeError):
+    def __init__(self, signum: int) -> None:
+        super().__init__(f"shared Git ownership interrupted by signal {signum}")
+        self.signum = signum
+        self.exit_code = 128 + signum
+
+
+def canonical_shared_git_inventory_digest(records: tuple[dict[str, Any], ...]) -> str:
+    projection = sorted(records, key=lambda record: os.fsencode(str(record["path"])))
+    payload = json.dumps(
+        projection,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("ascii")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _canonical_shared_git_root(root: str, target_uid: int, target_gid: int) -> str:
+    path = Path(root)
+    if not path.is_absolute() or path.is_symlink() or not path.is_dir():
+        raise RuntimeError("shared Git root is not an absolute real directory")
+    canonical = os.path.realpath(root)
+    if canonical != root:
+        raise RuntimeError("shared Git root is not canonical")
+    metadata = os.lstat(root)
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise RuntimeError("shared Git root type drift")
+    if (metadata.st_uid, metadata.st_gid) != (target_uid, target_gid):
+        raise RuntimeError("shared Git root ownership drift")
+    expected_root = EXPECTED_OWNERSHIP_ROOTS.get(root)
+    if expected_root is not None and (
+        metadata.st_dev != expected_root["dev"]
+        or metadata.st_ino != expected_root["ino"]
+        or stat.S_IMODE(metadata.st_mode) != expected_root["mode"]
+    ):
+        raise RuntimeError("exact ownership root identity drift")
+    return canonical
+
+
+def _validate_static_shared_git_inventory(
+    expected_static: tuple[dict[str, Any], ...],
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(expected_static, tuple) or not expected_static:
+        raise RuntimeError("empty shared Git inventory rejected")
+    expected_by_path: dict[str, dict[str, Any]] = {}
+    for record in expected_static:
+        kind = record.get("type")
+        path = record.get("path")
+        common = {"type", "path", "dev", "ino", "mode", "nlink", "mutable_after_handoff"}
+        required = common | ({"size", "sha256"} if kind == "f" else set())
+        if set(record) != required:
+            raise RuntimeError("invalid shared Git inventory record fields")
+        if (
+            kind not in ("f", "d")
+            or not isinstance(path, str)
+            or os.path.isabs(path)
+            or any(part in ("", ".", "..") for part in path.split(os.sep))
+            or path in expected_by_path
+            or not isinstance(record.get("mutable_after_handoff"), bool)
+            or (record.get("mutable_after_handoff") and kind != "f")
+        ):
+            raise RuntimeError("invalid shared Git inventory path/type")
+        if kind == "f" and (
+            not isinstance(record.get("size"), int)
+            or record["size"] < 1
+            or not isinstance(record.get("sha256"), str)
+            or len(record["sha256"]) != 64
+        ):
+            raise RuntimeError("invalid shared Git file binding")
+        expected_by_path[path] = record
+    return expected_by_path
+
+
+def _sha256_fd(fd: int) -> str:
+    os.lseek(fd, 0, os.SEEK_SET)
+    digest = hashlib.sha256()
+    while True:
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            break
+        digest.update(chunk)
+    os.lseek(fd, 0, os.SEEK_SET)
+    return digest.hexdigest()
+
+
+def _open_relative_shared_git(root_fd: int, relative: str, kind: str) -> int:
+    components = relative.split(os.sep)
+    directory_fd = os.dup(root_fd)
+    try:
+        for component in components[:-1]:
+            flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            next_fd = os.open(component, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = next_fd
+        flags = os.O_RDONLY | os.O_CLOEXEC
+        if kind == "d":
+            flags |= os.O_DIRECTORY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        return os.open(components[-1], flags, dir_fd=directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _validate_shared_git_fd(
+    fd: int,
+    record: dict[str, Any],
+    source_uid: int,
+    source_gid: int,
+    target_uid: int,
+    target_gid: int,
+) -> dict[str, Any]:
+    metadata = os.fstat(fd)
+    kind = "f" if stat.S_ISREG(metadata.st_mode) else "d" if stat.S_ISDIR(metadata.st_mode) else "?"
+    owner = (metadata.st_uid, metadata.st_gid)
+    if kind != record["type"]:
+        raise RuntimeError("shared Git object type drift")
+    if owner not in {(source_uid, source_gid), (target_uid, target_gid)}:
+        raise RuntimeError("shared Git object third-owner drift")
+    if (
+        metadata.st_dev != record["dev"]
+        or stat.S_IMODE(metadata.st_mode) != record["mode"]
+        or metadata.st_nlink != record["nlink"]
+    ):
+        raise RuntimeError("shared Git object metadata drift")
+    exact_identity_required = owner == (source_uid, source_gid) or not record["mutable_after_handoff"]
+    if exact_identity_required and metadata.st_ino != record["ino"]:
+        raise RuntimeError("shared Git object identity drift")
+    if kind == "f" and exact_identity_required:
+        if metadata.st_size != record["size"]:
+            raise RuntimeError("shared Git object size drift")
+        if _sha256_fd(fd) != record["sha256"]:
+            raise RuntimeError("shared Git object digest drift")
+    return {
+        "path": record["path"],
+        "type": kind,
+        "dev": metadata.st_dev,
+        "ino": metadata.st_ino,
+        "mode": stat.S_IMODE(metadata.st_mode),
+        "nlink": metadata.st_nlink,
+        "size": metadata.st_size,
+        "uid": metadata.st_uid,
+        "gid": metadata.st_gid,
+        "mutable_after_handoff": record["mutable_after_handoff"],
+        "sha256": _sha256_fd(fd) if kind == "f" else None,
+    }
+
+
+def _scan_foreign_shared_git_paths(
+    root: str,
+    source_uid: int,
+    source_gid: int,
+    target_uid: int,
+    target_gid: int,
+    allowed_paths: set[str],
+) -> set[str]:
+    root_device = os.lstat(root).st_dev
+    foreign: set[str] = set()
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                metadata = entry.stat(follow_symlinks=False)
+                if metadata.st_dev != root_device:
+                    raise RuntimeError("unexpected shared Git submount")
+                relative = os.path.relpath(entry.path, root)
+                if (
+                    os.path.isabs(relative)
+                    or any(part in ("", ".", "..") for part in relative.split(os.sep))
+                ):
+                    raise RuntimeError("invalid shared Git relative path")
+                owner = (metadata.st_uid, metadata.st_gid)
+                if owner != (target_uid, target_gid):
+                    if owner != (source_uid, source_gid):
+                        raise RuntimeError("unexpected foreign shared Git owner")
+                    if relative not in allowed_paths:
+                        raise RuntimeError("unexpected foreign shared Git path")
+                    if stat.S_ISLNK(metadata.st_mode):
+                        raise RuntimeError("foreign shared Git symlink rejected")
+                    foreign.add(relative)
+                if stat.S_ISDIR(metadata.st_mode):
+                    pending.append(entry.path)
+    return foreign
+
+
+def capture_shared_git_repair_inventory(
+    root: str,
+    expected_static: tuple[dict[str, Any], ...],
+    source_uid: int,
+    source_gid: int,
+    target_uid: int,
+    target_gid: int,
+) -> tuple[dict[str, Any], ...]:
+    if (source_uid, source_gid) == (target_uid, target_gid):
+        raise RuntimeError("shared Git source and target owners must differ")
+    canonical = _canonical_shared_git_root(root, target_uid, target_gid)
+    expected_by_path = _validate_static_shared_git_inventory(expected_static)
+    foreign = _scan_foreign_shared_git_paths(
+        canonical,
+        source_uid,
+        source_gid,
+        target_uid,
+        target_gid,
+        set(expected_by_path),
+    )
+    root_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        root_flags |= os.O_NOFOLLOW
+    root_fd = os.open(canonical, root_flags)
+    observed: list[dict[str, Any]] = []
+    try:
+        for relative in sorted(expected_by_path, key=os.fsencode):
+            record = expected_by_path[relative]
+            fd = _open_relative_shared_git(root_fd, relative, record["type"])
+            try:
+                current = _validate_shared_git_fd(
+                    fd,
+                    record,
+                    source_uid,
+                    source_gid,
+                    target_uid,
+                    target_gid,
+                )
+            finally:
+                os.close(fd)
+            if (current["uid"], current["gid"]) == (source_uid, source_gid):
+                if relative not in foreign:
+                    raise RuntimeError("shared Git foreign scan/binding mismatch")
+            elif relative in foreign:
+                raise RuntimeError("shared Git target scan/binding mismatch")
+            current["static"] = record
+            observed.append(current)
+    finally:
+        os.close(root_fd)
+    return tuple(observed)
+
+
+def bind_shared_git_inventory_fds(
+    root: str,
+    observed: tuple[dict[str, Any], ...],
+    source_uid: int,
+    source_gid: int,
+    target_uid: int,
+    target_gid: int,
+) -> list[dict[str, Any]]:
+    canonical = _canonical_shared_git_root(root, target_uid, target_gid)
+    root_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        root_flags |= os.O_NOFOLLOW
+    root_fd = os.open(canonical, root_flags)
+    bound: list[dict[str, Any]] = []
+    try:
+        for captured in observed:
+            fd = _open_relative_shared_git(
+                root_fd, captured["path"], captured["type"]
+            )
+            try:
+                rebound = _validate_shared_git_fd(
+                    fd,
+                    captured["static"],
+                    source_uid,
+                    source_gid,
+                    target_uid,
+                    target_gid,
+                )
+                for key in ("path", "type", "dev", "ino", "mode", "nlink", "size", "uid", "gid", "sha256"):
+                    if rebound[key] != captured[key]:
+                        raise RuntimeError("shared Git object changed before FD binding")
+                item = dict(captured)
+                item["fd"] = fd
+                bound.append(item)
+                fd = -1
+            finally:
+                if fd >= 0:
+                    os.close(fd)
+    except BaseException:
+        close_bound_shared_git_inventory(bound)
+        raise
+    finally:
+        os.close(root_fd)
+    return bound
+
+
+def close_bound_shared_git_inventory(bound: list[dict[str, Any]]) -> None:
+    for item in bound:
+        fd = item.pop("fd", None)
+        if isinstance(fd, int):
+            os.close(fd)
+
+
+def _verify_bound_shared_git_item(item: dict[str, Any]) -> tuple[int, int]:
+    metadata = os.fstat(item["fd"])
+    kind = "f" if stat.S_ISREG(metadata.st_mode) else "d" if stat.S_ISDIR(metadata.st_mode) else "?"
+    if (
+        kind != item["type"]
+        or metadata.st_dev != item["dev"]
+        or metadata.st_ino != item["ino"]
+        or stat.S_IMODE(metadata.st_mode) != item["mode"]
+        or metadata.st_nlink != item["nlink"]
+        or (kind == "f" and metadata.st_size != item["size"])
+        or (kind == "f" and _sha256_fd(item["fd"]) != item["sha256"])
+    ):
+        raise RuntimeError("bound shared Git object drift")
+    return metadata.st_uid, metadata.st_gid
+
+
+def apply_shared_git_ownership_transaction(
+    bound: list[dict[str, Any]],
+    source_uid: int,
+    source_gid: int,
+    target_uid: int,
+    target_gid: int,
+) -> None:
+    source = (source_uid, source_gid)
+    target = (target_uid, target_gid)
+    prior_handlers = {signum: signal.getsignal(signum) for signum in TRANSACTION_SIGNALS}
+    changed: list[dict[str, Any]] = []
+    handlers_restored = False
+    blocked = False
+
+    def interrupt(signum: int, _frame: object) -> None:
+        raise SharedGitOwnershipInterrupted(signum)
+
+    for signum in TRANSACTION_SIGNALS:
+        signal.signal(signum, interrupt)
+    try:
+        try:
+            for item in bound:
+                owner = _verify_bound_shared_git_item(item)
+                if owner == target:
+                    continue
+                if owner != source:
+                    raise RuntimeError("bound shared Git object owner drift")
+                os.fchown(item["fd"], target_uid, target_gid)
+                if _verify_bound_shared_git_item(item) != target:
+                    raise RuntimeError("shared Git fchown verification failed")
+                changed.append(item)
+            signal.pthread_sigmask(signal.SIG_BLOCK, TRANSACTION_SIGNALS)
+            blocked = True
+            pending = set(signal.sigpending()).intersection(TRANSACTION_SIGNALS)
+            if pending:
+                raise SharedGitOwnershipInterrupted(min(int(item) for item in pending))
+            for signum, handler in prior_handlers.items():
+                signal.signal(signum, handler)
+            handlers_restored = True
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, TRANSACTION_SIGNALS)
+            blocked = False
+            return
+        except BaseException as exc:
+            if not blocked:
+                signal.pthread_sigmask(signal.SIG_BLOCK, TRANSACTION_SIGNALS)
+                blocked = True
+            rollback_incomplete = False
+            for item in reversed(bound):
+                try:
+                    owner = _verify_bound_shared_git_item(item)
+                    initial = (item["uid"], item["gid"])
+                    if initial == source and owner == target:
+                        os.fchown(item["fd"], source_uid, source_gid)
+                        if _verify_bound_shared_git_item(item) != source:
+                            rollback_incomplete = True
+                    elif owner != initial:
+                        rollback_incomplete = True
+                except BaseException:
+                    rollback_incomplete = True
+            outcome = "INCOMPLETE" if rollback_incomplete else "complete"
+            if isinstance(exc, SharedGitOwnershipInterrupted):
+                if rollback_incomplete:
+                    raise RuntimeError("shared Git ownership rollback INCOMPLETE") from exc
+                raise
+            raise RuntimeError(f"shared Git ownership rollback {outcome}") from exc
+    finally:
+        if not handlers_restored:
+            for signum, handler in prior_handlers.items():
+                signal.signal(signum, handler)
+        if blocked:
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, TRANSACTION_SIGNALS)
+
+
+def _main(argv: list[str]) -> None:
+    if sys.flags.isolated != 1 or sys.flags.safe_path != 1:
+        raise RuntimeError("shared Git ownership gate requires isolated safe-path Python")
+    if len(argv) != 6:
+        raise RuntimeError("invalid exact two-root ownership gate arguments")
+    (
+        shared_root,
+        shared_count_text,
+        shared_digest,
+        worktree_root,
+        worktree_count_text,
+        worktree_digest,
+    ) = argv
+    if os.geteuid() != 0 or os.getegid() != 0:
+        raise RuntimeError("exact two-root ownership repair requires root:root")
+    if set((shared_root, worktree_root)) != set(EXPECTED_OWNERSHIP_ROOTS):
+        raise RuntimeError("exact ownership root path drift")
+    if int(shared_count_text) != len(EXPECTED_SHARED_GIT_INVENTORY):
+        raise RuntimeError("shared Git ownership inventory count drift")
+    if shared_digest != EXPECTED_SHARED_GIT_INVENTORY_SHA256:
+        raise RuntimeError("shared Git shell/program digest mismatch")
+    if canonical_shared_git_inventory_digest(EXPECTED_SHARED_GIT_INVENTORY) != shared_digest:
+        raise RuntimeError("shared Git ownership inventory digest drift")
+    if int(worktree_count_text) != len(EXPECTED_AGENT_WORKTREE_INVENTORY):
+        raise RuntimeError("agent worktree ownership inventory count drift")
+    if worktree_digest != EXPECTED_AGENT_WORKTREE_INVENTORY_SHA256:
+        raise RuntimeError("agent worktree shell/program digest mismatch")
+    if canonical_shared_git_inventory_digest(EXPECTED_AGENT_WORKTREE_INVENTORY) != worktree_digest:
+        raise RuntimeError("agent worktree ownership inventory digest drift")
+    shared_observed = capture_shared_git_repair_inventory(
+        shared_root, EXPECTED_SHARED_GIT_INVENTORY, 0, 0, 1000, 1000
+    )
+    worktree_observed = capture_shared_git_repair_inventory(
+        worktree_root, EXPECTED_AGENT_WORKTREE_INVENTORY, 0, 0, 1000, 1000
+    )
+    bound: list[dict[str, Any]] = []
+    try:
+        bound.extend(bind_shared_git_inventory_fds(
+            shared_root, shared_observed, 0, 0, 1000, 1000
+        ))
+        bound.extend(bind_shared_git_inventory_fds(
+            worktree_root, worktree_observed, 0, 0, 1000, 1000
+        ))
+        apply_shared_git_ownership_transaction(bound, 0, 0, 1000, 1000)
+    finally:
+        close_bound_shared_git_inventory(bound)
+    capture_shared_git_repair_inventory(
+        shared_root, EXPECTED_SHARED_GIT_INVENTORY, 0, 0, 1000, 1000
+    )
+    capture_shared_git_repair_inventory(
+        worktree_root, EXPECTED_AGENT_WORKTREE_INVENTORY, 0, 0, 1000, 1000
+    )
+    print("exact two-root ownership handoff complete: 16 + 7 records")
+
+
+if __name__ == "__main__":
+    try:
+        _main(sys.argv[1:])
+    except SharedGitOwnershipInterrupted as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(exc.exit_code)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"shared Git ownership gate rejected: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+TASK4_SHARED_GIT_OWNERSHIP_PY
+
 expected_runtime_inventory_count=84
 expected_runtime_inventory_sha256=713307aef872976278c81ef74dd7ddf635767e7e4bbb3441941db2e17b2dc368
 /usr/bin/python3 -I - "$runtime" \
@@ -3580,9 +4299,25 @@ adds the effective `/run/user/1000/systemd/user.control/<unit> -> /dev/null`
 link. Success always requires `daemon-reload`, `masked-runtime`, and
 `LoadState=masked`. Removal validates both recorded parent/link identities,
 removes the ineffective link first so the high-priority barrier survives an
-interruption, and removes the effective link last. The one interrupted live
-attempt is adopted only from its exact inode/hash-bound eight-file prestate and
-four exact runtime links; every other mixed state is rejected without mutation.
+interruption, and removes the effective link last. The two observed failed
+attempts form one immutable evidence chain: historical `HNkEdc` plus the unique
+current leaf `f1iePQ`, whose eight-file prestate, three complete manifests,
+payload inventory, parent directories, and four current runtime links are all
+inode/hash-bound. Only that current chain is adopted; every other mixed state is
+rejected without mutation.
+
+The failed editable install was deterministic rather than transient: the live
+venv has Python 3.14.5 and Pip 26.0.1 but intentionally no `setuptools`, while
+`pyproject.toml` requires `setuptools>=82`. The old
+`--no-build-isolation` option therefore made `setuptools.build_meta`
+unimportable in both the forward and rollback directions. The corrected
+transaction performs exactly one bounded HTTPS acquisition of the immutable
+`setuptools==83.0.0` wheel before the first operational mutation, validates its
+filename, byte count, SHA-256, owner and mode, and writes an exact hashed build
+constraint. Forward install and rollback then share one helper using normal
+ephemeral build isolation in strictly offline `--no-index --find-links`
+mode. An existing corrupt bundle is rejected without deletion, redownload or
+blind retry.
 
 ```bash
 set -Eeuo pipefail
@@ -3718,6 +4453,141 @@ assert_private_backup_root() {
 }
 # END TASK4_BACKUP_ROOT_PREFLIGHT
 
+# BEGIN TASK4_BUILD_BACKEND_BUNDLE
+backend_wheel_name=setuptools-83.0.0-py3-none-any.whl
+backend_wheel_size=1008090
+backend_wheel_sha256=29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3
+backend_wheel_url=https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl
+backend_constraint_value='setuptools==83.0.0'
+backend_constraint_sha256=4723b97f4d3f3c1d817e4896c0f7d59642e326ad891c7037482d2455b8a6bb4c
+
+validate_exact_build_backend_file() {
+  local candidate="$1" expected_size="$2" expected_sha256="$3"
+  local metadata actual_sha256
+  [[ "$expected_size" =~ ^[1-9][0-9]*$ ]]
+  [[ "$expected_sha256" =~ ^[0-9a-f]{64}$ ]]
+  test -f "$candidate" && test ! -L "$candidate"
+  test "$(realpath -e -- "$candidate")" = "$candidate"
+  metadata="$(stat -Lc '%u:%g:%a:%h:%s' -- "$candidate")"
+  test "$metadata" = \
+    "$(id -u):$(id -g):600:1:$expected_size"
+  actual_sha256="$(sha256sum -- "$candidate")"
+  test "$actual_sha256" = "$expected_sha256  $candidate"
+}
+
+download_exact_build_backend() {
+  local source_url="$1" destination="$2" expected_size="$3"
+  local expected_sha256="$4" parent temporary curl_path
+  [[ "$source_url" == https://* ]]
+  parent="$(dirname -- "$destination")"
+  test -d "$parent" && test ! -L "$parent"
+  test "$(realpath -e -- "$parent")" = "$parent"
+  test "$(stat -Lc '%u:%g:%a' -- "$parent")" = \
+    "$(id -u):$(id -g):700"
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    validate_exact_build_backend_file \
+      "$destination" "$expected_size" "$expected_sha256"
+    return
+  fi
+  curl_path="$(command -v curl)"
+  test -x "$curl_path"
+  temporary="$(mktemp "$parent/.backend-wheel.XXXXXX")"
+  chmod 0600 "$temporary"
+  if ! timeout --foreground --signal=TERM --kill-after=5s 150s \
+    "$curl_path" --fail --location --silent --show-error \
+      --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 120 \
+      --retry 0 --output "$temporary" "$source_url"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  if ! validate_exact_build_backend_file \
+    "$temporary" "$expected_size" "$expected_sha256"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  if ! ln -- "$temporary" "$destination"; then
+    rm -f -- "$temporary"
+    validate_exact_build_backend_file \
+      "$destination" "$expected_size" "$expected_sha256"
+    return
+  fi
+  rm -f -- "$temporary"
+  validate_exact_build_backend_file \
+    "$destination" "$expected_size" "$expected_sha256"
+}
+
+install_editable_offline_bounded() {
+  local checkout="$1" wheelhouse="$2" wheel="$3" expected_size="$4"
+  local expected_sha256="$5" constraint="$6" constraint_sha256="$7"
+  test "$checkout" = "$runtime"
+  test -d "$checkout" && test ! -L "$checkout"
+  test "$(realpath -e -- "$checkout")" = "$checkout"
+  test -d "$wheelhouse" && test ! -L "$wheelhouse"
+  test "$(realpath -e -- "$wheelhouse")" = "$wheelhouse"
+  validate_exact_build_backend_file \
+    "$wheel" "$expected_size" "$expected_sha256"
+  validate_exact_build_backend_file \
+    "$constraint" "$(printf '%s\n' "$backend_constraint_value" | wc -c)" \
+    "$constraint_sha256"
+  : "${PIP_CACHE_DIR:?private deployment pip cache required}"
+  : "${TMPDIR:?private deployment temporary directory required}"
+  install -d -m0700 "$PIP_CACHE_DIR" "$TMPDIR"
+  PIP_CONFIG_FILE=/dev/null \
+  PIP_NO_INDEX=1 \
+  PIP_FIND_LINKS="$wheelhouse" \
+  PIP_DISABLE_PIP_VERSION_CHECK=1 \
+  PIP_NO_INPUT=1 \
+  PIP_REQUIRE_VIRTUALENV=1 \
+  PIP_CACHE_DIR="$PIP_CACHE_DIR" \
+  TMPDIR="$TMPDIR" \
+  PYTHONNOUSERSITE=1 \
+    timeout --foreground --signal=TERM --kill-after=10s 300s \
+      "$checkout/.venv/bin/python" -m pip install \
+      --disable-pip-version-check --no-index --find-links "$wheelhouse" \
+      --build-constraint "$constraint" --no-deps -e "$checkout"
+}
+
+provision_build_backend_bundle() {
+  local constraint_temporary
+  test -n "${backend_wheelhouse:-}"
+  test -n "${backend_wheel:-}"
+  test -n "${backend_constraint:-}"
+  install -d -m0700 "$backend_wheelhouse"
+  test "$(stat -Lc '%u:%g:%a' -- "$backend_wheelhouse")" = \
+    "$(id -u):$(id -g):700"
+  download_exact_build_backend \
+    "$backend_wheel_url" "$backend_wheel" \
+    "$backend_wheel_size" "$backend_wheel_sha256"
+  if [[ -e "$backend_constraint" || -L "$backend_constraint" ]]; then
+    validate_exact_build_backend_file \
+      "$backend_constraint" \
+      "$(printf '%s\n' "$backend_constraint_value" | wc -c)" \
+      "$backend_constraint_sha256"
+    return
+  fi
+  constraint_temporary="$(mktemp "$backend_wheelhouse/.constraint.XXXXXX")"
+  chmod 0600 "$constraint_temporary"
+  printf '%s\n' "$backend_constraint_value" >"$constraint_temporary"
+  validate_exact_build_backend_file \
+    "$constraint_temporary" \
+    "$(printf '%s\n' "$backend_constraint_value" | wc -c)" \
+    "$backend_constraint_sha256"
+  if ! ln -- "$constraint_temporary" "$backend_constraint"; then
+    rm -f -- "$constraint_temporary"
+    validate_exact_build_backend_file \
+      "$backend_constraint" \
+      "$(printf '%s\n' "$backend_constraint_value" | wc -c)" \
+      "$backend_constraint_sha256"
+    return
+  fi
+  rm -f -- "$constraint_temporary"
+  validate_exact_build_backend_file \
+    "$backend_constraint" \
+    "$(printf '%s\n' "$backend_constraint_value" | wc -c)" \
+    "$backend_constraint_sha256"
+}
+# END TASK4_BUILD_BACKEND_BUNDLE
+
 runtime_control_dir=/run/user/1000/systemd/user.control
 runtime_legacy_dir=/run/user/1000/systemd/user
 runtime_barrier_python() {
@@ -3731,65 +4601,96 @@ import sys
 
 
 ALLOWED_UNITS = frozenset(("wirtelprimpf.service", "wirtelprimpf.timer"))
-INTERRUPTED_PRESTATE = {
-    "path": "/home/teladi/.local/state/wirtelprimpf/deploy-backups/20260801-admin-live.HNkEdc",
-    "dev": 53,
-    "ino": 8250927,
-    "files": {
-        "runtime-sha-before": {
-            "dev": 53,
-            "ino": 8250928,
-            "sha256": "c884bec764a03e4c876acf6beaee32b17ad55b863c11b22b5d80724f51392873",
-        },
-        "runtime-branch-before": {
-            "dev": 53,
-            "ino": 8250929,
-            "sha256": "6403203dd5a0867eb14d104ee8a73730bd72dd9ad92e78d996a6dba0a5dcfc01",
-        },
-        "target-sha": {
-            "dev": 53,
-            "ino": 8250930,
-            "sha256": "784140f1bd8201950fe8f91ba37775371cc87530643efe6fb3d814203ca81aa2",
-        },
-        "timer-enabled-before": {
-            "dev": 53,
-            "ino": 8250931,
-            "sha256": "e056a35db086947e2f5969d747f0a7517bff00c7ffff1f9e7b47b72bfac9d948",
-        },
-        "timer-active-before": {
-            "dev": 53,
-            "ino": 8250932,
-            "sha256": "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659",
-        },
-        "admin-active-before": {
-            "dev": 53,
-            "ino": 8250933,
-            "sha256": "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659",
-        },
-        "service-unit-state-before": {
-            "dev": 53,
-            "ino": 8250934,
-            "sha256": "652cabf0de6cd70f66f72b17d6409203b84909be9864261feb614943f2e6cc62",
-        },
-        "service-load-state-before": {
-            "dev": 53,
-            "ino": 8250935,
-            "sha256": "25dbd4fa5b9f0710b9f27009c1e38969b8cbb2806502388beae5063d460a85f5",
+INTERRUPTED_ATTEMPT_CHAIN = (
+    {
+        "name": "HNkEdc",
+        "current": False,
+        "path": "/home/teladi/.local/state/wirtelprimpf/deploy-backups/20260801-admin-live.HNkEdc",
+        "dev": 53,
+        "ino": 8250927,
+        "files": {
+            "runtime-sha-before": {"dev": 53, "ino": 8250928, "sha256": "c884bec764a03e4c876acf6beaee32b17ad55b863c11b22b5d80724f51392873"},
+            "runtime-branch-before": {"dev": 53, "ino": 8250929, "sha256": "6403203dd5a0867eb14d104ee8a73730bd72dd9ad92e78d996a6dba0a5dcfc01"},
+            "target-sha": {"dev": 53, "ino": 8250930, "sha256": "784140f1bd8201950fe8f91ba37775371cc87530643efe6fb3d814203ca81aa2"},
+            "timer-enabled-before": {"dev": 53, "ino": 8250931, "sha256": "e056a35db086947e2f5969d747f0a7517bff00c7ffff1f9e7b47b72bfac9d948"},
+            "timer-active-before": {"dev": 53, "ino": 8250932, "sha256": "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659"},
+            "admin-active-before": {"dev": 53, "ino": 8250933, "sha256": "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659"},
+            "service-unit-state-before": {"dev": 53, "ino": 8250934, "sha256": "652cabf0de6cd70f66f72b17d6409203b84909be9864261feb614943f2e6cc62"},
+            "service-load-state-before": {"dev": 53, "ino": 8250935, "sha256": "25dbd4fa5b9f0710b9f27009c1e38969b8cbb2806502388beae5063d460a85f5"},
         },
     },
-}
-INTERRUPTED_BARRIER_PARENTS = {
-    "control": {"dev": 84, "ino": 48464},
-    "legacy": {"dev": 84, "ino": 47827},
-}
-INTERRUPTED_BARRIERS = {
-    "control": {
-        "wirtelprimpf.service": {"dev": 84, "ino": 48465},
-        "wirtelprimpf.timer": {"dev": 84, "ino": 48466},
+    {
+        "name": "f1iePQ",
+        "current": True,
+        "path": "/home/teladi/.local/state/wirtelprimpf/deploy-backups/20260801-admin-live.f1iePQ",
+        "dev": 53,
+        "ino": 8256518,
+        "files": {
+            "runtime-sha-before": {"dev": 53, "ino": 8256519, "sha256": "c884bec764a03e4c876acf6beaee32b17ad55b863c11b22b5d80724f51392873"},
+            "runtime-branch-before": {"dev": 53, "ino": 8256520, "sha256": "6403203dd5a0867eb14d104ee8a73730bd72dd9ad92e78d996a6dba0a5dcfc01"},
+            "target-sha": {"dev": 53, "ino": 8256521, "sha256": "784140f1bd8201950fe8f91ba37775371cc87530643efe6fb3d814203ca81aa2"},
+            "timer-enabled-before": {"dev": 53, "ino": 8256522, "sha256": "e056a35db086947e2f5969d747f0a7517bff00c7ffff1f9e7b47b72bfac9d948"},
+            "timer-active-before": {"dev": 53, "ino": 8256523, "sha256": "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659"},
+            "admin-active-before": {"dev": 53, "ino": 8256524, "sha256": "45df5ad5e0ecfa54d3226343e0e6857337494ba6e32f189d1174070665d8c659"},
+            "service-unit-state-before": {"dev": 53, "ino": 8256525, "sha256": "652cabf0de6cd70f66f72b17d6409203b84909be9864261feb614943f2e6cc62"},
+            "service-load-state-before": {"dev": 53, "ino": 8256526, "sha256": "25dbd4fa5b9f0710b9f27009c1e38969b8cbb2806502388beae5063d460a85f5"},
+        },
+        "evidence_files": {
+            "config-manifest.tsv": {"dev": 53, "ino": 8256539, "size": 610, "sha256": "76aaf7d6461ae8460b62c6abdec2976fe0c3cc7920c7159e7ef705fdee2cdbd3"},
+            "install-manifest.tsv": {"dev": 53, "ino": 8256540, "size": 959, "sha256": "806f2a93095233058b2e787abde9f1a9196c5292db412f66fbc1f44c5336c486"},
+            "directory-modes-before.tsv": {"dev": 53, "ino": 8256541, "size": 133, "sha256": "9eb4d6d28e9058ff0297965dee2f2d1eaa5649fb849549a1bbd2deb71c416c89"},
+        },
+        "payload_directory": {
+            "path": "files",
+            "dev": 53,
+            "ino": 8256538,
+            "mode": 0o700,
+            "entries": {
+                "001": {"type": "f", "dev": 53, "ino": 8256542, "mode": 0o600, "nlink": 1, "size": 2080},
+                "002": {"type": "f", "dev": 53, "ino": 8256543, "mode": 0o600, "nlink": 1, "size": 75},
+                "003": {"type": "f", "dev": 53, "ino": 8256544, "mode": 0o644, "nlink": 1, "size": 128},
+                "005": {"type": "d", "dev": 53, "ino": 8256545, "mode": 0o755, "nlink": 1, "size": 326},
+                "007": {"type": "f", "dev": 53, "ino": 8256571, "mode": 0o755, "nlink": 1, "size": 24639},
+                "008": {"type": "f", "dev": 53, "ino": 8256572, "mode": 0o644, "nlink": 1, "size": 1047},
+                "009": {"type": "f", "dev": 53, "ino": 8256573, "mode": 0o644, "nlink": 1, "size": 187},
+                "010": {"type": "f", "dev": 53, "ino": 8256574, "mode": 0o644, "nlink": 1, "size": 968},
+            },
+        },
     },
-    "legacy": {
-        "wirtelprimpf.service": {"dev": 84, "ino": 47828},
-        "wirtelprimpf.timer": {"dev": 84, "ino": 48126},
+)
+CURRENT_INTERRUPTED_ATTEMPT = "f1iePQ"
+INTERRUPTED_BARRIER_HISTORY = {
+    "HNkEdc": {
+        "parents": {
+            "control": {"dev": 84, "ino": 48464},
+            "legacy": {"dev": 84, "ino": 47827},
+        },
+        "links": {
+            "control": {
+                "wirtelprimpf.service": {"dev": 84, "ino": 48465},
+                "wirtelprimpf.timer": {"dev": 84, "ino": 48466},
+            },
+            "legacy": {
+                "wirtelprimpf.service": {"dev": 84, "ino": 47828},
+                "wirtelprimpf.timer": {"dev": 84, "ino": 48126},
+            },
+        },
+    },
+    "f1iePQ": {
+        "parents": {
+            "control": {"dev": 84, "ino": 48464},
+            "legacy": {"dev": 84, "ino": 47827},
+        },
+        "links": {
+            "control": {
+                "wirtelprimpf.service": {"dev": 84, "ino": 48465},
+                "wirtelprimpf.timer": {"dev": 84, "ino": 49929},
+            },
+            "legacy": {
+                "wirtelprimpf.service": {"dev": 84, "ino": 47828},
+                "wirtelprimpf.timer": {"dev": 84, "ino": 49854},
+            },
+        },
     },
 }
 
@@ -3961,6 +4862,81 @@ def _read_bound_regular(directory_fd, name, expected, uid, gid):
         os.close(file_fd)
 
 
+def _validate_hash_bound_evidence_file(directory_fd, name, expected, uid, gid):
+    flags = os.O_RDONLY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    file_fd = os.open(name, flags, dir_fd=directory_fd)
+    try:
+        current = os.fstat(file_fd)
+        if not stat.S_ISREG(current.st_mode):
+            raise RuntimeError("interrupted evidence member is not regular")
+        if (current.st_uid, current.st_gid) != (uid, gid):
+            raise RuntimeError("interrupted evidence member ownership drift")
+        if stat.S_IMODE(current.st_mode) != 0o600 or current.st_nlink != 1:
+            raise RuntimeError("interrupted evidence member metadata drift")
+        if (current.st_dev, current.st_ino, current.st_size) != (
+            expected["dev"], expected["ino"], expected["size"]
+        ):
+            raise RuntimeError("interrupted evidence member identity drift")
+        digest = hashlib.sha256()
+        while True:
+            chunk = os.read(file_fd, 65536)
+            if not chunk:
+                break
+            digest.update(chunk)
+        if digest.hexdigest() != expected["sha256"]:
+            raise RuntimeError("interrupted evidence member digest drift")
+    finally:
+        os.close(file_fd)
+
+
+def _validate_payload_directory(directory_fd, expected, uid, gid):
+    if not isinstance(expected, dict) or expected.get("path") != "files":
+        raise RuntimeError("invalid interrupted payload directory record")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    payload_fd = os.open("files", flags, dir_fd=directory_fd)
+    try:
+        current = os.fstat(payload_fd)
+        if not stat.S_ISDIR(current.st_mode):
+            raise RuntimeError("interrupted payload root is not a directory")
+        if (current.st_uid, current.st_gid) != (uid, gid):
+            raise RuntimeError("interrupted payload root ownership drift")
+        if (
+            current.st_dev != expected.get("dev")
+            or current.st_ino != expected.get("ino")
+            or stat.S_IMODE(current.st_mode) != expected.get("mode")
+        ):
+            raise RuntimeError("interrupted payload root identity drift")
+        entries = expected.get("entries")
+        if not isinstance(entries, dict) or set(os.listdir(payload_fd)) != set(entries):
+            raise RuntimeError("interrupted payload inventory drift")
+        for name, record in entries.items():
+            if not isinstance(name, str) or not re.fullmatch(r"[0-9]{3}", name):
+                raise RuntimeError("invalid interrupted payload name")
+            metadata = os.stat(name, dir_fd=payload_fd, follow_symlinks=False)
+            if stat.S_ISREG(metadata.st_mode):
+                kind = "f"
+            elif stat.S_ISDIR(metadata.st_mode):
+                kind = "d"
+            else:
+                raise RuntimeError("interrupted payload type drift")
+            if (
+                kind != record.get("type")
+                or metadata.st_dev != record.get("dev")
+                or metadata.st_ino != record.get("ino")
+                or (metadata.st_uid, metadata.st_gid) != (uid, gid)
+                or stat.S_IMODE(metadata.st_mode) != record.get("mode")
+                or metadata.st_nlink != record.get("nlink")
+                or metadata.st_size != record.get("size")
+            ):
+                raise RuntimeError("interrupted payload member drift")
+    finally:
+        os.close(payload_fd)
+
+
 def validate_interrupted_prestate(path, expected, uid, gid):
     if path != expected.get("path"):
         raise RuntimeError("interrupted prestate path drift")
@@ -3973,7 +4949,14 @@ def validate_interrupted_prestate(path, expected, uid, gid):
         expected_files = expected.get("files")
         if not isinstance(expected_files, dict):
             raise RuntimeError("invalid interrupted prestate inventory")
-        if set(os.listdir(directory_fd)) != set(expected_files):
+        evidence_files = expected.get("evidence_files", {})
+        if not isinstance(evidence_files, dict):
+            raise RuntimeError("invalid interrupted evidence inventory")
+        payload_directory = expected.get("payload_directory")
+        expected_names = set(expected_files) | set(evidence_files)
+        if payload_directory is not None:
+            expected_names.add("files")
+        if set(os.listdir(directory_fd)) != expected_names:
             raise RuntimeError("interrupted prestate inventory drift")
         values = {
             name: _read_bound_regular(
@@ -3981,6 +4964,14 @@ def validate_interrupted_prestate(path, expected, uid, gid):
             )
             for name, record in expected_files.items()
         }
+        for name, record in evidence_files.items():
+            _validate_hash_bound_evidence_file(
+                directory_fd, name, record, uid, gid
+            )
+        if payload_directory is not None:
+            _validate_payload_directory(
+                directory_fd, payload_directory, uid, gid
+            )
     finally:
         os.close(directory_fd)
     if not re.fullmatch(r"[0-9a-f]{40}", values["runtime-sha-before"]):
@@ -4004,7 +4995,35 @@ def validate_interrupted_prestate(path, expected, uid, gid):
     return values
 
 
+def validate_interrupted_attempt_chain(expected_chain, uid, gid):
+    if not isinstance(expected_chain, tuple) or not expected_chain:
+        raise RuntimeError("invalid interrupted attempt chain")
+    names = [record.get("name") for record in expected_chain]
+    if (
+        any(not isinstance(name, str) or not name for name in names)
+        or len(names) != len(set(names))
+    ):
+        raise RuntimeError("invalid interrupted attempt identity")
+    current = [record for record in expected_chain if record.get("current") is True]
+    if len(current) != 1 or current[0] is not expected_chain[-1]:
+        raise RuntimeError("interrupted chain has no unique current leaf")
+    observed = [
+        validate_interrupted_prestate(record["path"], record, uid, gid)
+        for record in expected_chain
+    ]
+    if any(values != observed[-1] for values in observed[:-1]):
+        raise RuntimeError("interrupted prestate lineage drift")
+    return observed[-1]
+
+
 def adopt_exact_interrupted_barriers(control_dir, legacy_dir, uid, gid):
+    expected_history = INTERRUPTED_BARRIER_HISTORY.get(
+        CURRENT_INTERRUPTED_ATTEMPT
+    )
+    if not isinstance(expected_history, dict):
+        raise RuntimeError("missing current interrupted barrier history")
+    expected_parents = expected_history.get("parents")
+    expected_links = expected_history.get("links")
     bindings = {
         unit: capture_runtime_barrier_pair(
             control_dir, legacy_dir, unit, uid, gid
@@ -4013,14 +5032,14 @@ def adopt_exact_interrupted_barriers(control_dir, legacy_dir, uid, gid):
     }
     for side, directory in (("control", control_dir), ("legacy", legacy_dir)):
         parent = bindings["wirtelprimpf.service"][side]["parent"]
-        expected_parent = INTERRUPTED_BARRIER_PARENTS[side]
+        expected_parent = expected_parents[side]
         if (parent["dev"], parent["ino"]) != (
             expected_parent["dev"], expected_parent["ino"]
         ):
             raise RuntimeError("interrupted runtime barrier parent drift")
         for unit in ALLOWED_UNITS:
             current = bindings[unit][side]
-            expected = INTERRUPTED_BARRIERS[side][unit]
+            expected = expected_links[side][unit]
             if (current["dev"], current["ino"]) != (
                 expected["dev"], expected["ino"]
             ):
@@ -4129,11 +5148,24 @@ def remove_runtime_barrier(control_dir, legacy_dir, unit, binding, uid, gid):
 def _main(argv):
     if not sys.flags.isolated or not sys.flags.no_site or not sys.flags.safe_path:
         raise RuntimeError("runtime barrier requires isolated safe-path Python")
-    if len(argv) == 4 and argv[0] == "recover-interrupted":
-        action, path, uid_text, gid_text = argv
+    if len(argv) == 3 and argv[0] == "recover-interrupted":
+        action, uid_text, gid_text = argv
         del action
-        values = validate_interrupted_prestate(
-            path, INTERRUPTED_PRESTATE, int(uid_text), int(gid_text)
+        current = [
+            record for record in INTERRUPTED_ATTEMPT_CHAIN
+            if record.get("current") is True
+        ]
+        if (
+            len(current) != 1
+            or current[0].get("name") != CURRENT_INTERRUPTED_ATTEMPT
+        ):
+            raise RuntimeError("static interrupted chain current leaf drift")
+        if set(INTERRUPTED_BARRIER_HISTORY) != {
+            record.get("name") for record in INTERRUPTED_ATTEMPT_CHAIN
+        }:
+            raise RuntimeError("interrupted evidence/barrier history drift")
+        values = validate_interrupted_attempt_chain(
+            INTERRUPTED_ATTEMPT_CHAIN, int(uid_text), int(gid_text)
         )
         print(json.dumps(values, sort_keys=True, separators=(",", ":")))
         return
@@ -4233,7 +5265,6 @@ elif [[ "$current_service_unit" == masked-runtime && \
         "$current_timer_active" == inactive && \
         "$current_admin_active" == inactive ]]; then
   interrupted_prestate_json="$(runtime_barrier_python recover-interrupted \
-    /home/teladi/.local/state/wirtelprimpf/deploy-backups/20260801-admin-live.HNkEdc \
     1000 1000)"
   interrupted_bindings_json="$(runtime_barrier_python adopt-interrupted \
     "$runtime_control_dir" "$runtime_legacy_dir" 1000 1000)"
@@ -4276,6 +5307,11 @@ fi
 
 deploy_backup="$(mktemp -d "$backup_root/20260801-admin-live.XXXXXX")"
 chmod 0700 "$deploy_backup"
+backend_wheelhouse="$deploy_backup/build-backend"
+backend_wheel="$backend_wheelhouse/$backend_wheel_name"
+backend_constraint="$backend_wheelhouse/build-constraint.txt"
+PIP_CACHE_DIR="$deploy_backup/pip-cache"
+TMPDIR="$deploy_backup/pip-tmp"
 printf '%s\n' "$runtime_sha_before" >"$deploy_backup/runtime-sha-before"
 printf '%s\n' "$runtime_branch_before" >"$deploy_backup/runtime-branch-before"
 printf '%s\n' "$target_sha" >"$deploy_backup/target-sha"
@@ -4285,6 +5321,7 @@ printf '%s\n' "$admin_active_before" >"$deploy_backup/admin-active-before"
 printf '%s\n' "$service_unit_state_before" >"$deploy_backup/service-unit-state-before"
 printf '%s\n' "$service_load_state_before" >"$deploy_backup/service-load-state-before"
 chmod 0600 "$deploy_backup"/*-before "$deploy_backup/target-sha"
+provision_build_backend_bundle
 
 backup_complete=0
 software_commit_complete=0
@@ -4765,9 +5802,10 @@ rollback_deployment() {
       rollback_failed=1
       critical_recovery_ok=0
     }
-    timeout --foreground --signal=TERM --kill-after=10s 300s \
-      "$runtime/.venv/bin/python" -m pip install \
-      --disable-pip-version-check --no-build-isolation --no-deps -e "$runtime" || {
+    install_editable_offline_bounded "$runtime" \
+      "$backend_wheelhouse" "$backend_wheel" \
+      "$backend_wheel_size" "$backend_wheel_sha256" \
+      "$backend_constraint" "$backend_constraint_sha256" || {
         rollback_failed=1
         critical_recovery_ok=0
       }
@@ -4931,9 +5969,10 @@ backup_complete=1
 git_runtime_fetch_bounded
 test "$(git_runtime rev-parse origin/main)" = "$target_sha"
 git_runtime switch --detach "$target_sha"
-timeout --foreground --signal=TERM --kill-after=10s 300s \
-  "$runtime/.venv/bin/python" -m pip install \
-  --disable-pip-version-check --no-build-isolation --no-deps -e "$runtime"
+install_editable_offline_bounded "$runtime" \
+  "$backend_wheelhouse" "$backend_wheel" \
+  "$backend_wheel_size" "$backend_wheel_sha256" \
+  "$backend_constraint" "$backend_constraint_sha256"
 install -Dm0644 "$runtime/Sourcecode/systemd-user/wirtelprimpf.service" \
   /home/teladi/.config/systemd/user/wirtelprimpf.service
 # The timer base unit is a confirmed invariant: preserve its existing inode and
@@ -5375,7 +6414,8 @@ trap - HUP INT TERM
 Expected: the previous SHA and exact restorable service semantics are privately
 recorded; generator activity cannot overlap backup/install/smoke; every
 present/missing target has an allowlisted restore action; any failure restores
-the old checkout, editable install, units, applet, admin state, exact timer
+the old checkout, offline editable install from the same hash-bound backend
+bundle, units, applet, admin state, exact timer
 enablement/activity, and the three allowlisted pre-existing parent-directory
 modes. Config/state backups remain manual evidence and are never copied by
 automatic rollback. Success retains the intended `0700` directory hardening,
@@ -5408,7 +6448,16 @@ paths. The checked-in structural runner
 `python -m unittest tests.test_rollout_plan_contract -v` additionally extracts
 the exact Step-9/Step-10 blocks, syntax-checks both, requires the complete
 audited Step-5/Step-6 bodies byte-for-byte inside Step 9, proves marker-producer
-ordering, and executes this disposable harness:
+ordering, executes the actual backend provision/install helpers with a
+single-call fake downloader and offline fake Pip, rejects a pre-existing
+corrupt wheel without retry, and calls the identical install helper in both
+forward and rollback positions. It also executes the exact interrupted-attempt
+validator against a disposable two-node chain, rejects two current leaves and
+binds the live constants to historical `HNkEdc`, current `f1iePQ`, all current
+barrier Inodes and complete manifest/payload metadata. Finally it
+failure-injects the separate 16-entry shared-Git FD transaction and proves
+rollback, hash drift and foreign-owner rejection. Then it executes this
+disposable shell harness:
 
 ```bash
 set -Eeuo pipefail
@@ -5443,6 +6492,67 @@ printf 'applet-target\n' >"$sandbox/source/applet/metadata.json"
 cp -a -- "$sandbox/source/applet/metadata.json" \
   "$sandbox/live/applet/metadata.json"
 : >"$sandbox/recovery-events"
+
+# BEGIN TASK4_BUILD_BACKEND_HARNESS
+# The checked-in Python contract executes the exact Step-9 functions. This
+# shell model independently proves the Step-10 event sequence and the absence
+# of a download fallback once a destination already exists.
+mkdir -m0700 "$sandbox/backend-wheelhouse"
+printf 'disposable exact backend wheel\n' >"$sandbox/backend-fixture.whl"
+backend_fixture_size="$(stat -Lc '%s' "$sandbox/backend-fixture.whl")"
+backend_fixture_sha256="$(sha256sum "$sandbox/backend-fixture.whl" | cut -d' ' -f1)"
+backend_destination="$sandbox/backend-wheelhouse/backend.whl"
+backend_download_attempts=0
+: >"$sandbox/backend-events"
+
+validate_backend_fixture() {
+  local candidate="$1"
+  test -f "$candidate" && test ! -L "$candidate"
+  test "$(stat -Lc '%s' "$candidate")" = "$backend_fixture_size"
+  test "$(sha256sum "$candidate" | cut -d' ' -f1)" = \
+    "$backend_fixture_sha256"
+}
+
+download_backend_once_harness() {
+  local temporary
+  if [[ -e "$backend_destination" || -L "$backend_destination" ]]; then
+    validate_backend_fixture "$backend_destination"
+    return
+  fi
+  backend_download_attempts=$((backend_download_attempts + 1))
+  temporary="$(mktemp "$sandbox/backend-wheelhouse/.download.XXXXXX")"
+  chmod 0600 "$temporary"
+  cp -- "$sandbox/backend-fixture.whl" "$temporary"
+  validate_backend_fixture "$temporary"
+  ln -- "$temporary" "$backend_destination"
+  rm -f -- "$temporary"
+  validate_backend_fixture "$backend_destination"
+  printf 'backend-single-fetch\n' >>"$sandbox/backend-events"
+}
+
+offline_build_harness() {
+  local direction="$1"
+  case "$direction" in forward|rollback) ;; *) return 1 ;; esac
+  validate_backend_fixture "$backend_destination"
+  printf 'backend-offline-%s\n' "$direction" >>"$sandbox/backend-events"
+}
+
+download_backend_once_harness
+download_backend_once_harness
+test "$backend_download_attempts" = 1
+offline_build_harness forward
+offline_build_harness rollback
+printf 'corrupt existing destination\n' >"$backend_destination"
+set +e
+download_backend_once_harness
+backend_corrupt_status=$?
+set -e
+test "$backend_corrupt_status" -ne 0
+test "$backend_download_attempts" = 1
+printf 'backend-corruption-rejected\n' >>"$sandbox/backend-events"
+test "$(paste -sd, "$sandbox/backend-events")" = \
+  backend-single-fetch,backend-offline-forward,backend-offline-rollback,backend-corruption-rejected
+# END TASK4_BUILD_BACKEND_HARNESS
 
 runtime_load_state_harness() {
   local unit="$1"
@@ -5631,6 +6741,8 @@ printf 'inactive\n' >"$sandbox/timer-state"
 printf 'inactive\n' >"$sandbox/admin-state"
 test "$(runtime_load_state_harness service)" = masked
 test "$(runtime_load_state_harness timer)" = masked
+printf 'historical-HNkEdc-evidence\ncurrent-f1iePQ-inode-hash-chain\n' \
+  >>"$sandbox/barrier-proof"
 printf 'interrupted-four-link-adoption\n' >>"$sandbox/barrier-proof"
 rm -f -- "$sandbox/timer-legacy-mask"
 test "$(runtime_load_state_harness service)" = masked
@@ -9519,3 +10631,100 @@ Completion requires all of the following:
   Push, Fetch, Receipt-, Runtime-, Ownership-, Installations-, Service-,
   Applet-, Archiv-, Pages-, DNS-, Cloudflare- oder Upstream-Write aus und wird
   als eigener lokaler Commit auf dem genannten Parent übergeben.
+
+### 2026-08-02 — Additive Offline-Buildbackend-, Recoveryketten- und Shared-Git-Schließung
+
+- Diese ausschließlich lokale Follow-up-Schicht basiert exakt auf Commit
+  `c84d957dee6206774a4d98689726dce38472e4b3` mit Baum
+  `b251ed552f7eaf74e18dd0362b9e10db50a3001a`. Sie repariert den bei der
+  einmalig freigegebenen Step-9-Ausführung sichtbar gewordenen Fehler im
+  Ausführungsplan; sie wiederholt Step 9 nicht und nimmt selbst keinerlei
+  Runtime-, Service-, Installations-, Netzwerk-, Git-Remote- oder
+  Upstream-Änderung vor.
+- Die eindeutige Fehlerursache war der bisherige Aufruf
+  `pip --no-build-isolation --no-deps -e`: Die Runtime verwendet Python
+  3.14.5 und pip 26.0.1, enthält aber kein importierbares `setuptools`.
+  Deshalb schlugen sowohl das Vorwärtsinstallieren als auch der symmetrische
+  Rollback mit `BackendUnavailable: Cannot import 'setuptools.build_meta'`
+  fehl. Eine getrennte, read-only vorbereitete Probe bestätigte, dass die
+  standardmäßige isolierte PEP-517-Buildumgebung funktioniert und die
+  Runtime-Venv danach weiterhin kein `setuptools` enthält.
+- Step 9 bindet das dafür benötigte Backend nun unveränderlich an
+  `setuptools-83.0.0-py3-none-any.whl`, Größe `1008090` Byte, SHA-256
+  `29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3`
+  und die konkrete PyPI-Datei-URL. Die Constraintdatei enthält exakt
+  `setuptools==83.0.0` plus LF und ist an SHA-256
+  `4723b97f4d3f3c1d817e4896c0f7d59642e326ad891c7037482d2455b8a6bb4c`
+  gebunden. Genau ein begrenzter `curl`-Versuch darf das Rad in die private
+  Transaktionsablage holen; Größe, Digest, Modus, Eigentümer und atomare
+  Hardlink-Publikation werden geprüft. Eine vorhandene korrekte Datei wird
+  wiederverwendet, eine vorhandene korrupte Datei wird ohne erneuten Download
+  fail-closed zurückgewiesen.
+- Vorwärts- und Rückwärtsweg rufen dieselbe Funktion
+  `install_editable_offline_bounded` auf. pip erhält die private Cache- und
+  Tempablage, `--no-index`, `--find-links`, `--build-constraint`, `--no-deps`
+  und `-e`; `--no-build-isolation` ist aus dem normativen Step 9 vollständig
+  entfernt. Damit ist nur das einmalig hashgebundene Herunterladen des
+  Buildbackends netzabhängig, während Vorwärtsinstallation und Rollback
+  ausschließlich aus demselben gebundenen Wheelhouse bauen.
+- Der Step-10-Vertrag führt exakt die produktiven Funktionen mit lokalen
+  Fakes aus. Er beweist einen einzigen Download trotz zweier Aufrufe, die
+  vollständige Offline-Umgebung des pip-Prozesses, die Benutzung der
+  Constraintdatei, die Abwesenheit von `--no-build-isolation` und die
+  fail-closed Ablehnung einer nachträglich korrupten Wheeldatei ohne zweiten
+  Netzversuch. TDD begann mit fünf gezielt roten Verträgen und endete für
+  denselben Fokus mit `5/5` grün.
+- Die Recoveryquelle ist nicht auf den ersten unterbrochenen Versuch
+  verkürzt. `INTERRUPTED_BARRIER_HISTORY` bindet die belegte Kette vom
+  historischen Backup `HNkEdc` bis zum aktuellen Backup `f1iePQ`; das
+  aktuelle Wurzelobjekt ist an Device `53` und Inode `8256518`, alle acht
+  Prestate-Dateien sowie die drei Manifestdateien und deren Digests gebunden.
+  Auch das private Payload-Verzeichnis `files` ist an Device `53`, Inode
+  `8256538`, Modus `0700` und seine acht direkten Einträge gebunden. Die
+  aktuelle Steuerbarriere verwendet die separat belegten Control- und
+  Legacy-Symlinks für Service und Timer; jede Lücke, Umordnung oder
+  Objektabweichung beendet die Recovery vor einem Write.
+- Ein separater transaktionaler FD-Vertrag schloss die während der früheren
+  Root-Ausführung entstandenen Eigentumsreste in der gemeinsam genutzten
+  Git-Ablage und in diesem Agent-Worktree. Die Shared-Git-Allowlist umfasst
+  exakt 16 Objekte mit Inventardigest
+  `1567d717e89da2f2acaf88ea1c2d7cba6c7a4e5fa646ab4c3a94f0e008aa8bf0`;
+  die Worktree-Allowlist exakt sieben `.pyc`-Objekte mit Digest
+  `7c35636e7407ea0ce0edc52010a932e858dc749e0f0a0354fd3debe49ccb361a`.
+  Das gemeinsam geprüfte Python-Heredoc einschließlich Abschluss-LF hat
+  SHA-256
+  `83f47a8a55971aaf72bd1e8fdde73e1a423d1d6e5d2221f763b98c33ed99bf54`.
+  Beide Wurzeln werden vollständig vorgebunden, ausschließlich über
+  `O_NOFOLLOW`-FDs geändert und bei jedem Fehler wurzelübergreifend in
+  umgekehrter Reihenfolge restauriert.
+- Transparenz zum Testlauf: Ein zunächst versehentlich als Root gestartetes
+  `make check` wurde vor jeder Installations- oder Runtimeoperation sofort
+  abgebrochen, hatte aber sechs vorhandene Worktree-Bytecodeobjekte ersetzt;
+  zusammen mit einem bereits root-eigenen Rollout-Bytecodeobjekt ergab das
+  genau die sieben statisch gebundenen Worktree-Einträge. Der anschließend
+  ausdrücklich freigegebene kombinierte 16+7-Handoff lief einmalig und
+  erfolgreich. Die unveränderte Runtime-Allowlist blieb dabei strikt
+  ausgeschlossen; ihr 84-Pfad-Digest blieb
+  `713307aef872976278c81ef74dd7ddf635767e7e4bbb3441941db2e17b2dc368`.
+  Read-only Postconditions bestätigten in allen drei Wurzeln ausschließlich
+  `teladi:teladi`, unveränderte Inodes und Digests sowie keine zusätzlichen
+  fremden Einträge.
+- Die frische Abschlussmatrix lief vollständig als UID/GID `1000:1000` mit
+  isoliertem Python-Bytecodecache. `make check` endete mit Exit 0: Admin-UI
+  `33/33`, SemVer `8/8`, Git-Fallback `3/3`, Release-Publication `3/3`,
+  Helper `7/7`, Applet-Sync `39/39`, Settings-Schema `19/19`,
+  Story-Directives `31/31` und Rolloutvertrag 81 entdeckt, 80 grün sowie
+  genau ein erwarteter Root-/`runuser`-Skip. Die unabhängige Plattformmatrix
+  bestand `166/166`; Web `9/9`; Astro prüfte 22 Dateien mit null Fehlern,
+  Warnungen oder Hinweisen. Ruff, Bandit High und `git diff --check` waren
+  ohne Befund. Ownership-Block, Step 9 und Step 10 bestanden jeweils separat
+  `bash -n` und ShellCheck auf Error-Severity; die vollständigen extrahierten
+  Step-9- und Step-10-Blöcke einschließlich Abschluss-LF haben SHA-256
+  `aa5bd6035abae492348bfbef415089cb956b97fc14155810783eca66dcd8b4b6`
+  beziehungsweise
+  `f195437936a8e6af65a5c6198b7b75f0cc33c5dd0f707c45c06eaafa2c53c2a0`.
+- Diese Schicht führte weder Step 9 noch einen Push, Fetch, Receipt-,
+  Runtime-, Installations-, Service-, Applet-, Archiv-, Pages-, DNS-,
+  Cloudflare- oder Upstream-Write aus. Sie verändert ausschließlich diesen
+  versionierten Plan und seinen ausführbaren Vertragsregressionstest und wird
+  als genau ein lokaler Commit unter dem Benutzer `teladi` übergeben.
