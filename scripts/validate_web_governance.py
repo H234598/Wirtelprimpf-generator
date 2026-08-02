@@ -14,6 +14,12 @@ from pathlib import Path
 PLAN_PATH = Path("docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md")
 BASELINE_PATH = Path("docs/REVISIONSBASELINE.md")
 REVISIONS_PATH = Path("config/reference-revisions.json")
+STATUS_PATH = Path("config/web-plan-status.json")
+REQUIREMENTS_PATH = Path("config/web-requirements.json")
+DECISIONS_PATH = Path("config/architecture-decisions.json")
+REQUIREMENTS_DOC_PATH = Path("docs/requirements/WIRTELPRIMPF-WEBSEITE.md")
+ADR_DOC_PATH = Path("docs/adr/README.md")
+PROVENANCE_PATH = Path("PROVENANCE.md")
 EXPECTED_REPOSITORIES = {
     "H234598/Wirtelprimpf-generator": (
         "Generator, Plattform, Applet, Admin, Seitenfabrik, Hub",
@@ -83,6 +89,56 @@ def read_json(root: Path) -> dict:
         raise ValidationError(f"malformed {REVISIONS_PATH}: {error}") from error
     require(isinstance(value, dict), "revision register object")
     return value
+
+
+def read_json_path(root: Path, path: Path) -> dict:
+    try:
+        value = json.loads(read_text(root, path))
+    except json.JSONDecodeError as error:
+        raise ValidationError(f"malformed {path}: {error}") from error
+    require(isinstance(value, dict), f"{path} object")
+    return value
+
+
+def plan_packages(plan: str) -> dict[str, dict[str, object]]:
+    parts = re.split(r"^### (WEB-P\d\d-\d\d) – .+$", plan, flags=re.MULTILINE)
+    result: dict[str, dict[str, object]] = {}
+    for index in range(1, len(parts), 2):
+        package, body = parts[index], parts[index + 1]
+        requirement_line = re.search(r"\*\*Anforderungs-IDs:\*\*(.*)", body)
+        if requirement_line is None:
+            continue
+        command_block = re.search(r"\*\*Lokale Prüfkommandos:\*\*\n\n```bash\n(.*?)\n```", body, re.DOTALL)
+        result[package] = {
+            "requirements": re.findall(r"WEB-REQ-\d{3}", requirement_line.group(1)),
+            "verification": command_block.group(1).splitlines() if command_block else ["manuelle Checkliste plus HTTP-Smoke"],
+        }
+    return result
+
+
+def render_requirements(requirements: dict) -> str:
+    lines = [
+        "# Wirtelprimpf-Webseite – Anforderungen", "",
+        f"Autorität: `{PLAN_PATH}` (SHA-256 `{requirements['plan_sha256']}`). V2-Kapitel 0–28 hat Vorrang; diese Datei ist deterministische Projektion von `{REQUIREMENTS_PATH}`.", "",
+        "| ID | Anforderung | Paket(e) | Meilenstein(e) | Verifikation |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for item in requirements["requirements"]:
+        lines.append("| `{id}` | {text} | {packages} | {milestones} | {verification} |".format(
+            id=item["id"], text=item["text"], packages=", ".join(f"`{value}`" for value in item["packages"]),
+            milestones=", ".join(item["milestones"]), verification="<br>".join(f"`{value}`" for value in item["verification"])))
+    return "\n".join(lines) + "\n"
+
+
+def render_adrs(decisions: dict) -> str:
+    lines = [
+        "# Architekturentscheidungen", "",
+        f"Autorität: V2-Kapitel 20 des kanonischen Plans (SHA-256 `{decisions['plan_sha256']}`). Historisches Kapitel 37 mit 13 Entwürfen ist bei Konflikten superseded; IDs 001–013 sind historische Kernmenge, 001–015 aktuelle Menge.", "",
+        "| ADR | Entscheidung | Status | Neubewertungstrigger |", "| --- | --- | --- | --- |",
+    ]
+    for item in decisions["decisions"]:
+        lines.append(f"| `{item['id']}` | {item['decision']} | {item['status']} | {item['reevaluation_trigger']} |")
+    return "\n".join(lines) + "\n"
 
 
 def exact_set(value: object, expected: set[str], message: str) -> None:
@@ -205,6 +261,54 @@ def validate(root: Path) -> None:
     for identifier in EXPECTED_PHASE_IDS | EXPECTED_CURRENT_ADRS:
         require(identifier in plan, f"canonical plan missing {identifier}")
     require(baseline == render_baseline(revisions), "baseline doc differs from revision register")
+
+    status = read_json_path(root, STATUS_PATH)
+    requirements = read_json_path(root, REQUIREMENTS_PATH)
+    decisions = read_json_path(root, DECISIONS_PATH)
+    digest = hashlib.sha256((root / PLAN_PATH).read_bytes()).hexdigest()
+    package_milestones = {entry["id"]: entry["milestone"].split("/") for entry in status.get("packages", []) if isinstance(entry, dict) and isinstance(entry.get("id"), str) and isinstance(entry.get("milestone"), str)}
+    expected_requirements = {f"WEB-REQ-{number:03d}" for number in range(1, 61)}
+    require(set(requirements) == {"plan_sha256", "requirements", "schema_version"}, "requirement register fields")
+    require(type(requirements.get("schema_version")) is int and requirements["schema_version"] == 1, "requirement schema version")
+    require(requirements.get("plan_sha256") == digest, "requirement plan digest")
+    items = requirements.get("requirements")
+    require(isinstance(items, list) and len(items) == 60, "requirement IDs")
+    require(all(isinstance(item, dict) and set(item) == {"id", "milestones", "packages", "text", "verification"} for item in items), "requirement record fields")
+    ids = [item.get("id") for item in items]
+    require(all(isinstance(item, str) for item in ids) and set(ids) == expected_requirements and len(set(ids)) == 60, "requirement IDs")
+    expected_mapping: dict[str, set[str]] = {identifier: set() for identifier in expected_requirements}
+    packages = plan_packages(plan)
+    for package, values in packages.items():
+        for identifier in values["requirements"]:
+            expected_mapping[identifier].add(package)
+    for item in items:
+        packages_value, milestones, verification = item["packages"], item["milestones"], item["verification"]
+        require(isinstance(item["text"], str) and item["text"].strip(), "requirement text")
+        require(isinstance(packages_value, list) and packages_value and all(isinstance(value, str) for value in packages_value) and set(packages_value) <= set(package_milestones), "requirement packages")
+        require(set(packages_value) == expected_mapping[item["id"]], "requirement package mapping")
+        require(isinstance(milestones, list) and milestones and all(isinstance(value, str) for value in milestones), "requirement milestones")
+        require(set(milestones) == {milestone for package in packages_value for milestone in package_milestones[package]}, "requirement milestones")
+        require(isinstance(verification, list) and verification and all(isinstance(value, str) and value.strip() for value in verification), "requirement verification")
+        valid_commands = {command for package in packages_value for command in packages[package]["verification"]}
+        require(set(verification) <= valid_commands, "requirement verification")
+    require(read_text(root, REQUIREMENTS_DOC_PATH) == render_requirements(requirements), "requirements doc differs from requirement register")
+
+    rows = re.findall(r"^\| (ADR-WEB-\d{3}) \| (.*?) \| (.*?) \| (.*?) \|$", plan, re.MULTILINE)
+    expected_rows = [(identifier, decision, status, trigger) for identifier, decision, status, trigger in rows if identifier in EXPECTED_CURRENT_ADRS][:15]
+    require(set(decisions) == {"current_ids", "decisions", "historical_core_ids", "plan_sha256", "schema_version"}, "ADR register fields")
+    require(type(decisions.get("schema_version")) is int and decisions["schema_version"] == 1 and decisions.get("plan_sha256") == digest, "ADR schema")
+    exact_set(decisions.get("current_ids"), EXPECTED_CURRENT_ADRS, "current ADR IDs")
+    exact_set(decisions.get("historical_core_ids"), EXPECTED_HISTORICAL_ADRS, "historical ADR IDs")
+    records = decisions.get("decisions")
+    require(isinstance(records, list) and all(isinstance(item, dict) and set(item) == {"decision", "id", "reevaluation_trigger", "status"} for item in records), "current ADR rows")
+    require(len(records) == 15 and [item.get("id") for item in records] == [f"ADR-WEB-{number:03d}" for number in range(1, 16)], "current ADR IDs")
+    actual_rows = [(item.get("id"), item.get("decision"), item.get("status"), item.get("reevaluation_trigger")) for item in records]
+    require(actual_rows == expected_rows, "current ADR rows")
+    require(read_text(root, ADR_DOC_PATH) == render_adrs(decisions), "ADR doc differs from ADR register")
+    provenance = read_text(root, PROVENANCE_PATH)
+    require("keine Implementierungscodes oder Assets Dritter" in provenance and "main" not in provenance, "provenance")
+    for repository, (_, frozen_sha, _) in EXPECTED_REPOSITORIES.items():
+        require(repository in provenance and frozen_sha in provenance, "provenance")
 
 
 def main() -> int:

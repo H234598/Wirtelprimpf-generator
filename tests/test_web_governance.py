@@ -16,6 +16,12 @@ VALIDATOR = ROOT / "scripts" / "validate_web_governance.py"
 PLAN = Path("docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md")
 BASELINE = Path("docs/REVISIONSBASELINE.md")
 REVISIONS = Path("config/reference-revisions.json")
+STATUS = Path("config/web-plan-status.json")
+REQUIREMENTS = Path("config/web-requirements.json")
+DECISIONS = Path("config/architecture-decisions.json")
+REQUIREMENTS_DOC = Path("docs/requirements/WIRTELPRIMPF-WEBSEITE.md")
+ADR_DOC = Path("docs/adr/README.md")
+PROVENANCE = Path("PROVENANCE.md")
 
 
 class WebGovernanceValidationTests(unittest.TestCase):
@@ -24,7 +30,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
     def copied_root(self) -> tempfile.TemporaryDirectory[str]:
         temporary = tempfile.TemporaryDirectory()
         target = Path(temporary.name)
-        for relative in (PLAN, BASELINE, REVISIONS):
+        for relative in (PLAN, BASELINE, REVISIONS, STATUS, REQUIREMENTS, DECISIONS, REQUIREMENTS_DOC, ADR_DOC, PROVENANCE):
             destination = target / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / relative, destination)
@@ -43,6 +49,15 @@ class WebGovernanceValidationTests(unittest.TestCase):
 
     def write_revisions(self, root: Path, value: dict) -> None:
         (root / REVISIONS).write_text(
+            json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def read_json(self, root: Path, relative: Path) -> dict:
+        return json.loads((root / relative).read_text(encoding="utf-8"))
+
+    def write_json(self, root: Path, relative: Path, value: dict) -> None:
+        (root / relative).write_text(
             json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
@@ -165,6 +180,102 @@ class WebGovernanceValidationTests(unittest.TestCase):
             self.write_revisions(root, revisions)
             result = self.validate(root)
         self.assert_rejected(result, "repository IDs")
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_missing_requirement(self) -> None:
+        """Rejects requirement register that silently loses one canonical ID."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            requirements = self.read_json(root, REQUIREMENTS)
+            requirements["requirements"].pop()
+            self.write_json(root, REQUIREMENTS, requirements)
+            result = self.validate(root)
+        self.assert_rejected(result, "requirement IDs")
+
+    def test_rejects_unknown_requirement_package(self) -> None:
+        """Rejects requirement assigned outside status register."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            requirements = self.read_json(root, REQUIREMENTS)
+            requirements["requirements"][0]["packages"] = ["WEB-P99-99"]
+            self.write_json(root, REQUIREMENTS, requirements)
+            result = self.validate(root)
+        self.assert_rejected(result, "requirement packages")
+
+    def test_rejects_empty_requirement_verification(self) -> None:
+        """Rejects requirement with no executable or test trace."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            requirements = self.read_json(root, REQUIREMENTS)
+            requirements["requirements"][0]["verification"] = []
+            self.write_json(root, REQUIREMENTS, requirements)
+            result = self.validate(root)
+        self.assert_rejected(result, "requirement verification")
+
+    def test_rejects_requirement_package_mapping_drift(self) -> None:
+        """Rejects requirement mapped to a package absent from plan section."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            requirements = self.read_json(root, REQUIREMENTS)
+            requirements["requirements"][0]["packages"].append("WEB-P00-02")
+            self.write_json(root, REQUIREMENTS, requirements)
+            result = self.validate(root)
+        self.assert_rejected(result, "requirement package mapping")
+
+    def test_rejects_altered_current_adr(self) -> None:
+        """Rejects current ADR decision text divergent from v2 authority."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            decisions = self.read_json(root, DECISIONS)
+            decisions["decisions"][0]["decision"] = "mutated"
+            self.write_json(root, DECISIONS, decisions)
+            result = self.validate(root)
+        self.assert_rejected(result, "current ADR rows")
+
+    def test_rejects_duplicate_adr(self) -> None:
+        """Rejects duplicate current ADR identifier."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            decisions = self.read_json(root, DECISIONS)
+            decisions["decisions"].append(decisions["decisions"][0])
+            self.write_json(root, DECISIONS, decisions)
+            result = self.validate(root)
+        self.assert_rejected(result, "current ADR IDs")
+
+    def test_rejects_requirement_document_mismatch(self) -> None:
+        """Rejects readable requirements projection with untracked edit."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            (root / REQUIREMENTS_DOC).write_text("mutated\n", encoding="utf-8")
+            result = self.validate(root)
+        self.assert_rejected(result, "requirements doc")
+
+    def test_rejects_adr_document_mismatch(self) -> None:
+        """Rejects readable ADR projection with untracked edit."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            (root / ADR_DOC).write_text("mutated\n", encoding="utf-8")
+            result = self.validate(root)
+        self.assert_rejected(result, "ADR doc")
+
+    def test_rejects_missing_or_moving_provenance_sha(self) -> None:
+        """Rejects provenance that replaces immutable reference with branch name."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            provenance = root / PROVENANCE
+            provenance.write_text(provenance.read_text(encoding="utf-8").replace("274b25c9e1f9ea97d3b060997ed5c425d2b30e9f", "main"), encoding="utf-8")
+            result = self.validate(root)
+        self.assert_rejected(result, "provenance")
+
+    def test_rejects_unhashable_requirement_package_without_traceback(self) -> None:
+        """Rejects malformed nested package list through controlled stderr."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            requirements = self.read_json(root, REQUIREMENTS)
+            requirements["requirements"][0]["packages"] = [[]]
+            self.write_json(root, REQUIREMENTS, requirements)
+            result = self.validate(root)
+        self.assert_rejected(result, "requirement packages")
         self.assertNotIn("Traceback", result.stderr)
 
 

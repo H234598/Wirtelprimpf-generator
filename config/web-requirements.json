@@ -1,0 +1,832 @@
+{
+  "plan_sha256": "b4b3427e80cabff59e82f9aa9be52978de1d930ea63e06b2433045b8c0dc38fe",
+  "requirements": [
+    {
+      "id": "WEB-REQ-001",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P08-01"
+      ],
+      "text": "Übersetzt warm/ruhig in prüfbare Rollen und Komponenten statt Katzenkitsch.",
+      "verification": [
+        "cd web && npm run test:visual-contract"
+      ]
+    },
+    {
+      "id": "WEB-REQ-002",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P04-01"
+      ],
+      "text": "Bietet sofort Bilder und Geschichten als zwei klare, ruhige Hauptwege.",
+      "verification": [
+        "cd web && npm run test:e2e -- homepage"
+      ]
+    },
+    {
+      "id": "WEB-REQ-003",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P08-02"
+      ],
+      "text": "Sichert kleine Touchgeräte ebenso wie große Displays.",
+      "verification": [
+        "cd web && npm run test:e2e -- responsive"
+      ]
+    },
+    {
+      "id": "WEB-REQ-004",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P08-03"
+      ],
+      "text": "Macht WCAG 2.2 AA, Tastatur und Screenreader zu blockierenden Qualitätsmerkmalen.",
+      "verification": [
+        "cd web && npm run test:e2e -- accessibility"
+      ]
+    },
+    {
+      "id": "WEB-REQ-005",
+      "milestones": [
+        "M03",
+        "M06"
+      ],
+      "packages": [
+        "WEB-P07-03",
+        "WEB-P07-04"
+      ],
+      "text": "Verhindert sichtbare funktionslose JS-Kontrollen und erhält Kernwege.",
+      "verification": [
+        "cd web && npm run test:e2e -- no-js",
+        "python3 tests/test_search_source.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-006",
+      "milestones": [
+        "M04"
+      ],
+      "packages": [
+        "WEB-P11-01"
+      ],
+      "text": "Macht Lade- und Buildqualität numerisch und reproduzierbar.",
+      "verification": [
+        "python3 scripts/validate_web_budgets.py",
+        "cd web && npm run test:performance"
+      ]
+    },
+    {
+      "id": "WEB-REQ-007",
+      "milestones": [
+        "M01",
+        "M05"
+      ],
+      "packages": [
+        "WEB-P10-04"
+      ],
+      "text": "Reduziert die bis zu 100 lokalen Commits dauernde Weblatenz, ohne Parallelpushes oder kaputte Zustände.",
+      "verification": [
+        "python3 tests/test_web_publish_policy.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-008",
+      "milestones": [
+        "M01",
+        "M04"
+      ],
+      "packages": [
+        "WEB-P02-02"
+      ],
+      "text": "Trennt Quellen, Staging, generierte Daten und site-Artefakt fail-closed.",
+      "verification": [
+        "python3 tests/test_web_build.py",
+        "python3 scripts/build_web_site.py --check"
+      ]
+    },
+    {
+      "id": "WEB-REQ-009",
+      "milestones": [
+        "Pflege"
+      ],
+      "packages": [
+        "WEB-P09-01"
+      ],
+      "text": "Modernisiert CI, ohne Generator-/Applet-Abdeckung zu verlieren.",
+      "verification": [
+        "python3 tests/test_check_equivalence.py",
+        "make check"
+      ]
+    },
+    {
+      "id": "WEB-REQ-010",
+      "milestones": [
+        "M01",
+        "M04"
+      ],
+      "packages": [
+        "WEB-P02-02"
+      ],
+      "text": "Trennt Quellen, Staging, generierte Daten und site-Artefakt fail-closed.",
+      "verification": [
+        "python3 tests/test_web_build.py",
+        "python3 scripts/build_web_site.py --check"
+      ]
+    },
+    {
+      "id": "WEB-REQ-011",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P04-01"
+      ],
+      "text": "Bietet sofort Bilder und Geschichten als zwei klare, ruhige Hauptwege.",
+      "verification": [
+        "cd web && npm run test:e2e -- homepage"
+      ]
+    },
+    {
+      "id": "WEB-REQ-012",
+      "milestones": [
+        "M02",
+        "M03"
+      ],
+      "packages": [
+        "WEB-P04-03",
+        "WEB-P04-04"
+      ],
+      "text": "Erweitert die statische Galerie, ohne Endlosscrollen oder URL-Verlust.",
+      "verification": [
+        "cd web && npm run test:e2e -- gallery-filters",
+        "cd web && npm run test:e2e -- gallery-return"
+      ]
+    },
+    {
+      "id": "WEB-REQ-013",
+      "milestones": [
+        "M02",
+        "M03"
+      ],
+      "packages": [
+        "WEB-P05-01"
+      ],
+      "text": "Macht jedes Bild direkt erreichbar und legt die zugängliche Grundlage für die Lightbox.",
+      "verification": [
+        "cd web && npm run test:e2e -- image-detail"
+      ]
+    },
+    {
+      "id": "WEB-REQ-014",
+      "milestones": [
+        "M02",
+        "M03"
+      ],
+      "packages": [
+        "WEB-P05-02"
+      ],
+      "text": "Bietet störungsarme Großansicht ohne die Detailroute zu ersetzen.",
+      "verification": [
+        "cd web && npm run test:e2e -- lightbox"
+      ]
+    },
+    {
+      "id": "WEB-REQ-015",
+      "milestones": [
+        "M02"
+      ],
+      "packages": [
+        "WEB-P05-03"
+      ],
+      "text": "Erlaubt bewusste Originalnutzung ohne versteckte Vollauflösungsdownloads.",
+      "verification": [
+        "cd web && npm run test:e2e -- downloads"
+      ]
+    },
+    {
+      "id": "WEB-REQ-016",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P06-01"
+      ],
+      "text": "Zeigt alle Bände mit belastbarem Titel-Fallback, Status und Umfang.",
+      "verification": [
+        "cd web && npm run test:e2e -- story-library"
+      ]
+    },
+    {
+      "id": "WEB-REQ-017",
+      "milestones": [
+        "M02"
+      ],
+      "packages": [
+        "WEB-P06-02",
+        "WEB-P06-04"
+      ],
+      "text": "Bietet angenehme, tieflinkfähige Lektüre mit Kontext und Navigation.",
+      "verification": [
+        "cd web && npm run test:e2e -- reader",
+        "python3 tests/test_web_relations.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-018",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P07-02"
+      ],
+      "text": "Ermöglicht Wiederaufnahme ohne Konto, Tracking oder Zeitreihen.",
+      "verification": [
+        "cd web && npm run test:e2e -- comfort"
+      ]
+    },
+    {
+      "id": "WEB-REQ-019",
+      "milestones": [
+        "M02"
+      ],
+      "packages": [
+        "WEB-P06-03"
+      ],
+      "text": "Bietet vollständiges Lesen, ohne eine unkontrolliert riesige HTML-Datei zu erzeugen.",
+      "verification": [
+        "python3 tests/test_epub_contract.py",
+        "cd web && npm run test:e2e -- full-story"
+      ]
+    },
+    {
+      "id": "WEB-REQ-020",
+      "milestones": [
+        "M02",
+        "M03"
+      ],
+      "packages": [
+        "WEB-P08-04"
+      ],
+      "text": "Hält technische Probleme ruhig, verständlich und rückführbar.",
+      "verification": [
+        "cd web && npm run test:e2e -- error-states"
+      ]
+    },
+    {
+      "id": "WEB-REQ-021",
+      "milestones": [
+        "M02",
+        "M04"
+      ],
+      "packages": [
+        "WEB-P01-01"
+      ],
+      "text": "Definiert den stabilen buildzeitigen Datenvertrag für alle Routen und Derivate.",
+      "verification": [
+        "python3 tests/test_web_content_schemas.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-022",
+      "milestones": [
+        "M02",
+        "M04"
+      ],
+      "packages": [
+        "WEB-P01-01"
+      ],
+      "text": "Definiert den stabilen buildzeitigen Datenvertrag für alle Routen und Derivate.",
+      "verification": [
+        "python3 tests/test_web_content_schemas.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-023",
+      "milestones": [
+        "M02",
+        "M04"
+      ],
+      "packages": [
+        "WEB-P01-01"
+      ],
+      "text": "Definiert den stabilen buildzeitigen Datenvertrag für alle Routen und Derivate.",
+      "verification": [
+        "python3 tests/test_web_content_schemas.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-024",
+      "milestones": [
+        "M04"
+      ],
+      "packages": [
+        "WEB-P04-02"
+      ],
+      "text": "Skaliert das Archiv ohne unbegrenzte JSON- oder DOM-Dateien.",
+      "verification": [
+        "cd web && npm run test:e2e -- gallery"
+      ]
+    },
+    {
+      "id": "WEB-REQ-025",
+      "milestones": [
+        "M02",
+        "M04"
+      ],
+      "packages": [
+        "WEB-P01-02",
+        "WEB-P01-03"
+      ],
+      "text": "Vereinigt Bilder, Prompts, Kapitel, Bände und working-Verweise nach einer einzigen nachvollziehbaren Fachlogik.",
+      "verification": [
+        "python3 tests/test_web_pairing.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-026",
+      "milestones": [
+        "M02",
+        "M03"
+      ],
+      "packages": [
+        "WEB-P01-04"
+      ],
+      "text": "Erhält Permalinks und lokale Zustände über Umbenennungen hinweg.",
+      "verification": [
+        "python3 tests/test_web_ids.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-027",
+      "milestones": [
+        "M04"
+      ],
+      "packages": [
+        "WEB-P00-02"
+      ],
+      "text": "Schafft belastbare Mess- und Sicherheitsdaten, ohne das große Medienarchiv zu verändern.",
+      "verification": [
+        "python3 tests/test_web_inventory.py",
+        "SOURCE_DATE_EPOCH=0 python3 scripts/web_inventory.py --root . --strict"
+      ]
+    },
+    {
+      "id": "WEB-REQ-028",
+      "milestones": [
+        "M04"
+      ],
+      "packages": [
+        "WEB-P00-02"
+      ],
+      "text": "Schafft belastbare Mess- und Sicherheitsdaten, ohne das große Medienarchiv zu verändern.",
+      "verification": [
+        "python3 tests/test_web_inventory.py",
+        "SOURCE_DATE_EPOCH=0 python3 scripts/web_inventory.py --root . --strict"
+      ]
+    },
+    {
+      "id": "WEB-REQ-029",
+      "milestones": [
+        "M04"
+      ],
+      "packages": [
+        "WEB-P00-02"
+      ],
+      "text": "Schafft belastbare Mess- und Sicherheitsdaten, ohne das große Medienarchiv zu verändern.",
+      "verification": [
+        "python3 tests/test_web_inventory.py",
+        "SOURCE_DATE_EPOCH=0 python3 scripts/web_inventory.py --root . --strict"
+      ]
+    },
+    {
+      "id": "WEB-REQ-030",
+      "milestones": [
+        "M04"
+      ],
+      "packages": [
+        "WEB-P03-01",
+        "WEB-P03-04"
+      ],
+      "text": "Erzeugt layoutgerechte, cachebare Webderivate ohne Originale zu verändern.",
+      "verification": [
+        "cd web && npm run build:images",
+        "cd web && npm test -- images",
+        "python3 scripts/measure_web_media.py --runs 3"
+      ]
+    },
+    {
+      "id": "WEB-REQ-031",
+      "milestones": [
+        "M04"
+      ],
+      "packages": [
+        "WEB-P03-03"
+      ],
+      "text": "Blockiert Dekompressionsbomben, extreme Maße, beschädigte Dateien und private Metadaten.",
+      "verification": [
+        "cd web && npm test -- image-security"
+      ]
+    },
+    {
+      "id": "WEB-REQ-032",
+      "milestones": [
+        "M04"
+      ],
+      "packages": [
+        "WEB-P03-03"
+      ],
+      "text": "Blockiert Dekompressionsbomben, extreme Maße, beschädigte Dateien und private Metadaten.",
+      "verification": [
+        "cd web && npm test -- image-security"
+      ]
+    },
+    {
+      "id": "WEB-REQ-033",
+      "milestones": [
+        "M04"
+      ],
+      "packages": [
+        "WEB-P03-02"
+      ],
+      "text": "Vermeidet vollständige Neuberechnung bei jedem neuen Bild.",
+      "verification": [
+        "cd web && npm test -- image-cache"
+      ]
+    },
+    {
+      "id": "WEB-REQ-034",
+      "milestones": [
+        "Pflege"
+      ],
+      "packages": [
+        "WEB-P02-01"
+      ],
+      "text": "Setzt die gewählte Architektur minimal und ohne unnötige Laufzeit-JavaScript-Abhängigkeit auf.",
+      "verification": [
+        "cd web && npm ci --ignore-scripts",
+        "cd web && npm run build"
+      ]
+    },
+    {
+      "id": "WEB-REQ-035",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P02-04"
+      ],
+      "text": "Verhindert harte Annahmen über Root-Hosting und stabilisiert Canonicals.",
+      "verification": [
+        "cd web && npm test -- urls"
+      ]
+    },
+    {
+      "id": "WEB-REQ-036",
+      "milestones": [
+        "Pflege"
+      ],
+      "packages": [
+        "WEB-P09-04"
+      ],
+      "text": "Blockiert unsichere oder übergroße Sitebäume vor dem Upload.",
+      "verification": [
+        "python3 tests/test_pages_artifact.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-037",
+      "milestones": [
+        "Pflege"
+      ],
+      "packages": [
+        "WEB-P09-01"
+      ],
+      "text": "Modernisiert CI, ohne Generator-/Applet-Abdeckung zu verlieren.",
+      "verification": [
+        "python3 tests/test_check_equivalence.py",
+        "make check"
+      ]
+    },
+    {
+      "id": "WEB-REQ-038",
+      "milestones": [
+        "M03",
+        "M04"
+      ],
+      "packages": [
+        "WEB-P09-02"
+      ],
+      "text": "Führt alle statischen, Unit-, Contract-, Browser-, A11y- und Budgetgates ohne Secrets aus.",
+      "verification": [
+        "python3 tests/test_web_workflows.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-039",
+      "milestones": [
+        "M03",
+        "M04"
+      ],
+      "packages": [
+        "WEB-P09-02"
+      ],
+      "text": "Führt alle statischen, Unit-, Contract-, Browser-, A11y- und Budgetgates ohne Secrets aus.",
+      "verification": [
+        "python3 tests/test_web_workflows.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-040",
+      "milestones": [
+        "M01"
+      ],
+      "packages": [
+        "WEB-P09-03"
+      ],
+      "text": "Veröffentlicht ausschließlich einen bereits validierten Sitebaum und lässt die letzte gute Site bei Fehlern stehen.",
+      "verification": [
+        "python3 tests/test_web_workflows.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-041",
+      "milestones": [
+        "M05"
+      ],
+      "packages": [
+        "WEB-P10-03"
+      ],
+      "text": "Macht Fehlerbehebung und bekannte-gute Wiederveröffentlichung reproduzierbar.",
+      "verification": [
+        "python3 tests/test_recovery_contract.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-042",
+      "milestones": [
+        "M05"
+      ],
+      "packages": [
+        "WEB-P10-01"
+      ],
+      "text": "Belegt, welche Quellrevision und neuesten Inhalte tatsächlich veröffentlicht wurden.",
+      "verification": [
+        "python3 tests/test_web_status.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-043",
+      "milestones": [
+        "M01",
+        "M05"
+      ],
+      "packages": [
+        "WEB-P10-04"
+      ],
+      "text": "Reduziert die bis zu 100 lokalen Commits dauernde Weblatenz, ohne Parallelpushes oder kaputte Zustände.",
+      "verification": [
+        "python3 tests/test_web_publish_policy.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-044",
+      "milestones": [
+        "M05"
+      ],
+      "packages": [
+        "WEB-P10-02"
+      ],
+      "text": "Hält Lizenz, Quellenstand und Betrieb auffindbar, aber aus der Hauptnavigation heraus.",
+      "verification": [
+        "cd web && npm run test:e2e -- maintenance"
+      ]
+    },
+    {
+      "id": "WEB-REQ-045",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P08-01"
+      ],
+      "text": "Übersetzt warm/ruhig in prüfbare Rollen und Komponenten statt Katzenkitsch.",
+      "verification": [
+        "cd web && npm run test:visual-contract"
+      ]
+    },
+    {
+      "id": "WEB-REQ-046",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P07-01"
+      ],
+      "text": "Speichert nur kleine Komfortzustände und degradiert bei gesperrtem Storage sauber.",
+      "verification": [
+        "cd web && npm test -- site-state"
+      ]
+    },
+    {
+      "id": "WEB-REQ-047",
+      "milestones": [
+        "Pflege"
+      ],
+      "packages": [
+        "WEB-P02-03"
+      ],
+      "text": "Rendert Storytext deterministisch ohne aktives ungeprüftes HTML.",
+      "verification": [
+        "cd web && npm test -- markdown"
+      ]
+    },
+    {
+      "id": "WEB-REQ-048",
+      "milestones": [
+        "M05"
+      ],
+      "packages": [
+        "WEB-P10-02"
+      ],
+      "text": "Hält Lizenz, Quellenstand und Betrieb auffindbar, aber aus der Hauptnavigation heraus.",
+      "verification": [
+        "cd web && npm run test:e2e -- maintenance"
+      ]
+    },
+    {
+      "id": "WEB-REQ-049",
+      "milestones": [
+        "M03",
+        "M04"
+      ],
+      "packages": [
+        "WEB-P11-03"
+      ],
+      "text": "Macht stabile Inhalte auffindbar, ohne Diagnose- oder Promptinhalte unkontrolliert zu indexieren.",
+      "verification": [
+        "cd web && npm run test:e2e -- seo"
+      ]
+    },
+    {
+      "id": "WEB-REQ-050",
+      "milestones": [
+        "M01"
+      ],
+      "packages": [
+        "WEB-P11-04"
+      ],
+      "text": "Trennt technische Vorbereitung von bewusst manuellen GitHub-/DNS-Schritten.",
+      "verification": [
+        "manuelle Checkliste plus HTTP-Smoke"
+      ]
+    },
+    {
+      "id": "WEB-REQ-051",
+      "milestones": [
+        "M00"
+      ],
+      "packages": [
+        "WEB-P00-03"
+      ],
+      "text": "Überführt die 60-KiB-Master-Spezifikation in eine pflegbare, tracebare Arbeitsgrundlage.",
+      "verification": [
+        "python3 scripts/validate_web_governance.py --root ."
+      ]
+    },
+    {
+      "id": "WEB-REQ-052",
+      "milestones": [
+        "Pflege"
+      ],
+      "packages": [
+        "WEB-P11-02"
+      ],
+      "text": "Friert Pages/Originalstrategie auf Basis realer Messwerte statt Metadatenfeld ein.",
+      "verification": [
+        "python3 scripts/validate_web_budgets.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-053",
+      "milestones": [
+        "M04"
+      ],
+      "packages": [
+        "WEB-P00-02"
+      ],
+      "text": "Schafft belastbare Mess- und Sicherheitsdaten, ohne das große Medienarchiv zu verändern.",
+      "verification": [
+        "python3 tests/test_web_inventory.py",
+        "SOURCE_DATE_EPOCH=0 python3 scripts/web_inventory.py --root . --strict"
+      ]
+    },
+    {
+      "id": "WEB-REQ-054",
+      "milestones": [
+        "M03",
+        "M04"
+      ],
+      "packages": [
+        "WEB-P09-02"
+      ],
+      "text": "Führt alle statischen, Unit-, Contract-, Browser-, A11y- und Budgetgates ohne Secrets aus.",
+      "verification": [
+        "python3 tests/test_web_workflows.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-055",
+      "milestones": [
+        "M04"
+      ],
+      "packages": [
+        "WEB-P11-01"
+      ],
+      "text": "Macht Lade- und Buildqualität numerisch und reproduzierbar.",
+      "verification": [
+        "python3 scripts/validate_web_budgets.py",
+        "cd web && npm run test:performance"
+      ]
+    },
+    {
+      "id": "WEB-REQ-056",
+      "milestones": [
+        "M03",
+        "M04"
+      ],
+      "packages": [
+        "WEB-P09-02"
+      ],
+      "text": "Führt alle statischen, Unit-, Contract-, Browser-, A11y- und Budgetgates ohne Secrets aus.",
+      "verification": [
+        "python3 tests/test_web_workflows.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-057",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P08-03"
+      ],
+      "text": "Macht WCAG 2.2 AA, Tastatur und Screenreader zu blockierenden Qualitätsmerkmalen.",
+      "verification": [
+        "cd web && npm run test:e2e -- accessibility"
+      ]
+    },
+    {
+      "id": "WEB-REQ-058",
+      "milestones": [
+        "M03"
+      ],
+      "packages": [
+        "WEB-P08-01"
+      ],
+      "text": "Übersetzt warm/ruhig in prüfbare Rollen und Komponenten statt Katzenkitsch.",
+      "verification": [
+        "cd web && npm run test:visual-contract"
+      ]
+    },
+    {
+      "id": "WEB-REQ-059",
+      "milestones": [
+        "M06"
+      ],
+      "packages": [
+        "WEB-P12-01"
+      ],
+      "text": "Bewertet Überrasche mich, Favoriten, PWA, TTS, Slideshow, Suche und Offline-Lesezeichen getrennt vom Kern.",
+      "verification": [
+        "python3 tests/test_optional_scope.py"
+      ]
+    },
+    {
+      "id": "WEB-REQ-060",
+      "milestones": [
+        "M00",
+        "Pflege"
+      ],
+      "packages": [
+        "WEB-P00-01",
+        "WEB-P00-04"
+      ],
+      "text": "Friert Ziel und Referenzen auf volle SHAs ein, dokumentiert nicht lesbare Einstellungen und macht Drift maschinenprüfbar.",
+      "verification": [
+        "python3 tests/test_web_governance.py",
+        "python3 scripts/validate_web_governance.py --root .",
+        "make check",
+        "git diff --check"
+      ]
+    }
+  ],
+  "schema_version": 1
+}

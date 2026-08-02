@@ -1,0 +1,23 @@
+{
+  "current_ids": ["ADR-WEB-001", "ADR-WEB-002", "ADR-WEB-003", "ADR-WEB-004", "ADR-WEB-005", "ADR-WEB-006", "ADR-WEB-007", "ADR-WEB-008", "ADR-WEB-009", "ADR-WEB-010", "ADR-WEB-011", "ADR-WEB-012", "ADR-WEB-013", "ADR-WEB-014", "ADR-WEB-015"],
+  "decisions": [
+    {"decision": "statischer Astro-7-Output", "id": "ADR-WEB-001", "reevaluation_trigger": "Buildzeit oder Archivgröße überschreitet Reserve", "status": "angenommen/implementiert"},
+    {"decision": "Factory im Generatorrepo, dünne nummerierte Archive", "id": "ADR-WEB-002", "reevaluation_trigger": "unabhängige Archivwartung wird unmöglich", "status": "angenommen/implementiert"},
+    {"decision": "Originale/Derivate in GitHub Releases, nicht im Git-Hauptbaum", "id": "ADR-WEB-003", "reevaluation_trigger": "Release-/Transfergrenzen oder Kosten untragbar", "status": "angenommen/implementiert"},
+    {"decision": "Sharp/libvips für Webderivate", "id": "ADR-WEB-004", "reevaluation_trigger": "reproduzierbare Sicherheits-/Plattformprobleme", "status": "angenommen/implementiert"},
+    {"decision": "zehn Storys je Buch, fünf Bücher/50 Storys je Archiv", "id": "ADR-WEB-005", "reevaluation_trigger": "Nutzer-/Performanceevidenz verlangt andere Grenze", "status": "angenommen/implementiert"},
+    {"decision": "unveränderlicher Factory-SHA je Archiv", "id": "ADR-WEB-006", "reevaluation_trigger": "niemals auf bewegliches `main` wechseln", "status": "angenommen/implementiert"},
+    {"decision": "statische Pagination statt unkontrolliertem Infinite Scroll", "id": "ADR-WEB-007", "reevaluation_trigger": "Browsermessung zeigt klare bessere Alternative", "status": "angenommen/implementiert"},
+    {"decision": "sichere Markdownpipeline mit Sanitizing", "id": "ADR-WEB-008", "reevaluation_trigger": "kein ungeprüftes Raw HTML", "status": "angenommen/implementiert"},
+    {"decision": "lokale Zustände ohne Konto/Tracking", "id": "ADR-WEB-009", "reevaluation_trigger": "M03-Schemafreeze", "status": "angenommen, unvollständig"},
+    {"decision": "Custom Domains im `telacore.org`-Namensraum", "id": "ADR-WEB-010", "reevaluation_trigger": "DNS-/HTTPS-/Domainproblem", "status": "Soll umgesetzt, extern zu prüfen"},
+    {"decision": "Suche nicht Teil des Kern-MVP", "id": "ADR-WEB-011", "reevaluation_trigger": "Storymenge und Nutzerbedarf belegen Nutzen", "status": "angenommen"},
+    {"decision": "Meta-CSP auf Pages plus keine fremden Origins", "id": "ADR-WEB-012", "reevaluation_trigger": "vorgeschaltete Plattform erlaubt echte Header", "status": "teilweise"},
+    {"decision": "Kapitelpermalinks zusätzlich zur Vollbandansicht", "id": "ADR-WEB-013", "reevaluation_trigger": "vor Reader-PR einfrieren", "status": "**offen M02**"},
+    {"decision": "Build und Deploy als getrennte Jobs", "id": "ADR-WEB-014", "reevaluation_trigger": "vor Factory-Stabilisierung entscheiden", "status": "**empfohlen M01**"},
+    {"decision": "Repin nur nach vollständigem Profil-/Live-Nachweis", "id": "ADR-WEB-015", "reevaluation_trigger": "gilt für jedes Archiv dauerhaft", "status": "**empfohlen M01**"}
+  ],
+  "historical_core_ids": ["ADR-WEB-001", "ADR-WEB-002", "ADR-WEB-003", "ADR-WEB-004", "ADR-WEB-005", "ADR-WEB-006", "ADR-WEB-007", "ADR-WEB-008", "ADR-WEB-009", "ADR-WEB-010", "ADR-WEB-011", "ADR-WEB-012", "ADR-WEB-013"],
+  "plan_sha256": "b4b3427e80cabff59e82f9aa9be52978de1d930ea63e06b2433045b8c0dc38fe",
+  "schema_version": 1
+}
