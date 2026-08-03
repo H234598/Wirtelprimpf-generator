@@ -1,0 +1,80 @@
+---
+---
+<div class="settings-shell" data-settings-shell>
+  <button class="settings-toggle" type="button" aria-label="Einstellungen öffnen" aria-controls="wirtelprimpf-settings" aria-expanded="false" data-settings-toggle>⚙</button>
+  <section id="wirtelprimpf-settings" class="settings-panel" role="dialog" aria-labelledby="settings-title" hidden data-settings-panel>
+    <div class="settings-heading">
+      <h2 id="settings-title">Einstellungen</h2>
+      <button type="button" aria-label="Einstellungen schließen" data-settings-close>×</button>
+    </div>
+    <fieldset>
+      <legend>Farbschema</legend>
+      <label><input type="radio" name="theme" value="night" data-theme-option /> Nacht</label>
+      <label><input type="radio" name="theme" value="paper" data-theme-option /> Papier</label>
+    </fieldset>
+    <div class="settings-row">
+      <div><strong>CatGPT</strong><small>Light sendet Chattext an OpenAI.</small></div>
+      <label class="mode-switch">
+        <span>Static</span>
+        <input type="checkbox" role="switch" aria-label="CatGPT Light aktivieren" data-catgpt-mode disabled />
+        <span>Light</span>
+      </label>
+    </div>
+    <small class="settings-note">Light: bald verfügbar</small>
+  </section>
+</div>
+
+<script>
+  import {
+    CATGPT_MODE_CHANGE_EVENT,
+    clearChatSession,
+    readTheme,
+    writeMode,
+    writeTheme,
+  } from "../lib/catgpt/settings.ts";
+
+  const shell = document.querySelector<HTMLElement>("[data-settings-shell]");
+  const toggle = shell?.querySelector<HTMLButtonElement>("[data-settings-toggle]");
+  const panel = shell?.querySelector<HTMLElement>("[data-settings-panel]");
+  const close = shell?.querySelector<HTMLButtonElement>("[data-settings-close]");
+  const mode = shell?.querySelector<HTMLInputElement>("[data-catgpt-mode]");
+  const themes = shell?.querySelectorAll<HTMLInputElement>("[data-theme-option]") ?? [];
+
+  const setOpen = (open: boolean): void => {
+    if (!toggle || !panel) return;
+    panel.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+    if (open) close?.focus(); else toggle.focus();
+  };
+
+  try {
+    const theme = readTheme(localStorage);
+    document.documentElement.dataset.theme = theme;
+    for (const option of themes) option.checked = option.value === theme;
+    writeMode(localStorage, "static");
+    clearChatSession(sessionStorage);
+    if (mode) mode.checked = false;
+  } catch {
+    document.documentElement.dataset.theme = "night";
+  }
+
+  toggle?.addEventListener("click", () => setOpen(panel?.hasAttribute("hidden") ?? true));
+  close?.addEventListener("click", () => setOpen(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && panel && !panel.hidden) setOpen(false);
+  });
+  for (const option of themes) {
+    option.addEventListener("change", () => {
+      if (option.value !== "night" && option.value !== "paper") return;
+      document.documentElement.dataset.theme = option.value;
+      try { writeTheme(localStorage, option.value); } catch {}
+    });
+  }
+  mode?.addEventListener("change", () => {
+    try {
+      writeMode(localStorage, "static");
+      clearChatSession(sessionStorage);
+    } catch {}
+    window.dispatchEvent(new CustomEvent(CATGPT_MODE_CHANGE_EVENT, { detail: { mode: "static" } }));
+  });
+</script>

@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import SettingsPanel from "../components/SettingsPanel.astro";
 import { loadSiteData } from "../lib/data.ts";
 
 interface Props {
@@ -36,7 +37,7 @@ const centralUrl = "https://wirtelprimpf.telacore.org/";
     <meta name="twitter:card" content={image ? "summary_large_image" : "summary"} />
     <title>{fullTitle}</title>
     <script is:inline>
-      try { document.documentElement.dataset.theme = localStorage.getItem("wirtelprimpf-theme") || "night"; } catch {}
+      try { document.documentElement.dataset.theme = localStorage.getItem("wirtelprimpf-theme") === "paper" ? "paper" : "night"; } catch {}
     </script>
   </head>
   <body>
@@ -52,7 +53,7 @@ const centralUrl = "https://wirtelprimpf.telacore.org/";
         <a href="/geschichten/" aria-current={section === "geschichten" ? "page" : undefined}>Geschichten</a>
         <a href="/projekt/" aria-current={section === "projekt" ? "page" : undefined}>Projekt</a>
       </nav>
-      <button class="theme-toggle" type="button" aria-label="Farbschema wechseln" data-theme-toggle>◐</button>
+      <SettingsPanel />
     </header>
     <main id="inhalt"><slot /></main>
     <footer class="site-footer">
@@ -63,12 +64,5 @@ const centralUrl = "https://wirtelprimpf.telacore.org/";
         <a href={`https://github.com/H234598/${data.repository}`}>GitHub</a>
       </div>
     </footer>
-    <script is:inline>
-      document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
-        const next = document.documentElement.dataset.theme === 'paper' ? 'night' : 'paper';
-        document.documentElement.dataset.theme = next;
-        try { localStorage.setItem('wirtelprimpf-theme', next); } catch {}
-      });
-    </script>
   </body>
 </html>
