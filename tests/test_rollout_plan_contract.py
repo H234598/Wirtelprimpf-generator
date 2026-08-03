@@ -4673,6 +4673,7 @@ assert_private_backup_root "$1" "$2" "$3" "$4" "$5" "$6"
                             name: {
                                 "dev": (root / name).stat().st_dev,
                                 "ino": (root / name).stat().st_ino,
+                                "ctime_ns": (root / name).stat().st_ctime_ns,
                                 "sha256": hashlib.sha256((value + "\n").encode()).hexdigest(),
                             }
                             for name, value in values.items()
@@ -4688,6 +4689,13 @@ assert_private_backup_root "$1" "$2" "$3" "$4" "$5" "$6"
                 validate_chain(tuple(chain_fixture), os.geteuid(), os.getegid()),
                 values,
             )
+
+            ctime_drift = copy.deepcopy(expected)
+            ctime_drift["files"]["admin-active-before"]["ctime_ns"] += 1
+            with self.assertRaisesRegex(RuntimeError, "identity drift"):
+                validate_prestate(
+                    ctime_drift["path"], ctime_drift, os.geteuid(), os.getegid()
+                )
 
             ambiguous = copy.deepcopy(chain_fixture)
             ambiguous[0]["current"] = True
@@ -4783,6 +4791,15 @@ assert_private_backup_root "$1" "$2" "$3" "$4" "$5" "$6"
                 reconcile(binding, repaired),
                 repaired,
             )
+
+            ctime_drift = copy.deepcopy(repaired)
+            ctime_drift["control"]["ctime_ns"] = (
+                ctime_drift["control"].get("ctime_ns", 0) + 1
+            )
+            with self.assertRaisesRegex(
+                RuntimeError, "effective runtime barrier identity drift"
+            ):
+                reconcile(repaired, ctime_drift)
 
             (control / unit).unlink()
             (control / unit).symlink_to("/dev/null")

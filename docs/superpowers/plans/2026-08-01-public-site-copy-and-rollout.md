@@ -4914,6 +4914,7 @@ def _capture_at(directory_fd, parent, unit, uid, gid):
     return {
         "dev": current.st_dev,
         "ino": current.st_ino,
+        "ctime_ns": current.st_ctime_ns,
         "uid": current.st_uid,
         "gid": current.st_gid,
         "mode": stat.S_IMODE(current.st_mode),
@@ -5012,6 +5013,11 @@ def _read_bound_regular(directory_fd, name, expected, uid, gid):
             raise RuntimeError("interrupted prestate member metadata drift")
         if (current.st_dev, current.st_ino) != (
             expected["dev"], expected["ino"]
+        ):
+            raise RuntimeError("interrupted prestate member identity drift")
+        if (
+            "ctime_ns" in expected
+            and current.st_ctime_ns != expected["ctime_ns"]
         ):
             raise RuntimeError("interrupted prestate member identity drift")
         payload = b""
@@ -5275,7 +5281,7 @@ def _validate_binding(binding):
         if not isinstance(record, dict):
             raise RuntimeError("invalid runtime barrier record")
         if set(record) != {
-            "dev", "ino", "uid", "gid", "mode", "nlink", "target", "parent"
+            "dev", "ino", "ctime_ns", "uid", "gid", "mode", "nlink", "target", "parent"
         }:
             raise RuntimeError("invalid runtime barrier record fields")
 
