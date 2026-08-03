@@ -10,6 +10,7 @@
     "dev": "astro dev",
     "check": "astro check",
     "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "generate:catgpt-replies": "node scripts/generate-catgpt-static-replies.mjs",
     "build": "astro build",
     "preview": "astro preview"
   },
