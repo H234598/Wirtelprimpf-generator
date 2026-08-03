@@ -10,7 +10,6 @@ import re
 import sys
 from pathlib import Path
 
-
 PLAN_PATH = Path("docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md")
 STATUS_PATH = Path("config/web-plan-status.json")
 SUPERSESSION_PATH = Path("config/web-plan-supersession.json")
@@ -25,6 +24,29 @@ FREEZE_SHAS = {
     "71bcad7a8ab183144e8ff007b85aea8bb6cff3b9",
 }
 FACTORY_PIN = "b00d824adee47341e3251bc18e09239fde1c5939"
+LEGACY_WEB_PLAN = {
+    "archive_destination": "Done/Wirtelprimpf-Webseite-Implementierungsplan.md",
+    "document_id": "WIRTEL-WEB-PLAN-001",
+    "original_sha256": "97ef89d0e80e9efc6c2573e644ec51bcb7ec122feadc6b057534298a52b7a7c6",
+    "section_mappings": [
+        {
+            "chapters": "47-77",
+            "replacement": "v2.0.0 chapters 0-28 and approved generator/rollout plans",
+            "source_sha256": None,
+        },
+        {
+            "chapters": "78-79",
+            "replacement": "Wirtelprimpf Cloudflare Alias- und Wildcard-Rollout",
+            "source_sha256": "ea3473941129702ca5245d62858cce659b94c9c228344ecf04a8ab2e5ddd3828",
+        },
+        {
+            "chapters": "80-80.53",
+            "replacement": "v2.0.0 chapters 0-28 and approved generator/rollout plans",
+            "source_sha256": None,
+        },
+    ],
+    "status": "superseded",
+}
 PACKAGE_PATTERN = re.compile(r"^### (WEB-P\d{2}-\d{2}) – ", re.MULTILINE)
 REQUIREMENT_PATTERN = re.compile(r"WEB-REQ-\d{3}")
 STATUS_ROW_PATTERN = re.compile(
@@ -84,11 +106,11 @@ def validate(root: Path) -> None:
         "packages", "requirements", "schema_version",
     }, "status record fields")
     require(set(supersession) == {
-        "authority_order", "generator_pr_4", "old_p00_pr", "schema_version",
+        "authority_order", "generator_pr_4", "legacy_web_plan", "old_p00_pr", "schema_version",
     }, "supersession record fields")
     require(type(status.get("schema_version")) is int and status["schema_version"] == 1, "status schema version")
     require(
-        type(supersession.get("schema_version")) is int and supersession["schema_version"] == 1,
+        type(supersession.get("schema_version")) is int and supersession["schema_version"] == 2,
         "supersession schema version",
     )
     canonical = status.get("canonical_plan")
@@ -151,6 +173,7 @@ def validate(root: Path) -> None:
     require(supersession.get("authority_order") == [
         "v2.0.0 chapters 0-28", "approved generator and rollout plans", "v1 historical appendix"
     ], "authority order")
+    require(supersession.get("legacy_web_plan") == LEGACY_WEB_PLAN, "legacy web plan supersession")
     old_p00 = supersession.get("old_p00_pr")
     require(
         isinstance(old_p00, dict)

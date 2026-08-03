@@ -8,6 +8,29 @@
     "github_pr_state": "closed",
     "integration_commit": "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"
   },
+  "legacy_web_plan": {
+    "archive_destination": "Done/Wirtelprimpf-Webseite-Implementierungsplan.md",
+    "document_id": "WIRTEL-WEB-PLAN-001",
+    "original_sha256": "97ef89d0e80e9efc6c2573e644ec51bcb7ec122feadc6b057534298a52b7a7c6",
+    "section_mappings": [
+      {
+        "chapters": "47-77",
+        "replacement": "v2.0.0 chapters 0-28 and approved generator/rollout plans",
+        "source_sha256": null
+      },
+      {
+        "chapters": "78-79",
+        "replacement": "Wirtelprimpf Cloudflare Alias- und Wildcard-Rollout",
+        "source_sha256": "ea3473941129702ca5245d62858cce659b94c9c228344ecf04a8ab2e5ddd3828"
+      },
+      {
+        "chapters": "80-80.53",
+        "replacement": "v2.0.0 chapters 0-28 and approved generator/rollout plans",
+        "source_sha256": null
+      }
+    ],
+    "status": "superseded"
+  },
   "old_p00_pr": {"github_pr_merged": false, "github_pr_state": "closed", "number": 1, "solution_path": "abgelöst"},
-  "schema_version": 1
+  "schema_version": 2
 }

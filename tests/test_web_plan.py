@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-import json
+import copy
 import hashlib
+import json
+import re
 import shutil
 import subprocess
 import sys
@@ -11,12 +13,34 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = ROOT / "scripts" / "validate_web_plan.py"
 PLAN = Path("docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md")
 STATUS = Path("config/web-plan-status.json")
 SUPERSESSION = Path("config/web-plan-supersession.json")
+LEGACY_WEB_PLAN = {
+    "archive_destination": "Done/Wirtelprimpf-Webseite-Implementierungsplan.md",
+    "document_id": "WIRTEL-WEB-PLAN-001",
+    "original_sha256": "97ef89d0e80e9efc6c2573e644ec51bcb7ec122feadc6b057534298a52b7a7c6",
+    "section_mappings": [
+        {
+            "chapters": "47-77",
+            "replacement": "v2.0.0 chapters 0-28 and approved generator/rollout plans",
+            "source_sha256": None,
+        },
+        {
+            "chapters": "78-79",
+            "replacement": "Wirtelprimpf Cloudflare Alias- und Wildcard-Rollout",
+            "source_sha256": "ea3473941129702ca5245d62858cce659b94c9c228344ecf04a8ab2e5ddd3828",
+        },
+        {
+            "chapters": "80-80.53",
+            "replacement": "v2.0.0 chapters 0-28 and approved generator/rollout plans",
+            "source_sha256": None,
+        },
+    ],
+    "status": "superseded",
+}
 
 
 class WebPlanValidationTests(unittest.TestCase):
@@ -103,10 +127,12 @@ class WebPlanValidationTests(unittest.TestCase):
                 root = Path(temporary)
                 path = root / relative
                 content = path.read_text(encoding="utf-8")
+                version = re.search(r'^  "schema_version": (\d+)', content, re.MULTILINE)
+                self.assertIsNotNone(version)
                 path.write_text(
                     content.replace(
-                        '"schema_version": 1',
-                        '"schema_version": 999,\n  "schema_version": 1',
+                        version.group(0),
+                        f'  "schema_version": 999,\n{version.group(0)}',
                         1,
                     ),
                     encoding="utf-8",
@@ -271,6 +297,34 @@ class WebPlanValidationTests(unittest.TestCase):
             result = self.validate(root)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("old P00", result.stderr)
+
+    def test_requires_complete_legacy_web_plan_supersession(self) -> None:
+        """Accepts only the hash-bound three-way mapping needed to archive the legacy plan."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            supersession = self.read_json(root, SUPERSESSION)
+            supersession["schema_version"] = 2
+            supersession["legacy_web_plan"] = copy.deepcopy(LEGACY_WEB_PLAN)
+            self.write_json(root, SUPERSESSION, supersession)
+            result = self.validate(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        mutations = (
+            ("original_sha256", "0" * 64),
+            ("status", "pending"),
+            ("archive_destination", "Baupläne!/legacy.md"),
+        )
+        for field, value in mutations:
+            with self.subTest(field=field), self.copied_root() as temporary:
+                root = Path(temporary)
+                supersession = self.read_json(root, SUPERSESSION)
+                supersession["schema_version"] = 2
+                supersession["legacy_web_plan"] = copy.deepcopy(LEGACY_WEB_PLAN)
+                supersession["legacy_web_plan"][field] = value
+                self.write_json(root, SUPERSESSION, supersession)
+                result = self.validate(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("legacy web plan supersession", result.stderr)
 
     def test_rejects_merged_pr4_claim(self) -> None:
         """Rejects fabricated GitHub merge evidence for PR #4."""
