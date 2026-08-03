@@ -22,8 +22,15 @@ export class StaticReplyProvider implements ReplyProvider {
     replies: readonly string[] = STATIC_REPLIES,
     random: RandomSource = Math.random,
   ) {
-    if (new Set(replies).size < 2) {
+    if (replies.some((reply) => reply.trim().length === 0)) {
+      throw new Error("StaticReplyProvider requires non-empty replies");
+    }
+    const uniqueReplyCount = new Set(replies).size;
+    if (uniqueReplyCount < 2) {
       throw new Error("StaticReplyProvider requires at least two unique replies");
+    }
+    if (uniqueReplyCount !== replies.length) {
+      throw new Error("StaticReplyProvider requires unique replies");
     }
     this.replies = replies;
     this.random = random;

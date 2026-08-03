@@ -19,4 +19,6 @@ test("shuffle bag emits every reply once and never repeats at bag boundaries", a
 
 test("provider rejects catalogs that cannot avoid repetition", () => {
   assert.throws(() => new StaticReplyProvider(["miau"]), /at least two unique replies/);
+  assert.throws(() => new StaticReplyProvider(["", "miau"]), /non-empty replies/);
+  assert.throws(() => new StaticReplyProvider(["a", "a", "b"]), /unique replies/);
 });

@@ -6,6 +6,7 @@ const root = new URL("../src/", import.meta.url);
 const layout = readFileSync(new URL("layouts/BaseLayout.astro", root), "utf8");
 const settings = readFileSync(new URL("components/SettingsPanel.astro", root), "utf8");
 const chat = readFileSync(new URL("components/CatGptWidget.astro", root), "utf8");
+const styles = readFileSync(new URL("styles/global.css", root), "utf8");
 
 test("base layout replaces theme shortcut with accessible settings panel", () => {
   assert.match(layout, /import SettingsPanel/);
@@ -29,4 +30,10 @@ test("base layout mounts an accessible static CatGPT on every page", () => {
   assert.match(chat, /textContent/);
   assert.doesNotMatch(chat, /innerHTML/);
   assert.doesNotMatch(chat, /fetch\s*\(/);
+});
+
+test("CatGPT keeps its composer visible in short viewports", () => {
+  assert.match(styles, /\.catgpt-window \{[^}]*display: flex;[^}]*flex-direction: column;/s);
+  assert.match(styles, /\.catgpt-messages \{[^}]*min-height: 0;[^}]*flex: 1;/s);
+  assert.doesNotMatch(styles, /\.catgpt-messages \{[^}]*max-height: 24rem;/s);
 });
