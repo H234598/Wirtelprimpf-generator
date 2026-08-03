@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import CatGptWidget from "../components/CatGptWidget.astro";
 import SettingsPanel from "../components/SettingsPanel.astro";
 import { loadSiteData } from "../lib/data.ts";
 
@@ -64,5 +65,6 @@ const centralUrl = "https://wirtelprimpf.telacore.org/";
         <a href={`https://github.com/H234598/${data.repository}`}>GitHub</a>
       </div>
     </footer>
+    <CatGptWidget />
   </body>
 </html>

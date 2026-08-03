@@ -90,6 +90,19 @@
   .settings-row small { display: block; color: var(--muted); }
   .mode-switch { display: flex; align-items: center; gap: .45rem; }
   .settings-note { color: var(--muted); }
+  .catgpt-shell { position: fixed; right: 1rem; bottom: 1rem; z-index: 60; }
+  .catgpt-launcher { border: 1px solid var(--line); border-radius: 99px; padding: .8rem 1rem; color: #231623; background: var(--carrot); box-shadow: var(--shadow); cursor: pointer; font-weight: 850; }
+  .catgpt-window { position: absolute; right: 0; bottom: calc(100% + .7rem); width: min(24rem, calc(100vw - 2rem)); max-height: min(38rem, calc(100svh - 7rem)); overflow: hidden; border: 1px solid var(--line); border-radius: 1rem; color: var(--ink); background: var(--surface); box-shadow: var(--shadow); }
+  .catgpt-window > header { display: flex; align-items: center; justify-content: space-between; padding: .85rem 1rem; border-bottom: 1px solid var(--line); }
+  .catgpt-window h2 { font-size: 1.35rem; }
+  .catgpt-window > header button { border: 0; color: var(--ink); background: transparent; cursor: pointer; font-size: 1.5rem; }
+  .catgpt-messages { min-height: 12rem; max-height: 24rem; margin: 0; padding: 1rem; overflow-y: auto; display: grid; gap: .7rem; list-style: none; }
+  .catgpt-messages li { max-width: 85%; padding: .65rem .8rem; border-radius: .9rem; overflow-wrap: anywhere; background: var(--surface-2); }
+  .catgpt-messages li[data-role="user"] { justify-self: end; color: var(--paper-ink); background: var(--paper); }
+  .catgpt-form { display: grid; grid-template-columns: 1fr auto; gap: .5rem; padding: .8rem; border-top: 1px solid var(--line); }
+  .catgpt-form input { min-width: 0; border: 1px solid var(--line); border-radius: 99px; padding: .65rem .8rem; color: var(--ink); background: var(--bg); }
+  .catgpt-form button { border: 0; border-radius: 99px; padding: .65rem .85rem; color: #231623; background: var(--mint); cursor: pointer; font-weight: 800; }
+  .catgpt-form button:disabled { opacity: .55; cursor: wait; }
   .hero, .page-heading, .section, .site-footer { width: min(1180px, calc(100% - 2rem)); margin-inline: auto; }
   .hero { min-height: min(780px, calc(100svh - 90px)); display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(270px, .72fr); gap: clamp(2rem, 8vw, 7rem); align-items: center; padding: clamp(3rem, 8vw, 8rem) 0; }
   .hero-copy { display: grid; gap: 1.3rem; position: relative; }
@@ -167,6 +180,9 @@
 
 @media (max-width: 560px) {
   .brand span { max-width: 13rem; }
+  .catgpt-shell { left: 1rem; }
+  .catgpt-launcher { margin-left: auto; display: block; }
+  .catgpt-window { left: 0; right: 0; width: auto; }
   .archive-grid, .media-grid { grid-template-columns: 1fr; }
   .site-footer { flex-direction: column; }
   .story-part header strong { margin-left: 0; }
