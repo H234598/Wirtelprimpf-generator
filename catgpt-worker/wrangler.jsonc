@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wirtelprimpf-catgpt",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "catgpt.wirtelprimpf.telacore.org", "custom_domain": true }
+  ],
+  "vars": {
+    "EXTRA_ALLOWED_ORIGINS": "",
+    "LIGHT_ENABLED": "false",
+    "MAX_DAILY_REQUESTS": "50",
+    "OPENAI_MODEL": "gpt-5.6-luna"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "DAILY_LIMITS", "class_name": "DailyRateLimiter" }
+    ]
+  },
+  "exports": {
+    "DailyRateLimiter": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

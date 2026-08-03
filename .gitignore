@@ -18,4 +18,7 @@ build/
 web/node_modules/
 web/dist/
 web/.astro/
+catgpt-worker/node_modules/
+catgpt-worker/.wrangler/
+catgpt-worker/.dev.vars
 media-staging/
