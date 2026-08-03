@@ -1765,7 +1765,7 @@ is_task3_pr4_receipt_candidate() {
 run_task3_pr4_closed_gate() {
   local source_root evidence_path evidence tracked_blob
   local graphql_repository graphql_pr timeline rest_pr compare merge_object
-  local graphql_query remote_main remote_head
+  local graphql_query remote_main remote_head remote_main_rows remote_head_rows
 
   generator_head=agent/transactional-settings-live-sync-status
   generator_expected_head=5aab1907b9af73fe6d8ef56e49beb7a527877e19
@@ -1783,9 +1783,10 @@ run_task3_pr4_closed_gate() {
   test "$generator_base_before" = b00d824adee47341e3251bc18e09239fde1c5939
   test "$generator_head_tree" = 967a0b41f6525de79dfc91e1b52dd8ca3dc85ac8
   test "$generator_merge_sha" = 274b25c9e1f9ea97d3b060997ed5c425d2b30e9f
-  test "$(/usr/bin/git rev-list --parents -n1 "$generator_merge_sha")" = \
+  test "$(task3_git_probe rev-list --parents -n1 "$generator_merge_sha")" = \
     "$generator_merge_sha $generator_base_before $generator_expected_head"
-  /usr/bin/git diff --quiet "$generator_expected_head" "$generator_merge_sha"
+  task3_git_probe diff --no-ext-diff --quiet \
+    "$generator_expected_head" "$generator_merge_sha"
 
   source_root="$(task3_git_probe rev-parse --show-toplevel)"
   test "$source_root" = "$(pwd -P)"
@@ -1805,11 +1806,12 @@ run_task3_pr4_closed_gate() {
   assert_canonical_origin
   require_task3_auth
   require_canonical_repository
-  remote_main="$(git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)"
-  remote_head="$(
-    git_remote ls-remote "$canonical_origin" "refs/heads/$generator_head" |
-      cut -f1
+  remote_main_rows="$(git_remote ls-remote "$canonical_origin" refs/heads/main)"
+  remote_main="$(/usr/bin/cut -f1 <<<"$remote_main_rows")"
+  remote_head_rows="$(
+    git_remote ls-remote "$canonical_origin" "refs/heads/$generator_head"
   )"
+  remote_head="$(/usr/bin/cut -f1 <<<"$remote_head_rows")"
 
   graphql_query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){id nameWithOwner pullRequest(number:$number){number state merged viewerCanReopen headRefName headRefOid baseRefName isDraft isCrossRepository headRepository{id nameWithOwner} headRepositoryOwner{login} mergeCommit{oid} reviewDecision}}}'
   graphql_repository="$(
@@ -1995,11 +1997,15 @@ if [[ -e "$receipt_file" ]] && is_task3_pr4_receipt_candidate; then
       "$canonical_origin" \
       ":refs/heads/$generator_head"
     # END TASK3_PR4_FEATURE_REF_DELETE
-    test "$(git_remote ls-remote "$canonical_origin" refs/heads/main | cut -f1)" = \
+    task3_pr4_cleanup_main_rows="$(
+      git_remote ls-remote "$canonical_origin" refs/heads/main
+    )"
+    test "$(/usr/bin/cut -f1 <<<"$task3_pr4_cleanup_main_rows")" = \
       "$generator_merge_sha"
-    test -z "$(
+    task3_pr4_cleanup_head_rows="$(
       git_remote ls-remote "$canonical_origin" "refs/heads/$generator_head"
     )"
+    test -z "$task3_pr4_cleanup_head_rows"
     task3_pr4_cleanup_pending=0
   fi
   printf 'Verified closed-state generator SHA for Task 4/5: %s\n' \

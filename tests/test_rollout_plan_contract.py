@@ -344,6 +344,7 @@ class RolloutPlanContractTests(unittest.TestCase):
     def _pr4_closed_binding(
         receipt_state: str = "remote_committed",
         remote_feature: str | None = None,
+        remote_main: str | None = None,
     ) -> dict[str, object]:
         historical_reopen = json.loads(PR4_REOPEN_EVIDENCE.read_text(encoding="utf-8"))
         base = "b00d824adee47341e3251bc18e09239fde1c5939"
@@ -352,6 +353,8 @@ class RolloutPlanContractTests(unittest.TestCase):
         merge = "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f"
         if remote_feature is None:
             remote_feature = head
+        if remote_main is None:
+            remote_main = merge
         return {
             "version": 1,
             "actor": {"login": "H234598", "id": 54270221},
@@ -372,7 +375,7 @@ class RolloutPlanContractTests(unittest.TestCase):
                 "head_tree": tree,
                 "merge_sha": merge,
             },
-            "refs": {"main": merge, "feature": remote_feature},
+            "refs": {"main": remote_main, "feature": remote_feature},
             "graphql_pr": {
                 "number": 4,
                 "state": "CLOSED",
@@ -2809,6 +2812,11 @@ set -Eeuo pipefail
 {classifier}
 classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
 """
+        validation_script = f"""
+set -Eeuo pipefail
+{validator}
+assert_task3_pr4_closed_binding "$1" "$2" "$3" "$4"
+"""
 
         def classify(
             state: str,
@@ -2822,6 +2830,29 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
                     "-c",
                     script,
                     "pr4-closed-state-test",
+                    state,
+                    remote_main,
+                    remote_head,
+                    json.dumps(binding, separators=(",", ":")),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+
+        def validate_binding(
+            state: str,
+            remote_main: str,
+            remote_head: str,
+            binding: dict[str, object],
+        ) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(  # nosec B603 -- fixed local shell and JSON fixture
+                [
+                    "/bin/bash",
+                    "-c",
+                    validation_script,
+                    "pr4-closed-binding-test",
                     state,
                     remote_main,
                     remote_head,
@@ -2864,18 +2895,36 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
                 self.assertNotIn("push", result.stdout)
 
         rejected_inputs = (
-            ("planned", merge, head, self._pr4_closed_binding()),
+            ("planned", merge, head, self._pr4_closed_binding(), False),
             (
                 "remote_committed",
                 merge,
                 "",
                 self._pr4_closed_binding("remote_committed", ""),
+                True,
             ),
-            ("remote_committed", base, head, self._pr4_closed_binding()),
-            ("verified", merge, "4" * 40, self._pr4_closed_binding("verified")),
+            (
+                "remote_committed",
+                base,
+                head,
+                self._pr4_closed_binding(remote_main=base),
+                True,
+            ),
+            (
+                "verified",
+                merge,
+                "4" * 40,
+                self._pr4_closed_binding("verified", remote_feature="4" * 40),
+                True,
+            ),
         )
-        for state, remote_main, remote_head, binding in rejected_inputs:
+        for state, remote_main, remote_head, binding, binding_valid in rejected_inputs:
             with self.subTest(rejected=(state, remote_main, remote_head)):
+                if binding_valid:
+                    validation = validate_binding(
+                        state, remote_main, remote_head, binding
+                    )
+                    self.assertEqual(validation.returncode, 0, validation.stderr)
                 result = classify(state, remote_main, remote_head, binding)
                 self.assertNotEqual(result.returncode, 0)
 
@@ -2916,6 +2965,80 @@ classify_task3_pr4_closed_action "$1" "$2" "$3" "$4"
             with self.subTest(drift=name):
                 result = classify("remote_committed", merge, head, binding)
                 self.assertNotEqual(result.returncode, 0)
+
+    def test_pr4_closed_recovery_uses_hardened_local_git_reads(self) -> None:
+        recovery = _marked_block(self.task3_merge, "TASK3_PR4_CLOSED_RECOVERY")
+        gate = _shell_function(recovery, "run_task3_pr4_closed_gate")
+
+        self.assertIn(
+            'task3_git_probe rev-list --parents -n1 "$generator_merge_sha"',
+            gate,
+        )
+        self.assertIn(
+            "task3_git_probe diff --no-ext-diff --quiet",
+            gate,
+        )
+
+    def test_pr4_closed_recovery_remote_reads_fail_closed(self) -> None:
+        recovery = _marked_block(self.task3_merge, "TASK3_PR4_CLOSED_RECOVERY")
+        gate = _shell_function(recovery, "run_task3_pr4_closed_gate")
+        initial_start = gate.index("  remote_main")
+        initial_end = gate.index("\n\n  graphql_query=", initial_start)
+        initial_reads = gate[initial_start:initial_end]
+        initial = subprocess.run(  # nosec B603 -- fixed shell and reviewed plan source
+            [
+                "/bin/bash",
+                "-c",
+                f"""
+set -Eeuo pipefail
+git_remote() {{ return 23; }}
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+generator_head=agent/transactional-settings-live-sync-status
+{initial_reads}
+printf 'reached-after-failed-initial-read\\n'
+""",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(initial.returncode, 0, initial.stdout)
+        self.assertNotIn("reached-after-failed-initial-read", initial.stdout)
+
+        cleanup_start = recovery.index("# END TASK3_PR4_FEATURE_REF_DELETE")
+        cleanup_start = recovery.index("\n", cleanup_start) + 1
+        cleanup_end = recovery.index(
+            "    task3_pr4_cleanup_pending=0", cleanup_start
+        )
+        cleanup_end = recovery.index("\n", cleanup_end) + 1
+        cleanup_reads = recovery[cleanup_start:cleanup_end]
+        cleanup = subprocess.run(  # nosec B603 -- fixed shell and reviewed plan source
+            [
+                "/bin/bash",
+                "-c",
+                f"""
+set -Eeuo pipefail
+generator_merge_sha=274b25c9e1f9ea97d3b060997ed5c425d2b30e9f
+canonical_origin=https://github.com/H234598/Wirtelprimpf-generator.git
+generator_head=agent/transactional-settings-live-sync-status
+task3_pr4_cleanup_pending=1
+git_remote() {{
+  if [[ "$*" == *refs/heads/main* ]]; then
+    printf '%s\\trefs/heads/main\\n' "$generator_merge_sha"
+    return 0
+  fi
+  return 23
+}}
+{cleanup_reads}
+printf 'cleanup-pending=%s\\n' "$task3_pr4_cleanup_pending"
+""",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(cleanup.returncode, 0, cleanup.stdout)
+        self.assertNotIn("cleanup-pending=0", cleanup.stdout)
 
     def test_pr4_cleanup_has_only_an_exact_feature_lease_after_all_live_gates(self) -> None:
         recovery = _marked_block(self.task3_merge, "TASK3_PR4_CLOSED_RECOVERY")
