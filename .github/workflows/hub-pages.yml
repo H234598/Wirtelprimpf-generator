@@ -95,6 +95,7 @@ jobs:
 
       - name: Build hub
         env:
+          PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
           WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/data
           WIRTELPRIMPF_SITE_PROFILE: hub
           WIRTELPRIMPF_SITE_URL: https://wirtelprimpf.telacore.org
@@ -105,7 +106,9 @@ jobs:
         run: npm --prefix web run build
 
       - name: Validate artifact fail-closed
-        run: python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
+        run: |
+          rg -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
+          python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
 
       - name: Upload immutable Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

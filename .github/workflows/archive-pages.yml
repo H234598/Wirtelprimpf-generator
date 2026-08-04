@@ -75,13 +75,17 @@ jobs:
 
       - name: Build archive profile
         env:
+          PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
           WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/archive
           WIRTELPRIMPF_SITE_PROFILE: archive
           WIRTELPRIMPF_SITE_URL: https://${{ inputs.custom_domain }}
         run: npm --prefix factory/web run build
 
       - name: Validate archive artifact fail-closed
-        run: python3 factory/scripts/validate_pages_artifact.py factory/web/dist --expected-domain "${{ inputs.custom_domain }}"
+        working-directory: factory
+        run: |
+          rg -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
+          python3 scripts/validate_pages_artifact.py web/dist --expected-domain "${{ inputs.custom_domain }}"
 
       - name: Upload immutable Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

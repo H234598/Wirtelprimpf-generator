@@ -96,6 +96,36 @@ jobs:
       - name: Verify CLI entrypoint
         run: wirtelprimpf-platform mapping 51
 
+  catgpt-worker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout CatGPT worker
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: catgpt-worker
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.13.1"
+          cache: npm
+          cache-dependency-path: catgpt-worker/package-lock.json
+
+      - name: Install exact worker dependencies
+        run: npm --prefix catgpt-worker ci --ignore-scripts
+
+      - name: Test worker
+        run: npm --prefix catgpt-worker test
+
+      - name: Type-check worker
+        run: npm --prefix catgpt-worker run check
+
+      - name: Verify worker deployment bundle
+        run: npm --prefix catgpt-worker run deploy -- --dry-run
+
   web:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -131,18 +161,22 @@ jobs:
 
       - name: Build and validate hub profile
         env:
+          PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
           WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/web/fixtures/site
           WIRTELPRIMPF_SITE_PROFILE: hub
           WIRTELPRIMPF_SITE_URL: https://wirtelprimpf.telacore.org
         run: |
           npm --prefix web run build
+          rg -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
           python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
 
       - name: Build and validate archive profile
         env:
+          PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
           WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/web/fixtures/site
           WIRTELPRIMPF_SITE_PROFILE: archive
           WIRTELPRIMPF_SITE_URL: https://wirtelprimpf-0001.telacore.org
         run: |
           npm --prefix web run build
+          rg -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
           python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org
