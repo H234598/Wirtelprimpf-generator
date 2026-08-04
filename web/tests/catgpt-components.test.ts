@@ -17,6 +17,7 @@ test("base layout replaces theme shortcut with accessible settings panel", () =>
   assert.match(settings, /role="switch"/);
   assert.match(settings, /bald verfügbar/);
   assert.match(settings, /disabled=\{!lightEndpoint\}/);
+  assert.match(settings, /initializeCatGptMode\(\(\) => localStorage, lightAvailable\)/);
   assert.match(settings, /changeCatGptMode\(\s*\(\) => localStorage,\s*\(\) => sessionStorage/);
 });
 

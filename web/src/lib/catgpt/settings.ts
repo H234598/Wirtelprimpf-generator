@@ -29,6 +29,17 @@ export function writeMode(storage: StorageLike, mode: CatGptMode): void {
   storage.setItem(MODE_KEY, mode);
 }
 
+export function initializeCatGptMode(
+  getStorage: StorageGetter,
+  lightAvailable: boolean,
+): CatGptMode {
+  if (!lightAvailable) {
+    try { writeMode(getStorage(), "static"); } catch {}
+    return "static";
+  }
+  try { return readMode(getStorage()); } catch { return "static"; }
+}
+
 export function clearChatSession(storage: StorageLike): void {
   storage.removeItem(CATGPT_HISTORY_KEY);
 }

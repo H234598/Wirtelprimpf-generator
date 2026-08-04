@@ -1,5 +1,5 @@
 import type { CatGptLightEndpoint } from "./config.ts";
-import type { ReplyProvider, ReplyRequest } from "./types.ts";
+import { isValidChatContent, type ReplyProvider, type ReplyRequest } from "./types.ts";
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -53,7 +53,7 @@ export class LightReplyProvider implements ReplyProvider {
         throw new Error("CatGPT Light invalid reply");
       }
       const reply = ((body as Record<string, unknown>).reply as string).trim();
-      if (!reply) throw new Error("CatGPT Light empty reply");
+      if (!isValidChatContent(reply)) throw new Error("CatGPT Light invalid reply content");
       return reply;
     } catch {
       return this.fallback.reply(request);

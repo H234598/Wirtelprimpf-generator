@@ -34,7 +34,7 @@ const { lightEndpoint } = Astro.props;
 <script>
   import {
     changeCatGptMode,
-    readMode,
+    initializeCatGptMode,
     readTheme,
     writeTheme,
   } from "../lib/catgpt/settings.ts";
@@ -62,11 +62,8 @@ const { lightEndpoint } = Astro.props;
   }
 
   const lightAvailable = Boolean(mode && !mode.disabled);
-  try {
-    if (mode) mode.checked = lightAvailable && readMode(localStorage) === "light";
-  } catch {
-    if (mode) mode.checked = false;
-  }
+  const selectedMode = initializeCatGptMode(() => localStorage, lightAvailable);
+  if (mode) mode.checked = selectedMode === "light";
 
   toggle?.addEventListener("click", () => setOpen(panel?.hasAttribute("hidden") ?? true));
   close?.addEventListener("click", () => setOpen(false));

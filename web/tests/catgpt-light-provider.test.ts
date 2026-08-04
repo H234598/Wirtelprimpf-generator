@@ -45,6 +45,32 @@ test("Light sends one hardened POST containing only message and prior history", 
   assert.deepEqual(fallback.calls, []);
 });
 
+test("Light accepts a reply containing 1000 astral Unicode code points", async () => {
+  const reply = "🐈".repeat(1000);
+  const fallback = new FallbackProvider();
+  const provider = new LightReplyProvider(CATGPT_LIGHT_ENDPOINT, fallback, {
+    fetch: async () => Response.json({ reply }),
+  });
+
+  assert.equal(await provider.reply(request), reply);
+  assert.deepEqual(fallback.calls, []);
+});
+
+test("Light falls back exactly once for a reply over 1000 Unicode code points", async () => {
+  const fallback = new FallbackProvider();
+  let fetchCalls = 0;
+  const provider = new LightReplyProvider(CATGPT_LIGHT_ENDPOINT, fallback, {
+    fetch: async () => {
+      fetchCalls += 1;
+      return Response.json({ reply: "🐈".repeat(1001) });
+    },
+  });
+
+  assert.equal(await provider.reply(request), "statisches Miau");
+  assert.equal(fetchCalls, 1);
+  assert.deepEqual(fallback.calls, [request]);
+});
+
 test("every Light failure silently falls back exactly once without retry", async (t) => {
   const failures: Array<[string, () => Promise<Response>]> = [
     ["fetch", async () => { throw new TypeError("offline"); }],

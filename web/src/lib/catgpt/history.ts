@@ -3,7 +3,7 @@ import {
   type StorageGetter,
   type StorageLike,
 } from "./settings.ts";
-import type { ChatMessage } from "./types.ts";
+import { isValidChatContent, type ChatMessage } from "./types.ts";
 
 const MAX_HISTORY_LENGTH = 10;
 
@@ -12,8 +12,7 @@ function isChatMessage(value: unknown): value is ChatMessage {
   const message = value as Record<string, unknown>;
   return Object.keys(message).length === 2
     && (message.role === "user" || message.role === "assistant")
-    && typeof message.content === "string"
-    && message.content.trim().length > 0;
+    && isValidChatContent(message.content);
 }
 
 export function readChatHistory(storage: StorageLike | StorageGetter): ChatMessage[] {

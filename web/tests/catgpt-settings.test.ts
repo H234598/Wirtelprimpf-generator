@@ -6,6 +6,7 @@ import {
   CATGPT_MODE_CHANGE_EVENT,
   changeCatGptMode,
   clearChatSession,
+  initializeCatGptMode,
   readMode,
   readTheme,
   writeMode,
@@ -38,6 +39,26 @@ test("known settings persist and clearing a chat removes only session history", 
   assert.equal(readTheme(storage), "paper");
   assert.equal(readMode(storage), "light");
   assert.equal(storage.getItem(CATGPT_HISTORY_KEY), null);
+});
+
+test("unavailable Light initializes static and replaces stale persisted Light mode", () => {
+  const storage = new MemoryStorage();
+  writeMode(storage, "light");
+
+  assert.equal(initializeCatGptMode(() => storage, false), "static");
+  assert.equal(readMode(storage), "static");
+});
+
+test("mode initialization remains fail-closed when storage acquisition or writing fails", () => {
+  assert.equal(initializeCatGptMode(
+    () => { throw new DOMException("localStorage blocked", "SecurityError"); },
+    false,
+  ), "static");
+
+  const storage = new MemoryStorage();
+  storage.values.set("wirtelprimpf-catgpt-mode", "light");
+  storage.setItem = () => { throw new Error("localStorage blocked"); };
+  assert.equal(initializeCatGptMode(() => storage, false), "static");
 });
 
 test("local mode storage failure cannot block session clear, event, or visible chat clear", () => {

@@ -27,6 +27,18 @@ test("chat history keeps only the newest ten validated messages", () => {
   assert.deepEqual(JSON.parse(storage.getItem(CATGPT_HISTORY_KEY) ?? "null"), messages.slice(-10));
 });
 
+test("chat history accepts 1000 Unicode code points and rejects 1001", () => {
+  const storage = new MemoryStorage();
+  const boundaryMessage = { role: "assistant" as const, content: "🐈".repeat(1000) };
+  storage.setItem(CATGPT_HISTORY_KEY, JSON.stringify([boundaryMessage]));
+  assert.deepEqual(readChatHistory(storage), [boundaryMessage]);
+
+  storage.setItem(CATGPT_HISTORY_KEY, JSON.stringify([
+    { role: "assistant", content: "🐈".repeat(1001) },
+  ]));
+  assert.deepEqual(readChatHistory(storage), []);
+});
+
 test("malformed JSON or any invalid message schema yields empty history", () => {
   const storage = new MemoryStorage();
   for (const value of [
