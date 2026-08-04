@@ -668,6 +668,34 @@ class WebGovernanceValidationTests(unittest.TestCase):
             result = self.validate(root)
         self.assert_rejected(result, "Pages workflow")
 
+    def test_pages_governance_rejects_extra_build_permission(self) -> None:
+        """Rejects any build permission beyond read-only repository contents."""
+        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+            with self.subTest(workflow=path), self.copied_root() as temporary:
+                root = Path(temporary)
+                workflow = root / path
+                content = workflow.read_text(encoding="utf-8")
+                workflow.write_text(
+                    content.replace("      contents: read\n", "      contents: read\n      issues: read\n", 1),
+                    encoding="utf-8",
+                )
+                result = self.validate(root)
+            self.assert_rejected(result, "Pages workflow build permissions")
+
+    def test_pages_governance_rejects_extra_deploy_permission(self) -> None:
+        """Rejects any deploy permission beyond Pages write and OIDC token issuance."""
+        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+            with self.subTest(workflow=path), self.copied_root() as temporary:
+                root = Path(temporary)
+                workflow = root / path
+                content = workflow.read_text(encoding="utf-8")
+                workflow.write_text(
+                    content.replace("      id-token: write\n", "      id-token: write\n      issues: read\n", 1),
+                    encoding="utf-8",
+                )
+                result = self.validate(root)
+            self.assert_rejected(result, "Pages workflow deploy permissions")
+
     def test_rejects_missing_catgpt_worker_ci_job(self) -> None:
         """Rejects a workflow that silently loses CatGPT worker coverage."""
         with self.copied_root() as temporary:

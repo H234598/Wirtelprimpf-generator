@@ -366,6 +366,16 @@ def pages_job(workflow: str, name: str) -> str:
     return job.group("body")
 
 
+def pages_job_permissions(job: str, message: str) -> dict[str, str]:
+    block = re.search(r"^    permissions:\n(?P<body>(?:      [a-z-]+: [a-z]+\n)+)", job, re.MULTILINE)
+    require(block is not None, message)
+    permissions: dict[str, str] = {}
+    for key, value in re.findall(r"^      ([a-z-]+): ([a-z]+)$", block.group("body"), re.MULTILINE):
+        require(key not in permissions, message)
+        permissions[key] = value
+    return permissions
+
+
 def validate_pages_workflow(root: Path, path: Path) -> None:
     """Ensure an unprivileged single build hands the exact artifact to Pages deploy."""
     workflow = read_text(root, path)
@@ -377,8 +387,10 @@ def validate_pages_workflow(root: Path, path: Path) -> None:
     require("cancel-in-progress: false" in workflow, "Pages workflow concurrency")
 
     build = pages_job(workflow, "build")
-    require("permissions:\n      contents: read\n" in build, "Pages workflow build permissions")
-    require("pages: write" not in build and "id-token: write" not in build, "Pages workflow build permissions")
+    require(
+        pages_job_permissions(build, "Pages workflow build permissions") == {"contents": "read"},
+        "Pages workflow build permissions",
+    )
     require(build.count(" run build") == 1, "Pages workflow build count")
     require("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" in build, "Pages workflow action pin")
     require("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020" in build, "Pages workflow action pin")
@@ -391,10 +403,10 @@ def validate_pages_workflow(root: Path, path: Path) -> None:
     deploy = pages_job(workflow, "deploy")
     require("needs: build" in deploy, "Pages workflow deploy dependency")
     require(
-        "permissions:\n      pages: write\n      id-token: write\n" in deploy,
+        pages_job_permissions(deploy, "Pages workflow deploy permissions")
+        == {"pages": "write", "id-token": "write"},
         "Pages workflow deploy permissions",
     )
-    require("contents:" not in deploy, "Pages workflow deploy permissions")
     require("actions/checkout" not in deploy and " run build" not in deploy, "Pages workflow deploy isolation")
     require("environment:\n      name: github-pages\n      url: ${{ steps.deployment.outputs.page_url }}" in deploy, "Pages workflow environment")
     require("actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128" in deploy, "Pages workflow action pin")
