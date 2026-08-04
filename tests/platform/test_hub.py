@@ -67,8 +67,8 @@ class HubSourceTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/hub-pages.yml").read_text(encoding="utf-8")
         triggers = workflow.split("on:\n", 1)[1].split("\npermissions:\n", 1)[0]
 
-        self.assertNotIn("\n  push:", triggers)
-        self.assertIn("\n  workflow_dispatch:", triggers)
+        trigger_names = re.findall(r"^  ([a-z_]+):", triggers, re.MULTILINE)
+        self.assertEqual(trigger_names, ["workflow_dispatch"])
         for name in ("active_repository", "archive_ref", "current_volume"):
             match = re.search(rf"^      {name}:\n(?P<body>(?:        .*\n)+)", triggers, re.MULTILINE)
             self.assertIsNotNone(match, name)
