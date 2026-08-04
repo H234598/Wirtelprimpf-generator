@@ -22,6 +22,8 @@ REQUIREMENTS_DOC_PATH = Path("docs/requirements/WIRTELPRIMPF-WEBSEITE.md")
 ADR_DOC_PATH = Path("docs/adr/README.md")
 PROVENANCE_PATH = Path("PROVENANCE.md")
 WORKFLOW_PATH = Path(".github/workflows/check.yml")
+ARCHIVE_PAGES_WORKFLOW_PATH = Path(".github/workflows/archive-pages.yml")
+HUB_PAGES_WORKFLOW_PATH = Path(".github/workflows/hub-pages.yml")
 MAKEFILE_PATH = Path("Makefile")
 README_PATH = Path("README.md")
 GITIGNORE_PATH = Path(".gitignore")
@@ -354,6 +356,68 @@ def validate_ci_integration(root: Path) -> None:
         require(executable == commands, "CI job commands")
 
 
+def pages_job(workflow: str, name: str) -> str:
+    job = re.search(
+        rf"^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:|\Z)",
+        workflow.split("\njobs:\n", 1)[1],
+        re.MULTILINE | re.DOTALL,
+    )
+    require(job is not None, "Pages workflow jobs")
+    return job.group("body")
+
+
+def validate_pages_workflow(root: Path, path: Path) -> None:
+    """Ensure an unprivileged single build hands the exact artifact to Pages deploy."""
+    workflow = read_text(root, path)
+    require("\njobs:\n" in workflow, "Pages workflow jobs")
+    jobs = workflow.split("\njobs:\n", 1)[1]
+    names = re.findall(r"^  ([a-z][a-z0-9_-]*):\n", jobs, re.MULTILINE)
+    require(names == ["build", "deploy"], "Pages workflow jobs")
+    require("permissions:\n  contents: read\n" in workflow, "Pages workflow permissions")
+    require("cancel-in-progress: false" in workflow, "Pages workflow concurrency")
+
+    build = pages_job(workflow, "build")
+    require("permissions:\n      contents: read\n" in build, "Pages workflow build permissions")
+    require("pages: write" not in build and "id-token: write" not in build, "Pages workflow build permissions")
+    require(build.count(" run build") == 1, "Pages workflow build count")
+    require("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" in build, "Pages workflow action pin")
+    require("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020" in build, "Pages workflow action pin")
+    require("actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d" in build, "Pages workflow action pin")
+    require("actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9" in build, "Pages workflow action pin")
+    require("actions/deploy-pages" not in build, "Pages workflow build deployment")
+    require("validate_pages_artifact.py" in build and "tree_sha256" in build, "Pages workflow artifact validation")
+    require("connect-src https://catgpt\\.wirtelprimpf\\.telacore\\.org" in build, "Pages workflow CatGPT CSP")
+
+    deploy = pages_job(workflow, "deploy")
+    require("needs: build" in deploy, "Pages workflow deploy dependency")
+    require(
+        "permissions:\n      pages: write\n      id-token: write\n" in deploy,
+        "Pages workflow deploy permissions",
+    )
+    require("contents:" not in deploy, "Pages workflow deploy permissions")
+    require("actions/checkout" not in deploy and " run build" not in deploy, "Pages workflow deploy isolation")
+    require("environment:\n      name: github-pages\n      url: ${{ steps.deployment.outputs.page_url }}" in deploy, "Pages workflow environment")
+    require("actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128" in deploy, "Pages workflow action pin")
+
+
+def validate_pages_workflows(root: Path) -> None:
+    validate_pages_workflow(root, ARCHIVE_PAGES_WORKFLOW_PATH)
+    validate_pages_workflow(root, HUB_PAGES_WORKFLOW_PATH)
+    hub = read_text(root, HUB_PAGES_WORKFLOW_PATH)
+    triggers = hub.split("on:\n", 1)[1].split("\npermissions:\n", 1)[0]
+    require(re.findall(r"^  ([a-z_]+):", triggers, re.MULTILINE) == ["workflow_dispatch"], "Pages workflow Hub trigger")
+    for name in ("active_repository", "archive_ref", "current_volume"):
+        input_definition = re.search(rf"^      {name}:\n(?P<body>(?:        .*\n)+)", triggers, re.MULTILINE)
+        require(input_definition is not None and "        required: true\n" in input_definition.group("body"), "Pages workflow Hub inputs")
+    require(
+        len(re.findall(r'--(?:data-root|external-root|github-output|repository|revision) "[^"]+" \\\n', hub)) == 5,
+        "Pages workflow Hub source",
+    )
+    require("--repository \"${INPUT_REPOSITORY}\"" in hub, "Pages workflow Hub source")
+    require("--revision \"${INPUT_ARCHIVE_REF}\"" in hub, "Pages workflow Hub source")
+    require("--current-volume \"${INPUT_CURRENT_VOLUME}\"" in hub, "Pages workflow Hub source")
+
+
 def validate_repository_integration(root: Path) -> None:
     """Keep direct validation wired into local checks and documentation."""
     makefile = read_text(root, MAKEFILE_PATH)
@@ -519,6 +583,7 @@ def validate_repository(entry: object) -> None:
 
 def validate(root: Path) -> None:
     validate_ci_integration(root)
+    validate_pages_workflows(root)
     validate_repository_integration(root)
     plan = read_text(root, PLAN_PATH)
     baseline = read_text(root, BASELINE_PATH)

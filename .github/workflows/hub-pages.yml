@@ -30,6 +30,8 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - name: Checkout generator and public data
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,19 +52,13 @@ jobs:
           INPUT_CURRENT_VOLUME: ${{ inputs.current_volume }}
         run: |
           set -euo pipefail
-          args=(
-            --data-root "${GITHUB_WORKSPACE}/data"
-            --external-root "${GITHUB_WORKSPACE}/current-archive"
-            --github-output "${GITHUB_OUTPUT}"
-          )
-          if [[ -n "${INPUT_REPOSITORY}" || -n "${INPUT_ARCHIVE_REF}" || -n "${INPUT_CURRENT_VOLUME}" ]]; then
-            args+=(
-              --repository "${INPUT_REPOSITORY}"
-              --revision "${INPUT_ARCHIVE_REF}"
-              --current-volume "${INPUT_CURRENT_VOLUME}"
-            )
-          fi
-          python3 -m wirtelprimpf_platform.hub "${args[@]}"
+          python3 -m wirtelprimpf_platform.hub \
+            --data-root "${GITHUB_WORKSPACE}/data" \
+            --external-root "${GITHUB_WORKSPACE}/current-archive" \
+            --github-output "${GITHUB_OUTPUT}" \
+            --repository "${INPUT_REPOSITORY}" \
+            --revision "${INPUT_ARCHIVE_REF}" \
+            --current-volume "${INPUT_CURRENT_VOLUME}"
 
       - name: Checkout exact active publication archive
         if: steps.source.outputs.external == 'true'
@@ -99,10 +95,11 @@ jobs:
           WIRTELPRIMPF_MEDIA_REPOSITORY: ${{ steps.source.outputs.repository }}
         run: npm --prefix web run build
 
-      - name: Validate artifact fail-closed
+      - name: Validate artifact fail-closed and record tree hash
         run: |
           rg -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
-          python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
+          python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org | tee "$RUNNER_TEMP/pages-artifact-report.json"
+          rg -q '"tree_sha256": "[0-9a-f]{64}"' "$RUNNER_TEMP/pages-artifact-report.json"
 
       - name: Upload immutable Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

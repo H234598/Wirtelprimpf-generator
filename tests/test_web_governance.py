@@ -35,6 +35,8 @@ ADR_DOC = Path("docs/adr/README.md")
 PROVENANCE = Path("PROVENANCE.md")
 MAKEFILE = Path("Makefile")
 WORKFLOW = Path(".github/workflows/check.yml")
+ARCHIVE_PAGES_WORKFLOW = Path(".github/workflows/archive-pages.yml")
+HUB_PAGES_WORKFLOW = Path(".github/workflows/hub-pages.yml")
 README = Path("README.md")
 GITIGNORE = Path(".gitignore")
 
@@ -83,7 +85,8 @@ class WebGovernanceValidationTests(unittest.TestCase):
         target = Path(temporary.name)
         for relative in (
             PLAN, BASELINE, REVISIONS, STATUS, REQUIREMENTS, DECISIONS,
-            REQUIREMENTS_DOC, ADR_DOC, PROVENANCE, WORKFLOW, MAKEFILE,
+            REQUIREMENTS_DOC, ADR_DOC, PROVENANCE, WORKFLOW, ARCHIVE_PAGES_WORKFLOW,
+            HUB_PAGES_WORKFLOW, MAKEFILE,
             README, GITIGNORE,
         ):
             destination = target / relative
@@ -603,6 +606,67 @@ class WebGovernanceValidationTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertNotRegex(applet_body, r"(?i)\bwrite\b")
         self.assertNotRegex(applet_body, r"(?i)\bdeploy(?:ment)?\b")
+
+    def test_pages_workflows_isolate_build_from_deploy_permissions(self) -> None:
+        """Keeps Pages build validation unprivileged and deploy artifact-only."""
+        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+            with self.subTest(workflow=path):
+                workflow = (ROOT / path).read_text(encoding="utf-8")
+                jobs = workflow.split("\njobs:\n", 1)[1]
+                names = re.findall(r"^  ([a-z][a-z0-9_-]*):\n", jobs, re.MULTILINE)
+                self.assertEqual(names, ["build", "deploy"])
+                build = re.search(r"^  build:\n(?P<body>.*?)(?=^  deploy:)", jobs, re.MULTILINE | re.DOTALL)
+                deploy = re.search(r"^  deploy:\n(?P<body>.*)$", jobs, re.MULTILINE | re.DOTALL)
+                self.assertIsNotNone(build)
+                self.assertIsNotNone(deploy)
+                assert build is not None and deploy is not None
+                self.assertIn("contents: read", build.group("body"))
+                self.assertIn("actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9", build.group("body"))
+                self.assertIn("validate_pages_artifact.py", build.group("body"))
+                self.assertIn("tree_sha256", build.group("body"))
+                self.assertEqual(build.group("body").count(" run build"), 1)
+                self.assertNotIn("actions/deploy-pages", build.group("body"))
+                self.assertIn("needs: build", deploy.group("body"))
+                self.assertIn("pages: write", deploy.group("body"))
+                self.assertIn("id-token: write", deploy.group("body"))
+                self.assertIn("environment:\n      name: github-pages", deploy.group("body"))
+                self.assertIn("${{ steps.deployment.outputs.page_url }}", deploy.group("body"))
+                self.assertIn("actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128", deploy.group("body"))
+                self.assertNotIn("actions/checkout", deploy.group("body"))
+                self.assertNotRegex(deploy.group("body"), r"npm .*build")
+                self.assertIn("cancel-in-progress: false", workflow)
+
+    def test_hub_workflow_passes_all_dispatch_inputs_to_one_source_command(self) -> None:
+        """Keeps required Hub dispatch inputs attached to its source resolver."""
+        workflow = (ROOT / HUB_PAGES_WORKFLOW).read_text(encoding="utf-8")
+        source = re.search(
+            r"- name: Resolve an exact current-story source\n(?P<body>.*?)(?=\n      - name:)",
+            workflow,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(source)
+        assert source is not None
+        self.assertIn(
+            '--github-output "${GITHUB_OUTPUT}" \\\n            --repository "${INPUT_REPOSITORY}"',
+            source.group("body"),
+        )
+        self.assertNotRegex(
+            source.group("body"),
+            r'--(?:data-root|external-root|github-output|repository|revision) "[^\n]+"\n',
+        )
+
+    def test_pages_governance_rejects_deploy_privilege_in_build_job(self) -> None:
+        """Rejects workflow edits that let a failed build deploy or retain Pages tokens."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            workflow = root / ARCHIVE_PAGES_WORKFLOW
+            content = workflow.read_text(encoding="utf-8")
+            workflow.write_text(
+                content.replace("      contents: read", "      contents: read\n      pages: write", 1),
+                encoding="utf-8",
+            )
+            result = self.validate(root)
+        self.assert_rejected(result, "Pages workflow")
 
     def test_rejects_missing_catgpt_worker_ci_job(self) -> None:
         """Rejects a workflow that silently loses CatGPT worker coverage."""
