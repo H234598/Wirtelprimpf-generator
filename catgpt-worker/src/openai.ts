@@ -33,9 +33,8 @@ export async function requestCatReply(request: ChatRequest, env: OpenAIEnv, fetc
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8_000);
 
-  let response: Response;
   try {
-    response = await fetcher("https://api.openai.com/v1/responses", {
+    const response = await fetcher("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.OPENAI_API_KEY}`,
@@ -52,10 +51,10 @@ export async function requestCatReply(request: ChatRequest, env: OpenAIEnv, fetc
       }),
       signal: controller.signal,
     });
+
+    if (!response.ok) throw new Error(`OpenAI response failed: ${response.status}`);
+    return outputText(await response.json());
   } finally {
     clearTimeout(timeout);
   }
-
-  if (!response.ok) throw new Error(`OpenAI response failed: ${response.status}`);
-  return outputText(await response.json());
 }

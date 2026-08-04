@@ -97,3 +97,29 @@ test("aborts the single request after eight seconds", async () => {
   expect(fetcher).toHaveBeenCalledTimes(1);
   vi.useRealTimers();
 });
+
+test("keeps the timeout active while parsing an OpenAI response body", async () => {
+  vi.useFakeTimers();
+  try {
+    let signal: AbortSignal | undefined;
+    const fetcher = vi.fn(async (_url: string, init: RequestInit): Promise<Response> => {
+      signal = init.signal ?? undefined;
+      return {
+        ok: true,
+        json: () => new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal?.reason));
+        }),
+      } as Response;
+    });
+
+    const reply = requestCatReply({ message: "Miau", history: [] }, env, fetcher);
+    const failure = reply.then(() => null, (error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(8_000);
+
+    expect(signal?.aborted).toBe(true);
+    expect(await failure).toBeInstanceOf(Error);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
