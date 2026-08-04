@@ -3,26 +3,20 @@ run-name: >-
   Wirtelprimpf hub${{ inputs.active_repository && format(' · {0}@{1}', inputs.active_repository, inputs.archive_ref) || '' }}
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "data/**"
-      - "web/**"
-      - "scripts/validate_pages_artifact.py"
-      - ".github/workflows/hub-pages.yml"
+
   workflow_dispatch:
     inputs:
       active_repository:
-        description: Canonical active publication repository; leave empty for committed fallback data
-        required: false
+        description: Canonical active publication repository
+        required: true
         type: string
       archive_ref:
-        description: Full active archive commit SHA; required with active_repository
-        required: false
+        description: Full active archive commit SHA
+        required: true
         type: string
       current_volume:
-        description: Positive global current story volume; required with active_repository
-        required: false
+        description: Positive global current story volume
+        required: true
         type: string
 
 permissions:

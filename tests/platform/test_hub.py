@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,9 @@ from wirtelprimpf_platform.hub import (
     HubDispatchRequest,
     resolve_hub_source,
 )
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class HubSourceTests(unittest.TestCase):
@@ -58,6 +62,18 @@ class HubSourceTests(unittest.TestCase):
                 current_volume=51,
                 external_root=self.root / "external",
             )
+
+    def test_pages_workflow_allows_only_exact_dispatches(self) -> None:
+        workflow = (ROOT / ".github/workflows/hub-pages.yml").read_text(encoding="utf-8")
+        triggers = workflow.split("on:\n", 1)[1].split("\npermissions:\n", 1)[0]
+
+        self.assertNotIn("\n  push:", triggers)
+        self.assertIn("\n  workflow_dispatch:", triggers)
+        for name in ("active_repository", "archive_ref", "current_volume"):
+            match = re.search(rf"^      {name}:\n(?P<body>(?:        .*\n)+)", triggers, re.MULTILINE)
+            self.assertIsNotNone(match, name)
+            assert match is not None
+            self.assertIn("        required: true\n", match.group("body"), name)
 
     def test_dispatcher_sends_only_validated_exact_inputs(self) -> None:
         calls: list[list[str]] = []
