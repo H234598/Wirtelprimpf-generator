@@ -43,3 +43,30 @@ export function isAllowedOrigin(origin: string | null, extraOrigins: string): bo
   const extras = extraOrigins.split(",").map((item) => item.trim()).filter(Boolean);
   return extras.includes(origin);
 }
+
+function isIpv4(value: string): boolean {
+  const octets = value.split(".");
+  return octets.length === 4 && octets.every((octet) =>
+    /^(?:0|[1-9]\d{0,2})$/.test(octet) && Number(octet) <= 255
+  );
+}
+
+function isIpv6(value: string): boolean {
+  let address = value;
+  if (address.includes(".")) {
+    const separator = address.lastIndexOf(":");
+    if (separator < 0 || !isIpv4(address.slice(separator + 1))) return false;
+    address = `${address.slice(0, separator + 1)}0:0`;
+  }
+
+  const halves = address.split("::");
+  if (halves.length > 2) return false;
+  const groups = halves.flatMap((half) => half ? half.split(":") : []);
+  if (!groups.every((group) => /^[0-9a-fA-F]{1,4}$/.test(group))) return false;
+  return halves.length === 2 ? groups.length < 8 : groups.length === 8;
+}
+
+export function isClientIpLiteral(value: string): boolean {
+  if (!value || /\s/.test(value)) return false;
+  return value.includes(":") ? isIpv6(value) : isIpv4(value);
+}
