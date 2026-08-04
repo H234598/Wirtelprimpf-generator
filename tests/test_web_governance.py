@@ -696,6 +696,30 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 result = self.validate(root)
             self.assert_rejected(result, "Pages workflow deploy permissions")
 
+    def test_pages_governance_rejects_commented_extra_permission(self) -> None:
+        """Rejects inline-commented permissions without truncating their YAML mapping."""
+        cases = (
+            (
+                "      contents: read\n",
+                "      contents: read\n      issues: read # extra\n",
+                "Pages workflow build permissions",
+            ),
+            (
+                "      id-token: write\n",
+                "      id-token: write\n      issues: read # extra\n",
+                "Pages workflow deploy permissions",
+            ),
+        )
+        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+            for original, mutated, message in cases:
+                with self.subTest(workflow=path, permission=message), self.copied_root() as temporary:
+                    root = Path(temporary)
+                    workflow = root / path
+                    content = workflow.read_text(encoding="utf-8")
+                    workflow.write_text(content.replace(original, mutated, 1), encoding="utf-8")
+                    result = self.validate(root)
+                self.assert_rejected(result, message)
+
     def test_rejects_missing_catgpt_worker_ci_job(self) -> None:
         """Rejects a workflow that silently loses CatGPT worker coverage."""
         with self.copied_root() as temporary:

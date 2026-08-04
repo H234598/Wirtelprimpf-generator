@@ -367,10 +367,14 @@ def pages_job(workflow: str, name: str) -> str:
 
 
 def pages_job_permissions(job: str, message: str) -> dict[str, str]:
-    block = re.search(r"^    permissions:\n(?P<body>(?:      [a-z-]+: [a-z]+\n)+)", job, re.MULTILINE)
+    block = re.search(r"^    permissions:\n(?P<body>(?:      [^\n]*\n)+)", job, re.MULTILINE)
     require(block is not None, message)
     permissions: dict[str, str] = {}
-    for key, value in re.findall(r"^      ([a-z-]+): ([a-z]+)$", block.group("body"), re.MULTILINE):
+    for line in block.group("body").splitlines():
+        item = re.fullmatch(r"      ([a-z-]+): ([a-z]+)(?:\s+#.*)?", line)
+        if item is None:
+            raise ValidationError(message)
+        key, value = item.groups()
         require(key not in permissions, message)
         permissions[key] = value
     return permissions
