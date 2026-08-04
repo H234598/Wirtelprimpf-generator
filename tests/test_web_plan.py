@@ -254,6 +254,27 @@ class WebPlanValidationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("frozen repository SHA", result.stderr)
 
+    def test_rejects_missing_current_plan_boundaries(self) -> None:
+        """Rejects plans whose current or freeze section cannot be isolated."""
+        mutations = (
+            ("# Anhang B", "# Appendix B", "current plan boundary"),
+            ("### 3.1", "### 3x1 removed", "freeze section boundary"),
+        )
+        for marker, replacement, expected in mutations:
+            with self.subTest(marker=marker), self.copied_root() as temporary:
+                root = Path(temporary)
+                plan = root / PLAN
+                content = plan.read_text(encoding="utf-8")
+                self.assertIn(marker, content)
+                plan.write_text(content.replace(marker, replacement, 1), encoding="utf-8")
+                status = self.read_json(root, STATUS)
+                status["canonical_plan"]["sha256"] = hashlib.sha256(plan.read_bytes()).hexdigest()
+                self.write_json(root, STATUS, status)
+                result = self.validate(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(expected, result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+
     def test_rejects_duplicate_plan_status_row(self) -> None:
         """Rejects extra historical status row even after digest refresh."""
         with self.copied_root() as temporary:
@@ -296,7 +317,7 @@ class WebPlanValidationTests(unittest.TestCase):
             self.write_json(root, SUPERSESSION, supersession)
             result = self.validate(root)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("old P00", result.stderr)
+        self.assertIn("old P00 solution path must be superseded", result.stderr)
 
     def test_requires_complete_legacy_web_plan_supersession(self) -> None:
         """Accepts only the hash-bound three-way mapping needed to archive the legacy plan."""
@@ -335,7 +356,7 @@ class WebPlanValidationTests(unittest.TestCase):
             self.write_json(root, SUPERSESSION, supersession)
             result = self.validate(root)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("PR #4", result.stderr)
+        self.assertIn("PR #4 must be closed and not merged", result.stderr)
 
 
 if __name__ == "__main__":

@@ -69,15 +69,15 @@ EXPECTED_BOUNDARIES = {
     "Actions policy",
     "live content of both domains",
 }
-EXPECTED_CI_JOBS = {"applet", "platform", "web"}
+EXPECTED_CI_JOBS = {"applet", "platform", "catgpt-worker", "web"}
 EXPECTED_APPLET_PATHS = {
     ".github", "Makefile", "Sourcecode", "files", "scripts", "tests", "docs",
     "config", "README.md", "PROVENANCE.md", "wirtelprimpf_platform", "pyproject.toml",
 }
 EXPECTED_ACTIONS = Counter({
-    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1": 3,
+    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1": 4,
     "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1": 2,
-    "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020": 2,
+    "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020": 3,
 })
 CI_JOB_ACTIONS = {
     "applet": (
@@ -88,6 +88,10 @@ CI_JOB_ACTIONS = {
     "platform": (
         "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
         "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+    ),
+    "catgpt-worker": (
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
     ),
     "web": (
         "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
@@ -103,6 +107,10 @@ CI_STEP_NAMES = {
         "Checkout generator sources", "Set up Python", "Install generator package",
         "Verify transactional settings entrypoint", "Run platform contract tests",
         "Compile all Python sources", "Verify CLI entrypoint",
+    ),
+    "catgpt-worker": (
+        "Checkout CatGPT worker", "Set up Node.js", "Install exact worker dependencies",
+        "Test worker", "Type-check worker", "Verify worker deployment bundle",
     ),
     "web": (
         "Checkout site factory", "Set up Node.js", "Install exact web dependencies",
@@ -122,13 +130,21 @@ CI_JOB_COMMANDS = {
         "python -m compileall -q Sourcecode wirtelprimpf_platform scripts",
         "wirtelprimpf-platform mapping 51",
     ),
+    "catgpt-worker": (
+        "npm --prefix catgpt-worker ci --ignore-scripts",
+        "npm --prefix catgpt-worker test",
+        "npm --prefix catgpt-worker run check",
+        "npm --prefix catgpt-worker run deploy -- --dry-run",
+    ),
     "web": (
         "npm ci --ignore-scripts",
         "npm test",
         "npm run check",
         "npm --prefix web run build",
+        'rg -n "connect-src https://catgpt\\.wirtelprimpf\\.telacore\\.org" web/dist',
         "python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org",
         "npm --prefix web run build",
+        'rg -n "connect-src https://catgpt\\.wirtelprimpf\\.telacore\\.org" web/dist',
         "python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org",
     ),
 }
@@ -313,7 +329,7 @@ def validate_ci_integration(root: Path) -> None:
     for name in ("applet", "platform"):
         require(re.search(r"uses: actions/setup-python@[0-9a-f]{40}(?:\s|$)", bodies[name]) is not None, "CI action pin")
         require('python-version: "3.12"' in bodies[name], "CI Python runtime")
-    for name in ("applet", "web"):
+    for name in ("applet", "catgpt-worker", "web"):
         require(re.search(r"uses: actions/setup-node@[0-9a-f]{40}(?:\s|$)", bodies[name]) is not None, "CI action pin")
         require('node-version: "24.13.1"' in bodies[name], "CI Node runtime")
 
@@ -328,7 +344,11 @@ def validate_ci_integration(root: Path) -> None:
         require(steps == tuple(f"name: {step}" for step in CI_STEP_NAMES[name]), "CI job steps")
         executable = ci_run_commands(bodies[name])
         require(
-            not any(re.search(r"\b(?:deploy|publish)\b", command, re.IGNORECASE) for command in executable),
+            not any(
+                re.search(r"\b(?:deploy|publish)\b", command, re.IGNORECASE)
+                and command != "npm --prefix catgpt-worker run deploy -- --dry-run"
+                for command in executable
+            ),
             "CI publication command",
         )
         require(executable == commands, "CI job commands")
@@ -359,7 +379,7 @@ def validate_repository_integration(root: Path) -> None:
 def render_requirements(requirements: dict) -> str:
     lines = [
         "# Wirtelprimpf-Webseite – Anforderungen", "",
-        f"Autorität: `{PLAN_PATH}` (SHA-256 `{requirements['plan_sha256']}`). V2-Kapitel 0–28 hat Vorrang; diese Datei ist deterministische Projektion von `{REQUIREMENTS_PATH}`.", "",
+        f"Autorität: `{PLAN_PATH.as_posix()}` (SHA-256 `{requirements['plan_sha256']}`). V2-Kapitel 0–28 hat Vorrang; diese Datei ist deterministische Projektion von `{REQUIREMENTS_PATH.as_posix()}`.", "",
         "| ID | Anforderung | Paket(e) | Meilenstein(e) | Verifikation |",
         "| --- | --- | --- | --- | --- |",
     ]
@@ -431,7 +451,7 @@ def render_baseline(revisions: dict) -> str:
     for repository in revisions["repositories"]:
         observed = repository["observed"]
         observation = (
-            f"`{observed['sha']}`, lokal via `{observed['source']}`, Drift"
+            f"`{observed['sha']}`, lokal via `{observed['source']}`, {repository['drift_classification']}"
             if observed["status"] == "checked"
             else "not-checked"
         )
@@ -537,7 +557,18 @@ def validate(root: Path) -> None:
     requirements = read_json_path(root, REQUIREMENTS_PATH)
     decisions = read_json_path(root, DECISIONS_PATH)
     digest = hashlib.sha256((root / PLAN_PATH).read_bytes()).hexdigest()
-    package_milestones = {entry["id"]: entry["milestone"].split("/") for entry in status.get("packages", []) if isinstance(entry, dict) and isinstance(entry.get("id"), str) and isinstance(entry.get("milestone"), str)}
+    status_packages = status.get("packages")
+    require(isinstance(status_packages, list), "status package register")
+    require(
+        all(
+            isinstance(entry, dict)
+            and isinstance(entry.get("id"), str)
+            and isinstance(entry.get("milestone"), str)
+            for entry in status_packages
+        ),
+        "status package register",
+    )
+    package_milestones = {entry["id"]: entry["milestone"].split("/") for entry in status_packages}
     expected_requirements = {f"WEB-REQ-{number:03d}" for number in range(1, 61)}
     require(set(requirements) == {"plan_sha256", "requirements", "schema_version"}, "requirement register fields")
     require(type(requirements.get("schema_version")) is int and requirements["schema_version"] == 1, "requirement schema version")

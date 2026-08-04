@@ -125,8 +125,12 @@ def validate(root: Path) -> None:
     require(status.get("historical_plan_sha256") == HISTORICAL_SHA, "historical plan digest")
     require(HISTORICAL_SHA in plan, "historical plan digest inconsistent with canonical plan")
 
-    current_plan = plan.split("# Anhang B", 1)[0]
-    freeze_section = current_plan.split("### 3.1", 1)[0]
+    current_parts = plan.split("# Anhang B", 1)
+    require(len(current_parts) == 2, "current plan boundary")
+    current_plan = current_parts[0]
+    freeze_parts = current_plan.split("### 3.1", 1)
+    require(len(freeze_parts) == 2, "freeze section boundary")
+    freeze_section = freeze_parts[0]
     freezes = set(re.findall(r"\| `H234598/[^`]+` \|.*?\| `main` \| `([0-9a-f]+)` \|", freeze_section))
     require(freezes == FREEZE_SHAS, "frozen repository SHA")
     require(FACTORY_PIN in current_plan, "Factory pin")
@@ -182,7 +186,7 @@ def validate(root: Path) -> None:
     )
     require(type(old_p00.get("number")) is int and old_p00["number"] == 1, "old P00 evidence")
     require(old_p00.get("github_pr_state") == "closed" and old_p00.get("github_pr_merged") is False, "old P00 evidence")
-    require(old_p00.get("solution_path") == "abgelöst", "old P00 classified as implemented")
+    require(old_p00.get("solution_path") == "abgelöst", "old P00 solution path must be superseded")
     pr4 = supersession.get("generator_pr_4")
     require(
         isinstance(pr4, dict)
@@ -194,7 +198,10 @@ def validate(root: Path) -> None:
     )
     require(pr4.get("integration_commit") == "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f", "PR #4 integration commit")
     require(type(pr4.get("commit_message_mentions_pr")) is int and pr4["commit_message_mentions_pr"] == 4, "PR #4 commit message")
-    require(pr4.get("github_pr_state") == "closed" and pr4.get("github_pr_merged") is False, "PR #4 classified as merged")
+    require(
+        pr4.get("github_pr_state") == "closed" and pr4.get("github_pr_merged") is False,
+        "PR #4 must be closed and not merged",
+    )
     require(pr4.get("content_present_on_main") is True, "PR #4 main evidence")
     require(pr4.get("evidence_class") == "manual-main-integration", "PR #4 evidence class")
 

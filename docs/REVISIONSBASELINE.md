@@ -6,7 +6,7 @@ nach dokumentierter Prüfung aktualisiert.
 
 | Repository | Rolle | Freeze-HEAD | Beobachtung |
 | --- | --- | --- | --- |
-| `H234598/Wirtelprimpf-generator` | Generator, Plattform, Applet, Admin, Seitenfabrik, Hub | `274b25c9e1f9ea97d3b060997ed5c425d2b30e9f` | `3a60129417659bed9939755baf56d649510454d1`, lokal via `local-git`, Drift |
+| `H234598/Wirtelprimpf-generator` | Generator, Plattform, Applet, Admin, Seitenfabrik, Hub | `274b25c9e1f9ea97d3b060997ed5c425d2b30e9f` | `3a60129417659bed9939755baf56d649510454d1`, lokal via `local-git`, drift |
 | `H234598/Wirtelprimpf-0001` | Story-/Medienmanifest, Archivvertrag, dünner Pages-Aufrufer | `79274c1fef77306eb9ee0e9bd2682f4b28b74849` | not-checked |
 | `H234598/desinfect` | Governance-/Storage-/Statusreferenz | `3bed7ac358b861490727adce36a418db133f8daf` | not-checked |
 | `H234598/ADHS-Lernpfad` | Browser-/Recovery-/Reviewreferenz | `ee91741ec71a1232a4c3b90f42b805591a0d9359` | not-checked |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import hashlib
 import re
@@ -10,11 +11,19 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = ROOT / "scripts" / "validate_web_governance.py"
+VALIDATOR_SPEC = importlib.util.spec_from_file_location("validate_web_governance_under_test", VALIDATOR)
+if VALIDATOR_SPEC is None or VALIDATOR_SPEC.loader is None:
+    raise RuntimeError("cannot load web governance validator")
+VALIDATOR_MODULE = importlib.util.module_from_spec(VALIDATOR_SPEC)
+VALIDATOR_SPEC.loader.exec_module(VALIDATOR_MODULE)
+render_baseline = VALIDATOR_MODULE.render_baseline
+render_requirements = VALIDATOR_MODULE.render_requirements
 PLAN = Path("docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md")
 BASELINE = Path("docs/REVISIONSBASELINE.md")
 REVISIONS = Path("config/reference-revisions.json")
@@ -238,6 +247,34 @@ class WebGovernanceValidationTests(unittest.TestCase):
             result = self.validate(root)
         self.assert_rejected(result, "baseline doc")
 
+    def test_renders_recorded_no_drift_classification(self) -> None:
+        """Reports a checked no-drift observation without relabeling it as drift."""
+        revisions = self.read_revisions(ROOT)
+        generator = revisions["repositories"][0]
+        generator["observed"]["sha"] = generator["frozen_sha"]
+        generator["drift_classification"] = "no-drift"
+
+        baseline = render_baseline(revisions)
+
+        self.assertIn(", no-drift |", baseline)
+        self.assertNotIn(", Drift |", baseline)
+
+    def test_renders_document_links_as_posix_paths(self) -> None:
+        """Keeps generated Markdown links portable when hosted on Windows."""
+        with (
+            patch.object(VALIDATOR_MODULE, "PLAN_PATH", PureWindowsPath("docs/plans/PLAN.md")),
+            patch.object(
+                VALIDATOR_MODULE,
+                "REQUIREMENTS_PATH",
+                PureWindowsPath("config/requirements.json"),
+            ),
+        ):
+            document = render_requirements({"plan_sha256": "digest", "requirements": []})
+
+        self.assertIn("`docs/plans/PLAN.md`", document)
+        self.assertIn("`config/requirements.json`", document)
+        self.assertNotIn("\\", document)
+
     def test_rejects_unhashable_repository_id_without_traceback(self) -> None:
         """Rejects malformed repository identifiers through controlled stderr."""
         with self.copied_root() as temporary:
@@ -248,6 +285,24 @@ class WebGovernanceValidationTests(unittest.TestCase):
             result = self.validate(root)
         self.assert_rejected(result, "repository IDs")
         self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_malformed_status_package_register_without_traceback(self) -> None:
+        """Rejects status package records before deriving requirement mappings."""
+        mutations = (
+            {},
+            [None],
+            [{"id": [], "milestone": "M00"}],
+            [{"id": "WEB-P00-01", "milestone": []}],
+        )
+        for packages in mutations:
+            with self.subTest(packages=packages), self.copied_root() as temporary:
+                root = Path(temporary)
+                status = self.read_json(root, STATUS)
+                status["packages"] = packages
+                self.write_json(root, STATUS, status)
+                result = self.validate(root)
+            self.assert_rejected(result, "status package register")
+            self.assertNotIn("Traceback", result.stderr)
 
     def test_rejects_missing_requirement(self) -> None:
         """Rejects requirement register that silently loses one canonical ID."""
@@ -522,7 +577,11 @@ class WebGovernanceValidationTests(unittest.TestCase):
 
     def test_make_check_preserves_existing_gates_and_runs_governance(self) -> None:
         """Protects existing check order while adding every governance command."""
-        commands = re.search(r"^check:\n(?P<commands>(?:\t.*\n)+)", MAKEFILE.read_text(encoding="utf-8"), re.MULTILINE)
+        commands = re.search(
+            r"^check:\n(?P<commands>(?:\t.*\n)+)",
+            (ROOT / MAKEFILE).read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
         self.assertIsNotNone(commands)
         check_commands = commands.group("commands")
         positions = [check_commands.index(command) for command in PRESERVED_CHECK_COMMANDS]
@@ -542,8 +601,48 @@ class WebGovernanceValidationTests(unittest.TestCase):
         for required in ("config", "README.md", "PROVENANCE.md"):
             self.assertRegex(paths, rf"(?m)^            {re.escape(required)}$")
         self.assertIn("permissions:\n  contents: read", workflow)
-        self.assertNotRegex(workflow, r"(?i)\bwrite\b")
-        self.assertNotRegex(workflow, r"(?i)\bdeploy(?:ment)?\b")
+        self.assertNotRegex(applet_body, r"(?i)\bwrite\b")
+        self.assertNotRegex(applet_body, r"(?i)\bdeploy(?:ment)?\b")
+
+    def test_rejects_missing_catgpt_worker_ci_job(self) -> None:
+        """Rejects a workflow that silently loses CatGPT worker coverage."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            workflow = root / WORKFLOW
+            content = workflow.read_text(encoding="utf-8")
+            workflow.write_text(
+                re.sub(r"^  catgpt-worker:\n.*?(?=^  web:)", "", content, flags=re.MULTILINE | re.DOTALL),
+                encoding="utf-8",
+            )
+            result = self.validate(root)
+        self.assert_rejected(result, "CI jobs")
+
+    def test_rejects_catgpt_worker_deploy_without_dry_run(self) -> None:
+        """Rejects CatGPT worker deployment when dry-run protection is removed."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            workflow = root / WORKFLOW
+            content = workflow.read_text(encoding="utf-8")
+            original = "npm --prefix catgpt-worker run deploy -- --dry-run"
+            self.assertIn(original, content)
+            workflow.write_text(
+                content.replace(original, "npm --prefix catgpt-worker run deploy", 1),
+                encoding="utf-8",
+            )
+            result = self.validate(root)
+        self.assert_rejected(result, "CI publication command")
+
+    def test_rejects_missing_catgpt_csp_check_in_web_ci(self) -> None:
+        """Rejects web CI that stops checking CatGPT CSP output."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            workflow = root / WORKFLOW
+            content = workflow.read_text(encoding="utf-8")
+            command = 'rg -n "connect-src https://catgpt\\.wirtelprimpf\\.telacore\\.org" web/dist'
+            self.assertIn(command, content)
+            workflow.write_text(content.replace(command, "", 1), encoding="utf-8")
+            result = self.validate(root)
+        self.assert_rejected(result, "CI job commands")
 
     def test_rejects_weakened_ci_safeguards(self) -> None:
         """Rejects mutations that weaken pinned, read-only repository checks."""
