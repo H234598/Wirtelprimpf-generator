@@ -17,7 +17,7 @@ test("base layout replaces theme shortcut with accessible settings panel", () =>
   assert.match(settings, /role="switch"/);
   assert.match(settings, /bald verfügbar/);
   assert.match(settings, /disabled=\{!lightEndpoint\}/);
-  assert.match(settings, /changeCatGptMode/);
+  assert.match(settings, /changeCatGptMode\(\s*\(\) => localStorage,\s*\(\) => sessionStorage/);
 });
 
 test("base layout gates Light once and passes the endpoint into both CatGPT components", () => {
@@ -37,7 +37,7 @@ test("base layout gates Light once and passes the endpoint into both CatGPT comp
 test("CatGPT selects its provider and clears stale work on mode changes without exposing fallback", () => {
   assert.match(chat, /new LightReplyProvider\(lightEndpoint, staticProvider\)/);
   assert.match(chat, /readMode\(localStorage\)/);
-  assert.match(chat, /readChatHistory\(sessionStorage\)/);
+  assert.match(chat, /readChatHistory\(\(\) => sessionStorage\)/);
   assert.match(chat, /writeChatHistory\(sessionStorage/);
   assert.match(chat, /generation \+= 1/);
   assert.match(chat, /finally\s*\{\s*if \(requestGeneration === generation\)/);

@@ -47,3 +47,13 @@ test("storage read failures also fail closed to empty history", () => {
   storage.getItem = () => { throw new Error("blocked"); };
   assert.deepEqual(readChatHistory(storage), []);
 });
+
+test("sessionStorage acquisition failures are observed and default to empty history", () => {
+  let storageAcquired = false;
+
+  assert.deepEqual(readChatHistory(() => {
+    storageAcquired = true;
+    throw new DOMException("sessionStorage blocked", "SecurityError");
+  }), []);
+  assert.equal(storageAcquired, true);
+});

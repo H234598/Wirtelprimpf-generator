@@ -1,4 +1,8 @@
-import { CATGPT_HISTORY_KEY, type StorageLike } from "./settings.ts";
+import {
+  CATGPT_HISTORY_KEY,
+  type StorageGetter,
+  type StorageLike,
+} from "./settings.ts";
 import type { ChatMessage } from "./types.ts";
 
 const MAX_HISTORY_LENGTH = 10;
@@ -12,9 +16,10 @@ function isChatMessage(value: unknown): value is ChatMessage {
     && message.content.trim().length > 0;
 }
 
-export function readChatHistory(storage: StorageLike): ChatMessage[] {
+export function readChatHistory(storage: StorageLike | StorageGetter): ChatMessage[] {
   try {
-    const value: unknown = JSON.parse(storage.getItem(CATGPT_HISTORY_KEY) ?? "[]");
+    const resolvedStorage = typeof storage === "function" ? storage() : storage;
+    const value: unknown = JSON.parse(resolvedStorage.getItem(CATGPT_HISTORY_KEY) ?? "[]");
     if (!Array.isArray(value) || !value.every(isChatMessage)) return [];
     return value.slice(-MAX_HISTORY_LENGTH);
   } catch {

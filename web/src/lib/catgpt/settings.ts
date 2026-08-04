@@ -6,6 +6,7 @@ export interface StorageLike {
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
 }
+export type StorageGetter = () => StorageLike;
 
 export const CATGPT_MODE_CHANGE_EVENT = "catgpt:modechange";
 export const CATGPT_HISTORY_KEY = "wirtelprimpf-catgpt-history";
@@ -33,12 +34,12 @@ export function clearChatSession(storage: StorageLike): void {
 }
 
 export function changeCatGptMode(
-  modeStorage: StorageLike,
-  chatStorage: StorageLike,
+  getModeStorage: StorageGetter,
+  getChatStorage: StorageGetter,
   mode: CatGptMode,
   eventTarget: Pick<EventTarget, "dispatchEvent">,
 ): void {
-  try { writeMode(modeStorage, mode); } catch {}
-  try { clearChatSession(chatStorage); } catch {}
+  try { writeMode(getModeStorage(), mode); } catch {}
+  try { clearChatSession(getChatStorage()); } catch {}
   eventTarget.dispatchEvent(new CustomEvent(CATGPT_MODE_CHANGE_EVENT, { detail: { mode } }));
 }

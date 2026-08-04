@@ -83,6 +83,6 @@ const { lightEndpoint } = Astro.props;
   mode?.addEventListener("change", () => {
     const nextMode = lightAvailable && mode.checked ? "light" : "static";
     mode.checked = nextMode === "light";
-    changeCatGptMode(localStorage, sessionStorage, nextMode, window);
+    changeCatGptMode(() => localStorage, () => sessionStorage, nextMode, window);
   });
 </script>

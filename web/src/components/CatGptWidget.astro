@@ -48,7 +48,7 @@ const { lightEndpoint } = Astro.props;
   const lightProvider = lightEndpoint ? new LightReplyProvider(lightEndpoint, staticProvider) : undefined;
   let mode: CatGptMode = "static";
   try { mode = lightProvider && readMode(localStorage) === "light" ? "light" : "static"; } catch {}
-  let history: ChatMessage[] = readChatHistory(sessionStorage);
+  let history: ChatMessage[] = readChatHistory(() => sessionStorage);
   let generation = 0;
 
   const setOpen = (open: boolean): void => {

@@ -53,8 +53,33 @@ test("local mode storage failure cannot block session clear, event, or visible c
     visibleMessages.length = 0;
   });
 
-  changeCatGptMode(modeStorage, chatStorage, "light", events);
+  changeCatGptMode(() => modeStorage, () => chatStorage, "light", events);
 
+  assert.equal(chatStorage.getItem(CATGPT_HISTORY_KEY), null);
+  assert.equal(announcedMode, "light");
+  assert.deepEqual(visibleMessages, []);
+});
+
+test("localStorage acquisition failure cannot block session clear, event, or visible chat clear", () => {
+  const chatStorage = new MemoryStorage();
+  chatStorage.setItem(CATGPT_HISTORY_KEY, "history");
+  const visibleMessages = ["Nutzer", "CatGPT"];
+  let announcedMode: string | undefined;
+  let sessionStorageAcquired = false;
+  const events = new EventTarget();
+  events.addEventListener(CATGPT_MODE_CHANGE_EVENT, (event) => {
+    announcedMode = (event as CustomEvent<{ mode: string }>).detail.mode;
+    visibleMessages.length = 0;
+  });
+
+  changeCatGptMode(
+    () => { throw new DOMException("localStorage blocked", "SecurityError"); },
+    () => { sessionStorageAcquired = true; return chatStorage; },
+    "light",
+    events,
+  );
+
+  assert.equal(sessionStorageAcquired, true);
   assert.equal(chatStorage.getItem(CATGPT_HISTORY_KEY), null);
   assert.equal(announcedMode, "light");
   assert.deepEqual(visibleMessages, []);
