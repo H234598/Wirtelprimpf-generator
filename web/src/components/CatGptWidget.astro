@@ -1,6 +1,13 @@
 ---
+import type { CatGptLightEndpoint } from "../lib/catgpt/config.ts";
+
+interface Props {
+  lightEndpoint?: CatGptLightEndpoint;
+}
+
+const { lightEndpoint } = Astro.props;
 ---
-<div class="catgpt-shell" data-catgpt-shell>
+<div class="catgpt-shell" data-catgpt-shell data-light-endpoint={lightEndpoint}>
   <button class="catgpt-launcher" type="button" aria-label="CatGPT öffnen" aria-controls="wirtelprimpf-catgpt" aria-expanded="false" data-catgpt-launcher>CatGPT</button>
   <section id="wirtelprimpf-catgpt" class="catgpt-window" role="dialog" aria-labelledby="catgpt-title" hidden data-catgpt-window>
     <header>
@@ -17,8 +24,16 @@
 </div>
 
 <script>
-  import { CATGPT_MODE_CHANGE_EVENT } from "../lib/catgpt/settings.ts";
+  import type { CatGptLightEndpoint } from "../lib/catgpt/config.ts";
+  import { readChatHistory, writeChatHistory } from "../lib/catgpt/history.ts";
+  import { LightReplyProvider } from "../lib/catgpt/light-provider.ts";
+  import {
+    CATGPT_MODE_CHANGE_EVENT,
+    clearChatSession,
+    readMode,
+  } from "../lib/catgpt/settings.ts";
   import { StaticReplyProvider } from "../lib/catgpt/static-provider.ts";
+  import type { CatGptMode, ChatMessage } from "../lib/catgpt/types.ts";
 
   const shell = document.querySelector<HTMLElement>("[data-catgpt-shell]");
   const launcher = shell?.querySelector<HTMLButtonElement>("[data-catgpt-launcher]");
@@ -28,7 +43,13 @@
   const form = shell?.querySelector<HTMLFormElement>("[data-catgpt-form]");
   const input = shell?.querySelector<HTMLInputElement>("[data-catgpt-input]");
   const submit = form?.querySelector<HTMLButtonElement>('button[type="submit"]');
-  const provider = new StaticReplyProvider();
+  const lightEndpoint = shell?.dataset.lightEndpoint as CatGptLightEndpoint | undefined;
+  const staticProvider = new StaticReplyProvider();
+  const lightProvider = lightEndpoint ? new LightReplyProvider(lightEndpoint, staticProvider) : undefined;
+  let mode: CatGptMode = "static";
+  try { mode = lightProvider && readMode(localStorage) === "light" ? "light" : "static"; } catch {}
+  let history: ChatMessage[] = readChatHistory(sessionStorage);
+  let generation = 0;
 
   const setOpen = (open: boolean): void => {
     if (!launcher || !windowElement) return;
@@ -46,26 +67,50 @@
     item.scrollIntoView({ block: "nearest" });
   };
 
+  for (const message of history) appendMessage(message.role, message.content);
+
   launcher?.addEventListener("click", () => setOpen(windowElement?.hasAttribute("hidden") ?? true));
   close?.addEventListener("click", () => setOpen(false));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && windowElement && !windowElement.hidden) setOpen(false);
   });
-  window.addEventListener(CATGPT_MODE_CHANGE_EVENT, () => messages?.replaceChildren());
+  window.addEventListener(CATGPT_MODE_CHANGE_EVENT, (event) => {
+    generation += 1;
+    const selectedMode = (event as CustomEvent<{ mode?: CatGptMode }>).detail?.mode;
+    mode = lightProvider && selectedMode === "light" ? "light" : "static";
+    history = [];
+    try { clearChatSession(sessionStorage); } catch {}
+    messages?.replaceChildren();
+    if (input) input.disabled = false;
+    if (submit) submit.disabled = false;
+  });
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const message = input?.value.trim() ?? "";
     if (!message || !input || !submit) return;
+    const requestGeneration = generation;
+    const priorHistory = history;
     appendMessage("user", message);
+    const userMessage: ChatMessage = { role: "user", content: message };
+    history = [...history, userMessage].slice(-10);
+    try { writeChatHistory(sessionStorage, history); } catch {}
     input.value = "";
     input.disabled = true;
     submit.disabled = true;
     try {
-      appendMessage("assistant", await provider.reply({ message, history: [] }));
+      const provider = mode === "light" && lightProvider ? lightProvider : staticProvider;
+      const reply = await provider.reply({ message, history: priorHistory });
+      if (requestGeneration !== generation) return;
+      appendMessage("assistant", reply);
+      const assistantMessage: ChatMessage = { role: "assistant", content: reply };
+      history = [...history, assistantMessage].slice(-10);
+      try { writeChatHistory(sessionStorage, history); } catch {}
     } finally {
-      input.disabled = false;
-      submit.disabled = false;
-      input.focus();
+      if (requestGeneration === generation) {
+        input.disabled = false;
+        submit.disabled = false;
+        input.focus();
+      }
     }
   });
 </script>

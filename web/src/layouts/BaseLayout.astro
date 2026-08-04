@@ -2,6 +2,10 @@
 import "../styles/global.css";
 import CatGptWidget from "../components/CatGptWidget.astro";
 import SettingsPanel from "../components/SettingsPanel.astro";
+import {
+  CATGPT_LIGHT_ORIGIN,
+  resolveCatGptLightEndpoint,
+} from "../lib/catgpt/config.ts";
 import { loadSiteData } from "../lib/data.ts";
 
 interface Props {
@@ -16,6 +20,8 @@ const { title = data.title, description = data.intro, image, section = "" } = As
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const fullTitle = title === data.title ? title : `${title} · ${data.title}`;
 const centralUrl = "https://wirtelprimpf.telacore.org/";
+const lightEndpoint = resolveCatGptLightEndpoint(import.meta.env.PUBLIC_CATGPT_LIGHT_ENDPOINT);
+const contentSecurityPolicy = `default-src 'self'; img-src 'self' data: https://github.com https://*.githubusercontent.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src ${lightEndpoint ? CATGPT_LIGHT_ORIGIN : "'none'"}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`;
 ---
 <!doctype html>
 <html lang="de">
@@ -25,7 +31,7 @@ const centralUrl = "https://wirtelprimpf.telacore.org/";
     <meta name="description" content={description} />
     <meta name="theme-color" content="#21162a" />
     <meta name="color-scheme" content="dark light" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://github.com https://*.githubusercontent.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" />
+    <meta http-equiv="Content-Security-Policy" content={contentSecurityPolicy} />
     <meta name="generator" content={Astro.generator} />
     <link rel="canonical" href={canonical} />
     <link rel="icon" href="/wirtelprimpf-mark.svg" type="image/svg+xml" />
@@ -54,7 +60,7 @@ const centralUrl = "https://wirtelprimpf.telacore.org/";
         <a href="/geschichten/" aria-current={section === "geschichten" ? "page" : undefined}>Geschichten</a>
         <a href="/projekt/" aria-current={section === "projekt" ? "page" : undefined}>Projekt</a>
       </nav>
-      <SettingsPanel />
+      <SettingsPanel lightEndpoint={lightEndpoint} />
     </header>
     <main id="inhalt"><slot /></main>
     <footer class="site-footer">
@@ -65,6 +71,6 @@ const centralUrl = "https://wirtelprimpf.telacore.org/";
         <a href={`https://github.com/H234598/${data.repository}`}>GitHub</a>
       </div>
     </footer>
-    <CatGptWidget />
+    <CatGptWidget lightEndpoint={lightEndpoint} />
   </body>
 </html>

@@ -31,3 +31,14 @@ export function writeMode(storage: StorageLike, mode: CatGptMode): void {
 export function clearChatSession(storage: StorageLike): void {
   storage.removeItem(CATGPT_HISTORY_KEY);
 }
+
+export function changeCatGptMode(
+  modeStorage: StorageLike,
+  chatStorage: StorageLike,
+  mode: CatGptMode,
+  eventTarget: Pick<EventTarget, "dispatchEvent">,
+): void {
+  try { writeMode(modeStorage, mode); } catch {}
+  try { clearChatSession(chatStorage); } catch {}
+  eventTarget.dispatchEvent(new CustomEvent(CATGPT_MODE_CHANGE_EVENT, { detail: { mode } }));
+}

@@ -1,4 +1,11 @@
 ---
+import type { CatGptLightEndpoint } from "../lib/catgpt/config.ts";
+
+interface Props {
+  lightEndpoint?: CatGptLightEndpoint;
+}
+
+const { lightEndpoint } = Astro.props;
 ---
 <div class="settings-shell" data-settings-shell>
   <button class="settings-toggle" type="button" aria-label="Einstellungen öffnen" aria-controls="wirtelprimpf-settings" aria-expanded="false" data-settings-toggle>⚙</button>
@@ -16,20 +23,19 @@
       <div><strong>CatGPT</strong><small>Light sendet Chattext an OpenAI.</small></div>
       <label class="mode-switch">
         <span>Static</span>
-        <input type="checkbox" role="switch" aria-label="CatGPT Light aktivieren" data-catgpt-mode disabled />
+        <input type="checkbox" role="switch" aria-label="CatGPT Light aktivieren" data-catgpt-mode disabled={!lightEndpoint} />
         <span>Light</span>
       </label>
     </div>
-    <small class="settings-note">Light: bald verfügbar</small>
+    {!lightEndpoint && <small class="settings-note">Light: bald verfügbar</small>}
   </section>
 </div>
 
 <script>
   import {
-    CATGPT_MODE_CHANGE_EVENT,
-    clearChatSession,
+    changeCatGptMode,
+    readMode,
     readTheme,
-    writeMode,
     writeTheme,
   } from "../lib/catgpt/settings.ts";
 
@@ -51,11 +57,15 @@
     const theme = readTheme(localStorage);
     document.documentElement.dataset.theme = theme;
     for (const option of themes) option.checked = option.value === theme;
-    writeMode(localStorage, "static");
-    clearChatSession(sessionStorage);
-    if (mode) mode.checked = false;
   } catch {
     document.documentElement.dataset.theme = "night";
+  }
+
+  const lightAvailable = Boolean(mode && !mode.disabled);
+  try {
+    if (mode) mode.checked = lightAvailable && readMode(localStorage) === "light";
+  } catch {
+    if (mode) mode.checked = false;
   }
 
   toggle?.addEventListener("click", () => setOpen(panel?.hasAttribute("hidden") ?? true));
@@ -71,10 +81,8 @@
     });
   }
   mode?.addEventListener("change", () => {
-    try {
-      writeMode(localStorage, "static");
-      clearChatSession(sessionStorage);
-    } catch {}
-    window.dispatchEvent(new CustomEvent(CATGPT_MODE_CHANGE_EVENT, { detail: { mode: "static" } }));
+    const nextMode = lightAvailable && mode.checked ? "light" : "static";
+    mode.checked = nextMode === "light";
+    changeCatGptMode(localStorage, sessionStorage, nextMode, window);
   });
 </script>
