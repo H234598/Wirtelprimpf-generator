@@ -1,6 +1,6 @@
 # Architekturentscheidungen
 
-Autorität: V2-Kapitel 20 des kanonischen Plans (SHA-256 `b4b3427e80cabff59e82f9aa9be52978de1d930ea63e06b2433045b8c0dc38fe`). Historisches Kapitel 37 mit 13 Entwürfen ist bei Konflikten superseded; IDs 001–013 sind historische Kernmenge, 001–015 aktuelle Menge.
+Autorität: V2-Kapitel 20 des kanonischen Plans (SHA-256 `0dc9930b3f965dcb3460da8a86a311ee1456e346e79544d36bf05f28ae0f3914`). Historisches Kapitel 37 mit 13 Entwürfen ist bei Konflikten superseded; IDs 001–013 sind historische Kernmenge, 001–015 aktuelle Menge.
 
 | ADR | Entscheidung | Status | Neubewertungstrigger |
 | --- | --- | --- | --- |

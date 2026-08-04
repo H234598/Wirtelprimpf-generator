@@ -128,6 +128,13 @@ def validate(root: Path) -> None:
     current_parts = plan.split("# Anhang B", 1)
     require(len(current_parts) == 2, "current plan boundary")
     current_plan = current_parts[0]
+    require(
+        current_plan.count(
+            "## 11. Meilenstein M01 – Factory-Pin, Hub und Archiv kontrolliert ausrollen\n\n"
+            "**Status:** in Arbeit."
+        ) == 1,
+        "M01 milestone status",
+    )
     freeze_parts = current_plan.split("### 3.1", 1)
     require(len(freeze_parts) == 2, "freeze section boundary")
     freeze_section = freeze_parts[0]

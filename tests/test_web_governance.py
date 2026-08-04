@@ -137,7 +137,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
             document = root / path
             document.write_text(
                 document.read_text(encoding="utf-8").replace(
-                    "b4b3427e80cabff59e82f9aa9be52978de1d930ea63e06b2433045b8c0dc38fe",
+                    "0dc9930b3f965dcb3460da8a86a311ee1456e346e79544d36bf05f28ae0f3914",
                     digest,
                 ),
                 encoding="utf-8",
@@ -548,7 +548,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 self.write_json(root, path, value)
             for path in (REQUIREMENTS_DOC, ADR_DOC):
                 document = root / path
-                document.write_text(document.read_text(encoding="utf-8").replace("b4b3427e80cabff59e82f9aa9be52978de1d930ea63e06b2433045b8c0dc38fe", digest), encoding="utf-8")
+                document.write_text(document.read_text(encoding="utf-8").replace("0dc9930b3f965dcb3460da8a86a311ee1456e346e79544d36bf05f28ae0f3914", digest), encoding="utf-8")
             result = self.validate(root)
         self.assert_rejected(result, "requirement verification")
 
@@ -571,7 +571,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 self.write_json(root, path, value)
             for path in (REQUIREMENTS_DOC, ADR_DOC):
                 document = root / path
-                document.write_text(document.read_text(encoding="utf-8").replace("b4b3427e80cabff59e82f9aa9be52978de1d930ea63e06b2433045b8c0dc38fe", digest), encoding="utf-8")
+                document.write_text(document.read_text(encoding="utf-8").replace("0dc9930b3f965dcb3460da8a86a311ee1456e346e79544d36bf05f28ae0f3914", digest), encoding="utf-8")
             result = self.validate(root)
         self.assertEqual(result.returncode, 0, result.stderr)
 

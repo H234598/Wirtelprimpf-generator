@@ -275,6 +275,23 @@ class WebPlanValidationTests(unittest.TestCase):
             self.assertIn(expected, result.stderr)
             self.assertNotIn("Traceback", result.stderr)
 
+    def test_rejects_missing_active_m01_milestone_status(self) -> None:
+        """Keeps M01 explicitly active after the local M00 exit gates pass."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            plan = root / PLAN
+            content = plan.read_text(encoding="utf-8")
+            marker = "## 11. Meilenstein M01 – Factory-Pin, Hub und Archiv kontrolliert ausrollen\n\n**Status:** in Arbeit."
+            self.assertIn(marker, content)
+            plan.write_text(content.replace(marker, marker.split("\n\n", 1)[0], 1), encoding="utf-8")
+            status = self.read_json(root, STATUS)
+            status["canonical_plan"]["sha256"] = hashlib.sha256(plan.read_bytes()).hexdigest()
+            self.write_json(root, STATUS, status)
+            result = self.validate(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("M01 milestone status", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_rejects_duplicate_plan_status_row(self) -> None:
         """Rejects extra historical status row even after digest refresh."""
         with self.copied_root() as temporary:

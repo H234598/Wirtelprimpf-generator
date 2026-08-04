@@ -518,6 +518,8 @@ make check
 
 ## 11. Meilenstein M01 – Factory-Pin, Hub und Archiv kontrolliert ausrollen
 
+**Status:** in Arbeit.
+
 ### 11.1 Warum M01 jetzt Priorität hat
 
 Das Archiv ist reproduzierbar, verwendet aber eine 52 Commits ältere Factory. Gleichzeitig dokumentiert der jüngere Rolloutplan, dass der produktive Deploymentteil der transaktionalen Settings-/Copy-Änderung bewusst noch nicht ausgeführt wurde. Jede weitere UX-Arbeit auf einem nicht eindeutig ausgerollten Stand würde Diagnose und Abnahme unnötig vermischen.
@@ -3169,6 +3171,8 @@ Die Master-Spezifikation ist in 60 tracebaren Anforderungen, 13 ADR-Entwürfen, 
 ## P00
 
 **Status:** in Arbeit. Revisionsbaseline, Governance, Inventurwerkzeug, Tests und kanonischer Plan. Kein Deployment und keine Quelländerung.
+
+**Lokale Ausführungsevidenz 2026-08-04:** Branch `agent/webplan-m00`, Head `8e6a438` (`fix(web): harden P00 governance contracts`). `make check && git diff --check` lief mit Exitcode 0; darin 47 Governance- und 20 Webplan-Tests sowie beide Validator-CLIs. Unabhängige Read-only-Review: keine Critical-, Important- oder Minor-Funde. PR-, Merge- und blockierende Remote-Check-Evidenz fehlen weiterhin; P00 bleibt deshalb `in Arbeit`.
 
 ## P01
 
