@@ -720,6 +720,72 @@ class WebGovernanceValidationTests(unittest.TestCase):
                     result = self.validate(root)
                 self.assert_rejected(result, message)
 
+    def test_pages_governance_rejects_extra_permission_after_blank_or_comment(self) -> None:
+        """Keeps blank and comment lines inside each job permissions mapping."""
+        cases = (
+            (
+                "      contents: read\n",
+                "      contents: read\n\n      issues: read\n",
+                "Pages workflow build permissions",
+            ),
+            (
+                "      contents: read\n",
+                "      contents: read\n      # permissions continue\n      issues: read\n",
+                "Pages workflow build permissions",
+            ),
+            (
+                "      id-token: write\n",
+                "      id-token: write\n\n      issues: read\n",
+                "Pages workflow deploy permissions",
+            ),
+            (
+                "      id-token: write\n",
+                "      id-token: write\n      # permissions continue\n      issues: read\n",
+                "Pages workflow deploy permissions",
+            ),
+        )
+        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+            for original, mutated, message in cases:
+                with (
+                    self.subTest(workflow=path, permission=message, mutation=mutated),
+                    self.copied_root() as temporary,
+                ):
+                    root = Path(temporary)
+                    workflow = root / path
+                    content = workflow.read_text(encoding="utf-8")
+                    workflow.write_text(content.replace(original, mutated, 1), encoding="utf-8")
+                    result = self.validate(root)
+                self.assert_rejected(result, message)
+
+    def test_pages_governance_rejects_quoted_extra_hub_trigger(self) -> None:
+        """Rejects valid quoted YAML triggers beyond manual dispatch."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            workflow = root / HUB_PAGES_WORKFLOW
+            content = workflow.read_text(encoding="utf-8")
+            workflow.write_text(
+                content.replace("on:\n", 'on:\n  "push":\n', 1),
+                encoding="utf-8",
+            )
+            result = self.validate(root)
+        self.assert_rejected(result, "Pages workflow Hub trigger")
+
+    def test_pages_governance_rejects_quoted_or_mixed_case_extra_job(self) -> None:
+        """Rejects every extra Pages job regardless of YAML quoting or case."""
+        extra_jobs = (
+            '  "release":\n    runs-on: ubuntu-24.04\n',
+            "  Release:\n    runs-on: ubuntu-24.04\n",
+        )
+        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+            for extra_job in extra_jobs:
+                with self.subTest(workflow=path, extra_job=extra_job), self.copied_root() as temporary:
+                    root = Path(temporary)
+                    workflow = root / path
+                    content = workflow.read_text(encoding="utf-8")
+                    workflow.write_text(content.replace("jobs:\n", f"jobs:\n{extra_job}", 1), encoding="utf-8")
+                    result = self.validate(root)
+                self.assert_rejected(result, "Pages workflow jobs")
+
     def test_rejects_missing_catgpt_worker_ci_job(self) -> None:
         """Rejects a workflow that silently loses CatGPT worker coverage."""
         with self.copied_root() as temporary:

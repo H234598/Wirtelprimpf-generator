@@ -67,7 +67,14 @@ class HubSourceTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/hub-pages.yml").read_text(encoding="utf-8")
         triggers = workflow.split("on:\n", 1)[1].split("\npermissions:\n", 1)[0]
 
-        trigger_names = re.findall(r"^  ([a-z_]+):", triggers, re.MULTILINE)
+        trigger_names = [
+            next(name for name in match.groups() if name is not None)
+            for match in re.finditer(
+                r'''^  (?:"([^"]+)"|'([^']+)'|([A-Za-z_][A-Za-z0-9_-]*))\s*:''',
+                triggers,
+                re.MULTILINE,
+            )
+        ]
         self.assertEqual(trigger_names, ["workflow_dispatch"])
         for name in ("active_repository", "archive_ref", "current_volume"):
             match = re.search(rf"^      {name}:\n(?P<body>(?:        .*\n)+)", triggers, re.MULTILINE)

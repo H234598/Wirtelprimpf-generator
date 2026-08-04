@@ -366,11 +366,39 @@ def pages_job(workflow: str, name: str) -> str:
     return job.group("body")
 
 
+def yaml_mapping_keys(block: str, indentation: int, message: str) -> list[str]:
+    """Read supported YAML block-mapping keys at one exact indentation."""
+    prefix = " " * indentation
+    key_pattern = re.compile(
+        rf'''{prefix}(?:"(?P<double>[A-Za-z_][A-Za-z0-9_-]*)"|'''
+        rf''''(?P<single>[A-Za-z_][A-Za-z0-9_-]*)'|'''
+        rf'''(?P<plain>[A-Za-z_][A-Za-z0-9_-]*))\s*:.*''',
+    )
+    keys: list[str] = []
+    for line in block.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if len(line) - len(line.lstrip(" ")) != indentation:
+            continue
+        item = key_pattern.fullmatch(line)
+        require(item is not None, message)
+        keys.append(next(value for value in item.groups() if value is not None))
+    return keys
+
+
 def pages_job_permissions(job: str, message: str) -> dict[str, str]:
-    block = re.search(r"^    permissions:\n(?P<body>(?:      [^\n]*\n)+)", job, re.MULTILINE)
-    require(block is not None, message)
+    lines = job.splitlines()
+    headers = [index for index, line in enumerate(lines) if line == "    permissions:"]
+    require(len(headers) == 1, message)
     permissions: dict[str, str] = {}
-    for line in block.group("body").splitlines():
+    for line in lines[headers[0] + 1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indentation = len(line) - len(line.lstrip(" "))
+        if indentation < 6:
+            require(indentation in {0, 2, 4}, message)
+            break
+        require(indentation == 6, message)
         item = re.fullmatch(r"      ([a-z-]+): ([a-z]+)(?:\s+#.*)?", line)
         if item is None:
             raise ValidationError(message)
@@ -385,7 +413,7 @@ def validate_pages_workflow(root: Path, path: Path) -> None:
     workflow = read_text(root, path)
     require("\njobs:\n" in workflow, "Pages workflow jobs")
     jobs = workflow.split("\njobs:\n", 1)[1]
-    names = re.findall(r"^  ([a-z][a-z0-9_-]*):\n", jobs, re.MULTILINE)
+    names = yaml_mapping_keys(jobs, 2, "Pages workflow jobs")
     require(names == ["build", "deploy"], "Pages workflow jobs")
     require("permissions:\n  contents: read\n" in workflow, "Pages workflow permissions")
     require("cancel-in-progress: false" in workflow, "Pages workflow concurrency")
@@ -421,7 +449,10 @@ def validate_pages_workflows(root: Path) -> None:
     validate_pages_workflow(root, HUB_PAGES_WORKFLOW_PATH)
     hub = read_text(root, HUB_PAGES_WORKFLOW_PATH)
     triggers = hub.split("on:\n", 1)[1].split("\npermissions:\n", 1)[0]
-    require(re.findall(r"^  ([a-z_]+):", triggers, re.MULTILINE) == ["workflow_dispatch"], "Pages workflow Hub trigger")
+    require(
+        yaml_mapping_keys(triggers, 2, "Pages workflow Hub trigger") == ["workflow_dispatch"],
+        "Pages workflow Hub trigger",
+    )
     for name in ("active_repository", "archive_ref", "current_volume"):
         input_definition = re.search(rf"^      {name}:\n(?P<body>(?:        .*\n)+)", triggers, re.MULTILINE)
         require(input_definition is not None and "        required: true\n" in input_definition.group("body"), "Pages workflow Hub inputs")

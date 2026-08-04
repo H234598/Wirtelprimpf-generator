@@ -17,7 +17,7 @@ const { lightEndpoint } = Astro.props;
     <ol class="catgpt-messages" aria-live="polite" aria-relevant="additions" data-catgpt-messages></ol>
     <form class="catgpt-form" data-catgpt-form>
       <label class="visually-hidden" for="catgpt-input">Nachricht an CatGPT</label>
-      <input id="catgpt-input" name="message" type="text" maxlength="1000" autocomplete="off" required data-catgpt-input />
+      <input id="catgpt-input" name="message" type="text" autocomplete="off" required data-catgpt-input />
       <button type="submit">Senden</button>
     </form>
   </section>
@@ -33,7 +33,7 @@ const { lightEndpoint } = Astro.props;
     readMode,
   } from "../lib/catgpt/settings.ts";
   import { StaticReplyProvider } from "../lib/catgpt/static-provider.ts";
-  import type { CatGptMode, ChatMessage } from "../lib/catgpt/types.ts";
+  import { isValidChatContent, type CatGptMode, type ChatMessage } from "../lib/catgpt/types.ts";
 
   const shell = document.querySelector<HTMLElement>("[data-catgpt-shell]");
   const launcher = shell?.querySelector<HTMLButtonElement>("[data-catgpt-launcher]");
@@ -71,6 +71,7 @@ const { lightEndpoint } = Astro.props;
 
   launcher?.addEventListener("click", () => setOpen(windowElement?.hasAttribute("hidden") ?? true));
   close?.addEventListener("click", () => setOpen(false));
+  input?.addEventListener("input", () => input.setCustomValidity(""));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && windowElement && !windowElement.hidden) setOpen(false);
   });
@@ -87,7 +88,13 @@ const { lightEndpoint } = Astro.props;
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const message = input?.value.trim() ?? "";
-    if (!message || !input || !submit) return;
+    if (!input || !submit) return;
+    if (!isValidChatContent(message)) {
+      input.setCustomValidity("Nachricht muss 1 bis 1.000 Zeichen enthalten.");
+      input.reportValidity();
+      return;
+    }
+    input.setCustomValidity("");
     const requestGeneration = generation;
     const priorHistory = history;
     appendMessage("user", message);

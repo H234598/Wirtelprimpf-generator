@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { isValidChatContent } from "../src/lib/catgpt/types.ts";
+
 const root = new URL("../src/", import.meta.url);
 const layout = readFileSync(new URL("layouts/BaseLayout.astro", root), "utf8");
 const settings = readFileSync(new URL("components/SettingsPanel.astro", root), "utf8");
@@ -30,9 +32,17 @@ test("base layout gates Light once and passes the endpoint into both CatGPT comp
   assert.match(chat, /aria-controls="wirtelprimpf-catgpt"/);
   assert.match(chat, /role="dialog"/);
   assert.match(chat, /aria-live="polite"/);
-  assert.match(chat, /maxlength="1000"/);
   assert.match(chat, /textContent/);
   assert.doesNotMatch(chat, /innerHTML/);
+});
+
+test("CatGPT composer accepts 1000 Unicode code points and rejects 1001", () => {
+  assert.equal(isValidChatContent("🐈".repeat(1000)), true);
+  assert.equal(isValidChatContent("🐈".repeat(1001)), false);
+  assert.doesNotMatch(chat, /\smaxlength=/);
+  assert.match(chat, /if \(!isValidChatContent\(message\)\)/);
+  assert.match(chat, /setCustomValidity/);
+  assert.match(chat, /reportValidity/);
 });
 
 test("CatGPT selects its provider and clears stale work on mode changes without exposing fallback", () => {
