@@ -350,8 +350,8 @@ class WebGovernanceValidationTests(unittest.TestCase):
         mutations = (
             (
                 REVISIONS,
-                '"state": "frozen-rollout-drift"',
-                '"state": "mutated", "state": "frozen-rollout-drift"',
+                '"state": "live-verified-repinned"',
+                '"state": "mutated", "state": "live-verified-repinned"',
             ),
             (
                 STATUS,

@@ -95,3 +95,22 @@ Medien und `195` Kapitel. Die getesteten nummerischen Negativhosts `0000`,
 `0042`, `9999`, `10000` und ein zufälliger Host lieferten keine A-/AAAA-
 Antworten. Diese öffentliche Sicht bestätigt Erreichbarkeit und Negativfälle,
 aber weder Factory-Repin noch autoritative Cloudflare- oder Pages-Einstellungen.
+
+## Pages-/Factory-Reconcile am 5. August 2026, 20:45 CEST
+
+Der Archiv-Repin wurde in `H234598/Wirtelprimpf-0001#5` reviewt und gemergt.
+Archiv-`main` steht auf `4692189ecf69a70f5526587649a2c426c0949126`; die beiden
+Workflow-Pin-Stellen verwenden den geprüften Generator-SHA
+`01971ea3eed05d00a1c50a31834496f8dfab65c4`.
+
+Der Pages-Lauf `31036064433` bestand mit `1.384` Dateien, `1.362` HTML-Seiten,
+`164.445` internen Links, `41.982.400` Bytes und Treehash
+`7f18a64c410d92baf0e0a726d1e1aacdb87cd2786d54fe6c0a6301e614da01b7`.
+Der öffentliche Archiv-Smoke lieferte HTTP/2 `200`, keinen Redirect, korrekten
+Canonical und HSTS. Die Statusseite meldete `803` Bilder und `2` Storys mit
+Manifest `2026-08-05T18:24:34Z`; die Startseite enthält `CatGPT-S` und
+`CatGPT-L`.
+
+Der Repin-/Pages-Nachweis ist damit technisch abgeschlossen. Offen bleiben
+produktiver Rollback-/Redeploytest, vollständige Betreiberabnahme und der
+separate Cloudflare-Alias-/Wildcard-Rollout.

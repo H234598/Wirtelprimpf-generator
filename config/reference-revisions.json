@@ -34,8 +34,8 @@
     ]
   },
   "archive_factory_pin": {
-    "sha": "b00d824adee47341e3251bc18e09239fde1c5939",
-    "state": "frozen-rollout-drift"
+    "sha": "01971ea3eed05d00a1c50a31834496f8dfab65c4",
+    "state": "live-verified-repinned"
   },
   "manual_verification_boundaries": [
     "Pages source configuration",
@@ -64,7 +64,7 @@
     "P11",
     "P12"
   ],
-    "plan_sha256": "88e5e63df95c3cdaf011d1963ccccf30746ad19781232dd65769e92297fc958c",
+  "plan_sha256": "c50ede15da759f60100d2dcc35ec1a126de125454de368df7c50a5bf0da3b4b1",
   "repositories": [
     {
       "branch": "main",
@@ -73,7 +73,7 @@
       "frozen_sha": "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f",
       "id": "H234598/Wirtelprimpf-generator",
       "observed": {
-        "sha": "3a60129417659bed9939755baf56d649510454d1",
+        "sha": "01971ea3eed05d00a1c50a31834496f8dfab65c4",
         "source": "local-git",
         "status": "checked"
       },
@@ -82,10 +82,10 @@
     {
       "branch": "main",
       "commit_time": "2026-08-02 00:58:57 Europe/Berlin",
-      "drift_classification": "not-checked",
+      "drift_classification": "drift",
       "frozen_sha": "79274c1fef77306eb9ee0e9bd2682f4b28b74849",
       "id": "H234598/Wirtelprimpf-0001",
-      "observed": {"sha": null, "source": null, "status": "not-checked"},
+      "observed": {"sha": "4692189ecf69a70f5526587649a2c426c0949126", "source": "github-api", "status": "checked"},
       "role": "Story-/Medienmanifest, Archivvertrag, dünner Pages-Aufrufer"
     },
     {

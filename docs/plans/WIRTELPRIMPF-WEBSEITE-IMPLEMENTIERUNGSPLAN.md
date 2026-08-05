@@ -87,7 +87,7 @@ Der Plan steht daher nicht mehr am Anfang von P00. Der belastbare aktuelle Befun
 - **3 in Arbeit**;
 - **0 offen**.
 
-Der wichtigste technische Meilenstein ist nun nicht ein erneuter P00-Transfer, sondern ein **kontrollierter Produktionsabgleich**: Das Archiv ruft die Seitenfabrik weiterhin am Commit `b00d824…` auf, während `Wirtelprimpf-generator/main` inzwischen bei `274b25…` steht. Zwischen beiden Ständen liegen 52 Generatorcommits. Die neueren öffentlichen Textänderungen, Status-/Settings-Erweiterungen und Planverträge sind daher nicht automatisch im Archivprofil ausgerollt.
+Der wichtigste technische Meilenstein war der **kontrollierte Produktionsabgleich**: Das Archiv pinnt nach dem gemergten Repin-PR #5 jetzt die Seitenfabrik auf `01971ea…`; der Pages-Lauf und der öffentliche Archiv-Smoke sind grün. Der verbleibende M01-Rest betrifft Rollback-/Redeploy-Evidenz und weitere externe Abnahmen.
 
 Die genannten UX- und Qualitätsverträge sind lokal implementiert und geprüft. Offen bleiben prozessuale Abschlussgates: Merge-/Reviewevidenz, GitHub-Actions-Lauf, externe Artefakt-/Hostingabnahme und die jeweils geforderten Baselines.
 
@@ -179,10 +179,10 @@ Der aktuelle Generator-Hauptzweig endet in `274b25…` mit der Commitbotschaft `
 
 ```text
 H234598/Wirtelprimpf-generator/.github/workflows/archive-pages.yml
-@b00d824adee47341e3251bc18e09239fde1c5939
+@01971ea3eed05d00a1c50a31834496f8dfab65c4
 ```
 
-Der aktuelle Generator-Freeze `274b25…` liegt **52 Commits** davor. Das Archiv ist dadurch reproduzierbar, aber nicht auf dem aktuellen Factorystand. Dieses Verhalten ist sicherer als ein beweglicher `@main`-Verweis, erzeugt aber einen bewusst zu bearbeitenden Rollout-Rückstand.
+Der aktuelle Generator-Hauptzweig steht auf `01971ea3eed05d00a1c50a31834496f8dfab65c4`; der Archiv-Merge `4692189ecf69a70f5526587649a2c426c0949126` pinnt denselben geprüften Stand. Der unveränderliche SHA-Vertrag bleibt erhalten.
 
 ### 3.2 Read-only Veröffentlichungsstand vom 5. August 2026
 
@@ -190,14 +190,13 @@ Der aktuelle Remoteabgleich ist erfolgreich, aber nicht abnahmefähig:
 
 | Evidenz | Wert |
 |---|---|
-| Generator `main` | `274b25c9e1f9ea97d3b060997ed5c425d2b30e9f` |
-| Archiv `main` | `732b62d6ad25b5bfee7a35b673c69568dcd9e75a` |
-| Archiv-Pages-Lauf | `30974608315`, `success`, `2026-08-05T04:15:18Z` |
-| Hub-Pages-Lauf | `30974607541`, `success`, `2026-08-05T04:15:18Z` |
+| Generator `main` | `01971ea3eed05d00a1c50a31834496f8dfab65c4` |
+| Archiv `main` | `4692189ecf69a70f5526587649a2c426c0949126` |
+| Archiv-Pages-Lauf | `31036064433`, `success`, `2026-08-05T18:43:15Z` |
+| Hub-Pages-Lauf | `31034590110`, `success`, `2026-08-05T18:24:39Z` |
 | Live-Domains | Hub und Archiv HTTPS `200`, HSTS, robots/Sitemap/Feed erreichbar |
-| Live-Status | Read-only-Recheck: Hub `798` Bilder/`1` Story, Archiv `798` Bilder/`2` Storys, Manifest `2026-08-05T08:17:57Z` |
-| Lokaler Stand | `779` Medien, `195` Kapitel |
-| Aktiver Archiv-Factory-Pin | `b00d824adee47341e3251bc18e09239fde1c5939` |
+| Live-Status | Hub `803` Bilder/`1` Story, Archiv `803` Bilder/`2` Storys, Manifest `2026-08-05T18:24:34Z` |
+| Aktiver Archiv-Factory-Pin | `01971ea3eed05d00a1c50a31834496f8dfab65c4` |
 
 Die Actions-Läufe belegen die bestehende Remotepipeline. Sie belegen nicht,
 dass der aktuelle lokale Arbeitsbaum oder der aktuelle Generator-`main` im
@@ -417,7 +416,7 @@ flowchart LR
 | `WEB-P11-01` | Performance-, Größen- und Buildbudgets | **teilweise umgesetzt** | Deterministische Artefaktbudgets, CI-Gates, SEO-/Performancebrowsergate und dreifacher read-only Medien-/Hostinglauf sind grün; Home 1.908.894 B, Galerie 34.649 B, keine fremden Runtime-Requests, vollständiger Fixturebaum 21.910.811 B. | Merge-/CI- und Hostingnachweis sowie belastbare Live-/Runnerbaseline. | `M04` |
 | `WEB-P11-02` | Hosting- und Großrepository-Freeze | **umgesetzt** | Originale/Derivate liegen in Releases; aktueller Git-Baum enthält keine Bildbinärdateien. | Schwellen regelmäßig mit Wachstum und Releaseanzahl neu prüfen. | `Pflege` |
 | `WEB-P11-03` | SEO, Sitemap, Feed und Social-Metadaten | **umgesetzt** | Canonical, Open Graph, Feed, Sitemap und robots-Verträge sind implementiert und durch einen origin-gebundenen Browser-/URL-Gate geprüft. | Nur laufende Social-Preview-/URL- und Größenabnahme. | `M03/M04` |
-| `WEB-P11-04` | Custom Domain und Releaseabnahme | **in Arbeit** | Read-only-Recheck am 05.08.2026 08:17:57Z: Hub und Archiv antworten über HTTPS mit HTTP 200 und HSTS, ohne Redirect; robots, Sitemap und Feed liefern 200, die getesteten nummerischen Negativhosts liefern keine A-/AAAA-Antwort. Der Archivworkflow verwendet weiter Factory `b00d824…`; live stehen Hub/Archiv bei 798 Medien gegenüber lokal 779/195. | Factory-Repin und geprüften Stand auf Hub/Archiv verifizieren, danach Live-Content, Freshness, Review, Rollback und Releaseabnahme abschließen. | `M01` |
+| `WEB-P11-04` | Custom Domain und Releaseabnahme | **in Arbeit** | Repin-PR #5, Archiv-Pages-Lauf `31036064433`, Artefaktvalidierung und öffentlicher HTTP/2-/HSTS-Smoke sind grün; live stehen Hub/Archiv bei 803 Medien, Archiv 2 Storys. | Produktiven Rollback-/Redeploytest, vollständige Betreiberabnahme und die übrigen externen Releasegates ergänzen. | `M01` |
 | `WEB-P12-01` | Optionen priorisieren und isolieren | **umgesetzt** | Optionenregister, bewusster MVP-Verzicht und isolierte Tests sind vorhanden; die aktuelle CatGPT-S-/CatGPT-L-Aufteilung besitzt eigene Launcher-, Modus-, Fallback- und Browserverträge. | Laufende fachliche Neubewertung bei belastbarer Datenbasis. | `M06` |
 
 ### 8.1 Zusammenfassung
@@ -534,8 +533,8 @@ Das Archiv ist reproduzierbar, verwendet aber eine 52 Commits ältere Factory. G
 
 ### M01-01 – Factory-Diff klassifizieren
 
-- **Basis:** `b00d824adee47341e3251bc18e09239fde1c5939`.
-- **Kandidat:** `274b25c9e1f9ea97d3b060997ed5c425d2b30e9f` oder ein darauf folgender reiner Stabilisierungssquash.
+- **Basis:** `b00d824adee47341e3251bc18e09239fde1c5939` (historischer Pin).
+- **Kandidat/ausgerollter Stand:** `01971ea3eed05d00a1c50a31834496f8dfab65c4`.
 - **Pflichtdiff:** alle 52 Commits und 46 geänderten Dateien nach Kategorien:
   - öffentliche Webausgabe;
   - Daten-/Katalogvertrag;
@@ -1230,6 +1229,13 @@ Diese v2-Fassung richtet die Umsetzung genau auf diese Restarbeit aus.
 - `H234598/Wirtelprimpf-generator#2` – **gemergt**; kanonische Partnummern und Legacy-URL-Migration.
 - `H234598/Wirtelprimpf-generator#3` – **gemergt**; Bücher und Storyvorgaben.
 - `H234598/Wirtelprimpf-generator#4` – GitHub meldet **geschlossen/unmerged**, der Inhalt liegt jedoch über `274b25…` auf `main`; als `manual-main-integration` führen.
+
+## Aktueller M01-Reconcile am 5. August 2026, 20:45 CEST
+
+- Archiv `main` ist nach dem gemergten Repin-PR #5 `4692189ecf69a70f5526587649a2c426c0949126`; beide Workflow-Pin-Stellen zeigen auf den Generator-Commit `01971ea3eed05d00a1c50a31834496f8dfab65c4`.
+- Pages-Lauf `31036064433` bestand mit `1.384` Dateien, `1.362` HTML-Seiten, `164.445` internen Links, `41.982.400` Bytes und Remote-Treehash `7f18a64c410d92baf0e0a726d1e1aacdb87cd2786d54fe6c0a6301e614da01b7`.
+- Der öffentliche Archiv-Smoke liefert HTTP/2 `200`, keinen Redirect, korrekten Canonical und HSTS. Status und Startseite zeigen `803` Bilder, `2` Storys, Manifest `2026-08-05T18:24:34Z` sowie `CatGPT-S` und `CatGPT-L`.
+- M01-04 und der technische M01-05-Archivnachweis sind damit belegt. Produktiver Rollback-/Redeploytest, vollständige Betreiberabnahme und der separate Cloudflare-Alias-/Wildcard-Rollout bleiben offen.
 
 ---
 

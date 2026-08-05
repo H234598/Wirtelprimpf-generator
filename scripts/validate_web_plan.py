@@ -23,7 +23,7 @@ FREEZE_SHAS = {
     "ee91741ec71a1232a4c3b90f42b805591a0d9359",
     "71bcad7a8ab183144e8ff007b85aea8bb6cff3b9",
 }
-FACTORY_PIN = "b00d824adee47341e3251bc18e09239fde1c5939"
+FACTORY_PIN = "01971ea3eed05d00a1c50a31834496f8dfab65c4"
 LEGACY_WEB_PLAN = {
     "archive_destination": "Done/Wirtelprimpf-Webseite-Implementierungsplan.md",
     "document_id": "WIRTEL-WEB-PLAN-001",

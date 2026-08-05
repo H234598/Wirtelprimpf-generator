@@ -54,8 +54,9 @@ EXPECTED_REPOSITORIES = {
         "2026-07-28 16:11:05 Europe/Berlin",
     ),
 }
-GENERATOR_OBSERVED_SHA = "3a60129417659bed9939755baf56d649510454d1"
-FACTORY_PIN = "b00d824adee47341e3251bc18e09239fde1c5939"
+GENERATOR_OBSERVED_SHA = "01971ea3eed05d00a1c50a31834496f8dfab65c4"
+ARCHIVE_OBSERVED_SHA = "4692189ecf69a70f5526587649a2c426c0949126"
+FACTORY_PIN = "01971ea3eed05d00a1c50a31834496f8dfab65c4"
 EXPECTED_PHASE_IDS = {f"P{number:02d}" for number in range(13)}
 EXPECTED_HISTORICAL_ADRS = {f"ADR-WEB-{number:03d}" for number in range(1, 14)}
 EXPECTED_CURRENT_ADRS = {f"ADR-WEB-{number:03d}" for number in range(1, 16)}
@@ -594,8 +595,17 @@ def render_baseline(revisions: dict) -> str:
             "Generator-Drift ist explizit: lokales `main` wurde beobachtet, nicht am Freeze.",
             "Dies ist keine Fernabfrage und keine Aussage über den aktuellen Remote-Stand.",
             "",
-            f"Archiv-Factory-Pin `{revisions['archive_factory_pin']['sha']}` bleibt unverändert.",
-            "Er ist ein eingefrorener Rollout-Rückstand, kein hier erlaubtes Repin-Ziel.",
+            (
+                f"Archiv-Factory-Pin `{revisions['archive_factory_pin']['sha']}` ist nach dem"
+                " geprüften Repin live verifiziert."
+                if revisions["archive_factory_pin"]["state"] == "live-verified-repinned"
+                else f"Archiv-Factory-Pin `{revisions['archive_factory_pin']['sha']}` bleibt unverändert."
+            ),
+            (
+                "Pages-Lauf, Artefaktprüfung und öffentlicher Archiv-Smoke sind belegt."
+                if revisions["archive_factory_pin"]["state"] == "live-verified-repinned"
+                else "Er ist ein eingefrorener Rollout-Rückstand, kein hier erlaubtes Repin-Ziel."
+            ),
             "",
             "## Manuelle Grenzen",
             "",
@@ -642,6 +652,13 @@ def validate_repository(entry: object) -> None:
         derived_drift = "no-drift" if sha == frozen_sha else "drift"
         require(entry.get("drift_classification") == derived_drift, "drift classification")
         return
+    if identifier == "H234598/Wirtelprimpf-0001":
+        require(status == "checked" and source == "github-api", "observed state")
+        require(isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha), "observed state")
+        require(sha == ARCHIVE_OBSERVED_SHA, "observed state")
+        derived_drift = "no-drift" if sha == frozen_sha else "drift"
+        require(entry.get("drift_classification") == derived_drift, "drift classification")
+        return
     require(status == "not-checked" and sha is None and source is None, "observed state")
     require(entry.get("drift_classification") == "not-checked", "drift classification")
 
@@ -670,7 +687,7 @@ def validate(root: Path) -> None:
 
     pin = revisions.get("archive_factory_pin")
     require(isinstance(pin, dict) and set(pin) == {"sha", "state"}, "Factory pin")
-    require(isinstance(pin, dict) and pin.get("sha") == FACTORY_PIN and pin.get("state") == "frozen-rollout-drift", "Factory pin")
+    require(isinstance(pin, dict) and pin.get("sha") == FACTORY_PIN and pin.get("state") == "live-verified-repinned", "Factory pin")
     require(re.fullmatch(r"[0-9a-f]{40}", pin["sha"]) is not None, "Factory pin")
     exact_set(revisions.get("phase_ids"), EXPECTED_PHASE_IDS, "phase IDs")
     adrs = revisions.get("adr_ids")
