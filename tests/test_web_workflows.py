@@ -28,7 +28,7 @@ class WebWorkflowTests(unittest.TestCase):
         self.assertIn("git ls-files --others --exclude-standard", web)
         self.assertIn("web/src/generated/status\\.json", web)
         self.assertIn("if: always()", web)
-        self.assertIn("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02", web)
+        self.assertIn("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", web)
         self.assertIn("web/test-results", web)
         self.assertIn("web/playwright-report", web)
         self.assertIn("WIRTELPRIMPF_SOURCE_REVISION: ${{ steps.source.outputs.revision }}", ROOT.joinpath(".github/workflows/hub-pages.yml").read_text(encoding="utf-8"))
