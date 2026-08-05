@@ -28,6 +28,7 @@ const { lightEndpoint } = Astro.props;
       </label>
     </div>
     {!lightEndpoint && <small class="settings-note">Light: bald verfügbar</small>}
+    <button class="settings-clear" type="button" data-settings-clear>Lokale Lesedaten löschen</button>
   </section>
 </div>
 
@@ -35,14 +36,14 @@ const { lightEndpoint } = Astro.props;
   import {
     changeCatGptMode,
     initializeCatGptMode,
-    readTheme,
-    writeTheme,
   } from "../lib/catgpt/settings.ts";
+  import { clearSiteState, readSiteState, updateSiteState } from "../lib/site-state.ts";
 
   const shell = document.querySelector<HTMLElement>("[data-settings-shell]");
   const toggle = shell?.querySelector<HTMLButtonElement>("[data-settings-toggle]");
   const panel = shell?.querySelector<HTMLElement>("[data-settings-panel]");
   const close = shell?.querySelector<HTMLButtonElement>("[data-settings-close]");
+  const clear = shell?.querySelector<HTMLButtonElement>("[data-settings-clear]");
   const mode = shell?.querySelector<HTMLInputElement>("[data-catgpt-mode]");
   const themes = shell?.querySelectorAll<HTMLInputElement>("[data-theme-option]") ?? [];
 
@@ -54,7 +55,7 @@ const { lightEndpoint } = Astro.props;
   };
 
   try {
-    const theme = readTheme(localStorage);
+    const theme = readSiteState(localStorage).theme;
     document.documentElement.dataset.theme = theme;
     for (const option of themes) option.checked = option.value === theme;
   } catch {
@@ -74,9 +75,15 @@ const { lightEndpoint } = Astro.props;
     option.addEventListener("change", () => {
       if (option.value !== "night" && option.value !== "paper") return;
       document.documentElement.dataset.theme = option.value;
-      try { writeTheme(localStorage, option.value); } catch {}
+      updateSiteState(localStorage, (state) => ({ ...state, theme: option.value as "night" | "paper" }));
     });
   }
+  clear?.addEventListener("click", () => {
+    try { localStorage.removeItem("wirtelprimpf-theme"); } catch {}
+    clearSiteState(localStorage);
+    document.documentElement.dataset.theme = "night";
+    for (const option of themes) option.checked = option.value === "night";
+  });
   mode?.addEventListener("change", () => {
     const nextMode = lightAvailable && mode.checked ? "light" : "static";
     mode.checked = nextMode === "light";

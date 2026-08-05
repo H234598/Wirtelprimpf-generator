@@ -1,0 +1,25 @@
+---
+import { resolveDownload, type DownloadTarget } from "../lib/downloads.ts";
+
+interface Props {
+  original: DownloadTarget;
+  variants?: readonly DownloadTarget[];
+}
+
+const { original, variants = [] } = Astro.props;
+const originalDownload = resolveDownload(original);
+const derivativeDownloads = variants
+  .map((variant) => resolveDownload(variant))
+  .filter((download): download is NonNullable<typeof download> => download !== null);
+---
+<div class="media-actions" data-media-actions>
+  {originalDownload
+    ? <a class="button" href={originalDownload.href} download={originalDownload.filename}>Original herunterladen</a>
+    : <span class="media-action-status" role="status">Original derzeit nicht verfügbar.</span>}
+  <div class="media-action-row" data-media-action-row hidden>
+    <button type="button" data-media-fullscreen hidden aria-label="Bild im Vollbild öffnen">Vollbild</button>
+    <button type="button" data-media-share hidden aria-label="Bild teilen">Teilen</button>
+  </div>
+  <span class="media-action-status" data-media-action-status role="status" aria-live="polite"></span>
+  {derivativeDownloads.length > 0 && <div><h3>Derivate</h3><ul class="derivative-list">{derivativeDownloads.map((download) => <li><a href={download.href} download={download.filename}>{download.filename}</a></li>)}</ul></div>}
+</div>

@@ -98,3 +98,12 @@ class CloudflareCredentialResolver:
         if self._expiration(refreshed) <= current_time + timedelta(minutes=5):
             raise RuntimeError("Wrangler OAuth refresh did not produce a usable expiration time")
         return self._validate_token(refreshed.get("oauth_token"), label="refreshed Wrangler OAuth token")
+
+    def resolve_api_token(self, *, explicit_token: str | None = None) -> str:
+        """Resolve a REST API token without confusing it with Wrangler OAuth."""
+        if not explicit_token:
+            raise RuntimeError(
+                "Cloudflare REST API access requires explicit CLOUDFLARE_API_TOKEN; "
+                "Wrangler OAuth credentials are CLI-only"
+            )
+        return self._validate_token(explicit_token, label="CLOUDFLARE_API_TOKEN")

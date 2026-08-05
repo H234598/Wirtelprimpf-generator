@@ -1,0 +1,8 @@
+---
+interface Props {
+  hidden?: boolean;
+}
+
+const { hidden = false } = Astro.props;
+---
+<p class="empty-state" data-empty-state hidden={hidden || undefined} role="status"><slot /></p>

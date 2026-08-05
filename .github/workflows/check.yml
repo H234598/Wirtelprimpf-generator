@@ -135,8 +135,11 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: |
+            config/web-budgets.json
             web
+            scripts/build_web_status.py
             scripts/validate_pages_artifact.py
+            scripts/validate_web_budgets.py
           sparse-checkout-cone-mode: true
 
       - name: Set up Node.js
@@ -159,6 +162,21 @@ jobs:
           npm test
           npm run check
 
+      - name: Install Chromium for browser gates
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser, accessibility, and performance gates
+        working-directory: web
+        env:
+          PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
+          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/web/fixtures/site
+          WIRTELPRIMPF_SITE_PROFILE: hub
+          WIRTELPRIMPF_SITE_URL: https://wirtelprimpf.telacore.org
+        run: |
+          npm run test:browser
+          npm run test:performance
+
       - name: Build and validate hub profile
         env:
           PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
@@ -169,6 +187,7 @@ jobs:
           npm --prefix web run build
           rg -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
           python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
+          python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
 
       - name: Build and validate archive profile
         env:
@@ -180,3 +199,21 @@ jobs:
           npm --prefix web run build
           rg -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
           python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org
+          python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
+
+      - name: Verify source checkout remains unchanged
+        run: |
+          git diff --exit-code -- .
+          unexpected="$(git ls-files --others --exclude-standard | grep -v '^web/src/generated/status\.json$' || true)"
+          test -z "$unexpected"
+
+      - name: Upload web diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: web-diagnostics-${{ github.run_id }}
+          path: |
+            web/test-results
+            web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7

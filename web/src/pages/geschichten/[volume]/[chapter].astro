@@ -1,0 +1,48 @@
+---
+import EpubDownload from "../../../components/EpubDownload.astro";
+import Reader from "../../../components/Reader.astro";
+import StoryToc from "../../../components/StoryToc.astro";
+import BaseLayout from "../../../layouts/BaseLayout.astro";
+import type { StoryDocument, StoryPart } from "../../../lib/content.ts";
+import { loadSiteData, type MediaItem, type SiteData } from "../../../lib/data.ts";
+import { chapterNavigation, chapterPath, mediaForChapter } from "../../../lib/story-routes.ts";
+
+export function getStaticPaths() {
+  const data = loadSiteData();
+  return data.stories.flatMap((story) => story.parts.map((part) => {
+    const navigation = chapterNavigation(story, part.id);
+    return {
+      params: { volume: String(story.volume), chapter: part.id },
+      props: {
+        story,
+        part,
+        previous: navigation.previous,
+        next: navigation.next,
+        images: mediaForChapter(data.media, story, part),
+        epubs: data.epubs.filter((download) => download.volume === story.volume),
+      },
+    };
+  }));
+}
+
+interface Props {
+  story: StoryDocument;
+  part: StoryPart;
+  previous: StoryPart | null;
+  next: StoryPart | null;
+  images: MediaItem[];
+  epubs: SiteData["epubs"];
+}
+
+const { story, part, previous, next, images, epubs } = Astro.props;
+---
+<BaseLayout title={`${story.title} · Teil ${part.sequence}`} description={`Kapitel ${part.sequence} von ${story.title}.`} image={images[0]?.variants.at(-1)?.url ?? images[0]?.original.url} section="geschichten">
+  <header class="page-heading"><span class="eyebrow">Buch {story.book} · Story {story.volume} · kanonisches Kapitel</span><h1>{story.title}</h1><p class="lede">Teil {part.sequence} von {story.parts.length}. Der stabile Kapitel-Permalink bleibt unabhängig von der Position erhalten.</p></header>
+  <section class="section reader-section" style="padding-top:1rem">
+    <StoryToc story={story} currentId={part.id} />
+    <EpubDownload downloads={epubs} />
+    <Reader story={story} part={part} previous={previous} next={next} images={images} />
+    <p class="reader-canonical"><a href={chapterPath(story.volume, part.id)}>Kanonische Kapiteladresse</a></p>
+  </section>
+  <script src="../../../scripts/reading-progress.ts"></script>
+</BaseLayout>

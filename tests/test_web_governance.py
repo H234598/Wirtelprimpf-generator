@@ -43,6 +43,7 @@ GITIGNORE = Path(".gitignore")
 PRESERVED_CHECK_COMMANDS = (
     "$(PYTHON) -m json.tool files/$(UUID)/metadata.json >/dev/null",
     "$(PYTHON) -m json.tool files/$(UUID)/settings-schema.json >/dev/null",
+    "$(PYTHON) -m json.tool config/web-media-limits.json >/dev/null",
     "$(PYTHON) -m py_compile Sourcecode/wirtelprimpf_generator.py",
     "$(PYTHON) -m py_compile files/$(UUID)/helper.py files/$(UUID)/SettingsLogo.py files/$(UUID)/settings_sync.py",
     "$(PYTHON) -m py_compile files/$(UUID)/story_directives_core.py files/$(UUID)/StoryDirectives.py",
@@ -69,8 +70,19 @@ PRESERVED_CHECK_COMMANDS = (
 )
 
 GOVERNANCE_CHECK_COMMANDS = (
-    "$(PYTHON) -m py_compile scripts/validate_web_plan.py scripts/validate_web_governance.py",
+    "$(PYTHON) -m py_compile scripts/build_web_site.py scripts/validate_web_plan.py scripts/validate_web_governance.py scripts/validate_web_relations.py scripts/web_inventory.py scripts/web_ids.py scripts/web_content_model.py scripts/web_content_errors.py scripts/validate_web_manifest.py scripts/measure_web_media.py",
+    "$(PYTHON) tests/test_epub_contract.py",
+    "$(PYTHON) tests/test_pages_artifact.py",
+    "$(PYTHON) tests/test_web_build.py",
+    "$(PYTHON) tests/test_check_equivalence.py",
     "$(PYTHON) -m unittest tests.test_web_plan",
+    "$(PYTHON) -m unittest tests.test_web_inventory",
+    "$(PYTHON) -m unittest tests.test_web_content_schemas",
+    "$(PYTHON) -m unittest tests.test_web_ids",
+    "$(PYTHON) -m unittest tests.test_web_pairing",
+    "$(PYTHON) -m unittest tests.test_web_content_errors",
+    "$(PYTHON) -m unittest tests.test_web_manifest",
+    "$(PYTHON) -m unittest tests.test_web_media_measurement",
     "$(PYTHON) tests/test_web_governance.py",
     "$(PYTHON) scripts/validate_web_plan.py --root .",
     "$(PYTHON) scripts/validate_web_governance.py --root .",
@@ -139,10 +151,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
         for path in (REQUIREMENTS_DOC, ADR_DOC):
             document = root / path
             document.write_text(
-                document.read_text(encoding="utf-8").replace(
-                    "0dc9930b3f965dcb3460da8a86a311ee1456e346e79544d36bf05f28ae0f3914",
-                    digest,
-                ),
+                re.sub(r"SHA-256 `[0-9a-f]{64}`", f"SHA-256 `{digest}`", document.read_text(encoding="utf-8"), count=1),
                 encoding="utf-8",
             )
     def test_accepts_canonical_revision_baseline(self) -> None:
@@ -551,7 +560,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 self.write_json(root, path, value)
             for path in (REQUIREMENTS_DOC, ADR_DOC):
                 document = root / path
-                document.write_text(document.read_text(encoding="utf-8").replace("0dc9930b3f965dcb3460da8a86a311ee1456e346e79544d36bf05f28ae0f3914", digest), encoding="utf-8")
+                document.write_text(re.sub(r"SHA-256 `[0-9a-f]{64}`", f"SHA-256 `{digest}`", document.read_text(encoding="utf-8"), count=1), encoding="utf-8")
             result = self.validate(root)
         self.assert_rejected(result, "requirement verification")
 
@@ -574,7 +583,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 self.write_json(root, path, value)
             for path in (REQUIREMENTS_DOC, ADR_DOC):
                 document = root / path
-                document.write_text(document.read_text(encoding="utf-8").replace("0dc9930b3f965dcb3460da8a86a311ee1456e346e79544d36bf05f28ae0f3914", digest), encoding="utf-8")
+                document.write_text(re.sub(r"SHA-256 `[0-9a-f]{64}`", f"SHA-256 `{digest}`", document.read_text(encoding="utf-8"), count=1), encoding="utf-8")
             result = self.validate(root)
         self.assertEqual(result.returncode, 0, result.stderr)
 

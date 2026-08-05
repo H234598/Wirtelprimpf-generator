@@ -36,6 +36,13 @@ test("base layout gates Light once and passes the endpoint into both CatGPT comp
   assert.doesNotMatch(chat, /innerHTML/);
 });
 
+test("CatGPT launcher stays in the header flow instead of covering page content", () => {
+  assert.match(layout, /<div class="header-tools">[\s\S]*<SettingsPanel[\s\S]*<CatGptWidget/);
+  assert.match(styles, /\.header-tools \{[^}]*display: flex;/s);
+  assert.match(styles, /\.catgpt-shell \{ position: relative;/);
+  assert.doesNotMatch(styles, /\.catgpt-shell \{ position: fixed;/);
+});
+
 test("CatGPT composer accepts 1000 Unicode code points and rejects 1001", () => {
   assert.equal(isValidChatContent("🐈".repeat(1000)), true);
   assert.equal(isValidChatContent("🐈".repeat(1001)), false);

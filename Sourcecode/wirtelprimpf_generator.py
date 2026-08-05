@@ -1030,6 +1030,7 @@ class Config:
     media_mode: str = MEDIA_MODE_GIT
     github_owner: str = "H234598"
     media_staging_path: Path | None = None
+    media_cache_path: Path | None = None
     publish_immediately: bool = False
     platform_state_path: Path | None = None
     platform_catalog_path: Path | None = None
@@ -1120,6 +1121,10 @@ def load_config() -> Config:
         media_staging_path=Path(
             env("WIRTELPRIMPF_MEDIA_STAGING", str(state_home / "wirtelprimpf/media-staging"))
             or str(state_home / "wirtelprimpf/media-staging")
+        ).expanduser(),
+        media_cache_path=Path(
+            env("WIRTELPRIMPF_MEDIA_CACHE", str(state_home / "wirtelprimpf/media-cache"))
+            or str(state_home / "wirtelprimpf/media-cache")
         ).expanduser(),
         publish_immediately=parse_bool_flag(
             "WIRTELPRIMPF_PUBLISH_IMMEDIATELY",
@@ -1392,6 +1397,7 @@ def publish_release_image(
         manifest_path=manifest_path,
         staging_root=staging_root / target.repository,
         backend=release_backend,
+        cache_root=config.media_cache_path,
     ).publish(
         image_path,
         source_path=source_path,
@@ -1437,7 +1443,7 @@ def build_rotation_orchestrator(config: Config) -> RotationOrchestrator:
     missing = [name for name, value in required_paths.items() if value is None]
     if missing:
         raise RuntimeError(f"Archive rotation configuration is incomplete: {', '.join(missing)}")
-    token = CloudflareCredentialResolver().resolve(
+    token = CloudflareCredentialResolver().resolve_api_token(
         explicit_token=os.environ.get("CLOUDFLARE_API_TOKEN")
     )
     assert config.platform_state_path is not None

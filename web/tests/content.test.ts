@@ -10,7 +10,7 @@ import {
   renderSafeMarkdown,
   sortStoryPartsNewestFirst,
 } from "../src/lib/content.ts";
-import { archiveBookRange, loadCatalog, loadStories } from "../src/lib/data.ts";
+import { archiveBookRange, loadCatalog, loadStories, mediaAltText } from "../src/lib/data.ts";
 
 
 function relativeLuminance(hex: string): number {
@@ -142,6 +142,12 @@ test("only hash-bound release URLs from the declared archive are accepted", () =
     () => assertReleaseAssetUrl("https://github.com/H234598/Other/releases/download/tag/x.webp", "H234598", "Wirtelprimpf-0001"),
     /release asset URL/,
   );
+});
+
+
+test("alt text uses manifest wording and marks generic fallback by behavior", () => {
+  assert.equal(mediaAltText({ kind: "story", alt_text: "Weisspfote am Fenster" }), "Weisspfote am Fenster");
+  assert.equal(mediaAltText({ kind: "unknown", alt_text: null }), "Unbekanntes Bild aus Wirtelprimpf");
 });
 
 

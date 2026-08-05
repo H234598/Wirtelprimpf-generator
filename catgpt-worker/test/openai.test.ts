@@ -45,6 +45,7 @@ test("sends one bounded text-only Responses request with history before current 
   expect(new Headers(init.headers).get("Authorization")).toBe("Bearer test-key");
   expect(JSON.parse(String(init.body))).toEqual({
     model: "gpt-5.6-luna",
+    service_tier: "flex",
     instructions: expect.stringContaining("CatGPT"),
     input: [
       { role: "user", content: "Vorher" },

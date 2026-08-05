@@ -80,6 +80,7 @@ EXPECTED_ACTIONS = Counter({
     "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1": 4,
     "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1": 2,
     "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020": 3,
+    "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02": 1,
 })
 CI_JOB_ACTIONS = {
     "applet": (
@@ -98,6 +99,7 @@ CI_JOB_ACTIONS = {
     "web": (
         "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
         "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
     ),
 }
 CI_STEP_NAMES = {
@@ -116,8 +118,10 @@ CI_STEP_NAMES = {
     ),
     "web": (
         "Checkout site factory", "Set up Node.js", "Install exact web dependencies",
-        "Test and type-check the site factory", "Build and validate hub profile",
-        "Build and validate archive profile",
+        "Test and type-check the site factory", "Install Chromium for browser gates",
+        "Run browser, accessibility, and performance gates", "Build and validate hub profile",
+        "Build and validate archive profile", "Verify source checkout remains unchanged",
+        "Upload web diagnostics",
     ),
 }
 CI_JOB_COMMANDS = {
@@ -142,21 +146,30 @@ CI_JOB_COMMANDS = {
         "npm ci --ignore-scripts",
         "npm test",
         "npm run check",
+        "npx playwright install --with-deps chromium",
+        "npm run test:browser",
+        "npm run test:performance",
         "npm --prefix web run build",
         'rg -n "connect-src https://catgpt\\.wirtelprimpf\\.telacore\\.org" web/dist',
         "python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org",
+        "python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict",
         "npm --prefix web run build",
         'rg -n "connect-src https://catgpt\\.wirtelprimpf\\.telacore\\.org" web/dist',
         "python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org",
+        "python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict",
+        "git diff --exit-code -- .",
+        "unexpected=\"$(git ls-files --others --exclude-standard | grep -v '^web/src/generated/status\\.json$' || true)\"",
+        "test -z \"$unexpected\"",
     ),
 }
 REQUIRED_MAKE_CHECK_COMMANDS = (
     "$(PYTHON) -m json.tool files/$(UUID)/metadata.json >/dev/null",
     "$(PYTHON) -m json.tool files/$(UUID)/settings-schema.json >/dev/null",
+    "$(PYTHON) -m json.tool config/web-media-limits.json >/dev/null",
     "$(PYTHON) -m py_compile Sourcecode/wirtelprimpf_generator.py",
     "$(PYTHON) -m py_compile files/$(UUID)/helper.py files/$(UUID)/SettingsLogo.py files/$(UUID)/settings_sync.py",
     "$(PYTHON) -m py_compile files/$(UUID)/story_directives_core.py files/$(UUID)/StoryDirectives.py",
-    "$(PYTHON) -m py_compile scripts/validate_web_plan.py scripts/validate_web_governance.py",
+    "$(PYTHON) -m py_compile scripts/build_web_site.py scripts/validate_web_plan.py scripts/validate_web_governance.py scripts/validate_web_relations.py scripts/web_inventory.py scripts/web_ids.py scripts/web_content_model.py scripts/web_content_errors.py scripts/validate_web_manifest.py scripts/measure_web_media.py scripts/measure_media_cache_replay.py",
     "node --check files/$(UUID)/applet.js", "node tests/test_applet_runtime.js",
     "node --test tests/test_admin_ui.mjs", "$(PYTHON) -m unittest tests.test_semver",
     "$(PYTHON) -m unittest tests.test_git_object_fallback",
@@ -165,8 +178,13 @@ REQUIRED_MAKE_CHECK_COMMANDS = (
     "$(PYTHON) -m unittest tests.test_applet_settings_sync",
     "$(PYTHON) -m unittest tests.test_settings_schema",
     "$(PYTHON) -m unittest tests.test_story_directives",
+    "$(PYTHON) tests/test_epub_contract.py",
+    "$(PYTHON) tests/test_pages_artifact.py",
+    "$(PYTHON) tests/test_web_build.py",
+    "$(PYTHON) tests/test_check_equivalence.py",
     "$(PYTHON) -m unittest tests.test_rollout_plan_contract",
-    "$(PYTHON) -m unittest tests.test_web_plan", "$(PYTHON) tests/test_web_governance.py",
+    "$(PYTHON) -m unittest tests.test_web_plan", "$(PYTHON) -m unittest tests.test_web_inventory", "$(PYTHON) -m unittest tests.test_web_content_schemas", "$(PYTHON) -m unittest tests.test_web_ids", "$(PYTHON) -m unittest tests.test_web_pairing", "$(PYTHON) -m unittest tests.test_web_content_errors", "$(PYTHON) -m unittest tests.test_web_manifest", "$(PYTHON) -m unittest tests.test_web_media_measurement", "$(PYTHON) -m unittest tests.test_web_relations", "$(PYTHON) -m unittest tests.test_web_workflows",
+    "$(PYTHON) tests/test_web_governance.py",
     "$(PYTHON) scripts/validate_web_plan.py --root .",
     "$(PYTHON) scripts/validate_web_governance.py --root .",
     "@test -f files/$(UUID)/assets/settings-header-logo.png",

@@ -1,13 +1,24 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
+import MediaDetail from "../../components/MediaDetail.astro";
 import { loadSiteData, type MediaItem } from "../../lib/data.ts";
-export function getStaticPaths() { return loadSiteData().media.map((item) => ({ params: { id: item.asset_id }, props: { item } })); }
+import { neighboringMedia } from "../../lib/routes.ts";
+import { chapterForMedia, chapterPath } from "../../lib/story-routes.ts";
+export function getStaticPaths() {
+  const siteData = loadSiteData();
+  return siteData.media.map((item) => ({ params: { id: item.asset_id }, props: { item } }));
+}
 interface Props { item: MediaItem; }
+const data = loadSiteData();
 const { item } = Astro.props;
-const large = item.variants.at(-1);
-const src = large?.url ?? item.original.url;
+const neighbors = neighboringMedia(data.media, item.asset_id);
+const storyRelation = chapterForMedia(item, data.stories);
+const kindLabel = item.kind === "story" ? "Storybild" : item.kind === "classic" ? "Atelierbild" : item.kind === "legacy" ? "Historisches Bild" : "Unbekanntes Bild";
 ---
-<BaseLayout title={item.source_path} description="Kanonische Wirtelprimpf-Bilddetailseite mit Release-Original." image={src} section="bilder">
-  <header class="page-heading"><span class="eyebrow">{item.kind === "story" ? "Storybild" : item.kind === "classic" ? "Atelierbild" : "Historisches Bild"}</span><h1>{item.source_path.replace(/\.[^.]+$/, "").replaceAll("_", " ")}</h1></header>
-  <section class="section" style="padding-top:1rem"><div class="detail-grid"><figure class="detail-image"><img src={src} width={large?.actual_width ?? item.width} height={large?.actual_height ?? item.height} alt="Wirtelprimpf-Szene" decoding="async" /></figure><aside class="detail-meta"><h2>Zum Bild</h2><p>Originalformat: {item.width} × {item.height} Pixel</p><p>Release: <code>{item.release_tag}</code></p><p>Asset-ID: <code>{item.asset_id}</code></p><a class="button" href={item.original.url} download={item.original.asset_name}>Original herunterladen</a><a href="/bilder/">← Zur Galerie</a></aside></div></section>
+<BaseLayout title={item.source_path} description="Kanonische Wirtelprimpf-Bilddetailseite mit Release-Original." image={item.variants.at(-1)?.url ?? item.original.url} section="bilder">
+  <header class="page-heading"><span class="eyebrow">{kindLabel}</span><h1>{item.source_path.replace(/\.[^.]+$/, "").replaceAll("_", " ")}</h1></header>
+  <MediaDetail item={item} previous={neighbors.previous} next={neighbors.next} storyHref={storyRelation ? chapterPath(storyRelation.story.volume, storyRelation.part.id) : undefined} storyLabel={storyRelation ? `Zu Teil ${storyRelation.part.sequence} der Geschichte` : undefined} />
+  <script src="../../scripts/lightbox.ts"></script>
+  <script src="../../scripts/image-actions.ts"></script>
+  <script src="../../scripts/media-fallback.ts"></script>
 </BaseLayout>

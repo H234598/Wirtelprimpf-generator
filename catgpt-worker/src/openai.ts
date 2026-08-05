@@ -42,6 +42,7 @@ export async function requestCatReply(request: ChatRequest, env: OpenAIEnv, fetc
       },
       body: JSON.stringify({
         model: env.OPENAI_MODEL,
+        service_tier: "flex",
         instructions,
         input: [...request.history, { role: "user", content: request.message }],
         max_output_tokens: 256,

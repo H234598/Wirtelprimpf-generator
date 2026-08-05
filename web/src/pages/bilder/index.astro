@@ -1,16 +1,32 @@
 ---
 import MediaCard from "../../components/MediaCard.astro";
+import EmptyState from "../../components/EmptyState.astro";
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import { loadSiteData } from "../../lib/data.ts";
+import { availableGalleryYears, galleryPagePath, galleryUrl, type GalleryState } from "../../lib/routes.ts";
+import { mediaKindLabel, type MediaKind } from "../../lib/data.ts";
 const data = loadSiteData();
-const pageItems = data.media.slice(0, 24);
-const pageCount = Math.max(1, Math.ceil(data.media.length / 24));
+const page = 1;
+const pageSize = 24;
+const pageItems = data.media.slice(0, pageSize);
+const pageCount = Math.max(1, Math.ceil(data.media.length / pageSize));
+const years = availableGalleryYears(data.media);
+const types: Array<GalleryState["typ"]> = ["all", "story", "classic", "legacy", "unknown"];
+const labelForType = (type: GalleryState["typ"]): string => type === "all" ? "Alle" : mediaKindLabel(type as MediaKind);
+const hrefFor = (state: GalleryState): string => galleryUrl(galleryPagePath(page), state);
 ---
 <BaseLayout title="Bilder" description="Storybilder, Atelierbilder und historische Wirtelprimpf-Motive." section="bilder">
   <header class="page-heading"><span class="eyebrow">Galerie</span><h1>Bilder aus dem Geschichtenatelier</h1><p class="lede">Release-gebundene Originale, leichtgewichtige Vorschauen und nachvollziehbare Provenienz.</p></header>
-  <section class="section" style="padding-top:1rem"><div class="filter-bar" aria-label="Galeriefilter"><button type="button" aria-pressed="true" data-filter="all">Alle</button><button type="button" aria-pressed="false" data-filter="story">Story</button><button type="button" aria-pressed="false" data-filter="classic">Atelier</button><button type="button" aria-pressed="false" data-filter="legacy">Historisch</button></div>{pageItems.length ? <div class="media-grid" data-gallery>{pageItems.map((item, index) => <MediaCard item={item} priority={index < 2} />)}</div> : <p class="empty-state">Noch keine verifizierten Release-Medien.</p>}{pageCount > 1 && <nav class="pagination" aria-label="Galerieseiten">{Array.from({length:pageCount},(_,index)=><a href={index === 0 ? "/bilder/" : `/bilder/seite/${index+1}/`} aria-current={index === 0 ? "page" : undefined}>{index+1}</a>)}</nav>}</section>
-  <script is:inline>
-    const buttons=[...document.querySelectorAll('[data-filter]')];
-    buttons.forEach(button=>button.addEventListener('click',()=>{buttons.forEach(item=>item.setAttribute('aria-pressed',String(item===button)));document.querySelectorAll('[data-gallery] .media-card').forEach(card=>{card.hidden=button.dataset.filter!=='all'&&card.dataset.kind!==button.dataset.filter})}));
-  </script>
+  <section class="section" style="padding-top:1rem" data-gallery-root data-gallery-full="true" data-gallery-page={page} data-gallery-page-count={pageCount} data-gallery-years={years.join(",")} aria-labelledby="galerie-ergebnisse">
+    <nav class="filter-bar" aria-label="Galerietyp"><span class="visually-hidden">Typ:</span>{types.map((type) => <a id={`galerie-filter-${type}`} href={hrefFor({ typ: type, seite: page, jahr: null })} data-gallery-filter={type} aria-current={type === "all" ? "page" : "false"}>{labelForType(type)}</a>)}</nav>
+    <nav class="filter-bar" aria-label="Galeriejahr"><span class="visually-hidden">Jahr:</span><a id="galerie-year-all" href={hrefFor({ typ: "all", seite: page, jahr: null })} data-gallery-year="" aria-current="page">Alle Jahre</a>{years.map((year) => <a id={`galerie-year-${year}`} href={hrefFor({ typ: "all", seite: page, jahr: year })} data-gallery-year={year} aria-current="false">{year}</a>)}</nav>
+    <p id="galerie-status" data-gallery-status role="status" aria-live="polite">{pageItems.length} Bilder in diesem Seitenstand.</p>
+    <h2 id="galerie-ergebnisse" data-gallery-focus tabindex="-1" class="visually-hidden">Galerieergebnisse</h2>
+    {pageItems.length ? <div class="media-grid" data-gallery>{data.media.map((item, index) => <MediaCard item={item} priority={index < 2} hidden={index >= pageSize} />)}</div> : <EmptyState>Keine verifizierten Release-Medien.</EmptyState>}
+    <p class="empty-state" data-gallery-empty hidden>Keine Bilder entsprechen diesem Filter.</p>
+    {pageCount > 1 && <nav class="pagination" aria-label="Galerieseiten">{Array.from({length:pageCount},(_,index)=><a href={galleryPagePath(index + 1)} data-gallery-pagination data-gallery-page={index + 1} aria-current={index === 0 ? "page" : undefined}>{index+1}</a>)}</nav>}
+  </section>
+  <script src="../../scripts/gallery-state.ts"></script>
+  <script src="../../scripts/favorites.ts"></script>
+  <script src="../../scripts/media-fallback.ts"></script>
 </BaseLayout>

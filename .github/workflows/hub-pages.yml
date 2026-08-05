@@ -38,8 +38,11 @@ jobs:
         with:
           sparse-checkout: |
             data
+            config/web-budgets.json
             web
+            scripts/build_web_status.py
             scripts/validate_pages_artifact.py
+            scripts/validate_web_budgets.py
             wirtelprimpf_platform
           sparse-checkout-cone-mode: true
 
@@ -93,6 +96,7 @@ jobs:
           WIRTELPRIMPF_CURRENT_VOLUME: ${{ steps.source.outputs.current_volume }}
           WIRTELPRIMPF_MEDIA_MANIFEST: ${{ steps.source.outputs.media_manifest }}
           WIRTELPRIMPF_MEDIA_REPOSITORY: ${{ steps.source.outputs.repository }}
+          WIRTELPRIMPF_SOURCE_REVISION: ${{ steps.source.outputs.revision }}
         run: npm --prefix web run build
 
       - name: Validate artifact fail-closed and record tree hash
@@ -100,6 +104,7 @@ jobs:
           rg -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
           python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org | tee "$RUNNER_TEMP/pages-artifact-report.json"
           rg -q '"tree_sha256": "[0-9a-f]{64}"' "$RUNNER_TEMP/pages-artifact-report.json"
+          python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
 
       - name: Upload immutable Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

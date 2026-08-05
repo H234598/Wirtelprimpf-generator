@@ -3430,3 +3430,13 @@ Do not start public deployment merely because Task 10 is green. First compare th
   `git diff --check`, Ruff auf allen geänderten Nichtbaseline-Pythonpfaden und
   Bandit High mit null High-Findings. `SettingsLogo.py` zeigte ausschließlich
   die zwölf bestätigten Parent-Baseline-Meldungen.
+
+## Aktuelle lokale Nachverifikation am 5. August 2026
+
+- Der aktuelle Arbeitsbaum besteht den vollständigen `make check`-Lauf mit
+  Exitcode `0`; die transaktionale Settings-/Admin-Matrix ist darin enthalten.
+- `python3 -m unittest tests.test_story_directives` besteht mit **31 von 31
+  Tests**, und `npm run check` meldet 0 Fehler, 0 Warnungen und 0 Hinweise.
+- Diese lokale Evidenz schließt keine Remote-PR-, CodeRabbit-, Qlty-,
+  systemd-Installations-, Pages-, DNS- oder Cloudflare-Abnahme ein; diese
+  Schritte bleiben bis zu einem externen, exakt belegten Lauf offen.

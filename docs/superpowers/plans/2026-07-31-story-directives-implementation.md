@@ -295,3 +295,10 @@ Lokale Abschlussmatrix dieses Korrekturstands:
 - deterministisches Archiv-Artefakt: `7755574d5b9745b915d78927f4e8a3ccfb581b381a246d6b62eccda54b13b8c2`.
 
 Die erneuten GitHub-Actions-, Review- und Merge-Gates bleiben bis zur Prüfung des daraus erzeugten exakten Remote-Heads offen und werden erst mit der dortigen Evidenz abgeschlossen.
+
+## Aktuelle lokale Nachverifikation am 5. August 2026
+
+- `python3 -m unittest tests.test_story_directives`: **31 von 31 Tests** grün.
+- Der aktuelle Repository-Check umfasst diese Suite weiterhin; der letzte vollständige `make check`-Lauf endete mit Exitcode `0`.
+- Die unabhängige Web-/Repositorymatrix bleibt ohne Fehler; diese lokale Evidenz ersetzt keinen externen Reviewlauf.
+- CodeRabbit-Endergebnis, eventuelle Reviewthread-Auflösung und Qlty-Endergebnis bleiben bis zur Prüfung des exakten Remote-Heads bewusst offen.

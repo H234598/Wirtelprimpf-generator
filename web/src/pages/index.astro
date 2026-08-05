@@ -28,3 +28,5 @@ const archiveBooks = archiveBookRange(data.archiveIndex);
 
   <section class="section" aria-labelledby="latest-images"><div class="section-heading"><div><span class="eyebrow">Aus dem Atelier</span><h2 id="latest-images">Neueste Bilder</h2></div><p>Kleine Webderivate laden schnell; das unveränderte Original bleibt mit SHA-256 im jeweiligen GitHub Release erhalten.</p></div>{latestMedia.length ? <div class="media-grid">{latestMedia.map((item, index) => <MediaCard item={item} priority={index === 0} />)}</div> : <p class="empty-state">Die Release-Medien werden am verifizierten Migrationsgate zugeschaltet.</p>}</section>
 </BaseLayout>
+<script src="../scripts/favorites.ts"></script>
+<script src="../scripts/media-fallback.ts"></script>

@@ -1,0 +1,26 @@
+---
+interface Props {
+  title: string;
+  description: string;
+  canonical: URL;
+  image?: string;
+  contentSecurityPolicy: string;
+}
+
+const { title, description, canonical, image, contentSecurityPolicy } = Astro.props;
+---
+<meta name="description" content={description} />
+<meta name="theme-color" content="#21162a" />
+<meta name="color-scheme" content="dark light" />
+<meta http-equiv="Content-Security-Policy" content={contentSecurityPolicy} />
+<meta name="generator" content={Astro.generator} />
+<link rel="canonical" href={canonical} />
+<link rel="icon" href="/wirtelprimpf-mark.svg" type="image/svg+xml" />
+<link rel="alternate" type="application/atom+xml" title="Wirtelprimpf-Feed" href="/feed.xml" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+<meta property="og:url" content={canonical} />
+{image && <meta property="og:image" content={image} />}
+<meta name="twitter:card" content={image ? "summary_large_image" : "summary"} />
+<title>{title}</title>

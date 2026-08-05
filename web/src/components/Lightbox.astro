@@ -1,0 +1,31 @@
+---
+import { mediaAltText, type MediaItem } from "../lib/data.ts";
+
+interface Props {
+  item: MediaItem;
+  src: string;
+  srcset: string;
+  previous: MediaItem | null;
+  next: MediaItem | null;
+}
+
+const { item, src, srcset, previous, next } = Astro.props;
+const label = `Bildansicht: ${mediaAltText(item)}`;
+const detailUrl = (entry: MediaItem): string => `/bilder/${entry.asset_id}/`;
+---
+<dialog class="lightbox" data-lightbox aria-labelledby="lightbox-title">
+  <div class="lightbox-shell" data-lightbox-surface>
+    <header class="lightbox-header">
+      <h2 id="lightbox-title">Bildansicht</h2>
+      <form method="dialog"><button type="submit" data-lightbox-close aria-label="Bildansicht schließen">Schließen</button></form>
+    </header>
+    <figure class="lightbox-figure" data-media-frame>
+      <img data-lightbox-image data-media-image src={src} srcset={srcset || undefined} alt={label} decoding="async" />
+      <span class="media-error" data-media-error hidden role="status">Dieses Bild ist derzeit nicht verfügbar.</span>
+    </figure>
+    <nav class="media-navigation lightbox-navigation" aria-label="Bildnavigation">
+      {previous ? <a href={detailUrl(previous)} data-lightbox-nav="previous" aria-label="Neueres Bild">Neueres Bild</a> : <span aria-disabled="true">Kein neueres Bild</span>}
+      {next ? <a href={detailUrl(next)} data-lightbox-nav="next" aria-label="Älteres Bild">Älteres Bild</a> : <span aria-disabled="true">Kein älteres Bild</span>}
+    </nav>
+  </div>
+</dialog>

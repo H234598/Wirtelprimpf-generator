@@ -2953,6 +2953,7 @@ def apply_shared_git_ownership_transaction(
     changed: list[dict[str, Any]] = []
     handlers_restored = False
     blocked = False
+    prior_mask: set[signal.Signals] | None = None
 
     def interrupt(signum: int, _frame: object) -> None:
         raise SharedGitOwnershipInterrupted(signum)
@@ -2971,7 +2972,10 @@ def apply_shared_git_ownership_transaction(
                 if _verify_bound_shared_git_item(item) != target:
                     raise RuntimeError("shared Git fchown verification failed")
                 changed.append(item)
-            signal.pthread_sigmask(signal.SIG_BLOCK, TRANSACTION_SIGNALS)
+            prior_mask = signal.pthread_sigmask(
+                signal.SIG_BLOCK,
+                TRANSACTION_SIGNALS,
+            )
             blocked = True
             pending = set(signal.sigpending()).intersection(TRANSACTION_SIGNALS)
             if pending:
@@ -2979,12 +2983,15 @@ def apply_shared_git_ownership_transaction(
             for signum, handler in prior_handlers.items():
                 signal.signal(signum, handler)
             handlers_restored = True
-            signal.pthread_sigmask(signal.SIG_UNBLOCK, TRANSACTION_SIGNALS)
+            signal.pthread_sigmask(signal.SIG_SETMASK, prior_mask)
             blocked = False
             return
         except BaseException as exc:
             if not blocked:
-                signal.pthread_sigmask(signal.SIG_BLOCK, TRANSACTION_SIGNALS)
+                prior_mask = signal.pthread_sigmask(
+                    signal.SIG_BLOCK,
+                    TRANSACTION_SIGNALS,
+                )
                 blocked = True
             rollback_incomplete = False
             for item in reversed(bound):
@@ -3009,8 +3016,8 @@ def apply_shared_git_ownership_transaction(
         if not handlers_restored:
             for signum, handler in prior_handlers.items():
                 signal.signal(signum, handler)
-        if blocked:
-            signal.pthread_sigmask(signal.SIG_UNBLOCK, TRANSACTION_SIGNALS)
+        if blocked and prior_mask is not None:
+            signal.pthread_sigmask(signal.SIG_SETMASK, prior_mask)
 
 
 def _main(argv: list[str]) -> None:
@@ -4709,11 +4716,16 @@ wait_admin_ready_loopback() {
   local port="$1" attempt
   local active_before sub_before invocation_before
   local active_after sub_after invocation_after
+  local deadline=$((SECONDS + 6))
   local max_attempts=60
   [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || return 1
   (( port <= 65535 )) || return 1
 
   for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    if (( SECONDS >= deadline )); then
+      printf 'admin readiness deadline exhausted\n' >&2
+      return 1
+    fi
     active_before="$(systemctl --user show wirtelprimpf-admin.service \
       -p ActiveState --value)" || return 1
     sub_before="$(systemctl --user show wirtelprimpf-admin.service \
@@ -4729,6 +4741,10 @@ wait_admin_ready_loopback() {
     if /usr/bin/curl --fail --silent --noproxy '*' \
       --connect-timeout 0.2 --max-time 0.5 --output /dev/null \
       "http://127.0.0.1:${port}/api/status"; then
+      if (( SECONDS >= deadline )); then
+        printf 'admin readiness deadline exhausted\n' >&2
+        return 1
+      fi
       active_after="$(systemctl --user show wirtelprimpf-admin.service \
         -p ActiveState --value)" || return 1
       sub_after="$(systemctl --user show wirtelprimpf-admin.service \
@@ -4757,7 +4773,7 @@ wait_admin_ready_loopback() {
       activating/start-pre|activating/start|active/running) ;;
       *) return 1 ;;
     esac
-    if (( attempt == max_attempts )); then
+    if (( SECONDS >= deadline || attempt == max_attempts )); then
       printf 'admin readiness deadline exhausted\n' >&2
       return 1
     fi
@@ -4780,6 +4796,8 @@ import sys
 
 
 ALLOWED_UNITS = frozenset(("wirtelprimpf.service", "wirtelprimpf.timer"))
+# Fixed prestate files are content-bound evidence; their SHA-256 is authoritative.
+# ctime_ns is intentionally reserved for live barrier records captured at runtime.
 INTERRUPTED_ATTEMPT_CHAIN = (
     {
         "name": "HNkEdc",
@@ -11733,8 +11751,10 @@ Completion requires all of the following:
   `activating/start` oder `active/running` derselben Aktivierung dürfen den
   nächsten Versuch erreichen; Erfolg verlangt zusätzlich
   `active/running` und dieselbe InvocationID nach dem HTTP-200. Jeder andere
-  Zustand, Aktivierungswechsel oder die ausgeschöpfte Versuchszahl endet
-  nonzero und damit im bestehenden fail-closed Rollback.
+  Zustand, Aktivierungswechsel, eine abgelaufene 6-Sekunden-Wanduhr oder die
+  ausgeschöpfte Versuchszahl endet nonzero und damit im bestehenden
+  fail-closed Rollback. Die Wanduhr bleibt auch dann bindend, wenn einzelne
+  Curl-Probes unter Last länger als die normale Verbindungserwartung laufen.
 - Der Produktionsaufruf steht genau einmal nach Adminstart, Appletbeweis und
   Quieszenzbeweis sowie unmittelbar vor dem unverändert byte-identisch
   materialisierten ersten `/api/settings`-Smoke. Es wurde kein allgemeiner
@@ -11768,3 +11788,34 @@ Completion requires all of the following:
   ausschließlich den versionierten Plan und dessen ausführbaren
   Vertragsregressionstest und wird als genau ein lokaler Commit unter dem
   Benutzer `teladi` übergeben.
+
+### Aktuelle lokale Nachverifikation am 5. August 2026
+
+- Das Readiness-Gate besitzt zusätzlich zur Versuchszahl eine echte
+  6-Sekunden-Wanduhr; der zuvor unter Last sporadisch zu lange Fehlpfad ist
+  damit fail-closed begrenzt.
+- `make check` endete im aktuellen Arbeitsbaum mit Exitcode `0`; der strikte
+  Web-Relationslauf meldet 440 Relationen, 194 Auflösungen, 246 historische
+  Pfade und 0 Fehler.
+- Die Webfactory besteht 69/69 Node-Tests, 17/17 Browser-Tests, den Astro-Check
+  ohne Diagnosen und baut 1.013 Seiten.
+- Remote-PR-, Review-, Pages-, DNS- und Cloudflare-Gates wurden weiterhin
+  nicht als erledigt markiert.
+
+### Read-only Remote- und Liveabgleich am 5. August 2026
+
+- `H234598/Wirtelprimpf-generator/main` steht auf
+  `274b25c9e1f9ea97d3b060997ed5c425d2b30e9f`, das Archiv auf
+  `732b62d6ad25b5bfee7a35b673c69568dcd9e75a`.
+- Der jüngste erfolgreiche Archiv-Pages-Lauf ist `30974608315`, der jüngste
+  erfolgreiche Hublauf `30974607541`; beide wurden um
+  `2026-08-05T04:15:18Z` angelegt.
+- Hub und Archiv antworteten über HTTPS mit HTTP 200 und HSTS; robots,
+  Sitemap und Feed waren erreichbar. Der öffentliche Status meldete 796
+  Bilder, 268 Storyteile und Manifest `2026-08-05T04:10:44Z`, gegenüber lokal
+  779 Medien und 195 Kapiteln.
+- Der Archivworkflow verwendet weiterhin Factory-Pin und `factory_ref`
+  `b00d824adee47341e3251bc18e09239fde1c5939`. Diese read-only Evidenz belegt
+  die bestehende Pipeline, aber keinen Repin des aktuellen lokalen
+  Arbeitsbaums; Factory-Repin, Review, DNS-/Cloudflare-Abnahme und Rollback
+  bleiben offen.

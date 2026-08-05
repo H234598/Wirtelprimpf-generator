@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wirtelprimpf.telacore.org/schemas/web-status.v1.json",
+  "title": "Wirtelprimpf public web freshness status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "repository",
+    "archive_index",
+    "source_revision",
+    "media",
+    "stories",
+    "publication",
+    "build",
+    "freshness"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "profile": {"enum": ["hub", "archive"]},
+    "repository": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[A-Za-z0-9_.-]+$"},
+    "archive_index": {"type": ["integer", "null"], "minimum": 1},
+    "source_revision": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "media": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "latest_id", "latest_source_path", "latest_sha256"],
+      "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "latest_id": {"type": ["string", "null"], "maxLength": 240},
+        "latest_source_path": {"type": ["string", "null"], "maxLength": 500},
+        "latest_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "stories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "chapter_count", "latest_id", "latest_volume", "latest_timestamp"],
+      "properties": {
+        "count": {"type": "integer", "minimum": 0},
+        "chapter_count": {"type": "integer", "minimum": 0},
+        "latest_id": {"type": ["string", "null"], "pattern": "^band-[0-9]{4}-teil-[a-f0-9]{12}$"},
+        "latest_volume": {"type": ["integer", "null"], "minimum": 1},
+        "latest_timestamp": {"type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$"}
+      }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_generated_at"],
+      "properties": {
+        "manifest_generated_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["built_at", "source_date_epoch"],
+      "properties": {
+        "built_at": {"type": "string", "format": "date-time"},
+        "source_date_epoch": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "last_published_at", "age_seconds", "warning_after_seconds", "stale_after_seconds"],
+      "properties": {
+        "state": {"enum": ["fresh", "warning", "stale", "unknown"]},
+        "last_published_at": {"type": ["string", "null"], "format": "date-time"},
+        "age_seconds": {"type": ["integer", "null"], "minimum": 0},
+        "warning_after_seconds": {"type": "integer", "minimum": 1},
+        "stale_after_seconds": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

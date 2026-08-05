@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wirtelprimpf.telacore.org/schemas/web-inventory.v1.json",
+  "title": "Wirtelprimpf read-only web inventory report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest",
+    "media_count",
+    "source_bytes",
+    "source_size_bytes",
+    "dimensions",
+    "variants",
+    "relationship_gaps",
+    "duplicates",
+    "release_completeness",
+    "source_scan",
+    "source_date_epoch",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "manifest": {"type": "string", "minLength": 1},
+    "archive_repository": {"type": ["string", "null"]},
+    "media_count": {"type": "integer", "minimum": 0},
+    "source_bytes": {"type": "integer", "minimum": 0},
+    "source_bytes_by_kind": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "source_bytes_by_mime": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "source_size_bytes": {"$ref": "#/$defs/percentiles"},
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "pixels"],
+      "properties": {
+        "width": {"$ref": "#/$defs/percentiles"},
+        "height": {"$ref": "#/$defs/percentiles"},
+        "pixels": {"$ref": "#/$defs/percentiles"}
+      }
+    },
+    "variants": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["count", "bytes"],
+        "properties": {
+          "count": {"type": "integer", "minimum": 0},
+          "bytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "relationship_gaps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["missing_prompt_path", "missing_story_part_path"],
+      "properties": {
+        "missing_prompt_path": {"type": "integer", "minimum": 0},
+        "missing_story_part_path": {"type": "integer", "minimum": 0}
+      }
+    },
+    "duplicates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_hash_groups", "duplicate_asset_ids", "duplicate_source_paths"],
+      "properties": {
+        "content_hash_groups": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+        "duplicate_asset_ids": {"type": "array", "items": {"type": "string"}},
+        "duplicate_source_paths": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "release_completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shards", "record_count_from_shards", "closed_shards", "expected_asset_count", "declared_asset_count"],
+      "properties": {
+        "shards": {"type": "integer", "minimum": 0},
+        "record_count_from_shards": {"type": "integer", "minimum": 0},
+        "closed_shards": {"type": "integer", "minimum": 0},
+        "expected_asset_count": {"type": "integer", "minimum": 0},
+        "declared_asset_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "source_scan": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "source_date_epoch": {"type": ["integer", "null"], "minimum": 0},
+    "errors": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "percentiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["median", "p90", "p95", "p99", "maximum"],
+      "properties": {
+        "median": {"type": ["integer", "null"], "minimum": 0},
+        "p90": {"type": ["integer", "null"], "minimum": 0},
+        "p95": {"type": ["integer", "null"], "minimum": 0},
+        "p99": {"type": ["integer", "null"], "minimum": 0},
+        "maximum": {"type": ["integer", "null"], "minimum": 0}
+      }
+    }
+  }
+}

@@ -1,6 +1,8 @@
 ---
 import "../styles/global.css";
 import CatGptWidget from "../components/CatGptWidget.astro";
+import NoScriptNotice from "../components/NoScriptNotice.astro";
+import Seo from "../components/Seo.astro";
 import SettingsPanel from "../components/SettingsPanel.astro";
 import {
   CATGPT_LIGHT_ORIGIN,
@@ -28,23 +30,13 @@ const contentSecurityPolicy = `default-src 'self'; img-src 'self' data: https://
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="description" content={description} />
-    <meta name="theme-color" content="#21162a" />
-    <meta name="color-scheme" content="dark light" />
-    <meta http-equiv="Content-Security-Policy" content={contentSecurityPolicy} />
-    <meta name="generator" content={Astro.generator} />
-    <link rel="canonical" href={canonical} />
-    <link rel="icon" href="/wirtelprimpf-mark.svg" type="image/svg+xml" />
-    <link rel="alternate" type="application/atom+xml" title="Wirtelprimpf-Feed" href="/feed.xml" />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content={fullTitle} />
-    <meta property="og:description" content={description} />
-    <meta property="og:url" content={canonical} />
-    {image && <meta property="og:image" content={image} />}
-    <meta name="twitter:card" content={image ? "summary_large_image" : "summary"} />
-    <title>{fullTitle}</title>
+    <Seo title={fullTitle} description={description} canonical={canonical} image={image} contentSecurityPolicy={contentSecurityPolicy} />
     <script is:inline>
-      try { document.documentElement.dataset.theme = localStorage.getItem("wirtelprimpf-theme") === "paper" ? "paper" : "night"; } catch {}
+      document.documentElement.dataset.js = "enabled";
+      try {
+        const state = JSON.parse(localStorage.getItem("wirtelprimpf.site-state.v1") || "null");
+        document.documentElement.dataset.theme = state?.theme === "paper" || (!state && localStorage.getItem("wirtelprimpf-theme") === "paper") ? "paper" : "night";
+      } catch { document.documentElement.dataset.theme = "night"; }
     </script>
   </head>
   <body>
@@ -60,9 +52,13 @@ const contentSecurityPolicy = `default-src 'self'; img-src 'self' data: https://
         <a href="/geschichten/" aria-current={section === "geschichten" ? "page" : undefined}>Geschichten</a>
         <a href="/projekt/" aria-current={section === "projekt" ? "page" : undefined}>Projekt</a>
       </nav>
-      <SettingsPanel lightEndpoint={lightEndpoint} />
+      <div class="header-tools">
+        <SettingsPanel lightEndpoint={lightEndpoint} />
+        <CatGptWidget lightEndpoint={lightEndpoint} />
+      </div>
     </header>
     <main id="inhalt"><slot /></main>
+    <NoScriptNotice />
     <footer class="site-footer">
       <div><strong>Wirtelprimpf</strong><p>Fortlaufende Geschichten und Bilder, ruhig archiviert und frei zugänglich.</p></div>
       <div class="footer-links">
@@ -71,6 +67,5 @@ const contentSecurityPolicy = `default-src 'self'; img-src 'self' data: https://
         <a href={`https://github.com/H234598/${data.repository}`}>GitHub</a>
       </div>
     </footer>
-    <CatGptWidget lightEndpoint={lightEndpoint} />
   </body>
 </html>

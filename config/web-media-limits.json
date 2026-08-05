@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "source": {
+    "max_bytes": 26214400,
+    "max_pixels": 50000000,
+    "supported_formats": ["image/png", "image/jpeg", "image/webp"]
+  },
+  "derivatives": {
+    "format": "image/webp",
+    "widths": [640, 1280],
+    "apply_exif_orientation": true,
+    "strip_metadata": true
+  }
+}

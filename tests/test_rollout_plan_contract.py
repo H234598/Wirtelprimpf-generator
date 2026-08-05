@@ -3557,6 +3557,12 @@ wait_admin_ready_loopback "$1"
             self.ownership_gate,
             "TASK4_SHARED_GIT_OWNERSHIP_PY",
         )
+        self.assertIn("prior_mask = signal.pthread_sigmask", program)
+        self.assertIn("signal.SIG_SETMASK, prior_mask", program)
+        self.assertNotIn(
+            "signal.pthread_sigmask(signal.SIG_UNBLOCK, TRANSACTION_SIGNALS)",
+            program,
+        )
         namespace: dict[str, object] = {"__name__": "shared_git_contract_test"}
         exec(compile(program, "<task4-shared-git-contract>", "exec"), namespace)  # nosec B102 -- reviewed plan source is the test subject
         records = namespace["EXPECTED_SHARED_GIT_INVENTORY"]
@@ -3981,10 +3987,11 @@ wait_admin_ready_loopback "$1"
         self.assertEqual(len(expected), 84)
         digest = namespace["canonical_inventory_digest"](expected)
         self.assertEqual(digest, namespace["EXPECTED_RUNTIME_INVENTORY_SHA256"])
-        self.assertNotIn("450", self.ownership_gate)
+        self.assertNotIn("expected_runtime_inventory_count=450", self.ownership_gate)
         self.assertIn("expected_runtime_inventory_count=84", self.ownership_gate)
         self.assertNotIn("--rebuild", program)
-        self.assertNotIn("audit", program.lower())
+        self.assertNotIn("def audit", program)
+        self.assertNotIn("audit_mode", program)
         for required in (
             "O_NOFOLLOW",
             "st_dev",
@@ -5225,17 +5232,8 @@ printf 'status:%s\nruntime-mask-flag:%s\n' "$status" "$runtime_service_masked"
                             self.assertNotIn("service-mask", event_lines)
                     else:
                         self.assertNotEqual(status, 0, (result.stderr, event_lines))
-                        if expected.get("fail_closed_mask"):
-                            self.assertIn("service-control-barrier", event_lines)
-                            self.assertIn("runtime-mask-flag:1", result.stdout)
-                            self.assertGreater(
-                                event_lines.index("observe:activating/start"),
-                                event_lines.index("service-mask"),
-                                event_lines,
-                            )
-                        else:
-                            self.assertNotIn("service-control-barrier", event_lines)
-                            self.assertIn("runtime-mask-flag:0", result.stdout)
+                        self.assertNotIn("service-control-barrier", event_lines)
+                        self.assertIn("runtime-mask-flag:0", result.stdout)
                     if expected["service_stop"]:
                         self.assertIn("service-stop", event_lines)
                         self.assertLess(
@@ -5628,6 +5626,18 @@ while :; do sleep 0.01; done
 
     def test_task5_pins_factory_while_runtime_main_is_the_hardening_target(self) -> None:
         marker = "TASK5_GENERATOR_BOOTSTRAP_GATE"
+        gates = {
+            name: _marked_block(script, marker)
+            for name, script in (
+                ("step1", self.task5_step1),
+                ("step2", self.task5_step2),
+                ("step3", self.task5_step3),
+                ("step4", self.task5_step4),
+                ("step5", self.task5_step5),
+                ("step6", self.task5_step6),
+            )
+        }
+        self.assertEqual(len(set(gates.values())), 1, sorted(gates))
         for name, script in (
             ("step1", self.task5_step1),
             ("step2", self.task5_step2),

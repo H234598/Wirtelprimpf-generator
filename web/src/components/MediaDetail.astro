@@ -1,0 +1,47 @@
+---
+import Lightbox from "./Lightbox.astro";
+import MediaError from "./MediaError.astro";
+import ImageActions from "./ImageActions.astro";
+import { mediaAltText, type MediaItem } from "../lib/data.ts";
+
+interface Props {
+  item: MediaItem;
+  previous: MediaItem | null;
+  next: MediaItem | null;
+  storyHref?: string;
+  storyLabel?: string;
+}
+
+const { item, previous, next, storyHref, storyLabel } = Astro.props;
+const large = item.variants.at(-1);
+const src = large?.url ?? item.original.url;
+const srcset = item.variants.map((variant) => `${variant.url} ${variant.actual_width}w`).join(", ");
+const detailUrl = (entry: MediaItem): string => `/bilder/${entry.asset_id}/`;
+---
+<section class="section media-detail" style="padding-top:1rem" data-media-detail>
+  <div class="detail-grid">
+    <figure class="detail-image" data-media-frame>
+      <a class="detail-image-link" href={src} data-lightbox-open aria-label="Bild vergrößern">
+        <img data-media-image src={src} srcset={srcset || undefined} width={large?.actual_width ?? item.width} height={large?.actual_height ?? item.height} alt={mediaAltText(item)} decoding="async" />
+      </a>
+      <MediaError detail />
+    </figure>
+    <aside class="detail-meta">
+      <h2>Zum Bild</h2>
+      <p>Originalformat: {item.width} × {item.height} Pixel</p>
+      <p>Release: <code>{item.release_tag}</code></p>
+      <p>Asset-ID: <code>{item.asset_id}</code></p>
+      <div class="detail-actions">
+        <ImageActions original={item.original} variants={item.variants.map((variant) => ({ asset_name: variant.asset_name, url: variant.url }))} />
+        {item.story_part_path && <p><a href={storyHref ?? "/geschichten/"}>{storyLabel ?? "Zur zugehörigen Geschichte"}</a><br /><code>{item.story_part_path}</code></p>}
+        {!item.story_part_path && item.kind === "story" && <p><a href="/geschichten/">Zur Geschichtenbibliothek</a></p>}
+      </div>
+      <nav class="media-navigation" aria-label="Bildnavigation">
+        {previous ? <a href={detailUrl(previous)}>← Neueres Bild</a> : <span aria-disabled="true">Kein neueres Bild</span>}
+        {next ? <a href={detailUrl(next)}>Älteres Bild →</a> : <span aria-disabled="true">Kein älteres Bild</span>}
+      </nav>
+      <a href="/bilder/">← Zur Galerie</a>
+    </aside>
+  </div>
+  <Lightbox item={item} src={src} srcset={srcset} previous={previous} next={next} />
+</section>

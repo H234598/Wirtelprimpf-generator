@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import time
 import unicodedata
+import warnings
 import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -20,20 +21,25 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from PIL import Image, UnidentifiedImageError
+import PIL
+from PIL import Image, ImageOps, UnidentifiedImageError
 
+from .media_cache import MediaDerivativeCache
 from .naming import archive_name
 
 MEDIA_SCHEMA_VERSION = "1.0.0"
 MAX_RELEASE_ASSETS = 1_000
 DEFAULT_ORIGINALS_PER_SHARD = 250
 DEFAULT_SOURCE_BYTES_PER_SHARD = 1_500_000_000
+MAX_SOURCE_BYTES = 25 * 1024 * 1024
+MAX_SOURCE_PIXELS = 50_000_000
 DERIVATIVE_WIDTHS = (640, 1280)
 SUPPORTED_SUFFIXES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 TIMESTAMP_IMAGE_RE = re.compile(r"^wirtelprimpf_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(?:-\d{6})?", re.IGNORECASE)
 SAFE_ASSET_RE = re.compile(r"[^A-Za-z0-9._-]+")
 PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0, 30.0)
 DEFAULT_PUBLIC_DOWNLOAD_TIMEOUT_SECONDS = 120.0
+MEDIA_TRANSFORM_TOOL_VERSION = f"pillow-{PIL.__version__}"
 
 
 class MediaError(RuntimeError):
@@ -85,6 +91,8 @@ class MediaRecord:
     height: int
     prompt_path: str | None = None
     story_part_path: str | None = None
+    alt_text: str | None = None
+    alt_text_source: str = "fallback"
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +129,8 @@ class PlannedMediaRecord:
     original_asset_name: str
     original_url: str
     variants: tuple[MediaVariant, ...]
+    alt_text: str | None = None
+    alt_text_source: str = "fallback"
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +180,7 @@ class PreparedReleasePlan:
     archive_index: int
     shards: tuple[PreparedShard, ...]
     manifest_path: Path
+    cache_report: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,13 +230,34 @@ def build_media_inventory(source_root: Path, *, archive_index: int) -> MediaInve
         if previous is not None and previous != relative_text:
             raise MediaError(f"case-insensitive path collision: {previous!r} and {relative_text!r}")
         casefold_paths[folded] = relative_text
+        source_size = candidate.stat().st_size
+        if source_size > MAX_SOURCE_BYTES:
+            raise MediaError(
+                f"image exceeds source byte limit for {relative_text}: {source_size} > {MAX_SOURCE_BYTES}"
+            )
         try:
-            with Image.open(candidate) as image:
-                image.verify()
-            with Image.open(candidate) as image:
-                width, height = image.size
-                image_format = (image.format or "").upper()
-        except (OSError, UnidentifiedImageError, ValueError) as exc:
+            prefix = candidate.read_bytes()[:120]
+        except OSError as exc:
+            raise MediaError(f"cannot inspect image {relative_text}: {exc}") from exc
+        if b"git-lfs.github.com/spec/v1" in prefix:
+            raise MediaError(f"LFS pointer is not an image: {relative_text}")
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                with Image.open(candidate) as image:
+                    raw_width, raw_height = image.size
+                    if raw_width * raw_height > MAX_SOURCE_PIXELS:
+                        raise MediaError(
+                            f"image exceeds source pixel limit for {relative_text}: "
+                            f"{raw_width * raw_height} > {MAX_SOURCE_PIXELS}"
+                        )
+                    image.verify()
+                with Image.open(candidate) as image:
+                    oriented = ImageOps.exif_transpose(image)
+                    width, height = oriented.size
+                    image_format = (image.format or "").upper()
+                    oriented.close()
+        except (OSError, UnidentifiedImageError, ValueError, Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
             raise MediaError(f"invalid image {relative_text}: {exc}") from exc
         expected_formats = {
             ".png": "PNG",
@@ -367,25 +399,33 @@ def build_release_plan(
 
 
 def _assert_source(path: Path, root: Path, expected_sha256: str) -> None:
+    try:
+        display_path = path.relative_to(root).as_posix()
+    except ValueError:
+        display_path = path.name or "<outside-media-root>"
     if path.is_symlink() or not path.is_file():
-        raise MediaError(f"source is no longer a regular file: {path}")
+        raise MediaError(f"source is no longer a regular file: {display_path}")
     try:
         path.resolve().relative_to(root.resolve())
     except ValueError as exc:
-        raise MediaError(f"source escaped media root: {path}") from exc
+        raise MediaError(f"source escaped media root: {display_path}") from exc
     actual = _sha256_path(path)
     if actual != expected_sha256:
-        raise MediaError(f"source changed after inventory: {path} ({expected_sha256} != {actual})")
+        raise MediaError(f"source changed after inventory: {display_path} ({expected_sha256} != {actual})")
 
 
 def _materialize_variant(source: Path, target: Path, target_width: int) -> tuple[str, int, int, int]:
     with Image.open(source) as image:
-        converted = image.convert("RGB")
+        converted = ImageOps.exif_transpose(image).convert("RGB")
+    converted.info.clear()
+    try:
         if converted.width > target_width:
             height = max(1, round(converted.height * target_width / converted.width))
             converted = converted.resize((target_width, height), Image.Resampling.LANCZOS)
         converted.save(target, format="WEBP", quality=82, method=6, exif=b"")
         actual_width, actual_height = converted.size
+    finally:
+        converted.close()
     return _sha256_path(target), target.stat().st_size, actual_width, actual_height
 
 
@@ -417,6 +457,8 @@ def _record_manifest(record: PlannedMediaRecord) -> dict[str, Any]:
         "height": record.height,
         "prompt_path": record.prompt_path,
         "story_part_path": record.story_part_path,
+        "alt_text": record.alt_text,
+        "alt_text_source": record.alt_text_source,
         "release_tag": record.release_tag,
         "original": {
             "asset_name": record.original_asset_name,
@@ -443,6 +485,8 @@ def materialize_release_plan(
     *,
     source_root: Path,
     staging_root: Path,
+    cache_root: Path | None = None,
+    cache_read_only: bool = False,
 ) -> PreparedReleasePlan:
     """Create verified originals, WebP derivatives, deterministic bundles, and manifests."""
     source_root = Path(source_root).resolve()
@@ -451,6 +495,15 @@ def materialize_release_plan(
         raise MediaError(f"staging root must not be a symlink: {staging}")
     staging.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(staging, 0o700)
+    cache = (
+        MediaDerivativeCache(
+            cache_root,
+            tool_version=MEDIA_TRANSFORM_TOOL_VERSION,
+            writable=not cache_read_only,
+        )
+        if cache_root is not None
+        else None
+    )
     prepared_shards: list[PreparedShard] = []
     all_records: list[PlannedMediaRecord] = []
 
@@ -475,7 +528,17 @@ def materialize_release_plan(
             variants: list[MediaVariant] = []
             for variant in record.variants:
                 variant_path = shard_dir / variant.asset_name
-                digest, size, actual_width, actual_height = _materialize_variant(source, variant_path, variant.width)
+                if cache is None:
+                    digest, size, actual_width, actual_height = _materialize_variant(source, variant_path, variant.width)
+                else:
+                    digest, size, actual_width, actual_height = cache.materialize(
+                        original_sha256=record.sha256,
+                        target_width=variant.width,
+                        target=variant_path,
+                        producer=lambda target, source=source, width=variant.width: _materialize_variant(
+                            source, target, width
+                        ),
+                    )
                 prepared_variant = replace(
                     variant,
                     sha256=digest,
@@ -548,6 +611,7 @@ def materialize_release_plan(
         archive_index=plan.archive_index,
         shards=tuple(prepared_shards),
         manifest_path=manifest_path,
+        cache_report=cache.report() if cache is not None else None,
     )
 
 

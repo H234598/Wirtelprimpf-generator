@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0.0",
+  "limits": {
+    "max_html_bytes": 2097152,
+    "max_gallery_index_gzip_bytes": 153600,
+    "max_initial_js_gzip_bytes": 35840,
+    "max_initial_css_gzip_bytes": 40960,
+    "max_eager_gallery_images": 6,
+    "max_gallery_original_sources": 0,
+    "max_external_runtime_requests": 0
+  }
+}

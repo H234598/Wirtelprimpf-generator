@@ -24,6 +24,15 @@ class CloudflareCredentialTests(unittest.TestCase):
         )
         self.assertEqual(resolver.resolve(explicit_token="explicit-token"), "explicit-token")
 
+    def test_rest_api_token_requires_explicit_token_and_never_falls_back_to_oauth(self) -> None:
+        resolver = CloudflareCredentialResolver(
+            config_path=self.path,
+            runner=lambda command: self.fail(f"unexpected refresh: {command}"),
+        )
+        with self.assertRaisesRegex(RuntimeError, "explicit CLOUDFLARE_API_TOKEN"):
+            resolver.resolve_api_token()
+        self.assertEqual(resolver.resolve_api_token(explicit_token="explicit-token"), "explicit-token")
+
     def test_unexpired_private_wrangler_oauth_token_is_reused(self) -> None:
         self.path.write_text(
             'oauth_token = "oauth-current"\nexpiration_time = "2099-01-01T00:00:00Z"\n',

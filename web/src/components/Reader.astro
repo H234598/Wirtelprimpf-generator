@@ -1,0 +1,39 @@
+---
+import { classifyStoryPart, type StoryDocument, type StoryPart } from "../lib/content.ts";
+import { mediaAltText, type MediaItem } from "../lib/data.ts";
+import { chapterMediaHref, chapterPath, storyBandPath } from "../lib/story-routes.ts";
+
+interface Props {
+  story: StoryDocument;
+  part: StoryPart;
+  previous: StoryPart | null;
+  next: StoryPart | null;
+  images?: readonly MediaItem[];
+}
+
+const { story, part, previous, next, images = [] } = Astro.props;
+const state = classifyStoryPart(part);
+const imageSource = (item: MediaItem): string => item.variants[0]?.url ?? item.original.url;
+---
+<article class:list={["reader", { "reader-empty": state === "empty" }]} id={part.id} data-chapter-id={part.id} data-content-state={state}>
+  <header class="reader-heading">
+    <span class="eyebrow">{story.title}</span>
+    <h2>Teil {part.sequence}</h2>
+    <time datetime={part.timestamp.replace(" ", "T")}>{part.timestamp}</time>
+  </header>
+  {state === "ready" ? <div class="prose" set:html={part.html} /> : <p class="empty-state" role="status">Dieses Kapitel ist leer. Der Permalink bleibt erhalten, bis ein gültiger Inhalt veröffentlicht wird.</p>}
+  {images.length ? <section class="reader-images" aria-labelledby={`reader-images-${part.id}`}>
+    <h3 id={`reader-images-${part.id}`}>Kapitelbilder</h3>
+    <div class="reader-image-grid">
+      {images.map((item) => <figure class="reader-image"><a href={chapterMediaHref(item)}><img src={imageSource(item)} width={item.variants[0]?.actual_width ?? item.width} height={item.variants[0]?.actual_height ?? item.height} alt={mediaAltText(item)} loading="lazy" decoding="async" /></a><figcaption><a href={chapterMediaHref(item)}>Bilddetail öffnen</a></figcaption></figure>)}
+    </div>
+  </section> : null}
+  <div class="reader-comfort" data-reading-progress data-chapter-id={part.id}>
+    <div hidden data-reading-control><button type="button" class="favorite-toggle" data-reading-save>Als gelesen markieren</button><span data-reading-status role="status"></span></div>
+  </div>
+  <nav class="reader-navigation" aria-label="Kapitelnavigation">
+    {previous ? <a href={chapterPath(story.volume, previous.id)}>← Vorheriges Kapitel</a> : <span aria-disabled="true">Kein vorheriges Kapitel</span>}
+    <a href={storyBandPath(story.volume)}>Zur Gesamtansicht</a>
+    {next ? <a href={chapterPath(story.volume, next.id)}>Nächstes Kapitel →</a> : <span aria-disabled="true">Kein nächstes Kapitel</span>}
+  </nav>
+</article>

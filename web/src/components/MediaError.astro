@@ -1,0 +1,8 @@
+---
+interface Props {
+  detail?: boolean;
+}
+
+const { detail = false } = Astro.props;
+---
+<span class:list={["media-error", { "media-error-detail": detail }]} data-media-error hidden role="status">Dieses Bild ist derzeit nicht verfügbar.</span>

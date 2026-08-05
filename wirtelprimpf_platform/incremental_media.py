@@ -30,7 +30,9 @@ from .media import (
     _sha256_path,
     _stable_json,
     _validate_repository_component,
+    MEDIA_TRANSFORM_TOOL_VERSION,
 )
+from .media_cache import MediaDerivativeCache
 from .naming import archive_name
 
 DEFAULT_RECORDS_PER_SHARD = 240
@@ -91,6 +93,8 @@ class IncrementalMediaPublisher:
         staging_root: Path,
         backend: ReleaseBackend,
         max_records_per_shard: int = DEFAULT_RECORDS_PER_SHARD,
+        cache_root: Path | None = None,
+        cache_read_only: bool = False,
     ) -> None:
         self.owner = _validate_repository_component(owner, label="owner")
         self.repository = _validate_repository_component(repository, label="repository")
@@ -109,6 +113,19 @@ class IncrementalMediaPublisher:
         self.staging_root = Path(staging_root)
         self.backend = backend
         self.max_records_per_shard = max_records_per_shard
+        self.cache = (
+            MediaDerivativeCache(
+                cache_root,
+                tool_version=MEDIA_TRANSFORM_TOOL_VERSION,
+                writable=not cache_read_only,
+            )
+            if cache_root is not None
+            else None
+        )
+
+    @property
+    def cache_report(self) -> dict[str, Any] | None:
+        return self.cache.report() if self.cache is not None else None
 
     def _empty_manifest(self) -> dict[str, Any]:
         return {
@@ -239,9 +256,19 @@ class IncrementalMediaPublisher:
         for requested_width in DERIVATIVE_WIDTHS:
             asset_name = f"{safe_stem}--{digest[:16]}--{path_fingerprint}.w{requested_width}.webp"
             target = shard_dir / asset_name
-            variant_digest, byte_size, actual_width, actual_height = _materialize_variant(
-                source, target, requested_width
-            )
+            if self.cache is None:
+                variant_digest, byte_size, actual_width, actual_height = _materialize_variant(
+                    source, target, requested_width
+                )
+            else:
+                variant_digest, byte_size, actual_width, actual_height = self.cache.materialize(
+                    original_sha256=digest,
+                    target_width=requested_width,
+                    target=target,
+                    producer=lambda output, source=source, width=requested_width: _materialize_variant(
+                        source, output, width
+                    ),
+                )
             variants.append(
                 MediaVariant(
                     width=requested_width,

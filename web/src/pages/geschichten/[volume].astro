@@ -1,13 +1,20 @@
 ---
+import EpubDownload from "../../components/EpubDownload.astro";
 import StoryPart from "../../components/StoryPart.astro";
+import StoryToc from "../../components/StoryToc.astro";
 import BaseLayout from "../../layouts/BaseLayout.astro";
-import { loadSiteData } from "../../lib/data.ts";
+import { loadSiteData, type SiteData } from "../../lib/data.ts";
 import type { StoryDocument } from "../../lib/content.ts";
-export function getStaticPaths(){return loadSiteData().stories.map((story)=>({params:{volume:String(story.volume)},props:{story}}));}
-interface Props { story: StoryDocument; }
-const { story } = Astro.props;
+import { chapterPath } from "../../lib/story-routes.ts";
+export function getStaticPaths(){const data=loadSiteData();return data.stories.map((story)=>({params:{volume:String(story.volume)},props:{story,epubs:data.epubs.filter((download)=>download.volume===story.volume)}}));}
+interface Props { story: StoryDocument; epubs: SiteData["epubs"]; }
+const { story, epubs } = Astro.props;
 ---
 <BaseLayout title={story.title} description={`Wirtelprimpf Story ${story.volume} aus Buch ${story.book} mit ${story.parts.length} Teilen.`} section="geschichten">
   <header class="page-heading"><span class="eyebrow">Buch {story.book} · Story {story.storyInBook} von 10 · global {story.volume}</span><h1>{story.title}</h1><p class="lede">{story.parts.length} Teile in chronologischer Reihenfolge, vom Anfang bis zum aktuellen Schluss.</p></header>
-  <section class="section" style="padding-top:1rem"><div class="story-stream">{story.parts.map((part)=><StoryPart part={part} />)}</div></section>
+  <section class="section story-overview" style="padding-top:1rem">
+    <StoryToc story={story} />
+    <EpubDownload downloads={epubs} />
+    {story.parts.length ? <div class="story-stream">{story.parts.map((part)=><StoryPart part={part} chapterHref={chapterPath(story.volume, part.id)} />)}</div> : <p class="empty-state" role="status">Diese Story ist leer. Es wurde noch kein gültiges Kapitel veröffentlicht.</p>}
+  </section>
 </BaseLayout>

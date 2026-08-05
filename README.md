@@ -27,6 +27,8 @@ committet und gepusht werden.
 
 Der Bestandsmigrator wendet denselben Hashvertrag auf historische Bilder an und erzeugt zusätzlich
 deterministische Originalpakete und Shardmanifeste. Bereits vorhandene Assets werden niemals überschrieben.
+Der Derivatcache, der fail-closed Manifestvertrag und die Ressourcen-/Metadatenlimits sind in
+[WEB-MEDIA](docs/WEB-MEDIA.md) und [WEB-MEDIA-SECURITY](docs/WEB-MEDIA-SECURITY.md) beschrieben.
 
 ## Webseiten
 

@@ -107,6 +107,7 @@ WIRTELPRIMPF_REPO_SUBDIR=Wirtelprimpf
 WIRTELPRIMPF_REPO_BRANCH=main
 WIRTELPRIMPF_MEDIA_MODE=release
 WIRTELPRIMPF_MEDIA_STAGING=$HOME/.local/state/wirtelprimpf/media-staging
+WIRTELPRIMPF_MEDIA_CACHE=$HOME/.local/state/wirtelprimpf/media-cache
 WIRTELPRIMPF_PUBLISH_IMMEDIATELY=true
 WIRTELPRIMPF_GIT_AUTHOR_NAME="Wirtelprimpf Bot"
 WIRTELPRIMPF_GIT_AUTHOR_EMAIL=wirtelprimpf@example.invalid
@@ -123,6 +124,12 @@ If `WIRTELPRIMPF_REPO_PATH` points to a non-repository directory, set
 `WIRTELPRIMPF_REPO_SLUG` as `OWNER/REPOSITORY` so the generator can clone it.
 `WIRTELPRIMPF_REPO_SLUG` is optional when `WIRTELPRIMPF_REPO_PATH` already
 contains a valid local Git repository.
+
+The release pipeline stores WebP derivatives in the trusted media cache. Each
+entry is keyed by the original SHA-256, Pillow tool version, transform config,
+format, and target width. Changed inputs create new entries; incomplete or
+corrupt entries are rebuilt atomically. CI or other untrusted runs must use
+the CLI's `--cache-read-only` mode and must never write to the trusted cache.
 
 Publication policy:
 

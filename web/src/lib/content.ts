@@ -31,6 +31,19 @@ export interface StoryBook {
 export const STORIES_PER_BOOK = 10;
 
 
+export function fallbackStoryTitle(volume: number): string {
+  return `Wirtelprimpf · Story ${volume}`;
+}
+
+
+export type StoryPartState = "ready" | "empty";
+
+
+export function classifyStoryPart(part: Pick<StoryPart, "markdown" | "html">): StoryPartState {
+  return part.markdown.trim() && part.html.trim() ? "ready" : "empty";
+}
+
+
 export function renderSafeMarkdown(markdown: string): string {
   const rendered = marked.parse(markdown, {
     async: false,
@@ -67,7 +80,7 @@ export function parseStoryDocument(markdown: string, filename: string, volume: n
   }
   const normalized = markdown.replace(/\r\n?/g, "\n");
   const titleMatch = normalized.match(/^#\s+(.+?)\s*$/m);
-  const title = titleMatch?.[1]?.trim() || `Wirtelprimpf · Story ${volume}`;
+  const title = titleMatch?.[1]?.trim() || fallbackStoryTitle(volume);
   const heading = /^##\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*$/gm;
   const matches = [...normalized.matchAll(heading)];
   const parts = matches.map((match, index): StoryPart => {

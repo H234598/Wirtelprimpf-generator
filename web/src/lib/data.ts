@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
 import {
@@ -7,6 +7,7 @@ import {
   parseStoryDocument,
   type StoryDocument,
 } from "./content.ts";
+import { loadEpubDownloads, type EpubDownload } from "./epub.ts";
 
 
 export type SiteProfile = "hub" | "archive";
@@ -46,19 +47,98 @@ export interface MediaVariant {
   requested_width: number;
   actual_width: number;
   actual_height: number;
+  asset_name: string;
   url: string;
   mime_type: string;
 }
 
+export type MediaKind = "story" | "classic" | "legacy" | "unknown";
+export type MediaAltSource = "manifest" | "prompt" | "fallback";
+
 export interface MediaItem {
   asset_id: string;
   source_path: string;
-  kind: "story" | "classic" | "legacy";
+  kind: MediaKind;
+  year: number | null;
   width: number;
   height: number;
   release_tag: string;
   original: { asset_name: string; url: string };
+  story_part_path: string | null;
+  story_part_id?: string | null;
   variants: MediaVariant[];
+  alt_text?: string | null;
+  alt_text_source?: MediaAltSource;
+}
+
+
+const STORY_HEADING = /^##\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*$/gm;
+
+
+function sidecarChapterId(
+  dataRoot: string,
+  relation: string | null,
+  stories: readonly StoryDocument[],
+): string | null {
+  if (!relation || relation.includes("#")) return null;
+  const normalized = relation.replaceAll("\\", "/");
+  if (normalized.startsWith("/") || normalized.split("/").includes("..")) return null;
+  let root: string;
+  const candidates: string[] = [];
+  try {
+    root = realpathSync(dataRoot);
+    for (const path of [resolve(dataRoot, normalized), resolve(dataRoot, "Wirtelprimpf", normalized)]) {
+      try {
+        candidates.push(realpathSync(path));
+      } catch {
+        // A profile may use either the checkout root or its Wirtelprimpf subdirectory.
+      }
+    }
+  } catch {
+    return null;
+  }
+  const headings = new Set<string>();
+  for (const candidate of candidates) {
+    if (candidate !== root && !candidate.startsWith(`${root}/`)) continue;
+    let text: string;
+    try {
+      text = readFileSync(candidate, "utf8");
+    } catch {
+      continue;
+    }
+    const matches = [...text.replace(/\r\n?/g, "\n").matchAll(STORY_HEADING)];
+    if (matches.length !== 1 || !matches[0]?.[1]) continue;
+    headings.add(matches[0][1]);
+  }
+  if (headings.size > 1) throw new Error(`ambiguous story sidecar: ${relation}`);
+  for (const timestamp of headings) {
+    const matchesByTimestamp = stories.flatMap((story) => story.parts
+    .filter((part) => part.timestamp === timestamp)
+    .map((part) => part.id));
+    if (matchesByTimestamp.length === 1) return matchesByTimestamp[0]!;
+  }
+  return null;
+}
+
+
+export function mediaYear(sourcePath: string): number | null {
+  const match = /(?:^|[/_-])(\d{4})-\d{2}-\d{2}(?:[-_.]|$)/.exec(sourcePath);
+  if (!match) return null;
+  const year = Number(match[1]);
+  return Number.isSafeInteger(year) && year >= 1000 && year <= 9999 ? year : null;
+}
+
+
+export function mediaKindLabel(kind: MediaKind): string {
+  if (kind === "story") return "Storybild";
+  if (kind === "classic") return "Atelierbild";
+  if (kind === "legacy") return "Historisches Bild";
+  return "Unbekanntes Bild";
+}
+
+export function mediaAltText(item: Pick<MediaItem, "kind" | "alt_text">): string {
+  if (typeof item.alt_text === "string" && item.alt_text.trim()) return item.alt_text.trim();
+  return `${mediaKindLabel(item.kind)} aus Wirtelprimpf`;
 }
 
 export interface SiteData {
@@ -72,6 +152,7 @@ export interface SiteData {
   stories: StoryDocument[];
   currentStory: StoryDocument | null;
   media: MediaItem[];
+  epubs: EpubDownload[];
   generatedAt: string | null;
 }
 
@@ -215,7 +296,12 @@ export function loadCatalog(dataRoot: string): ArchiveEntry[] {
 }
 
 
-function loadMedia(dataRoot: string, owner: string, repository: string): { media: MediaItem[]; generatedAt: string | null } {
+function loadMedia(
+  dataRoot: string,
+  owner: string,
+  repository: string,
+  stories: readonly StoryDocument[],
+): { media: MediaItem[]; generatedAt: string | null } {
   const path = process.env.WIRTELPRIMPF_MEDIA_MANIFEST || resolve(dataRoot, "media-manifest.json");
   const payload = readJson(path, false);
   if (payload === null) return { media: [], generatedAt: null };
@@ -227,12 +313,18 @@ function loadMedia(dataRoot: string, owner: string, repository: string): { media
     const item = objectValue(raw, `media ${index}`);
     const original = objectValue(item.original, `media ${index} original`);
     const kind = item.kind;
-    if (kind !== "story" && kind !== "classic" && kind !== "legacy") throw new Error(`invalid media kind: ${kind}`);
+    if (kind !== "story" && kind !== "classic" && kind !== "legacy" && kind !== "unknown") {
+      throw new Error(`invalid media kind: ${kind}`);
+    }
     if (!Array.isArray(item.variants)) throw new Error(`media variants must be an array: ${index}`);
+    const storyPartPath = typeof item.story_part_path === "string" && item.story_part_path.trim()
+      ? item.story_part_path
+      : null;
     return {
       asset_id: stringValue(item.asset_id, "asset ID"),
       source_path: stringValue(item.source_path, "source path"),
       kind,
+      year: mediaYear(stringValue(item.source_path, "source path")),
       width: integerValue(item.width, "image width"),
       height: integerValue(item.height, "image height"),
       release_tag: stringValue(item.release_tag, "release tag"),
@@ -240,12 +332,35 @@ function loadMedia(dataRoot: string, owner: string, repository: string): { media
         asset_name: stringValue(original.asset_name, "original asset name"),
         url: assertReleaseAssetUrl(stringValue(original.url, "original URL"), owner, repository),
       },
+      story_part_path: storyPartPath,
+      story_part_id: sidecarChapterId(dataRoot, storyPartPath, stories),
+      alt_text: item.alt_text === null || item.alt_text === undefined
+        ? null
+        : (() => {
+            const value = stringValue(item.alt_text, "alt text").trim();
+            if (value.length > 240 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value)) {
+              throw new Error(`invalid alt text: ${index}`);
+            }
+            return value;
+          })(),
+      alt_text_source: (() => {
+        const source = item.alt_text_source;
+        if (source === undefined || source === null) return "fallback" as const;
+        if (source !== "manifest" && source !== "prompt" && source !== "fallback") {
+          throw new Error(`invalid alt text source: ${source}`);
+        }
+        if (source !== "fallback" && typeof item.alt_text !== "string") {
+          throw new Error(`alt text source requires alt text: ${index}`);
+        }
+        return source;
+      })(),
       variants: item.variants.map((rawVariant, variantIndex) => {
         const variant = objectValue(rawVariant, `media ${index} variant ${variantIndex}`);
         return {
           requested_width: integerValue(variant.requested_width, "requested width"),
           actual_width: integerValue(variant.actual_width, "actual width"),
           actual_height: integerValue(variant.actual_height, "actual height"),
+          asset_name: stringValue(variant.asset_name, "variant asset name"),
           url: assertReleaseAssetUrl(stringValue(variant.url, "variant URL"), owner, repository),
           mime_type: stringValue(variant.mime_type, "variant MIME type"),
         };
@@ -282,7 +397,8 @@ export function loadSiteData(): SiteData {
       || "Wirtelprimpf-0001");
   const domain = profile === "hub" ? "wirtelprimpf.telacore.org" : `wirtelprimpf-${String(archiveIndex).padStart(4, "0")}.telacore.org`;
   const stories = loadStories(dataRoot, profile);
-  const media = loadMedia(dataRoot, owner, mediaRepository);
+  const media = loadMedia(dataRoot, owner, mediaRepository, stories);
+  const epubs = loadEpubDownloads(dataRoot, owner, mediaRepository);
   cached = {
     profile,
     archiveIndex,
@@ -294,6 +410,7 @@ export function loadSiteData(): SiteData {
     stories,
     currentStory: stories.at(-1) ?? null,
     media: media.media,
+    epubs,
     generatedAt: media.generatedAt,
   };
   return cached;

@@ -83,13 +83,13 @@ Die grundlegende Zielarchitektur aus v1.0 wurde inzwischen weitgehend realisiert
 Der Plan steht daher nicht mehr am Anfang von P00. Der belastbare aktuelle Befund lautet:
 
 - **14 von 48 Paketen umgesetzt**;
-- **25 teilweise umgesetzt**;
+- **31 teilweise umgesetzt**;
 - **3 in Arbeit**;
-- **6 offen**.
+- **0 offen**.
 
 Der wichtigste technische Meilenstein ist nun nicht ein erneuter P00-Transfer, sondern ein **kontrollierter Produktionsabgleich**: Das Archiv ruft die Seitenfabrik weiterhin am Commit `b00d824…` auf, während `Wirtelprimpf-generator/main` inzwischen bei `274b25…` steht. Zwischen beiden Ständen liegen 52 Generatorcommits. Die neueren öffentlichen Textänderungen, Status-/Settings-Erweiterungen und Planverträge sind daher nicht automatisch im Archivprofil ausgerollt.
 
-Parallel fehlen die im ursprünglichen Plan geforderten UX- und Qualitätsabschlüsse: Lightbox, Vor-/Zurücknavigation, echte Kapitelrouten, Lesefortschritt, Favoriten, vollständige Fehlerzustände, Playwright-/axe-Gates und gemessene Performancebudgets.
+Die genannten UX- und Qualitätsverträge sind lokal implementiert und geprüft. Offen bleiben prozessuale Abschlussgates: Merge-/Reviewevidenz, GitHub-Actions-Lauf, externe Artefakt-/Hostingabnahme und die jeweils geforderten Baselines.
 
 ## 2. Was seit dem letzten Lauf passiert ist
 
@@ -184,7 +184,27 @@ H234598/Wirtelprimpf-generator/.github/workflows/archive-pages.yml
 
 Der aktuelle Generator-Freeze `274b25…` liegt **52 Commits** davor. Das Archiv ist dadurch reproduzierbar, aber nicht auf dem aktuellen Factorystand. Dieses Verhalten ist sicherer als ein beweglicher `@main`-Verweis, erzeugt aber einen bewusst zu bearbeitenden Rollout-Rückstand.
 
-### 3.2 Aktiver Medienstand
+### 3.2 Read-only Veröffentlichungsstand vom 5. August 2026
+
+Der aktuelle Remoteabgleich ist erfolgreich, aber nicht abnahmefähig:
+
+| Evidenz | Wert |
+|---|---|
+| Generator `main` | `274b25c9e1f9ea97d3b060997ed5c425d2b30e9f` |
+| Archiv `main` | `732b62d6ad25b5bfee7a35b673c69568dcd9e75a` |
+| Archiv-Pages-Lauf | `30974608315`, `success`, `2026-08-05T04:15:18Z` |
+| Hub-Pages-Lauf | `30974607541`, `success`, `2026-08-05T04:15:18Z` |
+| Live-Domains | Hub und Archiv HTTPS `200`, HSTS, robots/Sitemap/Feed erreichbar |
+| Live-Status | Read-only-Recheck: Hub `798` Bilder/`1` Story, Archiv `798` Bilder/`2` Storys, Manifest `2026-08-05T08:17:57Z` |
+| Lokaler Stand | `779` Medien, `195` Kapitel |
+| Aktiver Archiv-Factory-Pin | `b00d824adee47341e3251bc18e09239fde1c5939` |
+
+Die Actions-Läufe belegen die bestehende Remotepipeline. Sie belegen nicht,
+dass der aktuelle lokale Arbeitsbaum oder der aktuelle Generator-`main` im
+Archivprofil ausgerollt wurde. Der Repin bleibt deshalb ein kontrollierter,
+extern zu schreibender M01-Schritt.
+
+### 3.3 Aktiver Medienstand
 
 | Feld | Wert am Freeze |
 |---|---|
@@ -198,7 +218,7 @@ Der aktuelle Generator-Freeze `274b25…` liegt **52 Commits** davor. Das Archiv
 | Bildbinärdateien im aktuellen Git-Baum | `0` laut Migrations-/Archivvertrag |
 | Derivate je Medienobjekt | Original, WebP 640, WebP 1280, Metadaten-JSON |
 
-### 3.3 Nicht über die Repositorydateien vollständig verifizierte Einstellungen
+### 3.4 Nicht über die Repositorydateien vollständig verifizierte Einstellungen
 
 Weiterhin **manuell zu verifizieren**:
 
@@ -328,35 +348,23 @@ flowchart LR
 
 ### 6.2 Noch nicht hinreichend belegt oder offen
 
-- URL- und Scrollzustand der Galerie bei Rückkehr;
-- explizite `unknown`-Darstellung im Filter;
-- Vorher-/Nächster-Navigation auf Bilddetails;
-- zugängliche Lightbox, Vollbild und Wischbedienung;
-- direkte Bild↔Storykapitel-Verknüpfung in beiden Richtungen;
-- echte Kapitelrouten, Inhaltsverzeichnis und Kapitelpermalinks;
-- EPUB-Downloadvertrag;
-- versionierter Lesefortschritt;
-- Favoriten;
-- vollständige lokale Zustandsmigration und Löschfunktion;
-- 404-, Leer-, Bildfehler-, Pairing- und Veraltet-Zustände;
-- Playwright-/axe-/Touch-/Reduced-Motion-/Screenreader-Gates;
-- fachlich spezifische Alternativtexte statt generischer Szenenbezeichnung;
-- numerische Performance-, Transfer-, Build- und Cachebudgets;
-- vollständige Produktionsverifikation nach dem aktuellen Factory-Drift;
-- getrennte Build-/Deployjobs;
-- verifizierter Rollback/Redeploy auf letzte gute Site.
+- vollständige manuelle Screenreader-, Zoom- und visuelle Abnahme;
+- vollständiger Mediencheckout mit Quellenstichprobe, Wachstumshistorie und 95-Prozent-Cachebaseline;
+- aktuelle Factory-/Archiv-Pins, externe CI-/Pages-Läufe und Live-Domain-/DNS-/HTTPS-Abnahme;
+- produktiver EPUB-Nachweis, solange keine aktiven EPUB-Links im Manifest vorhanden sind;
+- getesteter produktiver Rollback-/Redeploylauf auf eine letzte gute Site.
 
 ## 7. Abgleich mit den ursprünglichen Qualitätszielen
 
 | Qualitätsziel aus v1 | Aktueller Erfüllungsgrad | Begründung | Nächster Nachweis |
 |---|---|---|---|
-| Warme, ruhige Wohlfühl-UX | **teilweise** | eigenständige Astrooberfläche existiert; vollständige visuelle Stichprobe und Browserabnahme fehlen | M03 visuelle/A11y-Abnahme |
+| Warme, ruhige Wohlfühl-UX | **teilweise** | eigenständige Astrooberfläche und lokale Bild-/Storywege existieren; vollständige visuelle Stichprobe fehlt | M03 visuelle/A11y-Abnahme |
 | Sehr einfache Orientierung | **weitgehend** | Hauptwege Bilder/Geschichten sowie Hub/Archive existieren | M02/M03 Journeys und Zurücknavigation |
-| Kleine Mobilgeräte bis Desktop | **teilweise** | responsive CSS vorhanden; 320-Pixel- und Touchtests fehlen | M03 Playwright-Matrix |
-| Barrierefreiheit / Progressive Enhancement | **teilweise** | statische Basis, Skip-Link, Sanitizing; Dialog-/axe-/Screenreader-Gates fehlen | M03 |
+| Kleine Mobilgeräte bis Desktop | **weitgehend** | 320-Pixel-, Tablet-, Desktop- und große-Display-No-Overflow-Gates sowie Touchtests sind grün | manuelle Zoom-/Geräteabnahme |
+| Barrierefreiheit / Progressive Enhancement | **teilweise** | statische Basis, Skip-Link, Sanitizing, Fokus-/Reduced-Motion- und axe-Gates sind vorhanden; manuelle Screenreaderabnahme fehlt | M03 manuelle A11y-Abnahme |
 | Großes wachsendes Medienarchiv | **weitgehend** | Releases, Derivate, Pagination und Null-Binär-Gitbaum | M04 Messbudgets und Wachstumsbericht |
-| Automatische Inhaltsübernahme | **weitgehend** | Release-/Manifest-/Archivcommit-Pipeline arbeitet fortlaufend | M01/M05 Freshness-/Pages-E2E |
-| Reproduzierbarer sicherer Build | **weitgehend** | Lockfile, feste Versionen, Factory-SHA, Artefaktvalidator | M01 Repin und M04 Treehash-/Budgetbericht |
+| Automatische Inhaltsübernahme | **weitgehend** | Release-/Manifest-/Archivcommit-Pipeline arbeitet fortlaufend; produktiver Dispatch-/Freshnessnachweis fehlt | M01/M05 Freshness-/Pages-E2E |
+| Reproduzierbarer sicherer Build | **weitgehend** | Lockfile, feste Versionen, Factory-SHA, Artefaktvalidator und Arbeitskopiegate | M01 Repin und externer Treehash-/Budgetbericht |
 | Wartbarkeit / Planpflege | **teilweise** | neue Pläne existieren, alter kanonischer Plan aber nicht sauber rebaselined | M00 |
 
 ## 8. Statusregister aller 48 ursprünglichen Arbeitspakete
@@ -364,62 +372,62 @@ flowchart LR
 | Paket | Titel | Status 2026-08-02 | Aktuelle Evidenz | Noch erforderlich | Zielmeilenstein |
 |---|---|---|---|---|---|
 | `WEB-P00-01` | Revisionsbaseline und Drift-Governance | **in Arbeit** | Diese v2-Baseline friert Generator, Archiv und Referenzen neu ein. | Plan und Revisionsregister in das Generator-Repository übernehmen und per Validator absichern. | `M00` |
-| `WEB-P00-02` | Sichere read-only Medieninventur | **teilweise umgesetzt** | Release-Migration, Medienmanifest und Null-Bilddateien im aktuellen Git-Baum sind belegt. | Vollinventur um Dimensionen, Perzentile, Sonderdateien, Duplikate und Wachstumsprognose ergänzen. | `M04` |
+| `WEB-P00-02` | Sichere read-only Medieninventur | **teilweise umgesetzt** | Read-only Manifestinventur, versioniertes Schema, atomare `build/reports`-Ausgabe und sechs Sicherheits-/Duplikatfixtures sind grün. Der vollständige Migration-Checkout meldet 779 Manifestmedien, 2.345 deklarierte Release-Assets sowie 2.346 reguläre Dateien/2.337 Bilder im gemischten Sourcebaum (779 PNG-Originale und 1.558 WebP-Derivate); Symlink-, LFS-, Case-, Hardlink- und Fehlerlisten sind leer. | Echte Produktionsbaseline und Wachstumshistorie sowie Merge, Review, CI und Hostingabnahme. | `M04` |
 | `WEB-P00-03` | Kanonischer Plan, Anforderungen und ADR-Entwürfe | **in Arbeit** | Mehrere freigegebene Superpowers-Pläne und diese vollständige v2-Fassung existieren. | Kanonische v2-Datei, Requirement-Register, ADR-Register und Supersession-Register im Generator-Repo pflegen. | `M00` |
 | `WEB-P00-04` | Bestehenden Check additiv erweitern | **umgesetzt** | Der aktuelle Check erhält Applet-, Generator-, Plattform- und Webprüfungen additiv. | Nur laufende Pin-/Policywartung; keine fachliche Lücke. | `Pflege` |
-| `WEB-P01-01` | Versionierte Bild-, Band- und Kapitelschemas | **teilweise umgesetzt** | Manifest 2.0.0, Archivvertrag, TypeScript-Verträge und Katalogvalidierung sind vorhanden. | Explizite versionierte Schemas für Bild, Band, Kapitel, Alias und Migration vollständig machen. | `M02/M04` |
-| `WEB-P01-02` | Pairing-Engine und Zeitstempelpriorität | **teilweise umgesetzt** | Release-Publikation, Storyzuordnung und kanonische Applet-Partnummern sind getestet. | Heading-/Dateiname-/Gitzeit-Priorität und alle Orphan-/Ambiguitätscodes als ein Webvertrag dokumentieren. | `M02` |
-| `WEB-P01-03` | Fehlerkatalog, Fixtures und Ausnahme-Registry | **teilweise umgesetzt** | Fixtures und fail-closed Validierung existieren in Plattform- und Webtests. | Einheitlichen Fehlercodekatalog samt Ausnahme-Registry und Negativfixture-Matrix anlegen. | `M04` |
-| `WEB-P01-04` | Stabile IDs und Aliasregister | **teilweise umgesetzt** | Stabile Medien-/Story-IDs und Legacy-URL-Migration sind vorhanden. | Eigenes Aliasregister und Migrationstests für umbenannte Kapitel-/Bild-URLs ergänzen. | `M02/M03` |
+| `WEB-P01-01` | Versionierte Bild-, Band- und Kapitelschemas | **teilweise umgesetzt** | Drei strikt geschlossene Draft-2020-12-Schemas akzeptieren aktuelle Manifest-/Storyfixtures; vier Contract-Tests bestehen. | Schema-Validator im CI, Merge/Review und vollständige Quellenstichprobe. | `M02/M04` |
+| `WEB-P01-02` | Pairing-Engine und Zeitstempelpriorität | **teilweise umgesetzt** | Read-only Pairingreport prüft Heading > Dateiname > Gitzeit > Fallback, Working-/Full-Story-Trennung, Orphans und Ambiguitäten; vier Fixtures bestehen. | Ausreichenden kanonischen Mediencheckout paaren und danach Merge/Review/CI abnehmen. | `M02` |
+| `WEB-P01-03` | Fehlerkatalog, Fixtures und Ausnahme-Registry | **teilweise umgesetzt** | Fehlerkatalog, Schwereklassen, Negativfixtures und leere hashgebundene Ausnahme-Registry sind vorhanden; zwei Registry-Tests bestehen. | Reale Ausnahmen nur mit Quellen-SHA eintragen; Merge/Review/CI und vollständige Fehler-Matrix. | `M04` |
+| `WEB-P01-04` | Stabile IDs und Aliasregister | **teilweise umgesetzt** | Typisierte portable Image-/Band-/Chapter-IDs, reproduzierbare Chapter-ID und Zyklus-/Kettenvalidierung bestehen in vier Tests; Register bleibt leer. | Reale Umbenennungen fachlich belegen, Aliasmigration browserseitig prüfen sowie Merge/Review/CI. | `M02/M03` |
 | `WEB-P02-01` | Astro-7-Grundgerüst mit statischem Output | **umgesetzt** | Astro 7.1.6, TypeScript 6.0.3 und statische Hub-/Archivprofile sind implementiert. | Nur Versionspflege über getrennte PRs. | `Pflege` |
-| `WEB-P02-02` | Sicheres Staging und reproduzierbarer Gesamtbuild | **teilweise umgesetzt** | Reproduzierbare Builds und Artefaktvalidator existieren. | Build-/Deployjob trennen, Staging-/Treehashvertrag zentralisieren und Arbeitskopieunverändertheit explizit prüfen. | `M01/M04` |
+| `WEB-P02-02` | Sicheres Staging und reproduzierbarer Gesamtbuild | **teilweise umgesetzt** | Reproduzierbarer Status-/Astro-Build, fail-closed Artefaktvalidator, Budgetgate, Treehash und explizites Arbeitskopiegate existieren lokal. | Externen Staginglauf und Merge-/Review-/CI-Nachweis mit vollständigem Datenstand abschließen. | `M01/M04` |
 | `WEB-P02-03` | Sichere Markdown-Pipeline | **umgesetzt** | Marked und sanitize-html sind gepinnt; Sanitizing besitzt Contract-Tests. | Nur zusätzliche Sicherheitsfixtures bei neuen Markdownfeatures. | `Pflege` |
 | `WEB-P02-04` | Base-Path- und URL-Vertrag | **umgesetzt** | Hub- und Archivprofile besitzen eigene Site-URLs, Canonicals und Custom-Domain-Verträge. | Project-Page-Base-Path zusätzlich automatisiert testen, falls weiterhin unterstützt. | `M03` |
 | `WEB-P03-01` | Responsive Derivatpipeline mit Sharp | **umgesetzt** | Sharp 0.35.3 erzeugt Originalverweise sowie 640/1280-WebP-Derivate. | Nur neue Größen nach Layoutmessung einführen. | `M04` |
-| `WEB-P03-02` | Derivatcache und Manifest | **teilweise umgesetzt** | Releaseassets und media-manifest.json binden Derivate hashgestützt. | Cache-Key, Toolversion, Cache-Hit-Rate und atomaren Derivatsatz als expliziten Bericht nachweisen. | `M04` |
-| `WEB-P03-03` | Medienparser-Sicherheitsgrenzen und Metadatenbereinigung | **teilweise umgesetzt** | Release-Publikation validiert Hashes und öffentliche Wiederabrufbarkeit. | Pixel-/Byte-/Dekompressionslimits, EXIF-/GPS-Bereinigung und fehlerhafte Dekodierung vollständig testen. | `M04` |
-| `WEB-P03-04` | Hostingmessung und Schwellenbericht | **teilweise umgesetzt** | Release-only-Migration und Null-Binärbilder im Git-Baum lösen das Hauptgrößenproblem. | Kalte/warme Builds, Transfer, Wachstum und Schwellenbericht aktuell messen. | `M04` |
+| `WEB-P03-02` | Derivatcache und Manifest | **teilweise umgesetzt** | `MediaDerivativeCache` bindet Original-SHA, Tool-/Transformationsversion, Format und Breite; vollständige Einträge werden atomar publiziert, beschädigte Einträge verworfen und Read-only-Läufe schreiben nicht. Drei Plattformtests sowie `make check` belegen Hit/Miss, gezielte Invalidierung und Cachebericht. `web-image-manifest`-Schema, fail-closed Validator und der vollständige Replaylauf prüfen `779` Medien, `1.558` Derivate, vier Shards und 640/1280-Derivate. Der vollständige Kaltlauf mit Pillow `12.2.0` erzeugte `1.558/1.558` Einträge in `1.151,148 s` bei `0` Hits, `1.558` Misses/Writes und `0` Invalids; zwei anschließende Read-only-Replays erreichten jeweils `100%` Hits. | Endgültige Workflow-/Merge-/Review-/CI-Abnahme und Web-Manifestquelle/Buildartefakt gegen den Zielworkflow abnehmen; untrusted Läufe bleiben read-only. | `M04` |
+| `WEB-P03-03` | Medienparser-Sicherheitsgrenzen und Metadatenbereinigung | **teilweise umgesetzt** | Inventur und Release-Tests prüfen 25-MiB-/50-MPixel-Grenzen, LFS, Symlinks, Case-Kollisionen, Dekompressions-/Trunkierungsfehler und Formatbindung. Der vollständige Source-Scan des Migration-Checkouts meldet keine Symlinks, LFS-Pointer, Case-/Hardlink-Kollisionen oder Fehler; die Derivatmaterialisierung wendet EXIF-Orientierung an und exportiert ein neues RGB-WebP ohne EXIF/GPS/ICC. 15 Medienrelease-Tests sind grün und Fehlerpfade redigieren absolute Quellpfade. | Rechte-/Policy-Stichprobe, Merge, Review, CI und externe Abnahme. | `M04` |
+| `WEB-P03-04` | Hostingmessung und Schwellenbericht | **teilweise umgesetzt** | Read-only Messscript mit atomarem `build/reports`-Output, wiederholten Buildzeiten, Median/P95, Kindprozess-RSS, Pages-Artefakt-/Treehash-, Budget-, Manifest-/Release-Transfer- und Git-Wachstumsfeldern ist vorhanden. Der reproduzierbare Dreifachlauf ist grün: Median `7,528 s`, P95 `9,351 s`, `779` Medien, `3.654.670.091` Quellbytes, `1.036` Dateien, `1.013` HTML, `21.910.811` Artefaktbytes, `59.820` interne Links, Budget `pass`, Arbeitskopie unverändert. Die Git-Historie bleibt `insufficient_history`; eine synthetische 10-Bilder-Neue-Story-Fixture erreicht gegen den Archivcache `98,7326 %` kombinierte Hits bei `0` Invalids. | Belastbare Wachstumshistorie, drei echte vergleichbare Produktionsbaselines, aktuelle Plattformgrenzen-/Rechteprüfung, ADR-/Hostingentscheidung, Merge, Review, CI und externe Pages-/DNS-Abnahme. | `M04` |
 | `WEB-P04-01` | Startseite mit aktuellen Inhalten | **umgesetzt** | Startseite mit Hauptaktionen, aktuellem Storykontext, Archiven und neuen Medien existiert. | Nur UX-Feinschliff aus Browserabnahme. | `M03` |
 | `WEB-P04-02` | Galerieindex, Shards und statische Seiten | **umgesetzt** | Statische Galerie, Detailrouten und 24er-Paginierung existieren. | Shard-/JSON-Größen messen; keine unbegrenzte globale Datei zulassen. | `M04` |
-| `WEB-P04-03` | Progressive Filter und Mehr-anzeigen | **umgesetzt** | Progressive Typfilter und statische Pagination sind implementiert. | Unknown-Zustand und URL-persistente Filter in Browsertests beweisen. | `M02/M03` |
-| `WEB-P04-04` | Galerieposition und Rückkehrzustand | **offen** | Noch kein belastbarer URL-/Scroll-/Rückkehrvertrag belegt. | Filter, Seite, Fokus und Scrollposition bei Detailrückkehr erhalten. | `M02` |
+| `WEB-P04-03` | Progressive Filter und Mehr-anzeigen | **umgesetzt** | Progressive Typ-/Jahresfilter und statische Pagination sind implementiert; URL-persistente Filter, Unknown-Leerzustand und Rückkehrstatus bestehen in der Browsermatrix. | Nur laufende UX-/Datenpflege. | `M02/M03` |
+| `WEB-P04-04` | Galerieposition und Rückkehrzustand | **teilweise umgesetzt** | URL, Filter, Seite, Fokus und Scrollposition sind lokal implementiert und browserseitig geprüft. | Merge, Review, CI und externe Artefaktabnahme. | `M02` |
 | `WEB-P05-01` | Kanonische Bilddetailseiten | **umgesetzt** | Kanonische Bilddetailroute und Originaldownload existieren. | Alttexte und Storybezug fachlich verbessern. | `M02/M03` |
-| `WEB-P05-02` | Lightbox als progressive Dialogerweiterung | **offen** | Keine kanonisch belegte progressive Lightbox vorhanden. | Zugänglichen Dialog mit Fokusfalle, Rückgabe, Escape, Touch und Reduced Motion implementieren. | `M02/M03` |
-| `WEB-P05-03` | Mediennavigation, Vollbild und Download | **teilweise umgesetzt** | Originaldownload ist vorhanden. | Vorher/Nachher, Vollbild, Touchnavigation und ruhige Fehlerzustände ergänzen. | `M02` |
+| `WEB-P05-02` | Lightbox als progressive Dialogerweiterung | **teilweise umgesetzt** | Progressiver Dialog, Fokuszyklus, Escape, Touch und No-JS-Link sind lokal implementiert und geprüft. | Merge, Review, CI und externe Artefaktabnahme. | `M02/M03` |
+| `WEB-P05-03` | Mediennavigation, Vollbild und Download | **teilweise umgesetzt** | Original-/Derivatdownloads, native Vollbild-/Share-Aktionen, Tastatur-/Touchnavigation und ruhige Medienfehler sind lokal implementiert und browserseitig geprüft. | Merge, Review, CI und externe Artefaktabnahme. | `M02` |
 | `WEB-P06-01` | Geschichtenbibliothek und Bandkarten | **umgesetzt** | Bibliothek gruppiert 10 Storys je Buch und fünf Bücher je Archiv. | Nur Browser-/A11y-Abnahme und visuelle Feinarbeit. | `M03` |
-| `WEB-P06-02` | Kapitelroute und Leseansicht | **teilweise umgesetzt** | Bandroute rendert Storyteile, aber keine eigenständige Kapitelroute ist belegt. | Kapitelpermaling, TOC, vorher/nachher und Deep Links ergänzen. | `M02` |
-| `WEB-P06-03` | Vollbandansicht und EPUB-Vertrag | **teilweise umgesetzt** | Vollbandansicht ist vorhanden. | EPUB-Vertrag, Hash, Downloadzustand und fehlendes EPUB testen. | `M02` |
-| `WEB-P06-04` | Bild-Kapitel-Beziehungsprüfung | **teilweise umgesetzt** | Katalog- und Medienverträge enthalten Beziehungen. | Bild↔Kapitel bidirektional in UI und Validator erzwingen. | `M02` |
-| `WEB-P07-01` | Versioniertes lokales Zustandsmodell | **teilweise umgesetzt** | Themezustand wird lokal fehlertolerant gelesen. | Versioniertes gemeinsames Storage-Schema, Migration, Größenlimit und Löschaktion ergänzen. | `M03` |
-| `WEB-P07-02` | Lesefortschritt und optionale Favoriten | **offen** | Lesefortschritt und Favoriten sind nicht belegt. | Fortschritt zuerst; Favoriten getrennt und optional implementieren. | `M03` |
-| `WEB-P07-03` | No-JS- und Fehlerdegradation | **teilweise umgesetzt** | Statische Routen bilden eine No-JS-Grundlage. | No-JS-Kontrollen, LocalStorage-Ausfall, leere/defekte Inhalte und langsame Medien browserseitig prüfen. | `M03` |
-| `WEB-P07-04` | Suchgrundlage und bewusster MVP-Verzicht | **teilweise umgesetzt** | Suche ist bewusst noch nicht Kernbestandteil. | Verzicht/Option in ADR bestätigen; erst bei belastbarer Datenbasis Pagefind/MiniSearch vergleichen. | `M06` |
-| `WEB-P08-01` | Designsystem, Tokens und lokale Assets | **teilweise umgesetzt** | Eigenständige Styles, Layout und lokale Komponenten existieren. | Token-/Kontrastdokument, Assetlizenz und Lese-/Sepiamodus vollständig belegen. | `M03` |
-| `WEB-P08-02` | Responsive Komponentenfeinarbeit | **teilweise umgesetzt** | Responsive Templates sind implementiert. | 320-Pixel-, Tablet-, Desktop- und große-Display-Abnahme automatisieren. | `M03` |
-| `WEB-P08-03` | Accessibility- und Reduced-Motion-Gate | **teilweise umgesetzt** | Skip-Link, semantische Basis und Motion-Rücksicht sind teilweise vorhanden. | Playwright+axe, Fokusreihenfolge, Screenreader-Namen und Reduced-Motion-Gate blockierend machen. | `M03` |
-| `WEB-P08-04` | Fehler-, Leer- und Ladezustände | **offen** | Kein vollständiger Fehler-/Leer-/Loading-Komponentenvertrag belegt. | 404, leere Filter, Bildfehler, fehlende Paarung, unknown und veralteten Stand implementieren. | `M02/M03` |
+| `WEB-P06-02` | Kapitelroute und Leseansicht | **teilweise umgesetzt** | Eigenständige Kapitelroute, stabile IDs, TOC, Vor-/Zurück-Navigation, Deep Links und No-JS-Zugang sind lokal implementiert und browserseitig geprüft. | Merge, Review, CI, visuelle Stichprobe und externe Artefaktabnahme. | `M02` |
+| `WEB-P06-03` | Vollbandansicht und EPUB-Vertrag | **teilweise umgesetzt** | Vollbandansicht und fail-closed EPUB-Manifest-/ZIP-/Hash-/Releaseprüfung sind lokal implementiert und unitseitig geprüft; aktuell gibt es 0 aktive EPUB-Links. | Browserabnahme, Merge, Review, CI und externer EPUB-/Artefaktnachweis. | `M02` |
+| `WEB-P06-04` | Bild-Kapitel-Beziehungsprüfung | **teilweise umgesetzt** | Stabile Bild↔Kapitel-Auflösung, bidirektionale UI-Helfer und ein fail-closed Validator mit Positiv-/Negativfixtures sind vorhanden. Der geprüfte aktuelle Sonderfall ist über die belegte stabile Kapitel-ID explizit gebunden; der Report löst 194 Relationen auf, davon 193 nahe Zeitrelationen, und isoliert 246 historische Pfade als `historical_orphan_count` ohne aktuellen Fehler. | Historische Medien der vollständigen Quelle zuordnen oder dauerhaft isoliert freigeben; danach vollständigen Live-Report, Merge, Review, CI und externe Artefaktabnahme nachweisen. | `M02` |
+| `WEB-P07-01` | Versioniertes lokales Zustandsmodell | **teilweise umgesetzt** | Versioniertes, redigiertes Komfortschema mit 64-KiB-/500-/100-Limits, Aliasmigration, Resetaktion und Storage-Fail-Closed ist implementiert und getestet. | Manuelle Screenreaderabnahme sowie Merge-/Review-/CI-Nachweis abschließen. | `M03` |
+| `WEB-P07-02` | Lesefortschritt und optionale Favoriten | **teilweise umgesetzt** | Versionierter, begrenzter lokaler Fortschritt/Favoritenzustand sowie Löschen und Storage-Ausfall sind lokal geprüft. | Merge, Review, CI und externe Artefaktabnahme. | `M03` |
+| `WEB-P07-03` | No-JS- und Fehlerdegradation | **teilweise umgesetzt** | Statische Filter-, Seiten-, Detail- und Readerwege sowie Storage-, leere/defekte Medien- und Kapitelzustände sind mit No-JS-/Browsergates lokal geprüft. | Vollständige Screenreader-/langsamen-Medien-Stichprobe sowie Merge-/Review-/CI-Nachweis. | `M03` |
+| `WEB-P07-04` | Suchgrundlage und bewusster MVP-Verzicht | **teilweise umgesetzt** | Suche ist bewusst noch nicht Kernbestandteil; `ADR-WEB-011` bestätigt den Verzicht. | Erst bei belastbarer Datenbasis Pagefind/MiniSearch vergleichen und mit Indexbudget entscheiden. | `M06` |
+| `WEB-P08-01` | Designsystem, Tokens und lokale Assets | **teilweise umgesetzt** | Eigenständige Styles, dokumentierte Farbrollen/Kontrastmatrix, lokale Systemschriften und ein visueller Stichprobenlauf existieren. | Assetlizenz- und vollständige Medien-/Designfreeze-Abnahme sowie Lese-/Sepiamodus belegen. | `M03` |
+| `WEB-P08-02` | Responsive Komponentenfeinarbeit | **teilweise umgesetzt** | Responsive Templates, stabile Layouttracks, 320-/Tablet-/Desktop-/große-Display-Gates und 15 visuelle Screenshot-Stichproben sind lokal grün; der CatGPT-Launcher verdeckt keinen Seiteninhalt. | Manuelle Zoomabnahme, Merge, Review, CI und externe Artefaktabnahme nachführen. | `M03` |
+| `WEB-P08-03` | Accessibility- und Reduced-Motion-Gate | **teilweise umgesetzt** | Playwright-Corematrix, No-JS-Degradation, Reduced-Motion-Test, Focus-/Touch-Lightboxtests, Visual Contract und axe-Serious/Critical-Gate bestehen lokal. | Manuelle Screenreader-/Zoomabnahme sowie Merge-/Review-/CI-Nachweis abschließen. | `M03` |
+| `WEB-P08-04` | Fehler-, Leer- und Ladezustände | **teilweise umgesetzt** | 404, leere Filter, Medienfehler, unknown, leere Kapitel, fehlende Downloads und Statuszustände sind lokal implementiert und durch Browser-/Unit-Gates geprüft. | Merge, Review, CI und externe Artefaktabnahme. | `M02/M03` |
 | `WEB-P09-01` | Bestehende Checks äquivalent migrieren | **umgesetzt** | Aktuelle CI erhält Applet-, Generator-, Plattform- und Webchecks mit festen Runnern und Action-SHAs. | Nur Äquivalenzregister und Pinpflege nachführen. | `Pflege` |
-| `WEB-P09-02` | Schreibgeschützte Pull-Request-CI | **teilweise umgesetzt** | PR-Checks sind read-only, ohne Deployment und mit Sparse Checkout. | Browser-, axe-, Budget-, Origin- und Arbeitskopiegates ergänzen. | `M03/M04` |
-| `WEB-P09-03` | Pages-Build und Deployment aus einem Artefakt | **teilweise umgesetzt** | Pages baut einmal und validiert vor Upload; Build und Deployment liegen aber noch in einem Job. | Getrennte Build-/Deployjobs mit exakt einem geprüften Artefakt und aktueller Factory-Pin-Evidenz. | `M01` |
-| `WEB-P09-04` | Fail-closed Pages-Artefaktvalidator | **umgesetzt** | Fail-closed Artefaktvalidator wird in Hub- und Archivbuilds verwendet. | Validator nur bei neuen Dateitypen/Budgets erweitern. | `Pflege` |
-| `WEB-P10-01` | Freshnessmanifest und knapper öffentlicher Status | **teilweise umgesetzt** | Medienmanifest, Archivmanifest und Projektstatusroute existieren. | Explizites Freshness-SLA, Quellrevision, neueste IDs und veralteter-Stand-Warnung ergänzen. | `M05` |
-| `WEB-P10-02` | Projekt-/Wartungsbereich und Provenienz | **teilweise umgesetzt** | README, Migrationsbericht und Projektstatus trennen öffentliche und technische Informationen teilweise. | Wartungsbereich, Lizenz/Provenienz und redigierte Buildinformationen vervollständigen. | `M05` |
+| `WEB-P09-02` | Schreibgeschützte Pull-Request-CI | **teilweise umgesetzt** | Read-only PR-Workflow mit gepinnten Actions, Sparse Checkout, npm-/Astro-Checks, Browsermatrix, Performance-, Artefakt-, Budget-, Arbeitskopie- und `always()`-Diagnoseartefaktgate ist vorhanden; der Workflowvertrag ist mit `1/1` Test abgesichert. | Externen Workflowlauf und Merge-/Review-Nachweis nachführen; kein Deployment im PR. | `M03/M04` |
+| `WEB-P09-03` | Pages-Build und Deployment aus einem Artefakt | **teilweise umgesetzt** | `hub-pages.yml` und `archive-pages.yml` trennen Build-/Deployjobs, validieren Baumhash und Budgets vor Upload und deployen exakt das einmalige Pages-Artefakt ohne zweiten Build. | Externen Pages-Lauf und aktuelle Factory-/Live-Domain-Abnahme nachführen. | `M01` |
+| `WEB-P09-04` | Fail-closed Pages-Artefaktvalidator | **umgesetzt** | `scripts/validate_pages_artifact.py` und Budgetvalidator werden in Hub-/Archivworkflow sowie Fixturetests verwendet; alle fünf Artefaktfixtures bestehen. | Validator nur bei neuen Dateitypen/Budgets erweitern. | `Pflege` |
+| `WEB-P10-01` | Freshnessmanifest und knapper öffentlicher Status | **teilweise umgesetzt** | Versioniertes Statusschema und atomare Erzeugung trennen Quellrevision, neueste Medien-/Kapitel-IDs, Buildzeit und Freshness-SLA; öffentliche Ausgabe ist redigiert und fail-closed. Read-only-Recheck am 05.08.2026 08:17:57Z meldet Hub `798` Bilder/`1` Story und Archiv `798` Bilder/`2` Storys; der lokale Stand weicht mit `779` Medien/`195` Kapiteln ab. | Generator-/Pages-E2E, Publish-Lock-/Dispatchnachweis und externe Abnahme bleiben offen. | `M05` |
+| `WEB-P10-02` | Projekt-/Wartungsbereich und Provenienz | **teilweise umgesetzt** | Projekt-/Statusseiten, Provenienz- und Betriebsdokumente sind vorhanden; ein eigener Browsergate prüft Primärnavigation und redigierte Ausgabe ohne lokale Pfade/Geheimnisbegriffe. | Lizenz-/Provenienzabnahme, externe Artefakt- und Merge-/Reviewnachweise vervollständigen. | `M05` |
 | `WEB-P10-03` | Recovery-, Rollback- und Redeploy-Runbook | **teilweise umgesetzt** | Rollout-, Backup- und Migrationspläne existieren. | Website-Redeploy, letzte gute Revision, Cache-/Derivatrebuild und Medienisolation als getestetes Runbook schließen. | `M05` |
 | `WEB-P10-04` | Sicherer Generator-Publish- und Pages-Trigger | **teilweise umgesetzt** | Generator veröffentlicht Releaseassets und Manifestcommits fortlaufend; Archivrotation ist entworfen. | Aktuellen Factory-Pin ausrollen, Parallelität/Freshness beweisen und Archivwechsel E2E testen. | `M01/M05` |
-| `WEB-P11-01` | Performance-, Größen- und Buildbudgets | **offen** | Keine vollständige numerische Web-/Buildbudget-Baseline belegt. | Deterministische Größenbudgets sofort, Lighthouse erst nach dreifacher Baseline blockieren. | `M04` |
+| `WEB-P11-01` | Performance-, Größen- und Buildbudgets | **teilweise umgesetzt** | Deterministische Artefaktbudgets, CI-Gates, SEO-/Performancebrowsergate und dreifacher read-only Medien-/Hostinglauf sind grün; Home 1.908.894 B, Galerie 34.649 B, keine fremden Runtime-Requests, vollständiger Fixturebaum 21.910.811 B. | Merge-/CI- und Hostingnachweis sowie belastbare Live-/Runnerbaseline. | `M04` |
 | `WEB-P11-02` | Hosting- und Großrepository-Freeze | **umgesetzt** | Originale/Derivate liegen in Releases; aktueller Git-Baum enthält keine Bildbinärdateien. | Schwellen regelmäßig mit Wachstum und Releaseanzahl neu prüfen. | `Pflege` |
-| `WEB-P11-03` | SEO, Sitemap, Feed und Social-Metadaten | **umgesetzt** | Canonical, Open Graph, Feed, Sitemap und robots-Verträge sind implementiert. | Browser-/URL-Abnahme und Social-Preview-Größen budgetieren. | `M03/M04` |
-| `WEB-P11-04` | Custom Domain und Releaseabnahme | **in Arbeit** | Custom Domains und Pages-Verträge existieren; aktuelle Produktion ist nach Factory-Drift nicht vollständig nachgewiesen. | Hub und Archiv auf geprüften Stand deployen, DNS/HTTPS/live Content manuell und automatisiert verifizieren. | `M01` |
-| `WEB-P12-01` | Optionen priorisieren und isolieren | **offen** | Optionen wurden nicht als Kern erzwungen. | Optionenregister mit Nutzen, Kosten, A11y, Datenschutz, Test und eigenem Rollback anlegen. | `M06` |
+| `WEB-P11-03` | SEO, Sitemap, Feed und Social-Metadaten | **umgesetzt** | Canonical, Open Graph, Feed, Sitemap und robots-Verträge sind implementiert und durch einen origin-gebundenen Browser-/URL-Gate geprüft. | Nur laufende Social-Preview-/URL- und Größenabnahme. | `M03/M04` |
+| `WEB-P11-04` | Custom Domain und Releaseabnahme | **in Arbeit** | Read-only-Recheck am 05.08.2026 08:17:57Z: Hub und Archiv antworten über HTTPS mit HTTP 200 und HSTS, ohne Redirect; robots, Sitemap und Feed liefern 200, die getesteten nummerischen Negativhosts liefern keine A-/AAAA-Antwort. Der Archivworkflow verwendet weiter Factory `b00d824…`; live stehen Hub/Archiv bei 798 Medien gegenüber lokal 779/195. | Factory-Repin und geprüften Stand auf Hub/Archiv verifizieren, danach Live-Content, Freshness, Review, Rollback und Releaseabnahme abschließen. | `M01` |
+| `WEB-P12-01` | Optionen priorisieren und isolieren | **teilweise umgesetzt** | Optionenregister, bewusster MVP-Verzicht und isolierte Tests sind vorhanden. | Merge, Review und erneute fachliche Neubewertung bei belastbarer Datenbasis. | `M06` |
 
 ### 8.1 Zusammenfassung
 
 | Status | Anzahl |
 |---|---:|
 | umgesetzt | 14 |
-| teilweise umgesetzt | 25 |
+| teilweise umgesetzt | 31 |
 | in Arbeit | 3 |
-| offen | 6 |
+| offen | 0 |
 | **Gesamt** | **48** |
 
 | Phase | umgesetzt | teilweise umgesetzt | in Arbeit | offen | Summe |
@@ -428,15 +436,15 @@ flowchart LR
 | `P01` | 0 | 4 | 0 | 0 | 4 |
 | `P02` | 3 | 1 | 0 | 0 | 4 |
 | `P03` | 1 | 3 | 0 | 0 | 4 |
-| `P04` | 3 | 0 | 0 | 1 | 4 |
-| `P05` | 1 | 1 | 0 | 1 | 3 |
+| `P04` | 3 | 1 | 0 | 0 | 4 |
+| `P05` | 1 | 2 | 0 | 0 | 3 |
 | `P06` | 1 | 3 | 0 | 0 | 4 |
-| `P07` | 0 | 3 | 0 | 1 | 4 |
-| `P08` | 0 | 3 | 0 | 1 | 4 |
+| `P07` | 0 | 4 | 0 | 0 | 4 |
+| `P08` | 0 | 4 | 0 | 0 | 4 |
 | `P09` | 2 | 2 | 0 | 0 | 4 |
 | `P10` | 0 | 4 | 0 | 0 | 4 |
-| `P11` | 2 | 0 | 1 | 1 | 4 |
-| `P12` | 0 | 0 | 0 | 1 | 1 |
+| `P11` | 2 | 1 | 1 | 0 | 4 |
+| `P12` | 0 | 1 | 0 | 0 | 1 |
 
 > [!NOTE] Konservative Bewertung
 > `teilweise umgesetzt` bedeutet nicht, dass die vorhandene Software unbrauchbar wäre. Es bedeutet, dass der umfassendere DoD des ursprünglichen Plans — häufig einschließlich Browserabnahme, Fehlerfixtures, Bericht, Migration und Rollback — noch nicht vollständig belegt ist.
@@ -1171,12 +1179,11 @@ Der Kern ist abgeschlossen, wenn:
 
 ## 26. Unmittelbar nächste Schritte
 
-1. **M00 abschließen:** v2-Plan und Validator als reinen Governance-PR in `Wirtelprimpf-generator` übernehmen.
-2. **M01 Factory-Stabilisierung:** aktuellen Generatorfreeze vollständig auf beiden Profilen und realen Archivdaten prüfen.
-3. **Pagesjobs trennen:** Buildartefakt einmal erzeugen, Deployjob nur konsumieren lassen.
-4. **Archiv 0001 repinnen:** neuen Factory-SHA in einem eigenen PR, mit Treehash und Rollback.
-5. **Hub/Archiv live abnehmen:** Freshness, Domain, HTTPS, Feed/Sitemap, Original-/Derivatdownload und öffentliche Copy.
-6. Erst danach **M02 UX-Ausbau** beginnen.
+1. **M00 abschließen:** v2-Plan, Register und Validator in einem reviewbaren Governance-PR integrieren und extern abnehmen.
+2. **M01 Factory-Stabilisierung:** aktuellen Generatorfreeze auf beiden Profilen mit realen Archivdaten und externem Workflowlauf prüfen.
+3. **Archiv 0001 repinnen:** geprüften Factory-SHA mit Treehash, Freshness und Rollbacknachweis übernehmen.
+4. **Hub/Archiv live abnehmen:** Domain, HTTPS, Feed/Sitemap, Original-/Derivatdownload, öffentliche Copy und Status verifizieren.
+5. **Restabnahmen schließen:** vollständigen Mediencheckout, Cache-/Wachstumsbericht, manuelle A11y-Abnahme, EPUB- und Recovery-Nachweis durchführen.
 
 Es gibt aktuell keinen fachlichen Grund, den alten P00-Materialisierungsworkflow weiter zu reparieren.
 
@@ -1184,13 +1191,13 @@ Es gibt aktuell keinen fachlichen Grund, den alten P00-Materialisierungsworkflow
 
 Seit dem letzten Lauf wurde wesentlich mehr als der damalige P00-Schritt umgesetzt: Repositorytrennung, Release-Medienmigration, Archiv-/Buchmodell, Astro-Factory, Kernrouten, Publikationspipeline, Applet-/Storydirektiven und transaktionale lokale Administration. Der alte Plan war deshalb in Repositoryziel, Medienmodell, Publishkadenz und PR-Reihenfolge überholt.
 
-Die Architektur ist insgesamt tragfähig und näher am ursprünglichen Qualitätsziel als der alte Monorepoansatz. Die größten offenen Risiken liegen nicht mehr in der Grundarchitektur, sondern in:
+Die Architektur ist insgesamt tragfähig und näher am ursprünglichen Qualitätsziel als der alte Monorepoansatz. Die größten offenen Risiken liegen nicht mehr in der Grundarchitektur oder den lokalen Kernjourneys, sondern in:
 
 1. dem nicht abgeglichenen Factory-Pin;
 2. fehlender Live-/Deployment-Evidenz des neuesten Stands;
-3. unvollständigen Detail-/Readerjourneys;
-4. fehlenden Browser-/Accessibility-Gates;
-5. fehlenden numerischen Medien-/Performancebudgets;
+3. fehlender manueller Screenreader-/Zoomabnahme;
+4. vollständigem Quellencheckout, Cachebaseline und Wachstumshistorie;
+5. fehlender produktiver EPUB-Quelle und externer Releaseabnahme;
 6. nicht abgeschlossener Recovery-/Rotationsabnahme.
 
 Diese v2-Fassung richtet die Umsetzung genau auf diese Restarbeit aus.
@@ -1505,11 +1512,11 @@ Bewusst verworfen: MkDocs als Hauptoberfläche, unendliches Scrollen, Laufzeit-G
 
 ## 37. ADRs und offene Entscheidungen
 
-Die 13 Entwürfe stehen in `docs/adr/README.md` und `config/architecture-decisions.json`. ADR-001 empfiehlt Astro, ADR-003 Sharp, ADR-006 statische Pagination plus Enhancement, ADR-009 MVP ohne Suche und ADR-010 base-path-first. Jeder Freeze braucht Messbericht, reviewte Markdown-ADR und grüne Contracttests.
+Die 13 Entwürfe stehen in `docs/adr/README.md` und `config/architecture-decisions.json`. ADR-WEB-001 empfiehlt statischen Astro-7-Output, ADR-WEB-004 Sharp/libvips, ADR-WEB-007 statische Pagination plus Enhancement, ADR-WEB-011 hält Suche aus dem MVP und ADR-WEB-010 regelt Custom Domains im `telacore.org`-Namensraum. Jeder Freeze braucht Messbericht, reviewte Markdown-ADR und grüne Contracttests.
 
 ## 38. Phasen-, PR- und Parallelisierungsmodell
 
-PR 1=P00. PR 2=P01. PR 3=P02. PR 4=P03. PR 5=P04. PR 6=P05. PR 7=P06. PR 8=P07. PR 9=P08. PR 10=P09. PR 11=P10. PR 12=P11. P12 ausschließlich getrennte optionale PRs. Parallel möglich: P05-Komponentenentwurf nach P04-Datenvertrag; P08-Tokenarbeit nach P02-Skeleton; P10-Dokumentation nach Statusschema. Nicht parallel: P03 vor ADR-003-Freeze, Routes vor ID-Vertrag, Deployment vor Artefaktvalidator.
+PR 1=P00. PR 2=P01. PR 3=P02. PR 4=P03. PR 5=P04. PR 6=P05. PR 7=P06. PR 8=P07. PR 9=P08. PR 10=P09. PR 11=P10. PR 12=P11. P12 ausschließlich getrennte optionale PRs. Parallel möglich: P05-Komponentenentwurf nach P04-Datenvertrag; P08-Tokenarbeit nach P02-Skeleton; P10-Dokumentation nach Statusschema. Nicht parallel: P03 vor ADR-WEB-003-Freeze, Routes vor ID-Vertrag, Deployment vor Artefaktvalidator.
 
 ## 39. Datei-für-Datei-Arbeitspakete
 
@@ -1551,7 +1558,7 @@ python3 scripts/validate_web_governance.py --root .
 
 ### WEB-P00-02 – Sichere read-only Medieninventur
 
-- **Status:** in Arbeit
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P00 / PR 1
 - **Anforderungs-IDs:** `WEB-REQ-027`, `WEB-REQ-028`, `WEB-REQ-029`, `WEB-REQ-053`
 - **Ziel und Begründung:** Schafft belastbare Mess- und Sicherheitsdaten, ohne das große Medienarchiv zu verändern.
@@ -1566,12 +1573,13 @@ python3 scripts/validate_web_governance.py --root .
   1. Tests für LFS, Symlink, Case-Kollision, EPUB, Duplikat und Hardlink zuerst rot ausführen.
   2. Scanner minimal implementieren.
   3. stabile JSON-Ausgabe und atomaren Schreibpfad absichern.
-  4. Vollinventur als getrennten Lauf dokumentieren.
+  4. **Erledigt:** Vollinventur als getrennten Lauf dokumentieren; der vollständige Migrationscheckout ist mit Manifest und Source-Scan abgeglichen.
 - **Lokale Prüfkommandos:**
 
 ```bash
 python3 tests/test_web_inventory.py
 SOURCE_DATE_EPOCH=0 python3 scripts/web_inventory.py --root . --strict
+SOURCE_DATE_EPOCH=0 python3 scripts/web_inventory.py --root . --manifest data/media-manifest.json --source-root /home/teladi/.local/state/wirtelprimpf/media-migration-0001 --strict --output build/reports/web-inventory-migration-0001.json
 ```
 - **Erwartete Ausgaben/Exitcodes:** alle genannten Positivprüfungen Exit 0; bewusst negative Fixtures müssen den dokumentierten Nichtnullcode liefern.
 - **CI-/Browser-/A11y-Prüfung:** das Paket wird in den bestehenden `make check` beziehungsweise ab P09 in den schreibgeschützten Validate-Workflow eingebunden; UI-Pakete besitzen benannte Playwright-Szenarien.
@@ -1590,7 +1598,7 @@ SOURCE_DATE_EPOCH=0 python3 scripts/web_inventory.py --root . --strict
 - **Anforderungs-IDs:** `WEB-REQ-051`
 - **Ziel und Begründung:** Überführt die 60-KiB-Master-Spezifikation in eine pflegbare, tracebare Arbeitsgrundlage.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `.github/workflows/check.yml`, `tests/test_web_workflows.py` und `docs/WEB-CHECK-EQUIVALENCE.md`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
 - **Neu anzulegen:** `docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md`, `docs/requirements/WIRTELPRIMPF-WEBSEITE.md`, `config/web-requirements.json`, `config/architecture-decisions.json`, `docs/adr/README.md`.
 - **Kennzeichnung:** angepasst übernehmen / neu entwickeln.
@@ -1618,7 +1626,7 @@ python3 scripts/validate_web_governance.py --root .
 
 ### WEB-P00-04 – Bestehenden Check additiv erweitern
 
-- **Status:** in Arbeit
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P00 / PR 1
 - **Anforderungs-IDs:** `WEB-REQ-060`
 - **Ziel und Begründung:** Bindet neue Tests ein, ohne Generator-/Applet-Prüfungen zu entfernen oder die Website schon zu deployen.
@@ -1652,7 +1660,7 @@ git diff --check
 
 ### WEB-P01-01 – Versionierte Bild-, Band- und Kapitelschemas
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P01 / PR 2
 - **Anforderungs-IDs:** `WEB-REQ-021`, `WEB-REQ-022`, `WEB-REQ-023`
 - **Ziel und Begründung:** Definiert den stabilen buildzeitigen Datenvertrag für alle Routen und Derivate.
@@ -1685,7 +1693,7 @@ python3 tests/test_web_content_schemas.py
 
 ### WEB-P01-02 – Pairing-Engine und Zeitstempelpriorität
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P01 / PR 2
 - **Anforderungs-IDs:** `WEB-REQ-025`
 - **Ziel und Begründung:** Vereinigt Bilder, Prompts, Kapitel, Bände und working-Verweise nach einer einzigen nachvollziehbaren Fachlogik.
@@ -1718,7 +1726,7 @@ python3 tests/test_web_pairing.py
 
 ### WEB-P01-03 – Fehlerkatalog, Fixtures und Ausnahme-Registry
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P01 / PR 2
 - **Anforderungs-IDs:** `WEB-REQ-025`
 - **Ziel und Begründung:** Macht bekannte Archivabweichungen explizit statt still toleriert.
@@ -1751,7 +1759,7 @@ python3 tests/test_web_pairing.py
 
 ### WEB-P01-04 – Stabile IDs und Aliasregister
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P01 / PR 2
 - **Anforderungs-IDs:** `WEB-REQ-026`
 - **Ziel und Begründung:** Erhält Permalinks und lokale Zustände über Umbenennungen hinweg.
@@ -1784,7 +1792,7 @@ python3 tests/test_web_ids.py
 
 ### WEB-P02-01 – Astro-7-Grundgerüst mit statischem Output
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P02 / PR 3
 - **Anforderungs-IDs:** `WEB-REQ-034`
 - **Ziel und Begründung:** Setzt die gewählte Architektur minimal und ohne unnötige Laufzeit-JavaScript-Abhängigkeit auf.
@@ -1818,14 +1826,15 @@ cd web && npm run build
 
 ### WEB-P02-02 – Sicheres Staging und reproduzierbarer Gesamtbuild
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P02 / PR 3
 - **Anforderungs-IDs:** `WEB-REQ-008`, `WEB-REQ-010`
 - **Ziel und Begründung:** Trennt Quellen, Staging, generierte Daten und site-Artefakt fail-closed.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
 - **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `scripts/web_io.py`, `scripts/build_web_data.py`, `scripts/build_web_site.py`, `tests/test_web_build.py`.
+- **Neu anzulegen:** `scripts/build_web_site.py`, `tests/test_web_build.py`.
+- **Historische Pfade nicht übernommen:** `scripts/web_io.py` und `scripts/build_web_data.py`; die aktuelle Astro-Fabrik trennt Datenzugriff in `web/src/lib/data.ts` und Statuserzeugung in `scripts/build_web_status.py`.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:scripts/build_docs.py`, `scripts/build_site.py`, `scripts/io_utils.py` und aktuelle Astro-GitHub-Pages-Dokumentation. Build-/Stagingprinzipien angepasst; kein MkDocs-Themecode direkt übernehmen.
 - **Datenverträge/Schemaänderungen:** Buildkonfiguration, Route-/Base-Path-Vertrag, Quellmanifest, Buildreport und reproduzierbarer Artefaktbaum; keine Änderung der P01-Fachschemata ohne Migration.
@@ -1852,7 +1861,7 @@ python3 scripts/build_web_site.py --check
 
 ### WEB-P02-03 – Sichere Markdown-Pipeline
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P02 / PR 3
 - **Anforderungs-IDs:** `WEB-REQ-047`
 - **Ziel und Begründung:** Rendert Storytext deterministisch ohne aktives ungeprüftes HTML.
@@ -1885,7 +1894,7 @@ cd web && npm test -- markdown
 
 ### WEB-P02-04 – Base-Path- und URL-Vertrag
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P02 / PR 3
 - **Anforderungs-IDs:** `WEB-REQ-035`
 - **Ziel und Begründung:** Verhindert harte Annahmen über Root-Hosting und stabilisiert Canonicals.
@@ -1918,7 +1927,7 @@ cd web && npm test -- urls
 
 ### WEB-P03-01 – Responsive Derivatpipeline mit Sharp
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P03 / PR 4
 - **Anforderungs-IDs:** `WEB-REQ-030`
 - **Ziel und Begründung:** Erzeugt layoutgerechte, cachebare Webderivate ohne Originale zu verändern.
@@ -1952,26 +1961,32 @@ cd web && npm test -- images
 
 ### WEB-P03-02 – Derivatcache und Manifest
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P03 / PR 4
 - **Anforderungs-IDs:** `WEB-REQ-033`
 - **Ziel und Begründung:** Vermeidet vollständige Neuberechnung bei jedem neuen Bild.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `Makefile`, `README.md`, `scripts/validate_web_governance.py`, `tests/test_web_governance.py` sowie der bestehende Plattformcache und Medienplan.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `config/schemas/web-image-manifest.schema.json`, `web/src/generated/image-manifest.json`, `web/tests/image-cache.test.mjs`.
+- **Neu anzulegen:** `config/schemas/web-image-manifest.schema.json`, `scripts/validate_web_manifest.py`, `tests/test_web_manifest.py`, `docs/WEB-MEDIA.md`, `web/tests/image-cache.test.ts`.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Katzenbilder@f6ed86d6d2b482301fe93c9510b5380db542a788:Sourcecode/wirtelprimpf_generator.py` für Quellauflösungen; `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:scripts/validate_pages_artifact.py` für Größen-/Regularitätsprinzipien; Sharp/libvips als externe, gelockte Abhängigkeit. Neu entwickeln und messen.
 - **Datenverträge/Schemaänderungen:** Derivatmanifest, Transformationskonfiguration, Cache-Key-Vertrag und Medienmessbericht; Quellhash, Toolversion und Parameter sind Pflichtbestandteile.
 - **Implementierungsschritte:**
-  1. Cache-Key aus Quellhash, Sharp/libvips-Version und Variantenkonfiguration bilden.
-  2. untrusted PR-Cache nur lesen oder getrennt halten.
-  3. atomaren Satztausch implementieren.
-  4. Cache-Hit-Metrik ausgeben.
+  1. **Erledigt:** Cache-Key aus Quellhash, Transformationswerkzeug/-version, Variantenkonfiguration, Format und Breite bilden.
+  2. **Erledigt:** Read-only-Cachepfad ohne Cache- oder Temp-Schreibvorgänge unterstützen.
+  3. **Erledigt:** Vollständigen, hash- und bildgeprüften Derivatsatz atomar veröffentlichen; beschädigte Einträge als Miss neu erzeugen.
+  4. **Erledigt:** Cache-Hit-, Miss-, Write- und Invalid-Statistik im Releaseplanbericht ausgeben.
+  5. **Erledigt:** Manifest-Schema und fail-closed Validator für Archiv-, Shard-, ID-, Release-, Hash- und Variantengrenzen ergänzen.
+  6. **Erledigt:** Vollständiger Manifest-/Migrationsabgleich und der Kaltlauf mit derselben Toolversion erzeugen `1.558` erwartete Einträge ohne Hash-/Dimensionsabweichung; der Kaltlauf verzeichnet `1.558` Misses/Writes bei `0` Invalids, zwei anschließende read-only Warm-Replays erreichen jeweils 1.0 Cache-Hit-Rate bei `1.558/1.558` Requests.
 - **Lokale Prüfkommandos:**
 
 ```bash
 cd web && npm test -- image-cache
+python3 -W error tests/test_web_manifest.py
+SOURCE_DATE_EPOCH=0 python3 scripts/validate_web_manifest.py --root . --strict
+python3 scripts/measure_media_cache_replay.py --source-root /home/teladi/.local/state/wirtelprimpf/media-migration-0001 --manifest data/media-manifest.json --passes 2 --measure-cold --strict --output build/reports/media-cache-cold-replay.json
+make check
 ```
 - **Erwartete Ausgaben/Exitcodes:** alle genannten Positivprüfungen Exit 0; bewusst negative Fixtures müssen den dokumentierten Nichtnullcode liefern.
 - **CI-/Browser-/A11y-Prüfung:** das Paket wird in den bestehenden `make check` beziehungsweise ab P09 in den schreibgeschützten Validate-Workflow eingebunden; UI-Pakete besitzen benannte Playwright-Szenarien.
@@ -1985,26 +2000,31 @@ cd web && npm test -- image-cache
 
 ### WEB-P03-03 – Medienparser-Sicherheitsgrenzen und Metadatenbereinigung
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P03 / PR 4
 - **Anforderungs-IDs:** `WEB-REQ-031`, `WEB-REQ-032`
 - **Ziel und Begründung:** Blockiert Dekompressionsbomben, extreme Maße, beschädigte Dateien und private Metadaten.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `wirtelprimpf_platform/media.py`, `tests/platform/test_media_release.py`, `Makefile`, `scripts/validate_web_governance.py` und `tests/test_web_governance.py`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `config/web-media-limits.json`, `web/tests/image-security.test.mjs`, `docs/WEB-MEDIA-SECURITY.md`.
+- **Neu anzulegen:** `config/web-media-limits.json`, `docs/WEB-MEDIA-SECURITY.md`.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Katzenbilder@f6ed86d6d2b482301fe93c9510b5380db542a788:Sourcecode/wirtelprimpf_generator.py` für Quellauflösungen; `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:scripts/validate_pages_artifact.py` für Größen-/Regularitätsprinzipien; Sharp/libvips als externe, gelockte Abhängigkeit. Neu entwickeln und messen.
 - **Datenverträge/Schemaänderungen:** Derivatmanifest, Transformationskonfiguration, Cache-Key-Vertrag und Medienmessbericht; Quellhash, Toolversion und Parameter sind Pflichtbestandteile.
 - **Implementierungsschritte:**
-  1. Pixel-/Byte-/Speichergrenzen vor Dekodierung prüfen.
-  2. EXIF/GPS aus Webderivaten entfernen.
-  3. ICC/Farbraum bewusst behandeln.
-  4. Timeout und Einzelfehlerdiagnose implementieren.
+  1. **Erledigt:** Byte-/Pixelgrenzen, Header-/EOF- und Dekompressionsfehler fail-closed behandeln.
+  2. **Erledigt:** EXIF-Orientierung vor dem Derivat anwenden und EXIF/GPS aus Webderivaten entfernen.
+  3. **Erledigt:** neues RGB-WebP ohne ICC-/sonstige Quellmetadaten erzeugen.
+  4. **Erledigt:** LFS-Pointer, Symlink-/Case-Risiken, Suffix-/Formatabweichungen und Teilreleasepfade blockieren.
+  5. **Erledigt:** Fehlerdiagnosen auf relative Medienpfade begrenzen.
+  6. **Teilweise erledigt:** Vollständiger Migration-Source-Scan und Manifestabgleich sind fehlerfrei; die verbleibende Rechte-/Policy-Stichprobe, Review und CI sind externe bzw. manuelle Abnahmen.
 - **Lokale Prüfkommandos:**
 
 ```bash
 cd web && npm test -- image-security
+python3 -m unittest tests.platform.test_media_release
+python3 -m json.tool config/web-media-limits.json >/dev/null
+make check
 ```
 - **Erwartete Ausgaben/Exitcodes:** alle genannten Positivprüfungen Exit 0; bewusst negative Fixtures müssen den dokumentierten Nichtnullcode liefern.
 - **CI-/Browser-/A11y-Prüfung:** das Paket wird in den bestehenden `make check` beziehungsweise ab P09 in den schreibgeschützten Validate-Workflow eingebunden; UI-Pakete besitzen benannte Playwright-Szenarien.
@@ -2018,26 +2038,30 @@ cd web && npm test -- image-security
 
 ### WEB-P03-04 – Hostingmessung und Schwellenbericht
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P03 / PR 4
 - **Anforderungs-IDs:** `WEB-REQ-030`
 - **Ziel und Begründung:** Ersetzt Vermutungen durch Checkout-, Build-, Cache-, Artefakt- und Wachstumswerte.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `scripts/measure_web_media.py`, `tests/test_web_media_measurement.py`, `Makefile`, `scripts/validate_web_governance.py`, `tests/test_web_governance.py` und `docs/WEB-PERFORMANCE.md`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `scripts/measure_web_media.py`, `build/reports/web-media-costs.json`, `docs/WEB-HOSTING-DECISION.md`.
+- **Neu anzulegen:** `scripts/measure_web_media.py`, `tests/test_web_media_measurement.py`, `docs/WEB-HOSTING-DECISION.md`; `build/reports/web-media-costs.json` ist ein ignoriertes, atomar erzeugtes Messartefakt.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Katzenbilder@f6ed86d6d2b482301fe93c9510b5380db542a788:Sourcecode/wirtelprimpf_generator.py` für Quellauflösungen; `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:scripts/validate_pages_artifact.py` für Größen-/Regularitätsprinzipien; Sharp/libvips als externe, gelockte Abhängigkeit. Neu entwickeln und messen.
 - **Datenverträge/Schemaänderungen:** Derivatmanifest, Transformationskonfiguration, Cache-Key-Vertrag und Medienmessbericht; Quellhash, Toolversion und Parameter sind Pflichtbestandteile.
 - **Implementierungsschritte:**
-  1. kalte/warme Läufe dreifach messen.
-  2. 12/24/36-Monatsprognose aus Git-Historie bilden.
-  3. Pages-voll gegen Derivate-plus-externe-Originale vergleichen.
-  4. ADR-002 aktualisieren.
+  1. **Erledigt:** wiederholte Builds, Median/P95, maximale Kindprozess-RSS, Artefaktbaumhash und Arbeitskopieunverändertheit messen; der reproduzierbare Dreifachlauf ist grün.
+  2. **Teilweise erledigt:** Git-Historie auswerten und 12/24/36-Monatsprojektionen nur bei mindestens zwei belastbaren Punkten berechnen; aktuell `insufficient_history`.
+  3. **Erledigt:** Pages-Artefaktumfang vom releasegebundenen Originalumfang trennen und Budgetentscheidung ausweisen.
+  4. **Teilweise erledigt:** Die synthetische 10-Bilder-Neue-Story-Fixture erreicht gegen den vollständig vorgefüllten Archivcache `98,7326 %` kombinierte Hits (`1.558/1.578`) bei `0` Invalids; drei echte vergleichbare Produktionsläufe mit aktueller Plattformgrenzen-/Rechteprüfung bleiben offen.
+  5. **Offen:** ADR-002/Hostingentscheidung nach diesem Nachweis aktualisieren; keine externe Veröffentlichung ohne gesonderte Freigabe.
 - **Lokale Prüfkommandos:**
 
 ```bash
 python3 scripts/measure_web_media.py --runs 3
+SOURCE_DATE_EPOCH=0 python3 scripts/measure_web_media.py --root . --runs 3 --strict --output build/reports/web-media-costs.json
+python3 -W error tests/test_web_media_measurement.py
+make check
 ```
 - **Erwartete Ausgaben/Exitcodes:** alle genannten Positivprüfungen Exit 0; bewusst negative Fixtures müssen den dokumentierten Nichtnullcode liefern.
 - **CI-/Browser-/A11y-Prüfung:** das Paket wird in den bestehenden `make check` beziehungsweise ab P09 in den schreibgeschützten Validate-Workflow eingebunden; UI-Pakete besitzen benannte Playwright-Szenarien.
@@ -2051,7 +2075,7 @@ python3 scripts/measure_web_media.py --runs 3
 
 ### WEB-P04-01 – Startseite mit aktuellen Inhalten
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P04 / PR 5
 - **Anforderungs-IDs:** `WEB-REQ-002`, `WEB-REQ-011`
 - **Ziel und Begründung:** Bietet sofort Bilder und Geschichten als zwei klare, ruhige Hauptwege.
@@ -2084,7 +2108,7 @@ cd web && npm run test:e2e -- homepage
 
 ### WEB-P04-02 – Galerieindex, Shards und statische Seiten
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P04 / PR 5
 - **Anforderungs-IDs:** `WEB-REQ-024`
 - **Ziel und Begründung:** Skaliert das Archiv ohne unbegrenzte JSON- oder DOM-Dateien.
@@ -2117,7 +2141,7 @@ cd web && npm run test:e2e -- gallery
 
 ### WEB-P04-03 – Progressive Filter und Mehr-anzeigen
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P04 / PR 5
 - **Anforderungs-IDs:** `WEB-REQ-012`
 - **Ziel und Begründung:** Erweitert die statische Galerie, ohne Endlosscrollen oder URL-Verlust.
@@ -2150,7 +2174,7 @@ cd web && npm run test:e2e -- gallery-filters
 
 ### WEB-P04-04 – Galerieposition und Rückkehrzustand
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P04 / PR 5
 - **Anforderungs-IDs:** `WEB-REQ-012`
 - **Ziel und Begründung:** Erhält Filter, Seite und Scrollanker beim Rückweg aus einem Bild.
@@ -2183,7 +2207,7 @@ cd web && npm run test:e2e -- gallery-return
 
 ### WEB-P05-01 – Kanonische Bilddetailseiten
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P05 / PR 6
 - **Anforderungs-IDs:** `WEB-REQ-013`
 - **Ziel und Begründung:** Macht jedes Bild direkt erreichbar und legt die zugängliche Grundlage für die Lightbox.
@@ -2216,7 +2240,7 @@ cd web && npm run test:e2e -- image-detail
 
 ### WEB-P05-02 – Lightbox als progressive Dialogerweiterung
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P05 / PR 6
 - **Anforderungs-IDs:** `WEB-REQ-014`
 - **Ziel und Begründung:** Bietet störungsarme Großansicht ohne die Detailroute zu ersetzen.
@@ -2249,14 +2273,14 @@ cd web && npm run test:e2e -- lightbox
 
 ### WEB-P05-03 – Mediennavigation, Vollbild und Download
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P05 / PR 6
 - **Anforderungs-IDs:** `WEB-REQ-015`
 - **Ziel und Begründung:** Erlaubt bewusste Originalnutzung ohne versteckte Vollauflösungsdownloads.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `web/src/components/MediaDetail.astro`, `web/src/components/Lightbox.astro`, `web/src/pages/bilder/[id].astro`, `web/src/scripts/lightbox.ts`, `web/src/styles/global.css`, `web/tests/browser/core.spec.ts`, `web/tests/media-navigation.test.ts`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `web/src/components/ImageActions.astro`, `web/src/lib/downloads.ts`, `web/tests/downloads.spec.ts`.
+- **Neu anzulegen:** `web/src/components/ImageActions.astro`, `web/src/lib/downloads.ts`, `web/src/scripts/image-actions.ts`, `web/tests/downloads.test.ts`.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:web/assets/javascripts/` und Browsertests als Accessibilitymuster; Detailroute/Lightbox werden galeriebezogen neu entwickelt. Keine UI-Datei blind kopieren.
 - **Datenverträge/Schemaänderungen:** Bilddetail-Viewmodel, Vor-/Zurückrelation, Downloadmetadaten und optionaler Lightboxzustand; kanonische Route bleibt ohne JavaScript gültig.
@@ -2272,7 +2296,7 @@ cd web && npm run test:e2e -- downloads
 ```
 - **Erwartete Ausgaben/Exitcodes:** alle genannten Positivprüfungen Exit 0; bewusst negative Fixtures müssen den dokumentierten Nichtnullcode liefern.
 - **CI-/Browser-/A11y-Prüfung:** das Paket wird in den bestehenden `make check` beziehungsweise ab P09 in den schreibgeschützten Validate-Workflow eingebunden; UI-Pakete besitzen benannte Playwright-Szenarien.
-- **Messbares Akzeptanzkriterium:** Download ist Original und kein Pointer; fehlendes Original erzeugt ruhigen Status statt 404-Schleife.
+- **Messbares Akzeptanzkriterium:** Download ist Original und kein Pointer; fehlendes Original erzeugt ruhigen Status statt 404-Schleife; Vollbild und Teilen erscheinen nur bei nativer Browserfähigkeit; die direkte Detail-/Lightboxfläche bleibt auch bei fehlendem Medium erreichbar.
 - **Risiko/Gegenmaßnahme:** Drift oder Scope-Ausweitung stoppt das Paket; Änderungen werden auf kleinstmöglichen Diff und eigene Regression begrenzt.
 - **Migration/Rollback:** vor Merge einfacher Branch-Revert; nach Merge Revert des Paketcommits/PRs. Kanonische Quellen und IDs werden niemals ohne Alias-/Migrationspfad verändert.
 - **Dokumentationsänderungen:** `docs/WEB-GALLERY.md`, Lightbox-/Download-/Tastaturverhalten und Fehlertexte.
@@ -2282,7 +2306,7 @@ cd web && npm run test:e2e -- downloads
 
 ### WEB-P06-01 – Geschichtenbibliothek und Bandkarten
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P06 / PR 7
 - **Anforderungs-IDs:** `WEB-REQ-016`
 - **Ziel und Begründung:** Zeigt alle Bände mit belastbarem Titel-Fallback, Status und Umfang.
@@ -2315,14 +2339,14 @@ cd web && npm run test:e2e -- story-library
 
 ### WEB-P06-02 – Kapitelroute und Leseansicht
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P06 / PR 7
 - **Anforderungs-IDs:** `WEB-REQ-017`
 - **Ziel und Begründung:** Bietet angenehme, tieflinkfähige Lektüre mit Kontext und Navigation.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `web/src/pages/geschichten/[volume]/[chapter].astro`, `web/src/components/Reader.astro`, `web/src/components/StoryToc.astro`, `web/src/components/StoryPart.astro`, `web/src/lib/story-routes.ts`, `web/tests/story-navigation.test.ts`, `web/tests/browser/core.spec.ts`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `web/src/pages/geschichten/[volume]/[chapter].astro`, `web/src/components/Reader.astro`.
+- **Neu angelegt:** `web/src/pages/geschichten/[volume]/[chapter].astro`, `web/src/components/Reader.astro`, `web/src/components/StoryToc.astro`, `web/src/lib/story-routes.ts`.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Katzenbilder@f6ed86d6d2b482301fe93c9510b5380db542a788:files/wirtelprimfgenerator@H234598/helper.py` (Band-/Teil-/Römisch-Erkennung), `Sourcecode/wirtelprimpf_generator.py` (Storyzustand) sowie `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db` für lange Leseansichten. Fachlogik angepasst, kein kanonischer Text wird umgeschrieben.
 - **Datenverträge/Schemaänderungen:** Band-/Kapitelindizes, Full-Story-Abgleich, EPUBmetadaten und bidirektionale Bild-Kapitel-Relationen auf Basis der P01-Schemas.
@@ -2338,7 +2362,7 @@ cd web && npm run test:e2e -- reader
 ```
 - **Erwartete Ausgaben/Exitcodes:** alle genannten Positivprüfungen Exit 0; bewusst negative Fixtures müssen den dokumentierten Nichtnullcode liefern.
 - **CI-/Browser-/A11y-Prüfung:** das Paket wird in den bestehenden `make check` beziehungsweise ab P09 in den schreibgeschützten Validate-Workflow eingebunden; UI-Pakete besitzen benannte Playwright-Szenarien.
-- **Messbares Akzeptanzkriterium:** Direkter Kapitel-/Abschnittslink, TOC und prev/next funktionieren ohne JS.
+- **Messbares Akzeptanzkriterium:** Direkter Kapitel-/Abschnittslink, TOC und prev/next funktionieren ohne JS; die aktuelle Browserabnahme prüft 13 Szenarien einschließlich Deep Link und No-JS-Kapitelroute.
 - **Risiko/Gegenmaßnahme:** Drift oder Scope-Ausweitung stoppt das Paket; Änderungen werden auf kleinstmöglichen Diff und eigene Regression begrenzt.
 - **Migration/Rollback:** vor Merge einfacher Branch-Revert; nach Merge Revert des Paketcommits/PRs. Kanonische Quellen und IDs werden niemals ohne Alias-/Migrationspfad verändert.
 - **Dokumentationsänderungen:** `docs/WEB-STORIES.md`, Full-Story-/EPUB-Abgleich und ADR-007.
@@ -2348,14 +2372,14 @@ cd web && npm run test:e2e -- reader
 
 ### WEB-P06-03 – Vollbandansicht und EPUB-Vertrag
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P06 / PR 7
 - **Anforderungs-IDs:** `WEB-REQ-019`
 - **Ziel und Begründung:** Bietet vollständiges Lesen, ohne eine unkontrolliert riesige HTML-Datei zu erzeugen.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `web/src/pages/geschichten/[volume].astro`, `web/src/components/EpubDownload.astro`, `web/src/lib/epub.ts`, `web/tests/story-navigation.test.ts`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `web/src/pages/geschichten/[volume]/index.astro`, `scripts/validate_epub.py`, `tests/test_epub_contract.py`.
+- **Neu angelegt:** `web/src/pages/geschichten/[volume].astro`, `web/src/components/EpubDownload.astro`, `web/src/lib/epub.ts`, `web/tests/story-navigation.test.ts`, `tests/test_epub_contract.py`.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Katzenbilder@f6ed86d6d2b482301fe93c9510b5380db542a788:files/wirtelprimfgenerator@H234598/helper.py` (Band-/Teil-/Römisch-Erkennung), `Sourcecode/wirtelprimpf_generator.py` (Storyzustand) sowie `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db` für lange Leseansichten. Fachlogik angepasst, kein kanonischer Text wird umgeschrieben.
 - **Datenverträge/Schemaänderungen:** Band-/Kapitelindizes, Full-Story-Abgleich, EPUBmetadaten und bidirektionale Bild-Kapitel-Relationen auf Basis der P01-Schemas.
@@ -2372,7 +2396,7 @@ cd web && npm run test:e2e -- full-story
 ```
 - **Erwartete Ausgaben/Exitcodes:** alle genannten Positivprüfungen Exit 0; bewusst negative Fixtures müssen den dokumentierten Nichtnullcode liefern.
 - **CI-/Browser-/A11y-Prüfung:** das Paket wird in den bestehenden `make check` beziehungsweise ab P09 in den schreibgeschützten Validate-Workflow eingebunden; UI-Pakete besitzen benannte Playwright-Szenarien.
-- **Messbares Akzeptanzkriterium:** Band ist vollständig navigierbar; EPUB ist valide; größte HTML-Datei bleibt im Budget.
+- **Messbares Akzeptanzkriterium:** Band ist vollständig navigierbar; ein vorhandenes EPUB muss valide sein; fehlendes oder ungültiges EPUB erzeugt keinen Link; größte HTML-Datei bleibt im Budget.
 - **Risiko/Gegenmaßnahme:** Drift oder Scope-Ausweitung stoppt das Paket; Änderungen werden auf kleinstmöglichen Diff und eigene Regression begrenzt.
 - **Migration/Rollback:** vor Merge einfacher Branch-Revert; nach Merge Revert des Paketcommits/PRs. Kanonische Quellen und IDs werden niemals ohne Alias-/Migrationspfad verändert.
 - **Dokumentationsänderungen:** `docs/WEB-STORIES.md`, Full-Story-/EPUB-Abgleich und ADR-007.
@@ -2382,14 +2406,14 @@ cd web && npm run test:e2e -- full-story
 
 ### WEB-P06-04 – Bild-Kapitel-Beziehungsprüfung
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P06 / PR 7
 - **Anforderungs-IDs:** `WEB-REQ-017`
 - **Ziel und Begründung:** Verhindert einseitige oder falsche Verlinkungen zwischen Galerie und Geschichte.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `web/src/lib/story-routes.ts`, `web/src/pages/geschichten/[volume]/[chapter].astro`, `web/src/components/Reader.astro`, `web/src/components/MediaDetail.astro`, `web/tests/story-navigation.test.ts`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `scripts/validate_web_relations.py`, `tests/test_web_relations.py`.
+- **Neu angelegt:** `scripts/validate_web_relations.py`, `tests/test_web_relations.py`.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Katzenbilder@f6ed86d6d2b482301fe93c9510b5380db542a788:files/wirtelprimfgenerator@H234598/helper.py` (Band-/Teil-/Römisch-Erkennung), `Sourcecode/wirtelprimpf_generator.py` (Storyzustand) sowie `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db` für lange Leseansichten. Fachlogik angepasst, kein kanonischer Text wird umgeschrieben.
 - **Datenverträge/Schemaänderungen:** Band-/Kapitelindizes, Full-Story-Abgleich, EPUBmetadaten und bidirektionale Bild-Kapitel-Relationen auf Basis der P01-Schemas.
@@ -2405,7 +2429,7 @@ python3 tests/test_web_relations.py
 ```
 - **Erwartete Ausgaben/Exitcodes:** alle genannten Positivprüfungen Exit 0; bewusst negative Fixtures müssen den dokumentierten Nichtnullcode liefern.
 - **CI-/Browser-/A11y-Prüfung:** das Paket wird in den bestehenden `make check` beziehungsweise ab P09 in den schreibgeschützten Validate-Workflow eingebunden; UI-Pakete besitzen benannte Playwright-Szenarien.
-- **Messbares Akzeptanzkriterium:** Jede publizierte Relation ist bidirektional; keine Route verweist auf nicht publizierte ID.
+- **Messbares Akzeptanzkriterium:** Jede publizierte Relation ist bidirektional; keine Route verweist auf nicht publizierte ID; der Fixture-Validator besteht grün und der Live-Report zählt unaufgelöste Relationen explizit, ohne Quellen umzuschreiben.
 - **Risiko/Gegenmaßnahme:** Drift oder Scope-Ausweitung stoppt das Paket; Änderungen werden auf kleinstmöglichen Diff und eigene Regression begrenzt.
 - **Migration/Rollback:** vor Merge einfacher Branch-Revert; nach Merge Revert des Paketcommits/PRs. Kanonische Quellen und IDs werden niemals ohne Alias-/Migrationspfad verändert.
 - **Dokumentationsänderungen:** `docs/WEB-STORIES.md`, Full-Story-/EPUB-Abgleich und ADR-007.
@@ -2415,22 +2439,23 @@ python3 tests/test_web_relations.py
 
 ### WEB-P07-01 – Versioniertes lokales Zustandsmodell
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P07 / PR 8
 - **Anforderungs-IDs:** `WEB-REQ-046`
 - **Ziel und Begründung:** Speichert nur kleine Komfortzustände und degradiert bei gesperrtem Storage sauber.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `web/src/lib/site-state.ts`, `web/src/lib/site-state.schema.ts`, `web/src/components/SettingsPanel.astro`, `web/tests/site-state.test.ts` und `web/tests/browser/core.spec.ts`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `web/src/lib/site-state.ts`, `web/src/lib/site-state.schema.ts`, `web/tests/site-state.test.mjs`.
+- **Neu anzulegen:** keine; die geplanten Zustandsmodule und Tests sind vorhanden.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:web/assets/javascripts/site-state.js` und zugehörige Storage-/No-JS-Tests. Schema, Limits und Migrationen werden für Bilder/Lesestände neu zugeschnitten.
 - **Datenverträge/Schemaänderungen:** Versionierte `localStorage`-Schemas, Alias-/Migrationsregeln, Größenlimit und optionaler Suchindexvertrag; Komfortzustand ist nie kanonische Quelle.
 - **Implementierungsschritte:**
-  1. Schlüsselpräfix und Schemaversion festlegen.
-  2. Größen-/Eintragslimits erzwingen.
-  3. parse/migrate/reset mit try/catch implementieren.
-  4. Löschfunktion in Wartungsinfo anbieten.
+  1. **Erledigt:** Schlüsselpräfix, Schemaversion und stabile Feldformen festlegen.
+  2. **Erledigt:** 64-KiB-, 500-Fortschritts- und 100-Favoritenlimits erzwingen.
+  3. **Erledigt:** Parse-/Aliasmigrations-/Resetpfad mit fail-closed Storagebehandlung implementieren.
+  4. **Erledigt:** lokale Lesedaten über das Settingspanel sichtbar löschen.
+  5. **Offen:** vollständige Browser-/Screenreaderabnahme, Merge, Review und CI-Nachweis.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2448,7 +2473,7 @@ cd web && npm test -- site-state
 
 ### WEB-P07-02 – Lesefortschritt und optionale Favoriten
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P07 / PR 8
 - **Anforderungs-IDs:** `WEB-REQ-018`
 - **Ziel und Begründung:** Ermöglicht Wiederaufnahme ohne Konto, Tracking oder Zeitreihen.
@@ -2481,22 +2506,22 @@ cd web && npm run test:e2e -- comfort
 
 ### WEB-P07-03 – No-JS- und Fehlerdegradation
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P07 / PR 8
 - **Anforderungs-IDs:** `WEB-REQ-005`
 - **Ziel und Begründung:** Verhindert sichtbare funktionslose JS-Kontrollen und erhält Kernwege.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `web/src/layouts/BaseLayout.astro`, `web/src/styles/global.css`, statische Astro-Routen, `web/src/components/SettingsPanel.astro`, Medien-/Story-Fehlerzustände, `web/tests/browser/core.spec.ts` sowie Vertrags-/Source-Tests.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `web/src/components/NoScriptNotice.astro`, `web/tests/no-js.spec.ts`.
+- **Neu angelegt:** `web/tests/browser/no-js.spec.ts`; die No-JS-Grundwege und Fehlerzustände liegen in den bestehenden Routen und Fixtures.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:web/assets/javascripts/site-state.js` und zugehörige Storage-/No-JS-Tests. Schema, Limits und Migrationen werden für Bilder/Lesestände neu zugeschnitten.
 - **Datenverträge/Schemaänderungen:** Versionierte `localStorage`-Schemas, Alias-/Migrationsregeln, Größenlimit und optionaler Suchindexvertrag; Komfortzustand ist nie kanonische Quelle.
 - **Implementierungsschritte:**
-  1. Enhancement-Controls initial hidden/disabled ausgeben.
-  2. noscript nur sachlich erklären.
-  3. statische Filter/Seiten/Detail/Leser prüfen.
-  4. Share/Lightbox/Favorit bei No-JS nicht anbieten.
+  1. **Erledigt:** Enhancement-Controls standardmäßig verbergen und erst nach dem frühen `data-js="enabled"`-Marker sichtbar machen.
+  2. **Erledigt:** statische Filter-, Seiten-, Detail- und Readerwege ohne JavaScript erhalten.
+  3. **Erledigt:** Medien-, Kapitel-, EPUB-, Status- und Storagefehler ruhig und fail-closed darstellen.
+  4. **Offen:** vollständige No-JS-/320-Pixel-/Screenreaderstichprobe, Merge, Review und CI.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2514,22 +2539,22 @@ cd web && npm run test:e2e -- no-js
 
 ### WEB-P07-04 – Suchgrundlage und bewusster MVP-Verzicht
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P07 / PR 8 oder P12
 - **Anforderungs-IDs:** `WEB-REQ-005`
 - **Ziel und Begründung:** Verhindert eine inhaltsarme oder übergroße Suche; schafft saubere spätere Erweiterung.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `docs/WEB-SEARCH-DECISION.md`, `tests/test_search_source.py`, statische Navigations- und Galeriepfade.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `docs/WEB-SEARCH-DECISION.md`, `tests/test_search_source.py`.
+- **Neu anzulegen:** keine; Entscheidungsdokument und Sourceguard sind vorhanden.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:web/assets/javascripts/site-state.js` und zugehörige Storage-/No-JS-Tests. Schema, Limits und Migrationen werden für Bilder/Lesestände neu zugeschnitten.
 - **Datenverträge/Schemaänderungen:** Versionierte `localStorage`-Schemas, Alias-/Migrationsregeln, Größenlimit und optionaler Suchindexvertrag; Komfortzustand ist nie kanonische Quelle.
 - **Implementierungsschritte:**
-  1. suchbare Felder und Rechte prüfen.
-  2. Pagefind gegen MiniSearch und keine Suche messen.
-  3. Indexbudget festlegen.
-  4. ADR-009 nach realem Bedarf aktualisieren.
+  1. **Erledigt:** Suchfelder, Rechte- und Datenbasisrisiken dokumentieren.
+  2. **Erledigt:** bewussten MVP-Verzicht auf halbfertige Suche per Sourceguard absichern.
+  3. **Offen:** Pagefind/MiniSearch erst bei belastbarer Datenbasis messen und mit Indexbudget entscheiden.
+  4. **Erledigt:** ADR-WEB-011 dokumentiert den bewussten MVP-Verzicht; die Neubewertung bleibt an realen Bedarf und Browserabnahme gebunden.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2547,22 +2572,23 @@ python3 tests/test_search_source.py
 
 ### WEB-P08-01 – Designsystem, Tokens und lokale Assets
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P08 / PR 9
 - **Anforderungs-IDs:** `WEB-REQ-001`, `WEB-REQ-045`, `WEB-REQ-058`
 - **Ziel und Begründung:** Übersetzt warm/ruhig in prüfbare Rollen und Komponenten statt Katzenkitsch.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** `files/wirtelprimfgenerator@H234598/assets/`.
+- **Betroffene vorhandene Dateien:** `web/src/styles/global.css`, `docs/WEB-DESIGN.md`, `docs/WEB-ACCESSIBILITY.md` und lokale `files/wirtelprimfgenerator@H234598/assets/`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `web/src/styles/tokens.css`, `web/src/styles/global.css`, `web/src/components/Icon.astro`, `docs/WEB-DESIGN.md`.
+- **Neu anzulegen:** keine; bestehende Tokens, Styles und Dokumentation werden additiv gepflegt.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:web/assets/stylesheets/`, `web/overrides/` sowie `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db` für Wartungstrennung und Browserabnahme. Nur Tokens, A11y- und Layoutmuster konzeptionell übernehmen.
 - **Datenverträge/Schemaänderungen:** Design-Tokens, Komponenten-/Fehlerzustandsvertrag und Accessibility-Abnahmematrix; keine fachliche Content-Schemaänderung.
 - **Implementierungsschritte:**
-  1. Farbrollen für light/dark/reading definieren.
-  2. Systemschrift oder lokale Lizenzschrift verwenden.
-  3. Spacing/Radien/Schatten/Focus tokens anlegen.
-  4. Assets auf Lizenz, Transparenz und Eignung prüfen.
+  1. **Erledigt:** getrennte Farbrollen für Nacht-, Papier- und Fehler-/Empty-Zustände verwenden.
+  2. **Erledigt:** lokale/Systemschriften, stabile Typgrößen, Fokusregeln und reduzierte Radien verwenden.
+  3. **Erledigt:** dekorative Radialverläufe sowie negative/viewportskalierte Heading-Typografie entfernen.
+  4. **Erledigt:** Farbrollen-/Kontrastmatrix in `docs/WEB-DESIGN.md` dokumentieren und die visuelle Browserstichprobe mit 15 Artefakten ausführen.
+  5. **Offen:** vollständige Lizenz-/Assetstichprobe, manuelle Abnahme und Designfreeze.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2580,22 +2606,23 @@ cd web && npm run test:visual-contract
 
 ### WEB-P08-02 – Responsive Komponentenfeinarbeit
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P08 / PR 9
 - **Anforderungs-IDs:** `WEB-REQ-003`
 - **Ziel und Begründung:** Sichert kleine Touchgeräte ebenso wie große Displays.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `web/src/styles/global.css`, `web/src/layouts/BaseLayout.astro`, `web/tests/browser/core.spec.ts` und `web/tests/catgpt-components.test.ts`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `web/src/styles/responsive.css`, `web/tests/responsive.spec.ts`.
+- **Neu anzulegen:** `web/tests/browser/visual-sample.spec.ts`; responsive Regeln und 320-Pixel-Fixture bleiben in den bestehenden Dateien enthalten.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:web/assets/stylesheets/`, `web/overrides/` sowie `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db` für Wartungstrennung und Browserabnahme. Nur Tokens, A11y- und Layoutmuster konzeptionell übernehmen.
 - **Datenverträge/Schemaänderungen:** Design-Tokens, Komponenten-/Fehlerzustandsvertrag und Accessibility-Abnahmematrix; keine fachliche Content-Schemaänderung.
 - **Implementierungsschritte:**
-  1. fluid statt gerätefixe Größen verwenden.
-  2. Touchziele mindestens 44 CSS-Pixel planen.
-  3. Overflow gezielt in Tabellen/Prompts begrenzen.
-  4. Quer-/Hochformat testen.
+  1. **Erledigt:** responsive Layoutspalten und stabile, media-query-basierte Typgrößen verwenden.
+  2. **Erledigt:** Touch-/Fokusflächen und Overflowbegrenzung in den bestehenden Kernkomponenten berücksichtigen.
+  3. **Erledigt:** 320-Pixel-Routen ohne horizontalen Dokumentüberlauf prüfen.
+  4. **Erledigt:** 768-/1440-/1920-Pixel- und Quer-/Hochformat-Stichprobe mit 15 Playwright-Screenshots abnehmen.
+  5. **Erledigt:** CatGPT aus dem fixierten Inhalts-Overlay in den Header-Flow verlegen und den Nichtüberdeckungs-Contract testen.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2613,22 +2640,23 @@ cd web && npm run test:e2e -- responsive
 
 ### WEB-P08-03 – Accessibility- und Reduced-Motion-Gate
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P08 / PR 9
 - **Anforderungs-IDs:** `WEB-REQ-004`, `WEB-REQ-057`
 - **Ziel und Begründung:** Macht WCAG 2.2 AA, Tastatur und Screenreader zu blockierenden Qualitätsmerkmalen.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `web/tests/browser/core.spec.ts`, `web/src/styles/global.css`, `web/src/layouts/BaseLayout.astro`, `web/tests/catgpt-components.test.ts`, `web/package.json` und `.github/workflows/check.yml`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `web/tests/accessibility.spec.ts`, `web/tests/keyboard.spec.ts`, `web/src/styles/motion.css`.
+- **Neu anzulegen:** `web/scripts/run-browser-gate.mjs`, `web/tests/visual-contract.test.ts`.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:web/assets/stylesheets/`, `web/overrides/` sowie `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db` für Wartungstrennung und Browserabnahme. Nur Tokens, A11y- und Layoutmuster konzeptionell übernehmen.
 - **Datenverträge/Schemaänderungen:** Design-Tokens, Komponenten-/Fehlerzustandsvertrag und Accessibility-Abnahmematrix; keine fachliche Content-Schemaänderung.
 - **Implementierungsschritte:**
-  1. axe serious/critical blockieren.
-  2. Skip-Link und Fokusreihenfolge prüfen.
-  3. Dialogname/-rolle/-zustand prüfen.
-  4. Reduced Motion für alle nicht notwendigen Übergänge erzwingen.
+  1. **Erledigt:** axe serious/critical im Browsergate blockieren; Kontrastverletzungen korrigieren.
+  2. **Erledigt:** Skip-Link, Fokusreihenfolge, Dialogfokus, Escape, Touch und native Aktionen prüfen.
+  3. **Erledigt:** Reduced Motion für Scrollen, Animationen und Übergänge erzwingen.
+  4. **Erledigt:** `test:e2e`-Gatewrapper und `test:visual-contract` in die vorhandenen lokalen/CI-Befehle integrieren.
+  5. **Offen:** manuelle Screenreader-/Zoom-/400%-Stichprobe, Merge, Review und externe CI-Abnahme.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2646,22 +2674,23 @@ cd web && npm run test:e2e -- accessibility
 
 ### WEB-P08-04 – Fehler-, Leer- und Ladezustände
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P08 / PR 9
 - **Anforderungs-IDs:** `WEB-REQ-020`
 - **Ziel und Begründung:** Hält technische Probleme ruhig, verständlich und rückführbar.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `web/src/pages/404.astro`, `web/src/components/EmptyState.astro`, `web/src/components/MediaError.astro`, `web/src/components/Reader.astro`, `web/src/components/StoryToc.astro`, `web/src/components/ImageActions.astro`, `web/src/components/MediaDetail.astro`, `web/src/components/Lightbox.astro`, `web/tests/browser/core.spec.ts` und `web/tests/story-navigation.test.ts`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `web/src/pages/404.astro`, `web/src/components/EmptyState.astro`, `web/src/components/MediaError.astro`.
+- **Neu anzulegen:** keine; die Zustände sind in den vorhandenen Seiten und Komponenten umgesetzt.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:web/assets/stylesheets/`, `web/overrides/` sowie `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db` für Wartungstrennung und Browserabnahme. Nur Tokens, A11y- und Layoutmuster konzeptionell übernehmen.
 - **Datenverträge/Schemaänderungen:** Design-Tokens, Komponenten-/Fehlerzustandsvertrag und Accessibility-Abnahmematrix; keine fachliche Content-Schemaänderung.
 - **Implementierungsschritte:**
-  1. Texte für alle spezifizierten Zustände schreiben.
-  2. keine internen Traces/Pfade ausgeben.
-  3. Bildfehler mit reserviertem Platz behandeln.
-  4. veralteten Stand sachlich kennzeichnen.
+  1. **Erledigt:** Texte für 404, leere Filter/Story/Kapitel, fehlende Downloads und Medienfehler schreiben.
+  2. **Erledigt:** keine internen Traces/Pfade ausgeben und sichere Rückwege behalten.
+  3. **Erledigt:** Bildfehler mit reserviertem Platz und `role="status"` behandeln.
+  4. **Erledigt:** veralteten/unknown Stand sachlich klassifizieren und lokale Recovery anbieten.
+  5. **Offen:** externe Artefaktabnahme und Merge-/Review-/CI-Nachweis.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2679,7 +2708,7 @@ cd web && npm run test:e2e -- error-states
 
 ### WEB-P09-01 – Bestehende Checks äquivalent migrieren
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P09 / PR 10
 - **Anforderungs-IDs:** `WEB-REQ-009`, `WEB-REQ-037`
 - **Ziel und Begründung:** Modernisiert CI, ohne Generator-/Applet-Abdeckung zu verlieren.
@@ -2713,22 +2742,22 @@ make check
 
 ### WEB-P09-02 – Schreibgeschützte Pull-Request-CI
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P09 / PR 10
 - **Anforderungs-IDs:** `WEB-REQ-038`, `WEB-REQ-039`, `WEB-REQ-054`, `WEB-REQ-056`
 - **Ziel und Begründung:** Führt alle statischen, Unit-, Contract-, Browser-, A11y- und Budgetgates ohne Secrets aus.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `.github/workflows/check.yml`, `tests/test_web_workflows.py` und `docs/WEB-CHECK-EQUIVALENCE.md`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `.github/workflows/validate.yml`, `scripts/validate_workflows.py`, `tests/test_web_workflows.py`.
+- **Neu anzulegen:** keine; der read-only Vertrag liegt im bestehenden `check.yml`, die Test- und Äquivalenzdateien sind vorhanden.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:.github/workflows/validate.yml`, `.github/workflows/pages.yml`, `scripts/validate_pages_artifact.py`; Reviewgate-Konzept aus `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db:.github/workflows/coderabbit-hard-gate.yml`. Action-SHAs und Rechte werden am Implementierungs-HEAD neu geprüft.
 - **Datenverträge/Schemaänderungen:** Workflowpolicy, Diagnosebericht, Pages-Artefaktbericht, Tree-Hash und Review-/Evidenzvertrag; Deployjob konsumiert exakt das geprüfte Buildartefakt.
 - **Implementierungsschritte:**
-  1. permissions contents:read setzen.
-  2. ubuntu-24.04, Node 24 und Python 3.12 pinnen.
-  3. persist-credentials false und Timeouts erzwingen.
-  4. Diagnoseartefakt mit always hochladen.
+  1. **Erledigt:** `permissions: contents: read` und keinen Deploy-/Secret-Kontext setzen.
+  2. **Erledigt:** ubuntu-24.04, Node 24.13.1 und Python 3.12 mit vollständigen Action-SHAs pinnen.
+  3. **Erledigt:** `persist-credentials: false`, Sparse Checkout und Job-Timeouts erzwingen.
+  4. **Erledigt:** Browser-/Playwright-Diagnosen mit `if: always()` und sieben Tagen Retention hochladen.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2746,22 +2775,23 @@ python3 tests/test_web_workflows.py
 
 ### WEB-P09-03 – Pages-Build und Deployment aus einem Artefakt
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P09 / PR 10
 - **Anforderungs-IDs:** `WEB-REQ-040`
 - **Ziel und Begründung:** Veröffentlicht ausschließlich einen bereits validierten Sitebaum und lässt die letzte gute Site bei Fehlern stehen.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `.github/workflows/hub-pages.yml`, `.github/workflows/archive-pages.yml`, `scripts/validate_pages_artifact.py`, `scripts/validate_web_budgets.py` und `docs/WEB-CHECK-EQUIVALENCE.md`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `.github/workflows/pages.yml`, `docs/WEB-DEPLOYMENT.md`.
+- **Neu anzulegen:** keine; Hub- und Archivworkflow sowie die Artefakt-/Budgetverträge sind vorhanden.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:.github/workflows/validate.yml`, `.github/workflows/pages.yml`, `scripts/validate_pages_artifact.py`; Reviewgate-Konzept aus `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db:.github/workflows/coderabbit-hard-gate.yml`. Action-SHAs und Rechte werden am Implementierungs-HEAD neu geprüft.
 - **Datenverträge/Schemaänderungen:** Workflowpolicy, Diagnosebericht, Pages-Artefaktbericht, Tree-Hash und Review-/Evidenzvertrag; Deployjob konsumiert exakt das geprüfte Buildartefakt.
 - **Implementierungsschritte:**
-  1. Build und deploy in getrennte Jobs legen.
-  2. Deployment nur main/workflow_dispatch.
-  3. Environment github-pages und minimale Rechte setzen.
-  4. kein zweiter Build im Deployjob.
+  1. **Erledigt:** Build und Deploy in getrennte Jobs mit `needs: build` legen.
+  2. **Erledigt:** Hub über `workflow_dispatch`, Archiv über `workflow_call` anstoßen; PR-Checks deployen nie.
+  3. **Erledigt:** Environment `github-pages`, minimale Pages-/OIDC-Rechte und gepinnte Actions setzen.
+  4. **Erledigt:** kein zweiter Build im Deployjob; Deploy konsumiert nur das hochgeladene Artefakt.
+  5. **Offen:** externer Pages-Lauf, aktuelle Factory-Pin- und Live-Domain-Abnahme.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2779,22 +2809,22 @@ python3 tests/test_web_workflows.py
 
 ### WEB-P09-04 – Fail-closed Pages-Artefaktvalidator
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P09 / PR 10
 - **Anforderungs-IDs:** `WEB-REQ-036`
 - **Ziel und Begründung:** Blockiert unsichere oder übergroße Sitebäume vor dem Upload.
 - **Voraussetzungen:** vorherige sequenzielle Pakete derselben Phase; aktuelle Driftprüfung; keine ungeklärte Änderung an Generator-/Medienquellen.
-- **Betroffene vorhandene Dateien:** keine direkte Änderung an vorhandenen Dateien.
+- **Betroffene vorhandene Dateien:** `scripts/validate_pages_artifact.py`, `scripts/validate_web_budgets.py`, `config/web-budgets.json`, `tests/test_pages_artifact.py` und `.github/workflows/{hub-pages,archive-pages}.yml`.
 - **Zu löschen oder umzubenennen:** keine in diesem Paket; spätere Entfernung oder Umbenennung benötigt eigenen Migrations-/Aliasnachweis.
-- **Neu anzulegen:** `scripts/validate_pages_artifact.py`, `tests/test_pages_artifact.py`, `config/web-budgets.json`.
+- **Neu anzulegen:** keine; Validator, Budgetkonfiguration und Negativfixtures sind vorhanden.
 - **Kennzeichnung:** neu entwickeln; Referenzmuster nur SHA-gepinnt und angepasst.
 - **Übernahme/Provenienz:** `H234598/Cheatsheets@71bcad7a8ab183144e8ff007b85aea8bb6cff3b9:.github/workflows/validate.yml`, `.github/workflows/pages.yml`, `scripts/validate_pages_artifact.py`; Reviewgate-Konzept aus `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db:.github/workflows/coderabbit-hard-gate.yml`. Action-SHAs und Rechte werden am Implementierungs-HEAD neu geprüft.
 - **Datenverträge/Schemaänderungen:** Workflowpolicy, Diagnosebericht, Pages-Artefaktbericht, Tree-Hash und Review-/Evidenzvertrag; Deployjob konsumiert exakt das geprüfte Buildartefakt.
 - **Implementierungsschritte:**
-  1. lstat/O_NOFOLLOW/Inodeprüfung nutzen.
-  2. Symlink/Hardlink/Sonderdatei/Case-Kollision blockieren.
-  3. Dateizahl/Größe/Baumhash berichten.
-  4. Pflichtseiten und Base-Path prüfen.
+  1. **Erledigt:** lstat/O_NOFOLLOW/Inodeprüfung nutzen.
+  2. **Erledigt:** Symlink/Hardlink/Sonderdatei/Case-Kollision blockieren.
+  3. **Erledigt:** Dateizahl/Größe/Baumhash deterministisch berichten.
+  4. **Erledigt:** Pflichtseiten, Canonicals, interne Links, Budgets und Domain prüfen.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2812,7 +2842,7 @@ python3 tests/test_pages_artifact.py
 
 ### WEB-P10-01 – Freshnessmanifest und knapper öffentlicher Status
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P10 / PR 11
 - **Anforderungs-IDs:** `WEB-REQ-042`
 - **Ziel und Begründung:** Belegt, welche Quellrevision und neuesten Inhalte tatsächlich veröffentlicht wurden.
@@ -2824,10 +2854,17 @@ python3 tests/test_pages_artifact.py
 - **Übernahme/Provenienz:** `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db:scripts/runtime_status_cli.py` und `H234598/desinfect@8cb28ba2ade554685275db626db10c1b0c2ad87d` für Status-/Recovery-/Watchdogprinzipien; Zielgenerator `H234598/Katzenbilder@f6ed86d6d2b482301fe93c9510b5380db542a788:Sourcecode/wirtelprimpf_generator.py`. Nur messbar nützliche Betriebslogik übernehmen.
 - **Datenverträge/Schemaänderungen:** Öffentlicher Freshnessstatus, interner Lauf-/Recoveryreport, Publish-Lock-/Dispatchvertrag und Runbookevidenz; öffentliche Daten bleiben redigiert.
 - **Implementierungsschritte:**
-  1. Quellrevision/Bild/Kapitel/Buildzeit trennen.
-  2. SOURCE_DATE_EPOCH verwenden.
-  3. Warnschwelle aus Publish-SLA ableiten.
-  4. öffentliche Daten von interner Diagnose trennen.
+  1. **Erledigt:** Quellrevision, Bild-/Kapitelzahlen und Buildzeit im
+     versionierten Statusobjekt getrennt führen.
+  2. **Erledigt:** `SOURCE_DATE_EPOCH` verwenden und den Buildzeitpunkt
+     reproduzierbar formatieren.
+  3. **Erledigt:** Warn- und Staleschwelle aus der konfigurierbaren
+     Sechs-Stunden-Publish-SLA ableiten.
+  4. **Erledigt:** öffentliche Statusdaten redigieren und atomar schreiben;
+     interne Pfade und Laufdiagnosen bleiben außerhalb des Sitebaums.
+  5. **Erledigt:** Hub-Builds mit den vom Dispatch aufgelösten Story-,
+     Manifest- und Quellrevisionswerten speisen, damit Status und Site denselben
+     exakten Archivstand beschreiben.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2845,7 +2882,7 @@ python3 tests/test_web_status.py
 
 ### WEB-P10-02 – Projekt-/Wartungsbereich und Provenienz
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P10 / PR 11
 - **Anforderungs-IDs:** `WEB-REQ-044`, `WEB-REQ-048`
 - **Ziel und Begründung:** Hält Lizenz, Quellenstand und Betrieb auffindbar, aber aus der Hauptnavigation heraus.
@@ -2857,10 +2894,14 @@ python3 tests/test_web_status.py
 - **Übernahme/Provenienz:** `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db:scripts/runtime_status_cli.py` und `H234598/desinfect@8cb28ba2ade554685275db626db10c1b0c2ad87d` für Status-/Recovery-/Watchdogprinzipien; Zielgenerator `H234598/Katzenbilder@f6ed86d6d2b482301fe93c9510b5380db542a788:Sourcecode/wirtelprimpf_generator.py`. Nur messbar nützliche Betriebslogik übernehmen.
 - **Datenverträge/Schemaänderungen:** Öffentlicher Freshnessstatus, interner Lauf-/Recoveryreport, Publish-Lock-/Dispatchvertrag und Runbookevidenz; öffentliche Daten bleiben redigiert.
 - **Implementierungsschritte:**
-  1. dezenten Info/Werkzeug-Link integrieren.
-  2. Lizenzen und Übernahmen pflegen.
-  3. öffentliche Statusdaten begrenzen.
-  4. Diagnoseberichte nicht in site kopieren.
+  1. **Erledigt:** dezenten Projekt-/Status-Link außerhalb der primären
+     Bilder-/Geschichtennavigation integrieren.
+  2. **Erledigt:** Lizenzen, Quellenstände und Übernahmen in `PROVENANCE.md`
+     pflegen.
+  3. **Erledigt:** öffentliche Statusdaten auf Revision, Inhaltszahlen,
+     Zeitpunkte und Freshness begrenzen.
+  4. **Erledigt:** Diagnoseberichte und lokale Pfade nicht in `site` kopieren;
+     Maintenance-Browsergate prüft die redigierte Ausgabe.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2878,7 +2919,7 @@ cd web && npm run test:e2e -- maintenance
 
 ### WEB-P10-03 – Recovery-, Rollback- und Redeploy-Runbook
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P10 / PR 11
 - **Anforderungs-IDs:** `WEB-REQ-041`
 - **Ziel und Begründung:** Macht Fehlerbehebung und bekannte-gute Wiederveröffentlichung reproduzierbar.
@@ -2890,10 +2931,13 @@ cd web && npm run test:e2e -- maintenance
 - **Übernahme/Provenienz:** `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db:scripts/runtime_status_cli.py` und `H234598/desinfect@8cb28ba2ade554685275db626db10c1b0c2ad87d` für Status-/Recovery-/Watchdogprinzipien; Zielgenerator `H234598/Katzenbilder@f6ed86d6d2b482301fe93c9510b5380db542a788:Sourcecode/wirtelprimpf_generator.py`. Nur messbar nützliche Betriebslogik übernehmen.
 - **Datenverträge/Schemaänderungen:** Öffentlicher Freshnessstatus, interner Lauf-/Recoveryreport, Publish-Lock-/Dispatchvertrag und Runbookevidenz; öffentliche Daten bleiben redigiert.
 - **Implementierungsschritte:**
-  1. Fehlerklassen und Recoveryaktion definieren.
-  2. Revert/Redeploy einer bekannten Revision dokumentieren.
-  3. Derivatcache-Neubau absichern.
-  4. fehlerhafte Medien isolieren ohne stilles Weglassen.
+  1. **Erledigt:** Fehlerklassen und fail-closed Recoveryaktionen definieren.
+  2. **Erledigt:** Redeploy eines bekannten Artefakts beziehungsweise Neubau
+     aus einer bekannten Revision dokumentieren.
+  3. **Erledigt:** Derivatcache-Neubau mit `--cache-read-only` und
+     Budget-/Artefaktvalidator absichern.
+  4. **Erledigt:** fehlerhafte Medien isolieren, ohne das Manifest still zu
+     kürzen oder einen Teilbuild zu veröffentlichen.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2911,7 +2955,7 @@ python3 tests/test_recovery_contract.py
 
 ### WEB-P10-04 – Sicherer Generator-Publish- und Pages-Trigger
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P10 / PR 11 getrennt
 - **Anforderungs-IDs:** `WEB-REQ-007`, `WEB-REQ-043`
 - **Ziel und Begründung:** Reduziert die bis zu 100 lokalen Commits dauernde Weblatenz, ohne Parallelpushes oder kaputte Zustände.
@@ -2923,10 +2967,13 @@ python3 tests/test_recovery_contract.py
 - **Übernahme/Provenienz:** `H234598/ADHS-Lernpfad@28c2770b0920761f9f2c315f79b1559dbffe11db:scripts/runtime_status_cli.py` und `H234598/desinfect@8cb28ba2ade554685275db626db10c1b0c2ad87d` für Status-/Recovery-/Watchdogprinzipien; Zielgenerator `H234598/Katzenbilder@f6ed86d6d2b482301fe93c9510b5380db542a788:Sourcecode/wirtelprimpf_generator.py`. Nur messbar nützliche Betriebslogik übernehmen.
 - **Datenverträge/Schemaänderungen:** Öffentlicher Freshnessstatus, interner Lauf-/Recoveryreport, Publish-Lock-/Dispatchvertrag und Runbookevidenz; öffentliche Daten bleiben redigiert.
 - **Implementierungsschritte:**
-  1. aktuelle State-/Locklogik testen.
-  2. expliziten Web-Publishmodus oder sicheren Dispatch entwerfen.
-  3. Debounce und Idempotenz implementieren.
-  4. Pushfehler lässt lokalen Commit erhalten.
+  1. **Erledigt:** State-/Locklogik, Pfadscoping und Pushfehlerverhalten testen.
+  2. **Erledigt:** expliziten Hub-Dispatch mit privater Outbox und exakter
+     Archivrevision integrieren.
+  3. **Erledigt:** Debounce-/Cadence-Vertrag und idempotentes Wiederaufnehmen
+     eines ausstehenden Dispatches implementieren.
+  4. **Erledigt:** Pushfehler lässt den lokalen Commit erhalten und verhindert
+     keinen späteren kontrollierten Retry.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -2944,7 +2991,7 @@ python3 tests/test_web_publish_policy.py
 
 ### WEB-P11-01 – Performance-, Größen- und Buildbudgets
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P11 / PR 12
 - **Anforderungs-IDs:** `WEB-REQ-006`, `WEB-REQ-055`
 - **Ziel und Begründung:** Macht Lade- und Buildqualität numerisch und reproduzierbar.
@@ -2978,7 +3025,7 @@ cd web && npm run test:performance
 
 ### WEB-P11-02 – Hosting- und Großrepository-Freeze
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P11 / PR 12
 - **Anforderungs-IDs:** `WEB-REQ-052`
 - **Ziel und Begründung:** Friert Pages/Originalstrategie auf Basis realer Messwerte statt Metadatenfeld ein.
@@ -3011,7 +3058,7 @@ python3 scripts/validate_web_budgets.py
 
 ### WEB-P11-03 – SEO, Sitemap, Feed und Social-Metadaten
 
-- **Status:** offen
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P11 / PR 12
 - **Anforderungs-IDs:** `WEB-REQ-049`
 - **Ziel und Begründung:** Macht stabile Inhalte auffindbar, ohne Diagnose- oder Promptinhalte unkontrolliert zu indexieren.
@@ -3044,7 +3091,7 @@ cd web && npm run test:e2e -- seo
 
 ### WEB-P11-04 – Custom Domain und Releaseabnahme
 
-- **Status:** offen
+- **Status:** in Arbeit
 - **Phase / empfohlener PR:** P11 / manuell nach PR 12
 - **Anforderungs-IDs:** `WEB-REQ-050`
 - **Ziel und Begründung:** Trennt technische Vorbereitung von bewusst manuellen GitHub-/DNS-Schritten.
@@ -3077,7 +3124,7 @@ manuelle Checkliste plus HTTP-Smoke
 
 ### WEB-P12-01 – Optionen priorisieren und isolieren
 
-- **Status:** offen
+- **Status:** teilweise umgesetzt
 - **Phase / empfohlener PR:** P12 / separate optionale PRs
 - **Anforderungs-IDs:** `WEB-REQ-059`
 - **Ziel und Begründung:** Bewertet Überrasche mich, Favoriten, PWA, TTS, Slideshow, Suche und Offline-Lesezeichen getrennt vom Kern.
@@ -3172,52 +3219,257 @@ Die Master-Spezifikation ist in 60 tracebaren Anforderungen, 13 ADR-Entwürfen, 
 
 **Status:** in Arbeit. Revisionsbaseline, Governance, Inventurwerkzeug, Tests und kanonischer Plan. Kein Deployment und keine Quelländerung.
 
-**Lokale Ausführungsevidenz 2026-08-04:** Branch `agent/webplan-m00`, Head `8e6a438` (`fix(web): harden P00 governance contracts`). `make check && git diff --check` lief mit Exitcode 0; darin 47 Governance- und 20 Webplan-Tests sowie beide Validator-CLIs. Unabhängige Read-only-Review: keine Critical-, Important- oder Minor-Funde. PR-, Merge- und blockierende Remote-Check-Evidenz fehlen weiterhin; P00 bleibt deshalb `in Arbeit`.
+**Lokale Ausführungsevidenz 2026-08-05:** Branch `main`, beobachteter HEAD `52ba59a` (`fix(web): close final governance review gaps`) mit absichtlich nicht abgeschlossenem Arbeitsbaum. `make check`, `git diff --check`, Plan- und Governancevalidator liefen grün; PR-, Merge- und blockierende Remote-Check-Evidenz fehlen weiterhin; P00 bleibt deshalb `in Arbeit`.
 
 ## P01
 
-**Status:** offen. Contentmodelle, Pairing, Fixtures, IDs und Aliase.
+**Status:** teilweise umgesetzt. Contentmodelle, Pairing, Fixtures, IDs und Aliasverträge sind lokal getestet; vollständiger Mediencheckout, reale Ausnahmen und externe Abnahme bleiben offen.
 
 ## P02
 
-**Status:** offen. Astro-Grundgerüst, sichere Buildpfade, Markdown und Base Paths.
+**Status:** teilweise umgesetzt. Astro-Grundgerüst, sichere Buildpfade, Markdown und Hub-/Archiv-URL-Verträge sind lokal gebaut und geprüft; externer Staging-/Merge-Nachweis bleibt offen.
 
 ## P03
 
-**Status:** offen. Bildderivate, Cache, Medienhärtung und Hostingmessung.
+**Status:** teilweise umgesetzt. Bildderivate, Cache, Medienhärtung, vollständige Medienquelle, 95%-Cachebaseline und Dreifachmessung sind lokal nachgewiesen; Wachstumshistorie, echte Produktionsbaseline, Rechte-/Plattformprüfung und externe Abnahme bleiben offen.
 
 ## P04
 
-**Status:** offen. Informationsarchitektur, Startseite und Galerie.
+**Status:** teilweise umgesetzt. Startseite, Galerie, Shards, Filter, Pagination und Rückkehrzustand sind lokal implementiert und browsergeprüft; Merge-/Review-/Artefaktabnahme bleibt offen.
 
 ## P05
 
-**Status:** offen. Bilddetail, Lightbox und Mediennavigation.
+**Status:** teilweise umgesetzt. Bilddetail, progressive Lightbox, Navigation, Vollbild-/Share-Fähigkeit und Downloads sind lokal implementiert und browsergeprüft; Merge-/Review-/Artefaktabnahme bleibt offen.
 
 ## P06
 
-**Status:** offen. Geschichtenbibliothek, Kapitel, Gesamtband und EPUB.
+**Status:** teilweise umgesetzt. Bibliothek, Kapitel, Gesamtband, stabile Navigation, No-JS und fail-closed EPUB-/Relationsverträge sind lokal vorhanden; historische Relationspfade, fehlende EPUB-Assets und externe Abnahme bleiben offen.
 
 ## P07
 
-**Status:** offen. Lokale Komfortfunktionen, No-JS und Suchentscheidung.
+**Status:** teilweise umgesetzt. Versionierter lokaler Zustand, Fortschritt, Favoriten, No-JS-/Fehlerdegradation und bewusster Such-MVP-Verzicht sind lokal getestet; manuelle A11y- und externe Abnahme bleiben offen.
 
 ## P08
 
-**Status:** offen. Designsystem, responsive Feinarbeit, Accessibility und Fehlerzustände.
+**Status:** teilweise umgesetzt. Designsystem, responsive Feinarbeit, Accessibility und Fehlerzustände sind lokal abgesichert; manuelle Screenreader-/Zoomabnahme und externe Freeze-/Merge-Gates bleiben offen.
 
 ## P09
 
-**Status:** offen. Vollständige CI, Artefaktvalidierung und Pages-Deployment.
+**Status:** teilweise umgesetzt. Read-only CI, Browser-/Performance-/Budgetgates, fail-closed Artefaktprüfung sowie getrennte Pages-Build-/Deployjobs sind lokal vertraglich geprüft; externe Workflow-/Pages-Läufe bleiben offen.
 
 ## P10
 
-**Status:** offen. Freshness, Wartungsbereich, Recovery und Generator-Publishintegration.
+**Status:** teilweise umgesetzt. Freshnessstatus, Wartungs-/Provenienzseiten, Recovery-Runbooks und Publish-/Dispatchverträge sind lokal vorhanden; Generator-/Pages-E2E und externe Abnahme bleiben offen.
 
 ## P11
 
-**Status:** offen. Performancehärtung, Hostingfreeze, SEO, Custom Domain und Release.
+**Status:** teilweise umgesetzt. Budgets, dreifache lokale Performancebaseline, Hostingstrategie sowie lokale SEO-/Feed-/Sitemap-/robots-Verträge sind geprüft; die Live-Domains antworten, aber der beobachtete Live-/Factory-Datenstand driftet und Releaseabnahme bleibt offen.
 
 ## P12
 
-**Status:** offen. Ausschließlich getrennte optionale Erweiterungen nach stabilem Kern.
+**Status:** teilweise umgesetzt. Optionenregister und bewusste Scope-Isolation sind vorhanden; Neubewertung und getrennte Erweiterungs-PRs folgen erst nach stabilem Kern.
+
+## Lokale Nachverifikation `WEB-P07-03` am 5. August 2026
+
+- `web/src/layouts/BaseLayout.astro` setzt vor dem Body den Marker
+  `data-js="enabled"`; `global.css` blendet Settings- und CatGPT-Launcher
+  ohne diesen Marker aus. Damit bleiben JavaScript-only-Kontrollen ohne
+  JavaScript unsichtbar und statische Navigation/Downloads erhalten.
+- Das neue Gate `web/tests/browser/no-js.spec.ts` prüft mit deaktiviertem
+  JavaScript Startseite, Galeriepagination, Bilddetail, Originaldownload,
+  direkten Bildlink, Story-/Kapitelnavigation, sichtbare Buttonfreiheit und
+  das verborgene Lesefortschritts-Enhancement.
+- `npm run check` endet mit `0` Fehlern, Warnungen und Hinweisen; `npm test`
+  besteht mit `69/69`; `npm run test:browser` besteht mit `19/19`.
+- Der Paketstatus bleibt `teilweise umgesetzt`, weil Merge, externe CI,
+  manuelle Screenreader-/Langsammedienabnahme und externe Artefaktabnahme
+  weiterhin fehlen.
+
+## Lokale Nachverifikation `WEB-P08-01` bis `WEB-P08-04` am 5. August 2026
+
+- `docs/WEB-DESIGN.md` dokumentiert die Rollen `--bg`, `--surface`, `--ink`,
+  `--muted`, `--mint`, `--paper-code`, `--empty-ink` und `--carrot` mit
+  Nacht-/Papierwerten und Kontrastmatrix. Die lokale/systemische Schriftwahl
+  bleibt ohne externe Font-Requests.
+- `web/tests/browser/visual-sample.spec.ts` erzeugt für Home, Galerie und
+  Storybibliothek 15 Screenshots in 320 px, 768 px hoch/quer, 1440 px und
+  1920 px. Sichtbarer `main`-/`h1`-Inhalt und Dokumentbreite bleiben in allen
+  Stichproben gültig; die Artefakte liegen unter `web/test-results/p08-visual/`.
+- Die visuelle Prüfung fand einen mobilen Launcher-Overlap. `CatGptWidget`
+  liegt nun im `header-tools`-Flow statt als fixer Viewport-Overlay; der
+  statische Unit-Contract und das Playwright-Sample blockieren eine Rückkehr.
+- `npm run check` endet mit `0` Fehlern, Warnungen und Hinweisen; `npm test`
+  besteht mit `70/70`; `npm run test:e2e -- responsive` besteht mit `3/3`.
+- Der vollständige Browserlauf `npm run test:browser` besteht mit `20/20`;
+  darin sind axe serious/critical, No-JS, Touch, Reduced Motion und die
+  visuelle Stichprobe enthalten.
+- `npm run test:e2e -- error-states` besteht mit `2/2`; der Lauf deckt den
+  leeren/unknown Galeriefilter, fehlende Medien und den Lightbox-Medienfehler
+  mit reversiblem Status ab. Unit-Verträge decken zusätzlich leere Kapitel,
+  leere Stories, fehlende EPUBs und nicht verfügbare Originaldownloads ab.
+- P08 bleibt teilweise umgesetzt: manuelle Screenreader-/Zoom-/400%- und
+  Lizenz-/Assetabnahme, Merge, externe CI und externe Artefaktabnahme fehlen.
+
+## Lokale Nachverifikation `WEB-P02-02`, `WEB-P09-01` bis `WEB-P09-04` am 5. August 2026
+
+- `python3 tests/test_web_build.py` besteht mit `4/4`; der aktuelle
+  `scripts/build_web_site.py --check`-Orchestrator ruft den Astro-Build sowie
+  den fail-closed Pages- und Budgetvalidator auf.
+- Ein realer Hub-Fixturelauf mit
+  `python3 scripts/build_web_site.py --profile hub --data-root web/fixtures/site
+  --site-url https://wirtelprimpf.telacore.org --check` endet mit Exitcode `0`:
+  `32` Artefaktdateien, `9` HTML-Dateien, `145` geprüfte interne Links,
+  `116953` Bytes, Tree-Hash
+  `4f501ada46b629f535dbf0f627164449874b3de72ff93e8f620a0dab64abceb2`,
+  keine Budgetfehler.
+- `python3 tests/test_pages_artifact.py` besteht mit `5/5`; die negativen
+  Fixtures für interne Links, secret-artige Inhalte, lokale Pfade, falsche
+  Canonicals und Symlinks bleiben blockierend.
+- `python3 tests/test_check_equivalence.py` besteht mit `3/3`; die Matrix
+  `docs/WEB-CHECK-EQUIVALENCE.md` bindet Generator-/Applet-, Web-, Artefakt-,
+  Browser- und Read-only-CI-Abdeckung zusammen. Alle drei neuen Gates sind in
+  `make check` verdrahtet.
+- `python3 tests/test_web_workflows.py` besteht mit `1/1`; der Read-only-
+  `check.yml`-Webjob hat ein gepinntes `actions/upload-artifact`-
+  Diagnoseartefakt mit `if: always()` für Playwright-Results und Traces.
+- `hub-pages.yml` und `archive-pages.yml` sind lokal als getrennte Build- und
+  Deployjobs mit `needs: build`, `github-pages`-Environment, einmaligem
+  Artefaktupload sowie Baumhash-/Budgetprüfung verifiziert. Ein externer
+  Workflowlauf wurde nicht ausgelöst.
+- Externe Workflowläufe, Merge-/Reviewstatus und Pages-/Cloudflare-Schritte
+  bleiben unverändert offen; diese lokale Evidenz ist kein Freigabesignal.
+
+## Lokale Nachverifikation `WEB-P10-01` bis `WEB-P10-04` am 5. August 2026
+
+- `python3 -m unittest tests.test_web_status tests.test_recovery_contract
+  tests.test_web_publish_policy tests.test_web_workflows` besteht mit `11/11`.
+  Der Statusregressionstest belegt, dass der Hub bei explizitem Archivmanifest,
+  aktueller Story, Volumen und Quellrevision nicht auf den Generator-Fallback
+  zurückfällt.
+- `npm --prefix web run check` endet mit `0` Fehlern, Warnungen und Hinweisen;
+  `npm --prefix web test` besteht mit `70/70`.
+- `npm --prefix web run test:e2e -- maintenance` besteht mit `1/1` und prüft,
+  dass Projekt-/Statusseiten nur redigierte öffentliche Betriebsdaten zeigen.
+- `scripts/build_web_status.py` ist in `make check` kompiliert und der
+  Hub-Workflow übergibt die vier aufgelösten exakten Eingaben an den Status-
+  und Sitebuild. `WEB-FRESHNESS.md` dokumentiert diese Bindung.
+- Externe Generator-/Pages-E2E-Läufe, Merge-/Reviewevidenz, Live-Freshness,
+  Recovery-Redeploy und die verbleibende manuelle Lizenzabnahme bleiben offen.
+
+## Lokale Nachverifikation `WEB-P11-01` bis `WEB-P11-04` am 5. August 2026
+
+- `npm --prefix web run test:e2e -- seo` besteht mit `1/1`; Canonical, Open
+  Graph, Sitemap, Feed und robots bleiben an die konfigurierte Hub-Origin
+  gebunden.
+- `npm --prefix web run test:performance` besteht mit `1/1`; Home misst
+  `1.908.894` Transferbytes, Galerie `34.649`, drei eager Bilder und keine
+  fremden Runtime-Requests. `npm --prefix web run check` bleibt bei `0/0/0`.
+- `SOURCE_DATE_EPOCH=0 python3 scripts/measure_web_media.py --root .
+  --runs 3 --strict --output build/reports/web-media-costs.json` endet mit
+  Exitcode `0`: `source_tree_unchanged=true`, Median `7.528 s`, P95 `9.351 s`,
+  `779` Medien, `3.654.670.091` Quellbytes, vier Shards, Wachstum
+  `insufficient_history`, `1.036` Artefaktdateien, `1.013` HTML-Dateien,
+  `21.910.811` Bytes, `59.820` interne Links, Baumhash
+  `3364ddf9ca88d7b1bde757ef6e0363f0d2619d1db0f45e8c3d427610a0fde151`,
+  Budgetentscheidung `pass` und keine Fehler.
+- `python3 -W error tests/test_web_media_measurement.py` besteht mit `3/3`.
+  `web/src/components/Seo.astro` bündelt jetzt die bereits geprüfte
+  Canonical-/OG-/CSP-Logik entsprechend dem P11-Plan. Die neuen Dokumente
+  `WEB-SEO.md`, `WEB-CUSTOM-DOMAIN.md`, `WEB-RELEASE-CHECKLIST.md`,
+  `docs/adr/ADR-002.md` und `docs/adr/ADR-013.md` sind vorhanden.
+- Die externe Pages-/Merge-/Reviewabnahme, vollständige Rechteprüfung,
+  aktuelle Factory-Repins sowie DNS-/HTTPS-/Rollbackfreigaben bleiben offen;
+  es wurden keine externen Schreiboperationen ausgeführt.
+
+## Lokale Nachverifikation `WEB-P12-01` am 5. August 2026
+
+- `python3 tests/test_optional_scope.py` besteht mit `1/1`.
+- `docs/WEB-OPTIONS.md` führt Suche, Offline/PWA, TTS/Audio,
+  Autoplay/Slideshow und Zufallsbild getrennt mit Entscheidung, Nutzen,
+  Kosten/Risiko, A11y/Datenschutz sowie eigenem Test-/Rollbackpfad.
+- Keine Option ist Bestandteil des MVP-Kernbuilds; der No-JS-Sitebaum,
+  öffentliche Datenumfang und die bestehenden Budgets bleiben unabhängig.
+- P12 bleibt `teilweise umgesetzt`: fachliche Neubewertung, einzelne
+  optionale PRs, externe Review-/CI-Evidenz und die jeweilige manuelle
+  Abnahme beginnen erst nach stabiler Kern- und Releaseabnahme.
+
+## Read-only-Live-Recheck am 5. August 2026, 08:17:57Z
+
+- Hub und Archiv antworteten mit HTTP/2 `200`, ohne `Location`-Header und mit
+  `Strict-Transport-Security`; `robots.txt`, `sitemap.xml` und `feed.xml`
+  lieferten auf beiden Hosts HTTP `200`.
+- Der öffentliche Hub meldete `798 Bilder` und `1 Story`, das Archiv `798
+  Bilder` und `2 Storys`, jeweils mit Manifestzeit `2026-08-05T08:17:57Z`.
+  Der lokale Stand bleibt bei `779` Medien und `195` Kapiteln.
+- `wirtelprimpf-0000`, `0042`, `9999`, `10000` und ein zufälliger Host lieferten
+  öffentlich keine A-/AAAA-Antworten. Dies ist eine öffentliche Negativsicht,
+  keine autoritative Cloudflare-Zonenbaseline.
+- Der Generator-Remote-Head bleibt
+  `274b25c9e1f9ea97d3b060997ed5c425d2b30e9f`; es wurden keine externen
+  Schreiboperationen ausgeführt.
+
+## Lokale Nachverifikation `WEB-P03-02` und `WEB-P03-04` am 5. August 2026
+
+- `python3 scripts/measure_media_cache_replay.py --source-root
+  /home/teladi/.local/state/wirtelprimpf/media-migration-0001
+  --manifest data/media-manifest.json --passes 2 --measure-cold --strict`
+  besteht: Der leere Cache erzeugt mit Pillow `12.2.0` alle `1.558` Derivate
+  in `1.151,148 s`; dabei entstehen `0` Hits, `1.558` Misses, `1.558` Writes
+  und `0` Invalids. Alle Kaltoutputs stimmen byte- und dimensionsgenau mit
+  dem Manifest überein; der gemessene Spitzen-RSS beträgt `235.888 KiB`.
+- Zwei anschließende read-only Replays erreichen jeweils `1.558/1.558` Hits
+  bei `0` Misses, `0` Invalids und `0` Writes. Der temporäre Cache wird nach
+  dem Lauf vollständig entfernt; der Nachweis ist lokal und kein Freigabesignal
+  für Merge, CI oder externe Veröffentlichung.
+
+- Die synthetische 10-Bilder-Neue-Story-Fixture trifft `1.558` bestehende
+  Archivrequests als Hits und erzeugt `20` neue Derivate als Misses/Writes;
+  kombiniert sind das `98,7326 %` Hits bei `0` Invalids. Die Fixture ist kein
+  Produktionsdaten- oder Rechte-/Plattformnachweis.
+
+## Lokale Nachverifikation `WEB-P00-02` und `WEB-P03-03` am 5. August 2026
+
+- `SOURCE_DATE_EPOCH=0 python3 scripts/web_inventory.py --root .
+  --manifest data/media-manifest.json
+  --source-root /home/teladi/.local/state/wirtelprimpf/media-migration-0001
+  --strict` besteht und schreibt den Bericht atomar nach
+  `build/reports/web-inventory-migration-0001.json`.
+- Der Manifestteil meldet `779` Medien, `3.654.670.091` Originalbytes, vier
+  geschlossene Shards und `2.345` deklarierte Release-Assets. Der gemischte
+  Migration-Checkout enthält `2.346` reguläre Dateien und `2.337` Bilder,
+  davon `779` PNG-Originale und `1.558` WebP-Derivate.
+- Der Source-Scan findet `0` Symlinks, `0` LFS-Pointer, `0` portable
+  Case-Kollisionen, `0` Hardlinkgruppen und `0` Fehler. Die lokale Evidenz
+  ersetzt keine Rechte-, Merge-, Review-, CI- oder Hostingabnahme.
+
+## Read-only Remote-/PR-Recheck am 5. August 2026, 10:26Z
+
+- `origin/main` bleibt `274b25c9e1f9ea97d3b060997ed5c425d2b30e9f`; der
+  Remote-Head von `agent/webplan-m00` bleibt
+  `6c8baf7c022349e6828a1f3712e08e225939447f`. Der lokale Head
+  `52ba59a8b15250cf181d052cc542887d58b3b3ca` ist nicht gepusht.
+- PR `#6` ist offen, `CLEAN` und von CodeRabbit genehmigt; Applet-,
+  Plattform- und Webchecks sind grün. Der formale Qlty-Check ist erfolgreich,
+  meldet aber noch `13` blocking issues.
+- PR `#5` ist offen und `CLEAN`, aber ohne Reviewentscheidung. Seine Checks
+  sind grün; CodeRabbit wurde wegen des gestapelten Nicht-Default-Base-Branches
+  übersprungen. Der formale Qlty-Check ist erfolgreich, meldet aber noch `56`
+  blocking issues.
+- Es wurden keine Push-, Merge-, Reviewtrigger-, Pages-, Cloudflare-, DNS-,
+  Secret- oder Factory-Repin-Schreiboperationen ausgeführt. Die externe
+  Aktivierung und die daraus folgenden Live-/Rollbacknachweise bleiben offen.
+
+## Aktuelle lokale Browser-/Unit-Nachverifikation am 5. August 2026
+
+- `npm --prefix web test` besteht mit `70/70`; `npm --prefix web run check`
+  endet mit `0` Fehlern, Warnungen und Hinweisen.
+- `npm --prefix web run test:e2e -- accessibility` besteht mit `4/4`, der
+  Comfort-Gate mit `3/3`.
+- `npm --prefix web run test:browser` besteht mit `23/23`. Die Matrix umfasst
+  statische Routen, Origin-/SEO-/Maintenance-Verträge, Galerie-/Detail-/Story-
+  Navigation, No-JS, Lightbox, Touch, Reduced Motion, Tastatur, Storagefehler,
+  320-/Tablet-/Desktop-Layouts, axe Serious/Critical und die 15 visuellen
+  P08-Stichproben.
+- Diese lokale Nachverifikation ändert weder Pages-, Cloudflare-, DNS- noch
+  Secretzustände; die externe Artefakt-, Merge-, Review- und Liveabnahme bleibt
+  offen.

@@ -1,0 +1,16 @@
+---
+import type { StoryDocument } from "../lib/content.ts";
+import { chapterPath } from "../lib/story-routes.ts";
+
+interface Props { story: StoryDocument; currentId?: string; }
+const { story, currentId } = Astro.props;
+---
+<nav class="story-toc" aria-labelledby={`story-toc-${story.volume}`}>
+  <div class="section-heading">
+    <div><span class="eyebrow">Kapitelübersicht</span><h2 id={`story-toc-${story.volume}`}>Inhaltsverzeichnis</h2></div>
+    <p>{story.parts.length ? `${story.parts.length} kanonische Kapitelpermalinks.` : "Diese Story enthält noch keine gültigen Kapitel."}</p>
+  </div>
+  {story.parts.length ? <ol>
+    {story.parts.map((part) => <li><a href={chapterPath(story.volume, part.id)} aria-current={currentId === part.id ? "page" : undefined}><span>Teil {part.sequence}</span><time datetime={part.timestamp.replace(" ", "T")}>{part.timestamp}</time></a></li>)}
+  </ol> : <p class="empty-state" role="status">Leere Story: Es gibt noch kein lesbares Kapitel.</p>}
+</nav>

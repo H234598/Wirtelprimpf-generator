@@ -13,6 +13,9 @@ from PIL import Image
 
 from wirtelprimpf_platform.media import (
     GitHubReleaseBackend,
+    DERIVATIVE_WIDTHS,
+    MAX_SOURCE_BYTES,
+    MAX_SOURCE_PIXELS,
     MediaError,
     build_media_inventory,
     build_release_plan,
@@ -146,6 +149,73 @@ class MediaReleaseTests(unittest.TestCase):
             self.assertTrue(shard.bundle_path.is_file())
             self.assertLess(shard.asset_count, 1_000)
 
+    def test_exif_orientation_is_applied_and_private_metadata_is_removed(self) -> None:
+        image_path = self.source / "wirtelprimpf_2026-01-04_12-00-00-000004_gps.jpg"
+        image = Image.new("RGB", (20, 10), (30, 80, 140))
+        exif = image.getexif()
+        exif[274] = 6
+        exif[34853] = {1: "N", 2: (51, 30, 0), 3: "E", 4: (7, 0, 0)}
+        image.save(image_path, format="JPEG", exif=exif.tobytes())
+
+        inventory = build_media_inventory(self.source, archive_index=1)
+        record = next(item for item in inventory.records if item.source_path == image_path.name)
+        self.assertEqual((record.width, record.height), (10, 20))
+        plan = build_release_plan(inventory, owner="H234598", repository="Wirtelprimpf-0001")
+        prepared = materialize_release_plan(plan, source_root=self.source, staging_root=self.root / "oriented-staging")
+        prepared_record = next(item for shard in prepared.shards for item in shard.records if item.source_path == image_path.name)
+        self.assertEqual(tuple(item.width for item in prepared_record.variants), DERIVATIVE_WIDTHS)
+
+        variant_path = next(
+            path
+            for shard in prepared.shards
+            for path in shard.asset_paths
+            if path.name == prepared_record.variants[0].asset_name
+        )
+        with Image.open(variant_path) as derivative:
+            self.assertEqual(derivative.size, (10, 20))
+            self.assertEqual(len(derivative.getexif()), 0)
+            self.assertNotIn("exif", derivative.info)
+            self.assertNotIn("icc_profile", derivative.info)
+
+    def test_truncated_image_is_rejected_without_an_absolute_path(self) -> None:
+        truncated = self.source / "truncated.png"
+        truncated.write_bytes(png_bytes(20, 20, (10, 20, 30))[:-12])
+
+        with self.assertRaisesRegex(MediaError, "invalid image") as context:
+            build_media_inventory(self.source, archive_index=1)
+
+        self.assertNotIn(str(self.source), str(context.exception))
+        self.assertIn("truncated.png", str(context.exception))
+
+    def test_materialization_cache_hits_all_derivatives_on_unchanged_rerun(self) -> None:
+        inventory = build_media_inventory(self.source, archive_index=1)
+        plan = build_release_plan(
+            inventory,
+            owner="H234598",
+            repository="Wirtelprimpf-0001",
+            max_originals_per_shard=2,
+        )
+        first = materialize_release_plan(
+            plan,
+            source_root=self.source,
+            staging_root=self.root / "staging-first",
+            cache_root=self.root / "cache",
+        )
+        second = materialize_release_plan(
+            plan,
+            source_root=self.source,
+            staging_root=self.root / "staging-second",
+            cache_root=self.root / "cache",
+        )
+
+        self.assertEqual(first.cache_report["misses"], 6)
+        self.assertEqual(second.cache_report["hits"], 6)
+        self.assertEqual(second.cache_report["cache_hit_rate"], 1.0)
+        self.assertEqual(
+            [path.read_bytes() for shard in first.shards for path in shard.asset_paths],
+            [path.read_bytes() for shard in second.shards for path in shard.asset_paths],
+        )
+
     def test_existing_hash_mismatch_is_fail_closed_and_never_overwritten(self) -> None:
         inventory = build_media_inventory(self.source, archive_index=1)
         plan = build_release_plan(
@@ -266,6 +336,26 @@ class MediaReleaseTests(unittest.TestCase):
 
         with self.assertRaisesRegex(MediaError, "symlink"):
             build_media_inventory(self.source, archive_index=1)
+
+    def test_lfs_pointer_is_rejected_before_image_decode(self) -> None:
+        pointer = self.source / "pointer.png"
+        pointer.write_text(
+            "version https://git-lfs.github.com/spec/v1\noid sha256:" + "a" * 64 + "\nsize 123\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(MediaError, "LFS pointer"):
+            build_media_inventory(self.source, archive_index=1)
+
+    def test_source_byte_and_pixel_limits_are_fail_closed(self) -> None:
+        self.assertEqual(MAX_SOURCE_BYTES, 25 * 1024 * 1024)
+        self.assertEqual(MAX_SOURCE_PIXELS, 50_000_000)
+        with patch("wirtelprimpf_platform.media.MAX_SOURCE_BYTES", 1):
+            with self.assertRaisesRegex(MediaError, "byte limit"):
+                build_media_inventory(self.source, archive_index=1)
+        with patch("wirtelprimpf_platform.media.MAX_SOURCE_PIXELS", 1):
+            with self.assertRaisesRegex(MediaError, "pixel limit"):
+                build_media_inventory(self.source, archive_index=1)
 
 
 if __name__ == "__main__":

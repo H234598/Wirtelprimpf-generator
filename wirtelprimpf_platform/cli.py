@@ -179,6 +179,8 @@ def _build_parser() -> argparse.ArgumentParser:
     media.add_argument("--archive-index", type=int, required=True)
     media.add_argument("--manifest-output", type=Path, required=True)
     media.add_argument("--max-originals-per-shard", type=int, default=250)
+    media.add_argument("--cache-root", type=Path)
+    media.add_argument("--cache-read-only", action="store_true")
     media.add_argument("--publish", action="store_true")
 
     admin = subparsers.add_parser("admin", help="serve the local settings interface")
@@ -250,7 +252,13 @@ def main(argv: list[str] | None = None) -> int:
             repository=args.repository,
             max_originals_per_shard=args.max_originals_per_shard,
         )
-        prepared = materialize_release_plan(plan, source_root=args.source, staging_root=args.staging)
+        prepared = materialize_release_plan(
+            plan,
+            source_root=args.source,
+            staging_root=args.staging,
+            cache_root=args.cache_root,
+            cache_read_only=args.cache_read_only,
+        )
         report = None
         if args.publish:
             report = publish_release_plan(
@@ -264,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
                 "ignored_working_paths": list(inventory.ignored_working_paths),
                 "shards": len(prepared.shards),
                 "manifest": str(args.manifest_output),
+                "cache": prepared.cache_report,
                 "publish": asdict(report) if report else None,
             }
         )
@@ -286,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     if args.command == "rotate":
-        api_token = CloudflareCredentialResolver().resolve(
+        api_token = CloudflareCredentialResolver().resolve_api_token(
             explicit_token=os.environ.get("CLOUDFLARE_API_TOKEN")
         )
         transport = CloudflareHTTPTransport(api_token)

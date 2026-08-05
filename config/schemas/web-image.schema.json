@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wirtelprimpf.telacore.org/schemas/web-image.v1.json",
+  "title": "Wirtelprimpf published image",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "asset_id",
+    "source_path",
+    "kind",
+    "sha256",
+    "byte_size",
+    "mime_type",
+    "width",
+    "height",
+    "release_tag",
+    "original",
+    "variants",
+    "prompt_path",
+    "story_part_path"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "asset_id": {"type": "string", "pattern": "^(archive|hub)-[0-9]{4}-[a-f0-9]{16}-[a-f0-9]{8}$"},
+    "source_path": {"$ref": "#/$defs/relative_path"},
+    "kind": {"enum": ["story", "classic", "legacy", "unknown"]},
+    "sha256": {"$ref": "#/$defs/sha256"},
+    "byte_size": {"type": "integer", "minimum": 1},
+    "mime_type": {"enum": ["image/png", "image/jpeg", "image/webp"]},
+    "width": {"type": "integer", "minimum": 1},
+    "height": {"type": "integer", "minimum": 1},
+    "release_tag": {"type": "string", "pattern": "^archive-[0-9]{4}-media-[0-9]{4}$"},
+    "prompt_path": {"anyOf": [{"$ref": "#/$defs/relative_path"}, {"type": "null"}]},
+    "story_part_path": {"anyOf": [{"$ref": "#/$defs/relative_path"}, {"type": "null"}]},
+    "alt_text": {"type": ["string", "null"], "maxLength": 240},
+    "alt_text_source": {"enum": ["manifest", "prompt", "fallback"]},
+    "original": {"$ref": "#/$defs/asset"},
+    "variants": {"type": "array", "items": {"$ref": "#/$defs/variant"}}
+  },
+  "$defs": {
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\x00).+$"
+    },
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_name", "url"],
+      "properties": {
+        "asset_name": {"type": "string", "minLength": 1},
+        "url": {"type": "string", "format": "uri", "pattern": "^https://github\\.com/"}
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested_width",
+        "actual_width",
+        "actual_height",
+        "asset_name",
+        "url",
+        "sha256",
+        "byte_size",
+        "mime_type"
+      ],
+      "properties": {
+        "requested_width": {"type": "integer", "minimum": 1},
+        "actual_width": {"type": "integer", "minimum": 1},
+        "actual_height": {"type": "integer", "minimum": 1},
+        "asset_name": {"type": "string", "minLength": 1},
+        "url": {"type": "string", "format": "uri", "pattern": "^https://github\\.com/"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "byte_size": {"type": "integer", "minimum": 1},
+        "mime_type": {"const": "image/webp"}
+      }
+    }
+  }
+}

@@ -9,7 +9,7 @@
   ],
   "vars": {
     "EXTRA_ALLOWED_ORIGINS": "",
-    "LIGHT_ENABLED": "false",
+    "LIGHT_ENABLED": "true",
     "MAX_DAILY_REQUESTS": "50",
     "OPENAI_MODEL": "gpt-5.6-luna"
   },

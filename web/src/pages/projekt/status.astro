@@ -1,11 +1,17 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import { archiveBookRange, loadSiteData } from "../../lib/data.ts";
+import { parsePublicWebStatus } from "../../lib/status.ts";
+import statusPayload from "../../generated/status.json";
 const data=loadSiteData();
 const active=data.catalog.find((entry)=>entry.active);
 const fallbackBooks=archiveBookRange(data.archiveIndex);
+const generatedStatus = parsePublicWebStatus(statusPayload);
+const status = generatedStatus.profile === data.profile && generatedStatus.repository === data.repository ? generatedStatus : null;
+const freshnessLabel = status?.freshness.state === "fresh" ? "Aktuell" : status?.freshness.state === "warning" ? "Beobachten" : status?.freshness.state === "stale" ? "Veraltet" : "Unbekannt";
 ---
 <BaseLayout title="Publikationsstatus" section="projekt">
   <header class="page-heading"><span class="eyebrow">Öffentlicher Status</span><h1>Was dieser Build sicher weiß.</h1><p class="lede">Dass er unbedeutend ist, und nichts weiß.</p></header>
   <section class="section" style="padding-top:1rem"><div class="archive-grid"><article class="archive-card"><span class="eyebrow">Profil</span><h2>{data.profile === "hub" ? "Zentrale" : "Publikationsarchiv"}</h2><p><code>{data.repository}</code></p></article><article class="archive-card"><span class="eyebrow">Aktives Archiv</span><h2>{active?.repository ?? `Wirtelprimpf-${String(data.archiveIndex).padStart(4,"0")}`}</h2><p>{active ? `Bücher ${active.book_start}–${active.book_end} · Storys ${active.volume_start}–${active.volume_end}` : `Bücher ${fallbackBooks.bookStart}–${fallbackBooks.bookEnd} · lokaler Archivstand`}</p></article><article class="archive-card"><span class="eyebrow">Inhalt</span><h2>{data.media.length} Bilder · {data.stories.length} Storys</h2><p>{data.generatedAt ? `Manifest: ${data.generatedAt}` : "Noch kein datierter Medien-Cutover."}</p></article></div></section>
+  <section class="section status-detail" aria-labelledby="freshness-heading"><div class="section-heading"><div><span class="eyebrow">Freshness</span><h2 id="freshness-heading">{freshnessLabel}</h2></div><p>{status?.freshness.last_published_at ? `Letzte Veröffentlichung: ${status.freshness.last_published_at}` : "Kein veröffentlichter Zeitstempel vorhanden."}</p></div><dl class="status-facts"><div><dt>Quellrevision</dt><dd><code>{status?.source_revision ?? "unbekannt"}</code></dd></div><div><dt>Neueste Bild-ID</dt><dd><code>{status?.media.latest_id ?? "unbekannt"}</code></dd></div><div><dt>Neuestes Kapitel</dt><dd><code>{status?.stories.latest_id ?? "unbekannt"}</code></dd></div><div><dt>Buildzeit</dt><dd>{status?.build.built_at ?? "unbekannt"}</dd></div></dl></section>
 </BaseLayout>

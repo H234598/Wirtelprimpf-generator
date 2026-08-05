@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wirtelprimpf.telacore.org/schemas/web-image-manifest.v1.json",
+  "title": "Wirtelprimpf release-bound image manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "archive_index", "archive_repository", "owner", "media_count", "shards", "media"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "archive_index": {"type": "integer", "minimum": 1},
+    "archive_repository": {"type": "string", "pattern": "^Wirtelprimpf-[0-9]{4}$"},
+    "owner": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"},
+    "media_count": {"type": "integer", "minimum": 0},
+    "shards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "tag", "open", "record_count", "asset_count", "manifest_asset_name", "manifest_sha256", "bundle_asset_name", "bundle_sha256"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 1},
+          "tag": {"type": "string", "pattern": "^archive-[0-9]{4}-media-[0-9]{4}$"},
+          "open": {"const": false},
+          "record_count": {"type": "integer", "minimum": 1},
+          "asset_count": {"type": "integer", "minimum": 5},
+          "manifest_asset_name": {"type": "string", "minLength": 1},
+          "manifest_sha256": {"$ref": "#/$defs/sha256"},
+          "bundle_asset_name": {"type": "string", "minLength": 1},
+          "bundle_sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    "media": {"type": "array", "items": {"$ref": "#/$defs/media"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "url": {"type": "string", "format": "uri", "pattern": "^https://github\\.com/"},
+    "media": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_id", "source_path", "kind", "sha256", "byte_size", "mime_type", "width", "height", "prompt_path", "story_part_path", "release_tag", "original", "variants"],
+      "properties": {
+        "asset_id": {"type": "string", "pattern": "^archive-[0-9]{4}-[a-f0-9]{16}-[a-f0-9]{8}$"},
+        "source_path": {"$ref": "#/$defs/path"},
+        "kind": {"enum": ["story", "classic", "legacy", "unknown"]},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "byte_size": {"type": "integer", "minimum": 1},
+        "mime_type": {"enum": ["image/png", "image/jpeg", "image/webp"]},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "prompt_path": {"anyOf": [{"$ref": "#/$defs/path"}, {"type": "null"}]},
+        "story_part_path": {"anyOf": [{"$ref": "#/$defs/path"}, {"type": "null"}]},
+        "alt_text": {"type": ["string", "null"], "maxLength": 240},
+        "alt_text_source": {"enum": ["manifest", "prompt", "fallback"]},
+        "release_tag": {"type": "string", "pattern": "^archive-[0-9]{4}-media-[0-9]{4}$"},
+        "original": {"$ref": "#/$defs/asset"},
+        "variants": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/variant"}}
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_name", "url"],
+      "properties": {
+        "asset_name": {"type": "string", "minLength": 1},
+        "url": {"$ref": "#/$defs/url"}
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested_width", "actual_width", "actual_height", "asset_name", "url", "sha256", "byte_size", "mime_type"],
+      "properties": {
+        "requested_width": {"type": "integer", "minimum": 1},
+        "actual_width": {"type": "integer", "minimum": 1},
+        "actual_height": {"type": "integer", "minimum": 1},
+        "asset_name": {"type": "string", "minLength": 1},
+        "url": {"$ref": "#/$defs/url"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "byte_size": {"type": "integer", "minimum": 1},
+        "mime_type": {"const": "image/webp"}
+      }
+    }
+  }
+}

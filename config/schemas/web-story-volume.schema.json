@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wirtelprimpf.telacore.org/schemas/web-story-volume.v1.json",
+  "title": "Wirtelprimpf story volume",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "volume", "book", "storyInBook", "filename", "title", "parts"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "volume": {"type": "integer", "minimum": 1},
+    "book": {"type": "integer", "minimum": 1},
+    "storyInBook": {"type": "integer", "minimum": 1, "maximum": 10},
+    "filename": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "title": {"type": "string", "minLength": 1, "maxLength": 240},
+    "parts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema_version", "id", "timestamp", "markdown", "html", "sequence"],
+        "properties": {
+          "schema_version": {"const": "1.0.0"},
+          "id": {"type": "string", "pattern": "^band-[0-9]{4}-teil-[a-f0-9]{12}$"},
+          "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$"},
+          "markdown": {"type": "string", "maxLength": 65536},
+          "html": {"type": "string", "maxLength": 131072},
+          "sequence": {"type": "integer", "minimum": 1}
+        }
+      }
+    }
+  }
+}
