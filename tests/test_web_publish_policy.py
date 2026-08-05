@@ -12,6 +12,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR_PATH = ROOT / "Sourcecode" / "wirtelprimpf_generator.py"
 
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(ROOT))
+
 
 def load_generator():
     spec = importlib.util.spec_from_file_location("wirtelprimpf_generator_publish_policy", GENERATOR_PATH)
