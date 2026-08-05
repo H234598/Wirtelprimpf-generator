@@ -12,6 +12,12 @@ from urllib.parse import quote
 
 CATALOG_VERSION = "cloudflare-alias-catalog/v1"
 EXPECTED_GROUPS = ("wirtelprimpf", "desinfect", "tierarztpraxis-schaffer", "cheatsheets")
+EXPECTED_GROUP_TARGETS = (
+    ("wirtelprimpf", "wirtelprimpf.telacore.org"),
+    ("desinfect", "desinfect.telacore.org"),
+    ("tierarztpraxis-schaffer", "tierarztpraxis-schaffer.telacore.org"),
+    ("cheatsheets", "cheatsheets.telacore.org"),
+)
 ALIAS_GROUP_SIZE = 30
 ALIAS_LABEL_MAX_LENGTH = 36
 NUMERIC_REDIRECT_EXPRESSION = (
@@ -35,6 +41,7 @@ class CloudflareAliasError(ValueError):
 class AliasCatalog:
     zone: str
     canonical_host: str
+    group_targets: tuple[tuple[str, str], ...]
     groups: tuple[tuple[str, tuple[str, ...]], ...]
     numeric_prefix: str
     numeric_digits: int
@@ -48,6 +55,12 @@ class AliasCatalog:
     @property
     def aliases(self) -> tuple[str, ...]:
         return tuple(alias for _, aliases in self.groups for alias in aliases)
+
+    def target_for_group(self, group_name: str) -> str:
+        for name, target in self.group_targets:
+            if name == group_name:
+                return target
+        raise CloudflareAliasError(f"unknown alias group: {group_name}")
 
 
 def _require_mapping(value: Any, label: str) -> Mapping[str, Any]:
@@ -65,6 +78,17 @@ def validate_alias_catalog(payload: Any) -> AliasCatalog:
     canonical_host = root.get("canonical_host")
     if zone != "telacore.org" or canonical_host != "wirtelprimpf.telacore.org":
         raise CloudflareAliasError("Cloudflare alias catalog has an unexpected zone or canonical host")
+
+    raw_targets = _require_mapping(root.get("group_targets"), "group_targets")
+    if tuple(raw_targets) != EXPECTED_GROUPS:
+        raise CloudflareAliasError("group targets must use the four normative groups in order")
+    expected_targets = dict(EXPECTED_GROUP_TARGETS)
+    group_targets: list[tuple[str, str]] = []
+    for group_name in EXPECTED_GROUPS:
+        target = raw_targets[group_name]
+        if target != expected_targets[group_name]:
+            raise CloudflareAliasError(f"unexpected redirect target for alias group: {group_name}")
+        group_targets.append((group_name, target))
 
     raw_groups = _require_mapping(root.get("groups"), "groups")
     if tuple(raw_groups) != EXPECTED_GROUPS:
@@ -103,6 +127,7 @@ def validate_alias_catalog(payload: Any) -> AliasCatalog:
     return AliasCatalog(
         zone=zone,
         canonical_host=canonical_host,
+        group_targets=tuple(group_targets),
         groups=tuple(groups),
         numeric_prefix=numeric["prefix"],
         numeric_digits=numeric["digits"],

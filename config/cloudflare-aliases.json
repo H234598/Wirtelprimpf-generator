@@ -2,6 +2,12 @@
   "schema_version": "cloudflare-alias-catalog/v1",
   "zone": "telacore.org",
   "canonical_host": "wirtelprimpf.telacore.org",
+  "group_targets": {
+    "wirtelprimpf": "wirtelprimpf.telacore.org",
+    "desinfect": "desinfect.telacore.org",
+    "tierarztpraxis-schaffer": "tierarztpraxis-schaffer.telacore.org",
+    "cheatsheets": "cheatsheets.telacore.org"
+  },
   "groups": {
     "wirtelprimpf": [
       "wirtelprimpf-story",
