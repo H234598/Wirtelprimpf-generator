@@ -7,14 +7,14 @@ const require = createRequire(import.meta.url);
 const axePath = require.resolve("axe-core/axe.min.js");
 
 async function assertNoForeignRuntimeRequests(page: Page): Promise<void> {
-  const foreign: string[] = [];
-  const localOrigin = new URL("http://127.0.0.1:4321/").origin;
+  const requests: string[] = [];
   page.on("request", (request) => {
     if (!["document", "script", "stylesheet", "fetch", "xhr", "websocket"].includes(request.resourceType())) return;
-    const url = new URL(request.url());
-    if (url.origin !== localOrigin) foreign.push(request.url());
+    requests.push(request.url());
   });
   await page.goto("/", { waitUntil: "domcontentloaded" });
+  const localOrigin = new URL(page.url()).origin;
+  const foreign = requests.filter((url) => new URL(url).origin !== localOrigin);
   expect(foreign).toEqual([]);
 }
 
@@ -39,6 +39,23 @@ test("core routes expose static navigation and no foreign runtime requests", asy
     expect(response?.status()).toBe(route === "/does-not-exist/" ? 404 : 200);
     await expect(page.locator("main")).toBeVisible();
   }
+});
+
+test("gallery pagination preserves page and selected page size", async ({ page }) => {
+  await page.goto("/bilder/", { waitUntil: "domcontentloaded" });
+  const select = page.locator("[data-gallery-page-size]");
+  await expect(select).toHaveValue("20");
+  await select.selectOption("50");
+  await expect(page).toHaveURL(/\/bilder\/\?proseite=50$/);
+  await expect(page.locator("[data-gallery-card]:visible")).toHaveCount(50);
+  await page.locator("[data-gallery-pagination][data-gallery-page='2']").click();
+  await expect(page).toHaveURL(/\/bilder\/\?seite=2&proseite=50$/);
+  await expect(page.locator("[data-gallery-card]:visible")).toHaveCount(50);
+  await expect(page.locator("[data-gallery-status]")).toContainText("Seite 2");
+  await select.selectOption("all");
+  await expect(page).toHaveURL(/\/bilder\/\?proseite=all$/);
+  await expect(page.locator("[data-gallery-card]:visible")).toHaveCount(await page.locator("[data-gallery-card]").count());
+  await expect(page.locator("[data-gallery-pagination-nav]")).toBeHidden();
 });
 
 test("maintenance pages expose only redacted public status", async ({ page }) => {
@@ -287,6 +304,36 @@ test("CatGPT Light falls back silently when the Worker is unavailable", async ({
   expect(await page.evaluate(() => sessionStorage.getItem("wirtelprimpf-catgpt-history"))).toBeNull();
 });
 
+test("CatGPT-L remains Light on a mobile viewport when the Worker replies", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.addInitScript(() => {
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
+      if (url.startsWith("https://catgpt.wirtelprimpf.telacore.org/v1/chat")) {
+        const state = window as typeof window & { __catgptLightRequests?: string[] };
+        state.__catgptLightRequests = [...(state.__catgptLightRequests ?? []), url];
+        return Promise.resolve(new Response(JSON.stringify({ reply: "Antwort aus CatGPT-L" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+      return nativeFetch(input, init);
+    };
+  });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  const lightLauncher = page.locator("[data-catgpt-launcher='light']");
+  test.skip(await lightLauncher.isDisabled(), "Light endpoint is not enabled in this build profile");
+  await lightLauncher.click();
+  await expect(page.locator("[data-catgpt-title]")).toHaveText("CatGPT-L");
+  await page.locator("#catgpt-input").fill("Hallo Light");
+  await page.locator("[data-catgpt-form] button[type='submit']").click();
+  await expect(page.locator("[data-catgpt-messages] li[data-role='assistant']")).toHaveText("Antwort aus CatGPT-L");
+  expect(await page.evaluate(() => (window as typeof window & { __catgptLightRequests?: string[] }).__catgptLightRequests ?? [])).toEqual([
+    "https://catgpt.wirtelprimpf.telacore.org/v1/chat",
+  ]);
+});
+
 test("paper theme is visible and switchable through settings", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("wirtelprimpf-theme", "paper"));
   await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -324,6 +371,15 @@ test("320 pixel pages have no horizontal document overflow", async ({ page }) =>
     }));
     expect(heading.scrollWidth).toBeLessThanOrEqual(heading.clientWidth);
   }
+});
+
+test("mobile story stream and reader stay within the viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/geschichten/2/", { waitUntil: "domcontentloaded" });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const story = page.locator(".story-overview");
+  expect(await story.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await page.locator(".story-part").first().evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 });
 
 test("mobile main navigation keeps every link fully visible", async ({ page }) => {

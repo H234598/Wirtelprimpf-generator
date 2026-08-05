@@ -1,7 +1,10 @@
 import type { MediaItem, MediaKind } from "./data.ts";
 
 
-export const GALLERY_PAGE_SIZE = 24;
+export const GALLERY_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200, 500] as const;
+export const GALLERY_DEFAULT_PAGE_SIZE = 20;
+export const GALLERY_PAGE_SIZE = GALLERY_DEFAULT_PAGE_SIZE;
+export type GalleryPageSize = typeof GALLERY_PAGE_SIZE_OPTIONS[number] | "all";
 export const GALLERY_TYPES = ["all", "story", "classic", "legacy", "unknown"] as const;
 export type GalleryType = typeof GALLERY_TYPES[number];
 
@@ -9,6 +12,7 @@ export interface GalleryState {
   typ: GalleryType;
   seite: number;
   jahr: number | null;
+  proseite: GalleryPageSize;
 }
 
 const TYPE_SET = new Set<string>(GALLERY_TYPES);
@@ -28,6 +32,20 @@ function parseYear(value: string | null): number | null {
 }
 
 
+export function parseGalleryPageSize(value: string | null): GalleryPageSize {
+  if (value === "all" || value === "alle") return "all";
+  const pageSize = Number(value);
+  return GALLERY_PAGE_SIZE_OPTIONS.includes(pageSize as typeof GALLERY_PAGE_SIZE_OPTIONS[number])
+    ? pageSize as GalleryPageSize
+    : GALLERY_DEFAULT_PAGE_SIZE;
+}
+
+
+export function galleryPageSize(state: Pick<GalleryState, "proseite">): number | null {
+  return state.proseite === "all" ? null : state.proseite;
+}
+
+
 export function parseGalleryQuery(input: string | URLSearchParams): GalleryState {
   const params = typeof input === "string" ? new URLSearchParams(input.replace(/^\?/, "")) : input;
   const type = params.get("typ");
@@ -35,6 +53,7 @@ export function parseGalleryQuery(input: string | URLSearchParams): GalleryState
     typ: type && TYPE_SET.has(type) ? type as GalleryType : "all",
     seite: parsePage(params.get("seite")),
     jahr: parseYear(params.get("jahr")),
+    proseite: parseGalleryPageSize(params.get("proseite")),
   };
 }
 
@@ -49,7 +68,9 @@ export function filterGalleryMedia(items: readonly MediaItem[], state: GallerySt
 
 
 export function galleryPageCount(items: readonly MediaItem[], state: GalleryState): number {
-  return Math.max(1, Math.ceil(filterGalleryMedia(items, state).length / GALLERY_PAGE_SIZE));
+  const pageSize = galleryPageSize(state);
+  if (pageSize === null) return 1;
+  return Math.max(1, Math.ceil(filterGalleryMedia(items, state).length / pageSize));
 }
 
 
@@ -70,8 +91,10 @@ export function normalizeGalleryState(
 
 export function galleryPageItems(items: readonly MediaItem[], state: GalleryState): MediaItem[] {
   const filtered = filterGalleryMedia(items, state);
-  const start = (state.seite - 1) * GALLERY_PAGE_SIZE;
-  return filtered.slice(start, start + GALLERY_PAGE_SIZE);
+  const pageSize = galleryPageSize(state);
+  if (pageSize === null) return filtered;
+  const start = (state.seite - 1) * pageSize;
+  return filtered.slice(start, start + pageSize);
 }
 
 
@@ -86,6 +109,9 @@ export function serializeGalleryQuery(state: GalleryState): string {
   if (state.typ !== "all") params.set("typ", state.typ);
   if (state.seite > 1) params.set("seite", String(state.seite));
   if (state.jahr !== null) params.set("jahr", String(state.jahr));
+  if (state.proseite !== GALLERY_DEFAULT_PAGE_SIZE) {
+    params.set("proseite", state.proseite === "all" ? "all" : String(state.proseite));
+  }
   const query = params.toString();
   return query ? `?${query}` : "";
 }

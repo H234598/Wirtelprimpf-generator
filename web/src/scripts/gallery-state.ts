@@ -1,6 +1,9 @@
 import {
-  GALLERY_PAGE_SIZE,
+  GALLERY_DEFAULT_PAGE_SIZE,
+  galleryPagePath,
+  galleryPageSize,
   galleryUrl,
+  parseGalleryPageSize,
   parseGalleryQuery,
   serializeGalleryQuery,
   type GalleryState,
@@ -32,7 +35,10 @@ function stateForPage(root: HTMLElement): GalleryState {
 
 
 function updateUrl(root: HTMLElement, state: GalleryState, replace: boolean): void {
-  const url = galleryUrl(window.location.pathname, state);
+  const fullGallery = root.dataset.galleryFull === "true";
+  const url = fullGallery
+    ? galleryUrl("/bilder/", state)
+    : galleryPagePath(readPage(root));
   const method = replace ? "replaceState" : "pushState";
   window.history[method]({ ...window.history.state }, "", url);
   root.dataset.galleryQuery = serializeGalleryQuery(state);
@@ -47,6 +53,8 @@ function mount(root: HTMLElement): void {
   const filters = [...root.querySelectorAll<HTMLAnchorElement>("[data-gallery-filter]")];
   const years = [...root.querySelectorAll<HTMLAnchorElement>("[data-gallery-year]")];
   const pagination = [...root.querySelectorAll<HTMLAnchorElement>("[data-gallery-pagination]")];
+  const paginationNav = root.querySelector<HTMLElement>("[data-gallery-pagination-nav]");
+  const pageSizeSelect = root.querySelector<HTMLSelectElement>("[data-gallery-page-size]");
 
   const apply = (state: GalleryState, restore?: GalleryHistoryEntry | null): void => {
     const fullGallery = root.dataset.galleryFull === "true";
@@ -54,7 +62,10 @@ function mount(root: HTMLElement): void {
       ? cards.filter((card) => state.typ === "all" || card.dataset.kind === state.typ)
         .filter((card) => state.jahr === null || card.dataset.year === String(state.jahr))
       : cards;
-    const pageCount = fullGallery ? Math.max(1, Math.ceil(matching.length / GALLERY_PAGE_SIZE)) : Number(root.dataset.galleryPageCount || "1");
+    const pageSize = galleryPageSize(state);
+    const pageCount = fullGallery
+      ? pageSize === null ? 1 : Math.max(1, Math.ceil(matching.length / pageSize))
+      : Number(root.dataset.galleryPageCount || "1");
     const effectiveState = fullGallery
       ? { ...state, seite: Math.min(Math.max(1, state.seite), pageCount) }
       : state;
@@ -62,7 +73,7 @@ function mount(root: HTMLElement): void {
     for (const card of cards) {
       const isMatch = effectiveState.typ === "all" || card.dataset.kind === effectiveState.typ;
       const yearMatches = effectiveState.jahr === null || card.dataset.year === String(effectiveState.jahr);
-      const onPage = !fullGallery || (matchingIndex >= (effectiveState.seite - 1) * GALLERY_PAGE_SIZE && matchingIndex < effectiveState.seite * GALLERY_PAGE_SIZE);
+      const onPage = !fullGallery || pageSize === null || (matchingIndex >= (effectiveState.seite - 1) * pageSize && matchingIndex < effectiveState.seite * pageSize);
       card.hidden = !(isMatch && yearMatches && onPage);
       if (isMatch && yearMatches) matchingIndex += 1;
     }
@@ -76,15 +87,20 @@ function mount(root: HTMLElement): void {
     }
     if (status) {
       const visible = cards.filter((card) => !card.hidden).length;
-      status.textContent = `${visible} ${visible === 1 ? "Bild" : "Bilder"} auf Seite ${effectiveState.seite} von ${pageCount}.`;
+      const sizeLabel = effectiveState.proseite === "all" ? "alle" : String(effectiveState.proseite);
+      status.textContent = `${visible} ${visible === 1 ? "Bild" : "Bilder"} auf Seite ${effectiveState.seite} von ${pageCount} (${sizeLabel} pro Seite).`;
       if (emptyState) emptyState.hidden = visible > 0;
     }
+    if (pageSizeSelect) pageSizeSelect.value = effectiveState.proseite === "all" ? "all" : String(effectiveState.proseite);
+    if (paginationNav) paginationNav.hidden = pageCount <= 1;
     for (const link of pagination) {
       const page = Number(link.dataset.galleryPage || "1");
       if (Number.isSafeInteger(page) && page > 0) {
         link.hidden = fullGallery && page > pageCount;
         link.setAttribute("aria-current", page === effectiveState.seite ? "page" : "false");
-        link.href = galleryUrl(new URL(link.href, window.location.href).pathname, { ...effectiveState, seite: page });
+        link.href = fullGallery
+          ? galleryUrl("/bilder/", { ...effectiveState, seite: page })
+          : galleryPagePath(page);
       }
     }
     updateUrl(root, effectiveState, true);
@@ -94,8 +110,12 @@ function mount(root: HTMLElement): void {
   };
 
   const initial = stateForPage(root);
-  if (root.dataset.galleryFull !== "true" && (initial.typ !== "all" || initial.jahr !== null)) {
-    window.location.replace(galleryUrl("/bilder/", { ...initial, seite: 1 }));
+  if (root.dataset.galleryFull !== "true" && (
+    initial.typ !== "all"
+    || initial.jahr !== null
+    || initial.proseite !== GALLERY_DEFAULT_PAGE_SIZE
+  )) {
+    window.location.replace(galleryUrl("/bilder/", initial));
     return;
   }
   window.history.scrollRestoration = "manual";
@@ -131,6 +151,30 @@ function mount(root: HTMLElement): void {
       focusTarget?.focus({ preventScroll: true });
     });
   }
+
+  for (const link of pagination) {
+    link.addEventListener("click", (event) => {
+      if (root.dataset.galleryFull !== "true") return;
+      const page = Number(link.dataset.galleryPage || "1");
+      if (!Number.isSafeInteger(page) || page < 1) return;
+      event.preventDefault();
+      const state = { ...stateForPage(root), seite: page };
+      pushGalleryHistory(galleryUrl("/bilder/", state), { focusId: "galerie-ergebnisse", scrollY: Math.round(window.scrollY) });
+      apply(state);
+      focusTarget?.focus({ preventScroll: true });
+    });
+  }
+
+  pageSizeSelect?.addEventListener("change", () => {
+    const state = { ...stateForPage(root), proseite: parseGalleryPageSize(pageSizeSelect.value), seite: 1 };
+    if (root.dataset.galleryFull !== "true") {
+      window.location.assign(galleryUrl("/bilder/", state));
+      return;
+    }
+    pushGalleryHistory(galleryUrl("/bilder/", state), { focusId: pageSizeSelect.id || "galerie-ergebnisse", scrollY: Math.round(window.scrollY) });
+    apply(state);
+    pageSizeSelect.focus({ preventScroll: true });
+  });
 
   window.addEventListener("popstate", (event: PopStateEvent) => {
     apply(stateForPage(root), galleryHistoryEntry(event.state));

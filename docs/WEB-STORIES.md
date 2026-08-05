@@ -68,3 +68,11 @@ npm --prefix web run test:e2e -- full-story
 
 Die Browserabnahme prüft direkte Kapitel- und No-JS-Links, TOC-Status,
 Kapitelnavigation, reduzierte Bewegung und lokale Lesefortschrittszustände.
+
+## Mobile Lesbarkeit
+
+Story-Übersicht, Inhaltsverzeichnis und Kapitelinhalt dürfen auf kleinen
+Viewporten keine breitere Layoutspur erzeugen. Lange Wörter, Codeblöcke,
+Tabellen und eingebundene Medien werden innerhalb des verfügbaren Inhaltsraums
+umgebrochen oder skaliert; dekorative Kapitelrotationen werden mobil entfernt.
+Die Browserabnahme misst den Dokument- und Story-Overflow bei 320 Pixeln.

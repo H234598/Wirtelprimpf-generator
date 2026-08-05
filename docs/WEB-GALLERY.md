@@ -41,3 +41,14 @@ npm --prefix web run test:browser
 
 Die Browserabnahme prüft Mausöffnung, Fokus, Escape, Tab-Zyklus,
 Touchnavigation, Detailnavigation, Downloads und den No-JS-Fallback.
+
+## Seitennavigation und Seitengröße
+
+Die Galerie hält den Seitenstand in der URL und aktualisiert ihn bei
+JavaScript-Navigation ohne Rücksprung auf Seite 1. Die Seitengröße kann pro
+Ansicht auf `10`, `20`, `50`, `100`, `200`, `500` oder `Alle` Bilder gestellt
+werden. Filter, Seitenzahl und Seitengröße werden gemeinsam wiederhergestellt;
+ohne JavaScript bleiben die statischen `/bilder/seite/<n>/`-Links nutzbar.
+
+Die Browserabnahme prüft außerdem einen echten Wechsel auf Seite 2 mit
+veränderter Seitengröße sowie die vollständige `Alle`-Ansicht.
