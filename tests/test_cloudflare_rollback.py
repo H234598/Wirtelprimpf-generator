@@ -8,6 +8,7 @@ from wirtelprimpf_platform.cloudflare_rollback import (
     ROLLBACK_SEQUENCE,
     CloudflareRollbackError,
     build_rollback_plan,
+    rehearse_rollback,
 )
 from wirtelprimpf_platform.cloudflare_snapshot import SNAPSHOT_VERSION
 
@@ -35,6 +36,17 @@ def valid_snapshot() -> dict:
 
 
 class CloudflareRollbackTests(unittest.TestCase):
+    def current_snapshot(self, baseline: dict, plan_ids: list[str], wildcard_id: str) -> dict:
+        current = copy.deepcopy(baseline)
+        current["ruleset"]["version"] = baseline["ruleset"]["version"] + 2
+        current["ruleset"]["rules"].append({"ref": "created-rule"})
+        current["dns_records"].extend(
+            [{"id": record_id, "name": f"created-{index}.telacore.org", "type": "A"}
+             for index, record_id in enumerate([*plan_ids, wildcard_id])]
+        )
+        current["quota"]["used"] += len(plan_ids) + 1
+        return current
+
     def test_rollback_preserves_snapshot_ruleset_and_uses_id_only_sequence(self) -> None:
         snapshot = valid_snapshot()
         alias_ids = [f"created-alias-{index}" for index in range(120)]
@@ -68,6 +80,32 @@ class CloudflareRollbackTests(unittest.TestCase):
         )
         snapshot["ruleset"]["rules"][0]["ref"] = "changed-after-capture"
         self.assertEqual(plan.ruleset[0], original_rules[0])
+
+    def test_rollback_rehearsal_removes_only_created_records_and_restores_baseline(self) -> None:
+        baseline = valid_snapshot()
+        alias_ids = [f"created-alias-{index}" for index in range(120)]
+        plan = build_rollback_plan(baseline, wildcard_record_id="created-wildcard", alias_record_ids=alias_ids)
+        result = rehearse_rollback(
+            baseline,
+            self.current_snapshot(baseline, alias_ids, "created-wildcard"),
+            plan=plan,
+        )
+        self.assertEqual(result, {
+            "ok": True,
+            "deleted_record_count": 121,
+            "restored_ruleset_version": 15,
+            "remaining_record_count": 52,
+            "baseline_ruleset_restored": True,
+        })
+
+    def test_rollback_rehearsal_rejects_foreign_record_drift(self) -> None:
+        baseline = valid_snapshot()
+        alias_ids = [f"created-alias-{index}" for index in range(120)]
+        plan = build_rollback_plan(baseline, wildcard_record_id="created-wildcard", alias_record_ids=alias_ids)
+        current = self.current_snapshot(baseline, alias_ids, "created-wildcard")
+        current["dns_records"][0]["content"] = "changed"
+        with self.assertRaisesRegex(CloudflareRollbackError, "pre-existing DNS record"):
+            rehearse_rollback(baseline, current, plan=plan)
 
 
 if __name__ == "__main__":

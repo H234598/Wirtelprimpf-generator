@@ -60,6 +60,7 @@ from .cloudflare_rollback import (
     CloudflareRollbackError,
     RollbackPlan,
     build_rollback_plan,
+    rehearse_rollback,
 )
 from .cloudflare_audit import (
     DNS_QUOTA_LIMIT,
@@ -119,6 +120,7 @@ __all__ = [
     "CloudflareRollbackError",
     "RollbackPlan",
     "build_rollback_plan",
+    "rehearse_rollback",
     "DNS_QUOTA_LIMIT",
     "RULESET_PHASE",
     "CloudflareAuditError",
