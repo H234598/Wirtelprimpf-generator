@@ -105,7 +105,7 @@ CI_JOB_ACTIONS = {
 CI_STEP_NAMES = {
     "applet": (
         "Checkout relevant repository paths", "Set up Python", "Set up Node.js",
-        "Install runtime test dependencies", "Run repository checks",
+        "Install runtime test dependencies", "Run applet checks",
     ),
     "platform": (
         "Checkout generator sources", "Set up Python", "Install generator package",
@@ -127,7 +127,7 @@ CI_STEP_NAMES = {
 CI_JOB_COMMANDS = {
     "applet": (
         "python -m pip install --disable-pip-version-check -r Sourcecode/requirements.txt",
-        "make check",
+        "make check-applet",
     ),
     "platform": (
         "python -m pip install --disable-pip-version-check -e .",

@@ -45,12 +45,12 @@ class CheckEquivalenceTests(unittest.TestCase):
             with self.subTest(item=item):
                 self.assertIn(item, check)
 
-    def test_workflow_preserves_read_only_split_and_make_check(self) -> None:
+    def test_workflow_preserves_read_only_split_and_applet_check(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("pull_request:", workflow)
         self.assertNotIn("pull_request_target", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
-        self.assertRegex(workflow, r"(?ms)^  applet:.*?^        run: make check$")
+        self.assertRegex(workflow, r"(?ms)^  applet:.*?^        run: make check-applet$")
         self.assertIn("npm --prefix web run build", workflow)
         self.assertIn("validate_pages_artifact.py", workflow)
         self.assertIn("validate_web_budgets.py", workflow)
