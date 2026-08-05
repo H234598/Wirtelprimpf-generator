@@ -279,6 +279,7 @@ test("CatGPT Light falls back silently when the Worker is unavailable", async ({
   expect(await page.evaluate(() => (window as typeof window & { __catgptLightRequests?: string[] }).__catgptLightRequests ?? [])).toEqual([
     "https://catgpt.wirtelprimpf.telacore.org/v1/chat",
   ]);
+  await page.locator("[data-catgpt-close]").click();
   await page.locator("[data-settings-toggle]").click();
   await expect(page.locator("[data-settings-panel]")).toBeVisible();
   await mode.uncheck();
