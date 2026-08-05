@@ -269,6 +269,8 @@ test("CatGPT Light falls back silently when the Worker is unavailable", async ({
   await expect(mode).toBeChecked();
   await expect(page.locator("[data-catgpt-shell]")).toHaveAttribute("data-light-endpoint", "https://catgpt.wirtelprimpf.telacore.org/v1/chat");
   expect(await page.evaluate(() => localStorage.getItem("wirtelprimpf-catgpt-mode"))).toBe("light");
+  await page.locator("[data-settings-toggle]").click();
+  await expect(page.locator("[data-settings-panel]")).toBeHidden();
   await page.locator("[data-catgpt-launcher]").click();
   await page.locator("#catgpt-input").fill("Bitte antworte kurz.");
   await page.locator("[data-catgpt-form] button[type='submit']").click();
@@ -278,6 +280,7 @@ test("CatGPT Light falls back silently when the Worker is unavailable", async ({
     "https://catgpt.wirtelprimpf.telacore.org/v1/chat",
   ]);
   await page.locator("[data-settings-toggle]").click();
+  await expect(page.locator("[data-settings-panel]")).toBeVisible();
   await mode.uncheck();
   await expect(page.locator("[data-catgpt-messages] li")).toHaveCount(0);
   expect(await page.evaluate(() => sessionStorage.getItem("wirtelprimpf-catgpt-history"))).toBeNull();
