@@ -48,17 +48,20 @@ test("P08 visual sample keeps core routes framed at supported viewports", async 
       expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
 
       if (route.name === "home" && viewport.width <= 560) {
-        const launcherBox = await page.locator("[data-catgpt-launcher]").boundingBox();
+        const launcherBoxes = await page.locator("[data-catgpt-launcher]").evaluateAll((launchers) => launchers.map((launcher) => {
+          const box = launcher.getBoundingClientRect();
+          return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+        }));
         const actionBoxes = await page.locator(".hero .button-row a").evaluateAll((links) => links.map((link) => {
           const box = link.getBoundingClientRect();
           return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
         }));
-        expect(launcherBox).not.toBeNull();
-        for (const actionBox of actionBoxes) {
-          const overlaps = launcherBox
-            ? launcherBox.x < actionBox.right && launcherBox.x + launcherBox.width > actionBox.left && launcherBox.y < actionBox.bottom && launcherBox.y + launcherBox.height > actionBox.top
-            : true;
-          expect(overlaps).toBe(false);
+        expect(launcherBoxes).toHaveLength(2);
+        for (const launcherBox of launcherBoxes) {
+          for (const actionBox of actionBoxes) {
+            const overlaps = launcherBox.left < actionBox.right && launcherBox.right > actionBox.left && launcherBox.top < actionBox.bottom && launcherBox.bottom > actionBox.top;
+            expect(overlaps).toBe(false);
+          }
         }
       }
 

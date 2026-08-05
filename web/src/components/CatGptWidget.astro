@@ -8,10 +8,13 @@ interface Props {
 const { lightEndpoint } = Astro.props;
 ---
 <div class="catgpt-shell" data-catgpt-shell data-light-endpoint={lightEndpoint}>
-  <button class="catgpt-launcher" type="button" aria-label="CatGPT öffnen" aria-controls="wirtelprimpf-catgpt" aria-expanded="false" data-catgpt-launcher>CatGPT</button>
+  <div class="catgpt-launchers" role="group" aria-label="CatGPT-Modus">
+    <button class="catgpt-launcher catgpt-launcher-static" type="button" aria-label="CatGPT-S öffnen" aria-controls="wirtelprimpf-catgpt" aria-expanded="false" data-catgpt-launcher="static">CatGPT-S</button>
+    <button class="catgpt-launcher catgpt-launcher-light" type="button" aria-label={lightEndpoint ? "CatGPT-L öffnen" : "CatGPT-L nicht verfügbar"} aria-controls="wirtelprimpf-catgpt" aria-expanded="false" disabled={!lightEndpoint} data-catgpt-launcher="light">CatGPT-L</button>
+  </div>
   <section id="wirtelprimpf-catgpt" class="catgpt-window" role="dialog" aria-labelledby="catgpt-title" hidden data-catgpt-window>
     <header>
-      <h2 id="catgpt-title">CatGPT</h2>
+      <h2 id="catgpt-title" data-catgpt-title>CatGPT-S</h2>
       <button type="button" aria-label="CatGPT schließen" data-catgpt-close>×</button>
     </header>
     <ol class="catgpt-messages" aria-live="polite" aria-relevant="additions" data-catgpt-messages></ol>
@@ -29,16 +32,18 @@ const { lightEndpoint } = Astro.props;
   import { LightReplyProvider } from "../lib/catgpt/light-provider.ts";
   import {
     CATGPT_MODE_CHANGE_EVENT,
+    changeCatGptMode,
     clearChatSession,
-    readMode,
+    initializeCatGptMode,
   } from "../lib/catgpt/settings.ts";
   import { StaticReplyProvider } from "../lib/catgpt/static-provider.ts";
   import { isValidChatContent, type CatGptMode, type ChatMessage } from "../lib/catgpt/types.ts";
 
   const shell = document.querySelector<HTMLElement>("[data-catgpt-shell]");
-  const launcher = shell?.querySelector<HTMLButtonElement>("[data-catgpt-launcher]");
+  const launchers = shell?.querySelectorAll<HTMLButtonElement>("[data-catgpt-launcher]") ?? [];
   const windowElement = shell?.querySelector<HTMLElement>("[data-catgpt-window]");
   const close = shell?.querySelector<HTMLButtonElement>("[data-catgpt-close]");
+  const title = shell?.querySelector<HTMLElement>("[data-catgpt-title]");
   const messages = shell?.querySelector<HTMLOListElement>("[data-catgpt-messages]");
   const form = shell?.querySelector<HTMLFormElement>("[data-catgpt-form]");
   const input = shell?.querySelector<HTMLInputElement>("[data-catgpt-input]");
@@ -47,16 +52,20 @@ const { lightEndpoint } = Astro.props;
   const overlayEvent = "wirtelprimpf:overlay-open";
   const staticProvider = new StaticReplyProvider();
   const lightProvider = lightEndpoint ? new LightReplyProvider(lightEndpoint, staticProvider) : undefined;
-  let mode: CatGptMode = "static";
-  try { mode = lightProvider && readMode(localStorage) === "light" ? "light" : "static"; } catch {}
+  let mode: CatGptMode = initializeCatGptMode(() => localStorage, Boolean(lightProvider));
+  let activeLauncher = launchers[0];
   let history: ChatMessage[] = readChatHistory(() => sessionStorage);
   let generation = 0;
 
   const setOpen = (open: boolean): void => {
-    if (!launcher || !windowElement) return;
+    if (!activeLauncher || !windowElement) return;
     windowElement.hidden = !open;
-    launcher.setAttribute("aria-expanded", String(open));
-    if (open) input?.focus(); else launcher.focus();
+    for (const launcher of launchers) launcher.setAttribute("aria-expanded", String(open && launcher === activeLauncher));
+    if (open) input?.focus(); else activeLauncher.focus();
+  };
+
+  const syncTitle = (): void => {
+    if (title) title.textContent = mode === "light" ? "CatGPT-L" : "CatGPT-S";
   };
 
   const appendMessage = (role: "user" | "assistant", content: string): void => {
@@ -70,11 +79,20 @@ const { lightEndpoint } = Astro.props;
 
   for (const message of history) appendMessage(message.role, message.content);
 
-  launcher?.addEventListener("click", () => {
-    const open = windowElement?.hasAttribute("hidden") ?? true;
-    if (open) window.dispatchEvent(new CustomEvent(overlayEvent, { detail: { source: "catgpt" } }));
-    setOpen(open);
-  });
+  syncTitle();
+  for (const launcher of launchers) {
+    launcher.addEventListener("click", () => {
+      activeLauncher = launcher;
+      const requestedMode = launcher.dataset.catgptLauncher === "light" && lightProvider ? "light" : "static";
+      if (requestedMode !== mode) {
+        changeCatGptMode(() => localStorage, () => sessionStorage, requestedMode, window);
+      }
+      if (windowElement?.hasAttribute("hidden")) {
+        window.dispatchEvent(new CustomEvent(overlayEvent, { detail: { source: "catgpt" } }));
+      }
+      setOpen(true);
+    });
+  }
   close?.addEventListener("click", () => setOpen(false));
   window.addEventListener(overlayEvent, (event) => {
     const source = (event as CustomEvent<{ source?: string }>).detail?.source;
@@ -88,6 +106,7 @@ const { lightEndpoint } = Astro.props;
     generation += 1;
     const selectedMode = (event as CustomEvent<{ mode?: CatGptMode }>).detail?.mode;
     mode = lightProvider && selectedMode === "light" ? "light" : "static";
+    syncTitle();
     history = [];
     try { clearChatSession(sessionStorage); } catch {}
     messages?.replaceChildren();

@@ -1,11 +1,4 @@
 ---
-import type { CatGptLightEndpoint } from "../lib/catgpt/config.ts";
-
-interface Props {
-  lightEndpoint?: CatGptLightEndpoint;
-}
-
-const { lightEndpoint } = Astro.props;
 ---
 <div class="settings-shell" data-settings-shell>
   <button class="settings-toggle" type="button" aria-label="Einstellungen öffnen" aria-controls="wirtelprimpf-settings" aria-expanded="false" data-settings-toggle>⚙</button>
@@ -19,24 +12,11 @@ const { lightEndpoint } = Astro.props;
       <label><input type="radio" name="theme" value="night" data-theme-option /> Nacht</label>
       <label><input type="radio" name="theme" value="paper" data-theme-option /> Papier</label>
     </fieldset>
-    <div class="settings-row">
-      <div><strong>CatGPT</strong><small>Light sendet Chattext an OpenAI.</small></div>
-      <label class="mode-switch">
-        <span>Static</span>
-        <input type="checkbox" role="switch" aria-label="CatGPT Light aktivieren" data-catgpt-mode disabled={!lightEndpoint} />
-        <span>Light</span>
-      </label>
-    </div>
-    {!lightEndpoint && <small class="settings-note">Light: bald verfügbar</small>}
     <button class="settings-clear" type="button" data-settings-clear>Lokale Lesedaten löschen</button>
   </section>
 </div>
 
 <script>
-  import {
-    changeCatGptMode,
-    initializeCatGptMode,
-  } from "../lib/catgpt/settings.ts";
   import { clearSiteState, readSiteState, updateSiteState } from "../lib/site-state.ts";
 
   const shell = document.querySelector<HTMLElement>("[data-settings-shell]");
@@ -44,7 +24,6 @@ const { lightEndpoint } = Astro.props;
   const panel = shell?.querySelector<HTMLElement>("[data-settings-panel]");
   const close = shell?.querySelector<HTMLButtonElement>("[data-settings-close]");
   const clear = shell?.querySelector<HTMLButtonElement>("[data-settings-clear]");
-  const mode = shell?.querySelector<HTMLInputElement>("[data-catgpt-mode]");
   const themes = shell?.querySelectorAll<HTMLInputElement>("[data-theme-option]") ?? [];
   const overlayEvent = "wirtelprimpf:overlay-open";
 
@@ -62,10 +41,6 @@ const { lightEndpoint } = Astro.props;
   } catch {
     document.documentElement.dataset.theme = "night";
   }
-
-  const lightAvailable = Boolean(mode && !mode.disabled);
-  const selectedMode = initializeCatGptMode(() => localStorage, lightAvailable);
-  if (mode) mode.checked = selectedMode === "light";
 
   toggle?.addEventListener("click", () => {
     const open = panel?.hasAttribute("hidden") ?? true;
@@ -92,10 +67,5 @@ const { lightEndpoint } = Astro.props;
     clearSiteState(localStorage);
     document.documentElement.dataset.theme = "night";
     for (const option of themes) option.checked = option.value === "night";
-  });
-  mode?.addEventListener("change", () => {
-    const nextMode = lightAvailable && mode.checked ? "light" : "static";
-    mode.checked = nextMode === "light";
-    changeCatGptMode(() => localStorage, () => sessionStorage, nextMode, window);
   });
 </script>

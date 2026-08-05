@@ -262,16 +262,16 @@ test("CatGPT Light falls back silently when the Worker is unavailable", async ({
     };
   });
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.locator("[data-settings-toggle]").click();
-  const mode = page.locator("[data-catgpt-mode]");
-  await expect(mode).toBeEnabled();
-  await mode.check();
-  await expect(mode).toBeChecked();
+  const lightLauncher = page.locator("[data-catgpt-launcher='light']");
+  if (await lightLauncher.isDisabled()) {
+    await expect(lightLauncher).toHaveAttribute("aria-label", "CatGPT-L nicht verfügbar");
+    return;
+  }
+  await expect(lightLauncher).toBeEnabled();
+  await lightLauncher.click();
+  await expect(page.locator("[data-catgpt-window]")).toBeVisible();
   await expect(page.locator("[data-catgpt-shell]")).toHaveAttribute("data-light-endpoint", "https://catgpt.wirtelprimpf.telacore.org/v1/chat");
   expect(await page.evaluate(() => localStorage.getItem("wirtelprimpf-catgpt-mode"))).toBe("light");
-  await page.locator("[data-settings-toggle]").click();
-  await expect(page.locator("[data-settings-panel]")).toBeHidden();
-  await page.locator("[data-catgpt-launcher]").click();
   await page.locator("#catgpt-input").fill("Bitte antworte kurz.");
   await page.locator("[data-catgpt-form] button[type='submit']").click();
   await expect(page.locator("[data-catgpt-messages] li[data-role='assistant']")).toHaveCount(1);
@@ -280,10 +280,10 @@ test("CatGPT Light falls back silently when the Worker is unavailable", async ({
     "https://catgpt.wirtelprimpf.telacore.org/v1/chat",
   ]);
   await page.locator("[data-catgpt-close]").click();
-  await page.locator("[data-settings-toggle]").click();
-  await expect(page.locator("[data-settings-panel]")).toBeVisible();
-  await mode.uncheck();
+  await page.locator("[data-catgpt-launcher='static']").click();
+  await expect(page.locator("[data-catgpt-title]")).toHaveText("CatGPT-S");
   await expect(page.locator("[data-catgpt-messages] li")).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem("wirtelprimpf-catgpt-mode"))).toBe("static");
   expect(await page.evaluate(() => sessionStorage.getItem("wirtelprimpf-catgpt-history"))).toBeNull();
 });
 
@@ -360,6 +360,7 @@ test("mobile main navigation keeps every link fully visible", async ({ page }) =
 test("mobile settings and CatGPT overlays stay in the viewport and exclude each other", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect(page.locator("[data-catgpt-launcher='static']")).toBeEnabled();
   const viewport = { width: 320, height: 800 };
   const assertInsideViewport = async (selector: string): Promise<void> => {
     const box = await page.locator(selector).boundingBox();
@@ -373,7 +374,7 @@ test("mobile settings and CatGPT overlays stay in the viewport and exclude each 
   await page.locator("[data-settings-toggle]").click();
   await expect(page.locator("[data-settings-panel]")).toBeVisible();
   await assertInsideViewport("[data-settings-panel]");
-  await page.locator("[data-catgpt-launcher]").click();
+  await page.locator("[data-catgpt-launcher='static']").click();
   await expect(page.locator("[data-settings-panel]")).toBeHidden();
   await expect(page.locator("[data-catgpt-window]")).toBeVisible();
   await assertInsideViewport("[data-catgpt-window]");
