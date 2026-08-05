@@ -9,6 +9,7 @@ from wirtelprimpf_platform.cloudflare_preflight import (
     ALIAS_RECORD_CONTENT,
     CloudflarePreflightError,
     build_alias_record_payloads,
+    ruleset_rules_hash,
     validate_preflight,
 )
 from wirtelprimpf_platform.cloudflare_snapshot import SNAPSHOT_VERSION
@@ -38,16 +39,27 @@ def valid_snapshot() -> dict:
 
 class CloudflarePreflightTests(unittest.TestCase):
     def test_preflight_accepts_complete_unchanged_baseline(self) -> None:
+        rules_hash = ruleset_rules_hash(valid_snapshot()["ruleset"]["rules"])
         report = validate_preflight(
             valid_snapshot(),
             expected_ruleset_id="ruleset-1",
             expected_ruleset_version=15,
             expected_security_rule_hash="a" * 64,
+            expected_rules_hash=rules_hash,
             expected_dns_record_count=52,
         )
         self.assertEqual(report.alias_count, 120)
         self.assertEqual(report.existing_rule_count, 5)
         self.assertEqual(report.dns_record_count, 52)
+        self.assertEqual(report.rules_hash, rules_hash)
+
+    def test_preflight_rejects_full_ruleset_drift(self) -> None:
+        baseline = valid_snapshot()
+        expected = ruleset_rules_hash(baseline["ruleset"]["rules"])
+        drifted = copy.deepcopy(baseline)
+        drifted["ruleset"]["rules"][0]["ref"] = "changed-rule"
+        with self.assertRaisesRegex(CloudflarePreflightError, "ruleset hash"):
+            validate_preflight(drifted, expected_rules_hash=expected)
 
     def test_preflight_rejects_drift_wildcard_and_existing_alias_answer(self) -> None:
         cases: list[tuple[str, dict, str]] = []

@@ -52,6 +52,7 @@ from .cloudflare_preflight import (
     CloudflarePreflightError,
     PreflightReport,
     build_alias_record_payloads,
+    ruleset_rules_hash,
     validate_preflight,
 )
 from .cloudflare_rollback import (
@@ -112,6 +113,7 @@ __all__ = [
     "CloudflarePreflightError",
     "PreflightReport",
     "build_alias_record_payloads",
+    "ruleset_rules_hash",
     "validate_preflight",
     "ROLLBACK_SEQUENCE",
     "CloudflareRollbackError",

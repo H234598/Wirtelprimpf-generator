@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -24,6 +26,7 @@ class PreflightReport:
     ruleset_id: str
     ruleset_version: int
     security_rule_hash: str
+    rules_hash: str
     existing_rule_count: int
     dns_record_count: int
     dns_quota_limit: int
@@ -36,6 +39,13 @@ def _canonical_record_name(value: Any) -> str:
     return value.rstrip(".").lower()
 
 
+def ruleset_rules_hash(rules: Any) -> str:
+    if not isinstance(rules, list) or not all(isinstance(rule, dict) for rule in rules):
+        raise CloudflarePreflightError("ruleset rules must be a list of objects")
+    content = json.dumps(rules, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(content).hexdigest()
+
+
 def validate_preflight(
     snapshot: Any,
     *,
@@ -43,6 +53,7 @@ def validate_preflight(
     expected_ruleset_id: str | None = None,
     expected_ruleset_version: int | None = None,
     expected_security_rule_hash: str | None = None,
+    expected_rules_hash: str | None = None,
     expected_dns_record_count: int | None = None,
 ) -> PreflightReport:
     active = catalog or load_alias_catalog()
@@ -62,6 +73,11 @@ def validate_preflight(
         raise CloudflarePreflightError("security rule hash drifted from the approved baseline")
 
     rules = ruleset["rules"]
+    current_rules_hash = ruleset_rules_hash(rules)
+    if expected_rules_hash is not None and (
+        not _HASH.fullmatch(expected_rules_hash) or current_rules_hash != expected_rules_hash
+    ):
+        raise CloudflarePreflightError("ruleset hash drifted from the approved baseline")
     if len(rules) != 5:
         raise CloudflarePreflightError("pre-mutation ruleset must contain exactly five existing rules")
     refs = [rule.get("ref") for rule in rules]
@@ -102,6 +118,7 @@ def validate_preflight(
         ruleset_id=ruleset["id"],
         ruleset_version=ruleset["version"],
         security_rule_hash=ruleset["security_rule_hash"],
+        rules_hash=current_rules_hash,
         existing_rule_count=len(rules),
         dns_record_count=len(records),
         dns_quota_limit=quota["limit"],
