@@ -127,39 +127,87 @@ def _manifest_at_commit(root: Path, commit: str, relative_path: str) -> tuple[in
     return len(media), sum(item.get("byte_size", 0) for item in media if isinstance(item, dict))
 
 
-def _growth_report(root: Path, manifest_stats: dict[str, Any]) -> dict[str, Any]:
-    relative_path = "data/media-manifest.json"
+def _relative_manifest_path(value: str) -> str:
+    path = Path(value)
+    if path.is_absolute() or not value or any(part in {"", ".", ".."} for part in path.parts):
+        raise MediaMeasurementError("growth manifest must be a non-empty relative path")
+    return path.as_posix()
+
+
+def _growth_report(
+    root: Path,
+    manifest_stats: dict[str, Any],
+    *,
+    history_root: Path | None = None,
+    relative_path: str = "data/media-manifest.json",
+    baseline_commit: str | None = None,
+) -> dict[str, Any]:
+    history_root = (history_root or root).resolve()
+    relative_path = _relative_manifest_path(relative_path)
+    external_history = history_root != root.resolve()
     result = subprocess.run(
-        ["git", "log", "--format=%H%x09%ct", "--max-count=20", "--", relative_path],
-        cwd=root,
+        ["git", "log", "--format=%H%x09%ct", "--", relative_path],
+        cwd=history_root,
         check=False,
         text=True,
         capture_output=True,
     )
-    points: list[dict[str, int]] = []
+    if result.returncode != 0 and external_history:
+        detail = result.stderr.strip() or "not a readable Git repository"
+        raise MediaMeasurementError(f"cannot read external growth history: {detail}")
+    points: list[dict[str, Any]] = []
+    baseline_seen = baseline_commit is None
     for line in result.stdout.splitlines():
         commit, _, raw_epoch = line.partition("\t")
         if not commit or not raw_epoch.isdigit():
             continue
-        values = _manifest_at_commit(root, commit, relative_path)
+        values = _manifest_at_commit(history_root, commit, relative_path)
         if values is not None:
             media_count, source_bytes = values
-            points.append({"epoch": int(raw_epoch), "media_count": media_count, "source_bytes": source_bytes})
+            points.append(
+                {
+                    "commit": commit,
+                    "epoch": int(raw_epoch),
+                    "media_count": media_count,
+                    "source_bytes": source_bytes,
+                }
+            )
+        if values is not None and baseline_commit and (commit == baseline_commit or commit.startswith(baseline_commit)):
+            baseline_seen = True
+            break
+    if baseline_commit and not baseline_seen:
+        raise MediaMeasurementError(f"growth baseline commit not found: {baseline_commit}")
+    metadata = {
+        "history_source": "external_git" if external_history else "local_git",
+        "manifest": relative_path,
+        "baseline_commit": baseline_commit,
+    }
     if len(points) < 2 or points[0]["epoch"] <= points[-1]["epoch"]:
-        return {"status": "insufficient_history", "points": points, "projections": {}}
+        return {"status": "insufficient_history", **metadata, "points": points, "projections": {}}
     elapsed = points[0]["epoch"] - points[-1]["epoch"]
     byte_growth_per_second = max(0.0, (points[0]["source_bytes"] - points[-1]["source_bytes"]) / elapsed)
     media_growth_per_second = max(0.0, (points[0]["media_count"] - points[-1]["media_count"]) / elapsed)
+    anchor = points[0] if external_history else manifest_stats
     projections: dict[str, dict[str, float]] = {}
     for months in (12, 24, 36):
         seconds = months * 30.4375 * 24 * 60 * 60
         projections[str(months)] = {
-            "projected_media_count": manifest_stats["media_count"] + media_growth_per_second * seconds,
-            "projected_source_bytes": manifest_stats["source_bytes"] + byte_growth_per_second * seconds,
+            "projected_media_count": anchor["media_count"] + media_growth_per_second * seconds,
+            "projected_source_bytes": anchor["source_bytes"] + byte_growth_per_second * seconds,
         }
     return {
         "status": "measured",
+        **metadata,
         "points": points,
+        "point_count": len(points),
+        "window_seconds": elapsed,
+        "window_days": elapsed / (24 * 60 * 60),
+        "long_term_status": "measured" if elapsed >= 90 * 24 * 60 * 60 else "insufficient_history",
+        "anchor": {
+            "commit": anchor.get("commit") if isinstance(anchor, dict) else None,
+            "media_count": anchor["media_count"],
+            "source_bytes": anchor["source_bytes"],
+        },
         "growth_per_second": {
             "media_count": media_growth_per_second,
             "source_bytes": byte_growth_per_second,
@@ -184,7 +232,16 @@ def _write_report(root: Path, output: Path, rendered: str) -> None:
     os.replace(temporary, target)
 
 
-def measure(root: Path, *, runs: int, expected_domain: str, budget_config: Path) -> dict[str, object]:
+def measure(
+    root: Path,
+    *,
+    runs: int,
+    expected_domain: str,
+    budget_config: Path,
+    growth_root: Path | None = None,
+    growth_manifest: str = "data/media-manifest.json",
+    growth_baseline_commit: str | None = None,
+) -> dict[str, object]:
     if runs < 1 or runs > 10:
         raise ValueError("runs must be between 1 and 10")
     root = root.resolve()
@@ -222,7 +279,13 @@ def measure(root: Path, *, runs: int, expected_domain: str, budget_config: Path)
         },
         "source_tree_unchanged": source_tree_unchanged,
         "manifest": manifest_stats,
-        "growth": _growth_report(root, manifest_stats),
+        "growth": _growth_report(
+            root,
+            manifest_stats,
+            history_root=growth_root,
+            relative_path=growth_manifest,
+            baseline_commit=growth_baseline_commit,
+        ),
         "artifact": {
             "file_count": artifact.file_count,
             "html_count": artifact.html_count,
@@ -264,13 +327,36 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--expected-domain", default="wirtelprimpf.telacore.org")
     parser.add_argument("--config", type=Path, default=Path("config/web-budgets.json"))
+    parser.add_argument(
+        "--growth-root",
+        type=Path,
+        help="optional read-only Git checkout used for manifest growth history",
+    )
+    parser.add_argument(
+        "--growth-manifest",
+        default="data/media-manifest.json",
+        help="relative manifest path used for growth history",
+    )
+    parser.add_argument(
+        "--growth-baseline-commit",
+        help="optional commit included as the oldest point in the growth window",
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--strict", action="store_true")
     args = parser.parse_args()
     try:
         root = args.root.resolve()
         config = args.config if args.config.is_absolute() else root / args.config
-        report = measure(root, runs=args.runs, expected_domain=args.expected_domain, budget_config=config)
+        growth_root = args.growth_root.resolve() if args.growth_root else None
+        report = measure(
+            root,
+            runs=args.runs,
+            expected_domain=args.expected_domain,
+            budget_config=config,
+            growth_root=growth_root,
+            growth_manifest=args.growth_manifest,
+            growth_baseline_commit=args.growth_baseline_commit,
+        )
         rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         if args.output:
             _write_report(args.root.resolve(), args.output, rendered)

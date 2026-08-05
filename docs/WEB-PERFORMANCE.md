@@ -50,6 +50,31 @@ Er enthält Median/P95, maximale Kindprozess-RSS, Artefaktdateien/-bytes, Treeha
 Release-gegenüber-Pages-Transfer, Budgetentscheidung und eine Git-basierte 12/24/36-Monatsprojektion.
 Fehlt eine belastbare Manifesthistorie, lautet der Status ausdrücklich `insufficient_history`.
 
+Für eine getrennte, read-only Archivhistorie kann derselbe Bericht den Checkout
+des kanonischen Archivs als Wachstumsquelle verwenden. Der Build bleibt dabei an
+`--root` gebunden; `--growth-root` wird nur für die Git-Historie gelesen:
+
+```bash
+SOURCE_DATE_EPOCH=0 python3 scripts/measure_web_media.py \
+  --root . --runs 3 --strict \
+  --growth-root /path/to/readonly/Wirtelprimpf-0001 \
+  --growth-manifest media-manifest.json \
+  --growth-baseline-commit <manifest-baseline-commit> \
+  --output build/reports/web-media-costs-archive-growth.json
+```
+
+Der Bericht kennzeichnet `history_source=external_git`, setzt die Projektionen
+am neuesten Archivpunkt an und weist mit `long_term_status=insufficient_history`
+kurze Zeitfenster weiterhin als nicht belastbare Langzeitbaseline aus. Ein
+Baseline-Commit ist optional, aber für Archive mit initialem Seed-Sprung
+empfohlen.
+
+Der echte read-only Archivlauf mit dem kanonischen Repository und dem
+Baseline-Commit `db5500b743b68dd47cdc2bb3d7f8896bea7557e1` lieferte `25` Punkte
+über `4,7541898148` Tage. Er verankerte die Projektion bei `803` Medien und
+`3.766.196.025` Quellbytes; der Langzeitstatus blieb korrekt
+`insufficient_history`.
+
 ## Lokaler Dreifachlauf 2026-08-05
 
 `npm run test:performance -- --repeat-each=3` war auf der lokalen statischen

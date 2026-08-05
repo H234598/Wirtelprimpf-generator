@@ -2057,7 +2057,7 @@ make check
 - **Datenverträge/Schemaänderungen:** Derivatmanifest, Transformationskonfiguration, Cache-Key-Vertrag und Medienmessbericht; Quellhash, Toolversion und Parameter sind Pflichtbestandteile.
 - **Implementierungsschritte:**
   1. **Erledigt:** wiederholte Builds, Median/P95, maximale Kindprozess-RSS, Artefaktbaumhash und Arbeitskopieunverändertheit messen; der reproduzierbare Dreifachlauf ist grün.
-  2. **Teilweise erledigt:** Git-Historie auswerten und 12/24/36-Monatsprojektionen nur bei mindestens zwei belastbaren Punkten berechnen; aktuell `insufficient_history`.
+  2. **Teilweise erledigt:** Git-Historie auswerten und 12/24/36-Monatsprojektionen nur bei mindestens zwei belastbaren Punkten berechnen. `scripts/measure_web_media.py` akzeptiert dafür neben der lokalen Generatorhistorie ein separates read-only Archiv-Git-Root, einen relativen Manifestpfad und optional einen Baseline-Commit; die Projektion startet am neuesten Archivpunkt und markiert kurze Reihen mit `long_term_status=insufficient_history`. Eine echte Archivreihe ist damit reproduzierbar auswertbar, bleibt wegen des aktuellen Fensters aber noch keine belastbare Langzeitbaseline.
   3. **Erledigt:** Pages-Artefaktumfang vom releasegebundenen Originalumfang trennen und Budgetentscheidung ausweisen.
   4. **Teilweise erledigt:** Die synthetische 10-Bilder-Neue-Story-Fixture erreicht gegen den vollständig vorgefüllten Archivcache `98,7326 %` kombinierte Hits (`1.558/1.578`) bei `0` Invalids; drei echte vergleichbare Produktionsläufe mit aktueller Plattformgrenzen-/Rechteprüfung bleiben offen.
   5. **Teilweise erledigt:** `docs/WEB-HOSTING-DECISION.md` und `docs/adr/ADR-002.md` führen den aktuellen lokalen Dreifachlauf und die Schwellenentscheidung. Die formale Produktionsentscheidung bleibt wegen belastbarer Wachstumshistorie, Rechteprüfung, Factory-Repin sowie externer Pages-/DNS-/Rollbackabnahme offen.
@@ -2066,6 +2066,7 @@ make check
 ```bash
 python3 scripts/measure_web_media.py --runs 3
 SOURCE_DATE_EPOCH=0 python3 scripts/measure_web_media.py --root . --runs 3 --strict --output build/reports/web-media-costs.json
+SOURCE_DATE_EPOCH=0 python3 scripts/measure_web_media.py --root . --runs 3 --growth-root /path/to/readonly/Wirtelprimpf-0001 --growth-manifest media-manifest.json --growth-baseline-commit <manifest-baseline-commit> --strict --output build/reports/web-media-costs-archive-growth.json
 python3 -W error tests/test_web_media_measurement.py
 make check
 ```

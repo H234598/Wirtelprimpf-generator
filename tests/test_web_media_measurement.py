@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -9,7 +11,13 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.measure_web_media import MediaMeasurementError, _manifest_stats, _percentile, _write_report
+from scripts.measure_web_media import (
+    MediaMeasurementError,
+    _growth_report,
+    _manifest_stats,
+    _percentile,
+    _write_report,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +43,51 @@ class WebMediaMeasurementTests(unittest.TestCase):
             self.assertEqual((root / "build/reports/report.json").read_text(encoding="utf-8"), rendered)
             with self.assertRaises(MediaMeasurementError):
                 _write_report(root, Path("outside.json"), rendered)
+
+    def test_external_growth_history_uses_archive_anchor_and_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True)
+
+            manifest = root / "media-manifest.json"
+            manifest.write_text(json.dumps({"media": [{"byte_size": 10}, {"byte_size": 20}]}), encoding="utf-8")
+            first_env = os.environ.copy()
+            first_env.update(
+                GIT_AUTHOR_DATE="2026-01-01T00:00:00+00:00",
+                GIT_COMMITTER_DATE="2026-01-01T00:00:00+00:00",
+            )
+            subprocess.run(["git", "add", "media-manifest.json"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "--quiet", "-m", "first"], cwd=root, check=True, env=first_env)
+            baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+
+            manifest.write_text(
+                json.dumps({"media": [{"byte_size": 10}, {"byte_size": 20}, {"byte_size": 30}]}),
+                encoding="utf-8",
+            )
+            second_env = os.environ.copy()
+            second_env.update(
+                GIT_AUTHOR_DATE="2026-01-02T00:00:00+00:00",
+                GIT_COMMITTER_DATE="2026-01-02T00:00:00+00:00",
+            )
+            subprocess.run(["git", "add", "media-manifest.json"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "--quiet", "-m", "second"], cwd=root, check=True, env=second_env)
+
+            report = _growth_report(
+                ROOT,
+                {"media_count": 999, "source_bytes": 999},
+                history_root=root,
+                relative_path="media-manifest.json",
+                baseline_commit=baseline,
+            )
+
+            self.assertEqual(report["history_source"], "external_git")
+            self.assertEqual(report["point_count"], 2)
+            self.assertEqual(report["long_term_status"], "insufficient_history")
+            self.assertEqual(report["anchor"]["media_count"], 3)
+            self.assertEqual(report["anchor"]["source_bytes"], 60)
+            self.assertGreater(report["projections"]["12"]["projected_media_count"], 3)
 
 
 if __name__ == "__main__":

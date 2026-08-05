@@ -151,3 +151,27 @@ inkrementellen Nachlauf von `db5500b` (`779` Medien,
 - Diese Werte sind ausdrücklich Kurzzeit-Szenarien aus weniger als fünf Tagen,
   keine eingefrorene Produktionsprognose. Die Langzeit-Wachstumshistorie bleibt
   bis zu einer mehrmonatigen Reihe `insufficient_history`.
+
+## Reproduzierbare externe Wachstumsauswertung am 5. August 2026
+
+`scripts/measure_web_media.py` akzeptiert für den Wachstumsabschnitt jetzt ein
+separates, read-only Git-Checkout über `--growth-root`, einen abweichenden
+Manifestpfad über `--growth-manifest` und optional den ältesten einzubeziehenden
+Commit über `--growth-baseline-commit`. Die Projektionen starten bei der
+aktuellen Archivspitze statt beim lokalen Generatorstand. Der Report trennt
+`history_source=external_git` von `local_git`, dokumentiert Punktzahl und
+Zeitfenster und setzt `long_term_status=insufficient_history`, solange weniger
+als 90 Tage echte Historie vorliegen.
+
+Der reproduzierbare Fixture-Test `test_external_growth_history_uses_archive_anchor_and_baseline`
+prüft genau diesen Vertrag, einschließlich Ausschluss eines Seed-Sprungs und
+read-only Git-Auswertung. Die Produktionshistorie bleibt trotz der nun
+wiederholbaren Messung ein Kurzzeit-Szenario; Pages-, DNS-, Rechte- und
+Rollbackabnahme sind davon getrennt.
+
+Der echte read-only Lauf gegen `H234598/Wirtelprimpf-0001` mit Baseline
+`db5500b743b68dd47cdc2bb3d7f8896bea7557e1` ergab `25` einbezogene Punkte,
+`4,7541898148` Tage, den Archivanker `803` Medien / `3.766.196.025`
+Quellbytes und für 12 Monate `2.646,8473` Medien / `12.334.395.651`
+Quellbytes. Der Lauf meldete `long_term_status=insufficient_history` und
+bestätigt damit die dokumentierte Kurzzeit-Szenario-Einstufung.
