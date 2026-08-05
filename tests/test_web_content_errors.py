@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,9 +12,35 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.web_content_errors import ContentErrorRegistryError, ERROR_CATALOG, load_exception_registry, validate_exception_registry
+from scripts.web_content_model import build_content_model
 
 
 class WebContentErrorTests(unittest.TestCase):
+    def test_persistent_fixture_matrix_covers_every_pairing_error_code(self) -> None:
+        fixture_root = Path(__file__).resolve().parent / "fixtures" / "web-content"
+        fixture_names = (
+            "case-collision",
+            "ambiguous-heading",
+            "timestamp-collision",
+            "timestamp-missing",
+            "orphan-prompt",
+            "orphan-story",
+            "orphan-sidecar",
+        )
+        observed: set[str] = set()
+        for name in fixture_names:
+            report = build_content_model(fixture_root / name)
+            observed.update(item["code"] for item in report["errors"])
+            observed.update(item["code"] for item in report["warnings"])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            os.symlink("missing-target.png", root / "escape.png")
+            report = build_content_model(root)
+        observed.update(item["code"] for item in report["errors"])
+        observed.update(item["code"] for item in report["warnings"])
+        self.assertEqual(observed, set(ERROR_CATALOG))
+
     def test_repository_registry_is_empty_and_catalog_has_explicit_severities(self) -> None:
         path = Path(__file__).resolve().parents[1] / "config/web-content-exceptions.json"
         self.assertEqual(load_exception_registry(path), [])

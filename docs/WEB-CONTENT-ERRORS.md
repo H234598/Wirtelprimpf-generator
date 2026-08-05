@@ -25,3 +25,8 @@ Prüfung:
 python3 tests/test_web_pairing.py
 python3 tests/test_web_content_errors.py
 ```
+
+Die persistente Fixture-Matrix unter `tests/fixtures/web-content/` deckt jeden
+Katalogcode mindestens einmal ab; der Test erzeugt zusätzlich einen aus dem
+Quellbaum ausbrechenden Symlink temporär. Damit bleibt die Katalogabdeckung bei
+neuen oder entfernten Fehlercodes sichtbar und reproduzierbar.
