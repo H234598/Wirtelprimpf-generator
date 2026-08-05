@@ -46,6 +46,7 @@ const { lightEndpoint } = Astro.props;
   const clear = shell?.querySelector<HTMLButtonElement>("[data-settings-clear]");
   const mode = shell?.querySelector<HTMLInputElement>("[data-catgpt-mode]");
   const themes = shell?.querySelectorAll<HTMLInputElement>("[data-theme-option]") ?? [];
+  const overlayEvent = "wirtelprimpf:overlay-open";
 
   const setOpen = (open: boolean): void => {
     if (!toggle || !panel) return;
@@ -66,8 +67,16 @@ const { lightEndpoint } = Astro.props;
   const selectedMode = initializeCatGptMode(() => localStorage, lightAvailable);
   if (mode) mode.checked = selectedMode === "light";
 
-  toggle?.addEventListener("click", () => setOpen(panel?.hasAttribute("hidden") ?? true));
+  toggle?.addEventListener("click", () => {
+    const open = panel?.hasAttribute("hidden") ?? true;
+    if (open) window.dispatchEvent(new CustomEvent(overlayEvent, { detail: { source: "settings" } }));
+    setOpen(open);
+  });
   close?.addEventListener("click", () => setOpen(false));
+  window.addEventListener(overlayEvent, (event) => {
+    const source = (event as CustomEvent<{ source?: string }>).detail?.source;
+    if (source !== "settings") setOpen(false);
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && panel && !panel.hidden) setOpen(false);
   });

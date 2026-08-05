@@ -44,6 +44,7 @@ const { lightEndpoint } = Astro.props;
   const input = shell?.querySelector<HTMLInputElement>("[data-catgpt-input]");
   const submit = form?.querySelector<HTMLButtonElement>('button[type="submit"]');
   const lightEndpoint = shell?.dataset.lightEndpoint as CatGptLightEndpoint | undefined;
+  const overlayEvent = "wirtelprimpf:overlay-open";
   const staticProvider = new StaticReplyProvider();
   const lightProvider = lightEndpoint ? new LightReplyProvider(lightEndpoint, staticProvider) : undefined;
   let mode: CatGptMode = "static";
@@ -69,8 +70,16 @@ const { lightEndpoint } = Astro.props;
 
   for (const message of history) appendMessage(message.role, message.content);
 
-  launcher?.addEventListener("click", () => setOpen(windowElement?.hasAttribute("hidden") ?? true));
+  launcher?.addEventListener("click", () => {
+    const open = windowElement?.hasAttribute("hidden") ?? true;
+    if (open) window.dispatchEvent(new CustomEvent(overlayEvent, { detail: { source: "catgpt" } }));
+    setOpen(open);
+  });
   close?.addEventListener("click", () => setOpen(false));
+  window.addEventListener(overlayEvent, (event) => {
+    const source = (event as CustomEvent<{ source?: string }>).detail?.source;
+    if (source !== "catgpt") setOpen(false);
+  });
   input?.addEventListener("input", () => input.setCustomValidity(""));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && windowElement && !windowElement.hidden) setOpen(false);

@@ -262,7 +262,23 @@
   .brand span { max-width: 13rem; }
   .site-header > nav a { padding-inline: .5rem; font-size: .84rem; }
   .catgpt-launcher { margin-left: auto; display: block; }
-  .catgpt-window { right: 0; width: min(24rem, calc(100vw - 2rem)); }
+  .settings-panel, .catgpt-window {
+    position: fixed;
+    left: max(.75rem, env(safe-area-inset-left));
+    right: max(.75rem, env(safe-area-inset-right));
+    bottom: max(.75rem, env(safe-area-inset-bottom));
+    top: auto;
+    width: auto;
+    max-width: none;
+    z-index: 100;
+  }
+  .settings-panel {
+    max-height: calc(100dvh - 1.5rem);
+    overflow-y: auto;
+  }
+  .catgpt-window {
+    max-height: min(38rem, calc(100dvh - 1.5rem));
+  }
   .archive-grid, .media-grid { grid-template-columns: 1fr; }
   .status-facts { grid-template-columns: 1fr; }
   .story-toc ol { grid-template-columns: 1fr; }

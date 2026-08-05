@@ -357,6 +357,32 @@ test("mobile main navigation keeps every link fully visible", async ({ page }) =
   }
 });
 
+test("mobile settings and CatGPT overlays stay in the viewport and exclude each other", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  const viewport = { width: 320, height: 800 };
+  const assertInsideViewport = async (selector: string): Promise<void> => {
+    const box = await page.locator(selector).boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+  };
+
+  await page.locator("[data-settings-toggle]").click();
+  await expect(page.locator("[data-settings-panel]")).toBeVisible();
+  await assertInsideViewport("[data-settings-panel]");
+  await page.locator("[data-catgpt-launcher]").click();
+  await expect(page.locator("[data-settings-panel]")).toBeHidden();
+  await expect(page.locator("[data-catgpt-window]")).toBeVisible();
+  await assertInsideViewport("[data-catgpt-window]");
+  await page.locator("[data-settings-toggle]").click();
+  await expect(page.locator("[data-catgpt-window]")).toBeHidden();
+  await expect(page.locator("[data-settings-panel]")).toBeVisible();
+  await assertInsideViewport("[data-settings-panel]");
+});
+
 test("tablet and desktop layouts keep their content inside the viewport", async ({ page }) => {
   for (const width of [768, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
