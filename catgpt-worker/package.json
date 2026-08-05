@@ -1,6 +1,9 @@
 {
   "name": "wirtelprimpf-catgpt-worker",
   "private": true,
+  "overrides": {
+    "undici": "7.29.0"
+  },
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit",
