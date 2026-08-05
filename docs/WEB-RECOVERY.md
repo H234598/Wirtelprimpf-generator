@@ -52,3 +52,17 @@ Cloudflare- oder Archivdaten. Nach dem Rollback werden Statusroute,
 Artefaktvalidator und die öffentliche Domain separat verifiziert. Ein
 Rollback ohne bekannte gute Referenz ist ein Blocker, kein Anlass für einen
 best-effort Build.
+
+## Verifizierter bekannter-Gut-Redeploy am 5. August 2026
+
+Der Hub wurde aus Generator-Commit `1e280b0` mit dem unveränderlichen
+Archivstand `H234598/Wirtelprimpf-0001@4692189ecf69a70f5526587649a2c426c0949126`
+neu gebaut und veröffentlicht. Pages-Lauf `31040117355` bestand mit Build und
+Deploy; der öffentliche Smoke lieferte für Hub und Galerie HTTP/2 `200`.
+Die ausgelieferte Galerie enthielt die Seitengrößen `10`, `20`, `50`, `100`,
+`200`, `500` und `Alle`, der Hub die Launcher `CatGPT-S` und `CatGPT-L`.
+
+Dieser Nachweis belegt einen kontrollierten Redeploy eines bekannten guten
+Stands. Ein destruktiver Rollback auf einen älteren Stand wurde nicht
+ausgeführt; dafür bleiben die dokumentierte Referenz, separate Freigabe und
+anschließende Rückabnahme erforderlich.
