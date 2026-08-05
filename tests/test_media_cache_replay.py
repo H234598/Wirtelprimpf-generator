@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from PIL import Image
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.measure_media_cache_replay import CacheReplayError, _materialize_variant, measure
 
