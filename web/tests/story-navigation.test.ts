@@ -137,7 +137,7 @@ test("EPUB downloads are fail-closed and reject non-EPUB or LFS content", () => 
       downloads: [{
         volume: 1,
         asset_name: filename,
-        url: `https://github.com/H234598/Wirtelprimpf-0001/releases/download/archive-0001-media-0001/${filename}`,
+        url: `https://github.com/H234598/Wirtelprimpf-0001/releases/download/archive-0001-epub-0001/${filename}`,
         size_bytes: bytes.length,
         sha256: createHash("sha256").update(bytes).digest("hex"),
         mime_type: "application/epub+zip",
