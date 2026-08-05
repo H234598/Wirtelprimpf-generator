@@ -829,7 +829,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
             root = Path(temporary)
             workflow = root / WORKFLOW
             content = workflow.read_text(encoding="utf-8")
-            command = 'rg -n "connect-src https://catgpt\\.wirtelprimpf\\.telacore\\.org" web/dist'
+            command = 'grep -R -n "connect-src https://catgpt\\.wirtelprimpf\\.telacore\\.org" web/dist'
             self.assertIn(command, content)
             workflow.write_text(content.replace(command, "", 1), encoding="utf-8")
             result = self.validate(root)

@@ -186,7 +186,7 @@ jobs:
           WIRTELPRIMPF_SITE_URL: https://wirtelprimpf.telacore.org
         run: |
           npm --prefix web run build
-          rg -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
+          grep -R -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
           python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
           python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
 
@@ -198,7 +198,7 @@ jobs:
           WIRTELPRIMPF_SITE_URL: https://wirtelprimpf-0001.telacore.org
         run: |
           npm --prefix web run build
-          rg -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
+          grep -R -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
           python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org
           python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
 
