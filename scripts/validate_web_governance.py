@@ -157,7 +157,7 @@ CI_JOB_COMMANDS = {
         'grep -R -n "connect-src https://catgpt\\.wirtelprimpf\\.telacore\\.org" web/dist',
         "python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org",
         "python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict",
-        "git diff --exit-code -- .",
+        "git diff --exit-code -- . ':(exclude)web/src/generated/status.json'",
         "unexpected=\"$(git ls-files --others --exclude-standard | grep -v '^web/src/generated/status\\.json$' || true)\"",
         "test -z \"$unexpected\"",
     ),

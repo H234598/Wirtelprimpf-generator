@@ -204,7 +204,7 @@ jobs:
 
       - name: Verify source checkout remains unchanged
         run: |
-          git diff --exit-code -- .
+          git diff --exit-code -- . ':(exclude)web/src/generated/status.json'
           unexpected="$(git ls-files --others --exclude-standard | grep -v '^web/src/generated/status\.json$' || true)"
           test -z "$unexpected"
 
