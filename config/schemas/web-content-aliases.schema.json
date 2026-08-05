@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wirtelprimpf.telacore.org/schemas/web-content-aliases.v1.json",
+  "title": "Wirtelprimpf stable web ID aliases",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "aliases"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "aliases": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/alias"}
+    }
+  },
+  "$defs": {
+    "alias": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "old_id", "new_id", "source_sha256", "reason"],
+      "properties": {
+        "kind": {"enum": ["image", "volume", "chapter"]},
+        "old_id": {"type": "string", "minLength": 1},
+        "new_id": {"type": "string", "minLength": 1},
+        "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "reason": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "image"}}},
+          "then": {
+            "properties": {
+              "old_id": {"pattern": "^(archive|hub)-[0-9]{4}-[a-f0-9]{16}-[a-f0-9]{8}$"},
+              "new_id": {"pattern": "^(archive|hub)-[0-9]{4}-[a-f0-9]{16}-[a-f0-9]{8}$"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "volume"}}},
+          "then": {
+            "properties": {
+              "old_id": {"pattern": "^band-[0-9]{4}$"},
+              "new_id": {"pattern": "^band-[0-9]{4}$"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "chapter"}}},
+          "then": {
+            "properties": {
+              "old_id": {"pattern": "^band-[0-9]{4}-teil-[a-f0-9]{12}$"},
+              "new_id": {"pattern": "^band-[0-9]{4}-teil-[a-f0-9]{12}$"}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

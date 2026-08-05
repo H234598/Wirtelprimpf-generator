@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from jsonschema import Draft202012Validator, ValidationError
+
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -15,6 +17,27 @@ from scripts.web_ids import WebIdError, chapter_id, id_kind, load_aliases, norma
 
 
 class WebIdTests(unittest.TestCase):
+    def test_alias_register_schema_accepts_current_and_migration_fixture(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        schema = json.loads((root / "config/schemas/web-content-aliases.schema.json").read_text(encoding="utf-8"))
+        current = json.loads((root / "config/web-content-aliases.json").read_text(encoding="utf-8"))
+        Draft202012Validator(schema).validate(current)
+        migration = {
+            "schema_version": "1.0.0",
+            "aliases": [{
+                "kind": "chapter",
+                "old_id": "band-0002-teil-aaaaaaaaaaaa",
+                "new_id": "band-0002-teil-bbbbbbbbbbbb",
+                "source_sha256": "a" * 64,
+                "reason": "source correction",
+            }],
+        }
+        Draft202012Validator(schema).validate(migration)
+        invalid = json.loads(json.dumps(migration))
+        invalid["aliases"][0]["new_id"] = "band-0002"
+        with self.assertRaises(ValidationError):
+            Draft202012Validator(schema).validate(invalid)
+
     def test_ids_are_portable_and_chapter_ids_match_typescript_algorithm(self) -> None:
         self.assertEqual(normalize_id("image", " ARCHIVE-0001-D1F75722EDAEBFA8-10035CC1 "), "archive-0001-d1f75722edaebfa8-10035cc1")
         self.assertEqual(normalize_id("volume", "BAND-0002"), "band-0002")

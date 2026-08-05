@@ -48,6 +48,7 @@ class WebContentSchemaTests(unittest.TestCase):
             "web-image.schema.json",
             "web-story-volume.schema.json",
             "web-story-chapter.schema.json",
+            "web-content-aliases.schema.json",
         ):
             with self.subTest(name=name):
                 schema = load_schema(name)

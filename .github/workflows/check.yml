@@ -95,6 +95,9 @@ jobs:
       - name: Run web content schema contracts
         run: python -m unittest tests.test_web_content_schemas
 
+      - name: Run web content ID contracts
+        run: python -m unittest tests.test_web_ids
+
       - name: Compile all Python sources
         run: python -m compileall -q Sourcecode wirtelprimpf_platform scripts
 
