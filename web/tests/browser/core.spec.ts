@@ -250,8 +250,10 @@ test("comfort state persists locally and can be explicitly cleared", async ({ pa
 
 test("CatGPT Light falls back silently when the Worker is unavailable", async ({ page }) => {
   let workerRequests = 0;
-  await page.route("https://catgpt.wirtelprimpf.telacore.org/v1/chat", async (route) => {
-    workerRequests += 1;
+  page.on("request", (request) => {
+    if (request.url().startsWith("https://catgpt.wirtelprimpf.telacore.org/v1/chat")) workerRequests += 1;
+  });
+  await page.route("**/v1/chat**", async (route) => {
     await route.abort("failed");
   });
   await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -259,6 +261,8 @@ test("CatGPT Light falls back silently when the Worker is unavailable", async ({
   const mode = page.locator("[data-catgpt-mode]");
   await expect(mode).toBeEnabled();
   await mode.check();
+  await expect(mode).toBeChecked();
+  await expect(page.locator("[data-catgpt-shell]")).toHaveAttribute("data-light-endpoint", "https://catgpt.wirtelprimpf.telacore.org/v1/chat");
   await page.locator("[data-catgpt-launcher]").click();
   await page.locator("#catgpt-input").fill("Bitte antworte kurz.");
   await page.locator("[data-catgpt-form] button[type='submit']").click();
