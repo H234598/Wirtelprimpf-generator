@@ -38,6 +38,24 @@ Für veröffentlichte Downloads bleibt der geprüfte Manifestvertrag maßgeblich
 MIME und Release-Asset müssen vor dem Eintrag in `epub-manifest.json` bestätigt
 sein.
 
+Die Manifestdatei wird erst aus einer separaten, externen Release-Inventur
+erzeugt. Der Generator vergleicht lokale EPUB-Bytes mit dieser Inventur und
+bricht bei fehlender oder nicht verifizierter Releaseevidenz ab:
+
+```bash
+python3 scripts/build_epub.py \
+  --story data/current-story.md --volume 2 --output /tmp/story-2.epub
+python3 scripts/build_epub_manifest.py \
+  --owner H234598 --repository Wirtelprimpf-0001 \
+  --release-tag archive-0001-epub-0001 \
+  --release-inventory /path/to/verified-release-inventory.json \
+  --volume 2=/tmp/story-2.epub --output /tmp/epub-manifest.json
+```
+
+Der Builder führt keine GitHub- oder Release-Schreiboperation aus. Eine
+fehlende Inventur bleibt ein Fehler und erzeugt keinen veröffentlichungsfähigen
+Manifesteintrag.
+
 Medien-zu-Kapitel-Verweise werden nur über stabile Kapitel-IDs oder eindeutig
 auflösbare Quellzeitstempel verbunden. Ein nicht auflösbarer Verweis wird
 nicht in eine Route übersetzt. Wenn der Zeitstempel des Bilddateinamens von der
@@ -79,6 +97,7 @@ npm --prefix web test
 npm --prefix web run test:browser
 python3 tests/test_web_plan.py
 python3 -m unittest tests.test_epub_builder
+python3 -m unittest tests.test_epub_manifest_builder
 python3 tests/test_epub_contract.py
 npm --prefix web run test:e2e -- full-story
 ```
