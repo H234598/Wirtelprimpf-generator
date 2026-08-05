@@ -249,12 +249,17 @@ test("comfort state persists locally and can be explicitly cleared", async ({ pa
 });
 
 test("CatGPT Light falls back silently when the Worker is unavailable", async ({ page }) => {
-  let workerRequests = 0;
-  page.on("request", (request) => {
-    if (request.url().startsWith("https://catgpt.wirtelprimpf.telacore.org/v1/chat")) workerRequests += 1;
-  });
-  await page.route("**/v1/chat**", async (route) => {
-    await route.abort("failed");
+  await page.addInitScript(() => {
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
+      if (url.startsWith("https://catgpt.wirtelprimpf.telacore.org/v1/chat")) {
+        const state = window as typeof window & { __catgptLightRequests?: string[] };
+        state.__catgptLightRequests = [...(state.__catgptLightRequests ?? []), url];
+        return Promise.reject(new TypeError("synthetic CatGPT Worker outage"));
+      }
+      return nativeFetch(input, init);
+    };
   });
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.locator("[data-settings-toggle]").click();
@@ -263,12 +268,15 @@ test("CatGPT Light falls back silently when the Worker is unavailable", async ({
   await mode.check();
   await expect(mode).toBeChecked();
   await expect(page.locator("[data-catgpt-shell]")).toHaveAttribute("data-light-endpoint", "https://catgpt.wirtelprimpf.telacore.org/v1/chat");
+  expect(await page.evaluate(() => localStorage.getItem("wirtelprimpf-catgpt-mode"))).toBe("light");
   await page.locator("[data-catgpt-launcher]").click();
   await page.locator("#catgpt-input").fill("Bitte antworte kurz.");
   await page.locator("[data-catgpt-form] button[type='submit']").click();
   await expect(page.locator("[data-catgpt-messages] li[data-role='assistant']")).toHaveCount(1);
   await expect(page.locator("[data-catgpt-messages] li[data-role='assistant']")).toContainText(/.+/);
-  expect(workerRequests).toBe(1);
+  expect(await page.evaluate(() => (window as typeof window & { __catgptLightRequests?: string[] }).__catgptLightRequests ?? [])).toEqual([
+    "https://catgpt.wirtelprimpf.telacore.org/v1/chat",
+  ]);
   await page.locator("[data-settings-toggle]").click();
   await mode.uncheck();
   await expect(page.locator("[data-catgpt-messages] li")).toHaveCount(0);
