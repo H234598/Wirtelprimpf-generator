@@ -32,6 +32,24 @@ def _escape(value: str) -> str:
     return html.escape(_clean_text(value), quote=False)
 
 
+def is_valid_epub_bytes(data: bytes) -> bool:
+    """Check the EPUB local-header contract used by the web loader."""
+    if len(data) < 30 or data[:4] != b"PK\x03\x04":
+        return False
+    flags = int.from_bytes(data[6:8], "little")
+    method = int.from_bytes(data[8:10], "little")
+    compressed_size = int.from_bytes(data[18:22], "little")
+    uncompressed_size = int.from_bytes(data[22:26], "little")
+    name_length = int.from_bytes(data[26:28], "little")
+    extra_length = int.from_bytes(data[28:30], "little")
+    data_start = 30 + name_length + extra_length
+    if flags != 0 or method != 0 or compressed_size != uncompressed_size or data_start > len(data):
+        return False
+    if data[30:30 + name_length].decode("utf-8", errors="replace") != "mimetype":
+        return False
+    return data[data_start:data_start + uncompressed_size] == EPUB_MIME.encode("ascii")
+
+
 def _title_and_body(markdown: str, volume: int, title: str | None) -> tuple[str, str]:
     text = _clean_text(markdown).strip() + "\n"
     if title:

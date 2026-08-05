@@ -19,6 +19,7 @@ check:
 	$(PYTHON) -m py_compile wirtelprimpf_platform/cloudflare_audit.py
 	$(PYTHON) -m py_compile scripts/build_web_status.py
 	$(PYTHON) -m py_compile scripts/build_epub.py
+	$(PYTHON) -m py_compile scripts/build_epub_manifest.py
 	$(PYTHON) -m py_compile scripts/build_web_site.py scripts/validate_web_plan.py scripts/validate_web_governance.py scripts/validate_web_relations.py scripts/web_inventory.py scripts/web_ids.py scripts/web_content_model.py scripts/web_content_errors.py scripts/validate_web_manifest.py scripts/measure_web_media.py scripts/measure_media_cache_replay.py
 	node --check files/$(UUID)/applet.js
 	node tests/test_applet_runtime.js
@@ -33,6 +34,7 @@ check:
 	$(PYTHON) -m unittest tests.test_flex_contract
 	$(PYTHON) -m unittest tests.test_story_blueprint
 	$(PYTHON) -m unittest tests.test_epub_builder
+	$(PYTHON) -m unittest tests.test_epub_manifest_builder
 	$(PYTHON) tests/test_epub_contract.py
 	$(PYTHON) tests/test_pages_artifact.py
 	$(PYTHON) tests/test_web_build.py
@@ -85,6 +87,7 @@ check-applet:
 	$(PYTHON) -m py_compile wirtelprimpf_platform/cloudflare_audit.py
 	$(PYTHON) -m py_compile scripts/build_web_status.py
 	$(PYTHON) -m py_compile scripts/build_epub.py
+	$(PYTHON) -m py_compile scripts/build_epub_manifest.py
 	$(PYTHON) -m py_compile scripts/build_web_site.py scripts/validate_web_plan.py scripts/validate_web_governance.py scripts/validate_web_relations.py scripts/web_inventory.py scripts/web_ids.py scripts/web_content_model.py scripts/web_content_errors.py scripts/validate_web_manifest.py scripts/measure_web_media.py scripts/measure_media_cache_replay.py
 	node --check files/$(UUID)/applet.js
 	node tests/test_applet_runtime.js

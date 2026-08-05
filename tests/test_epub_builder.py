@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from build_epub import build_epub_bytes, parse_story  # noqa: E402
+from build_epub import build_epub_bytes, is_valid_epub_bytes, parse_story  # noqa: E402
 
 
 SAMPLE = """# Eine Teststory
@@ -32,6 +32,8 @@ class EpubBuilderTests(unittest.TestCase):
         first = build_epub_bytes(SAMPLE, 7)
         second = build_epub_bytes(SAMPLE, 7)
         self.assertEqual(first, second)
+        self.assertTrue(is_valid_epub_bytes(first))
+        self.assertFalse(is_valid_epub_bytes(b"version https://git-lfs.github.com/spec/v1\n"))
         with zipfile.ZipFile(BytesIO(first)) as archive:
             infos = archive.infolist()
             self.assertEqual(infos[0].filename, "mimetype")
