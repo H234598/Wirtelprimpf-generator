@@ -58,6 +58,7 @@ jobs:
           sparse-checkout: |
             config/web-budgets.json
             web
+            scripts/build_web_site.py
             scripts/build_web_status.py
             scripts/validate_pages_artifact.py
             scripts/validate_web_budgets.py
@@ -77,21 +78,31 @@ jobs:
         working-directory: factory/web
         run: npm ci --ignore-scripts
 
-      - name: Build archive profile
+      - name: Build and validate archive artifact through staging facade
+        working-directory: factory
         env:
           PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
           WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/archive
           WIRTELPRIMPF_SITE_PROFILE: archive
           WIRTELPRIMPF_SITE_URL: https://${{ inputs.custom_domain }}
-        run: npm --prefix factory/web run build
+        run: |
+          set -euo pipefail
+          python3 scripts/build_web_site.py \
+            --profile archive \
+            --site-url "https://${{ inputs.custom_domain }}" \
+            --expected-domain "${{ inputs.custom_domain }}" \
+            --data-root "${GITHUB_WORKSPACE}/archive" \
+            --config config/web-budgets.json \
+            --check | tee "$RUNNER_TEMP/pages-build-report.json"
+          grep -R -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
+          grep -E -q '"tree_sha256": "[0-9a-f]{64}"' "$RUNNER_TEMP/pages-build-report.json"
 
-      - name: Validate archive artifact fail-closed and record tree hash
+      - name: Confirm factory checkout remains unchanged
         working-directory: factory
         run: |
-          grep -R -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
-          python3 scripts/validate_pages_artifact.py web/dist --expected-domain "${{ inputs.custom_domain }}" | tee "$RUNNER_TEMP/pages-artifact-report.json"
-          grep -E -q '"tree_sha256": "[0-9a-f]{64}"' "$RUNNER_TEMP/pages-artifact-report.json"
-          python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
+          git diff --exit-code -- . ':(exclude)web/src/generated/status.json'
+          unexpected="$(git ls-files --others --exclude-standard | grep -v '^web/src/generated/status\.json$' || true)"
+          test -z "$unexpected"
 
       - name: Upload immutable Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

@@ -631,9 +631,11 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 assert build is not None and deploy is not None
                 self.assertIn("contents: read", build.group("body"))
                 self.assertIn("actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9", build.group("body"))
+                self.assertIn("scripts/build_web_site.py", build.group("body"))
                 self.assertIn("validate_pages_artifact.py", build.group("body"))
                 self.assertIn("tree_sha256", build.group("body"))
-                self.assertEqual(build.group("body").count(" run build"), 1)
+                self.assertEqual(build.group("body").count("python3 scripts/build_web_site.py"), 1)
+                self.assertNotIn("npm --prefix web run build", build.group("body"))
                 self.assertNotIn("actions/deploy-pages", build.group("body"))
                 self.assertIn("needs: build", deploy.group("body"))
                 self.assertIn("pages: write", deploy.group("body"))

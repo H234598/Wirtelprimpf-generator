@@ -446,7 +446,8 @@ def validate_pages_workflow(root: Path, path: Path) -> None:
         pages_job_permissions(build, "Pages workflow build permissions") == {"contents": "read"},
         "Pages workflow build permissions",
     )
-    require(build.count(" run build") == 1, "Pages workflow build count")
+    require(build.count("python3 scripts/build_web_site.py") == 1, "Pages workflow build facade")
+    require("npm --prefix web run build" not in build, "Pages workflow direct build")
     require("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" in build, "Pages workflow action pin")
     require("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020" in build, "Pages workflow action pin")
     require("actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d" in build, "Pages workflow action pin")
@@ -479,13 +480,21 @@ def validate_pages_workflows(root: Path) -> None:
     for name in ("active_repository", "archive_ref", "current_volume"):
         input_definition = re.search(rf"^      {name}:\n(?P<body>(?:        .*\n)+)", triggers, re.MULTILINE)
         require(input_definition is not None and "        required: true\n" in input_definition.group("body"), "Pages workflow Hub inputs")
+    source = re.search(
+        r"- name: Resolve an exact current-story source\n(?P<body>.*?)(?=\n      - name:)",
+        hub,
+        re.DOTALL,
+    )
+    require(source is not None, "Pages workflow Hub source")
+    assert source is not None
+    source_body = source.group("body")
     require(
-        len(re.findall(r'--(?:data-root|external-root|github-output|repository|revision) "[^"]+" \\\n', hub)) == 5,
+        len(re.findall(r'--(?:data-root|external-root|github-output|repository|revision) "[^"]+" \\\n', source_body)) == 5,
         "Pages workflow Hub source",
     )
-    require("--repository \"${INPUT_REPOSITORY}\"" in hub, "Pages workflow Hub source")
-    require("--revision \"${INPUT_ARCHIVE_REF}\"" in hub, "Pages workflow Hub source")
-    require("--current-volume \"${INPUT_CURRENT_VOLUME}\"" in hub, "Pages workflow Hub source")
+    require("--repository \"${INPUT_REPOSITORY}\"" in source_body, "Pages workflow Hub source")
+    require("--revision \"${INPUT_ARCHIVE_REF}\"" in source_body, "Pages workflow Hub source")
+    require("--current-volume \"${INPUT_CURRENT_VOLUME}\"" in source_body, "Pages workflow Hub source")
 
 
 def validate_repository_integration(root: Path) -> None:
