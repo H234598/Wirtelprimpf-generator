@@ -114,3 +114,22 @@ Manifest `2026-08-05T18:24:34Z`; die Startseite enthält `CatGPT-S` und
 Der Repin-/Pages-Nachweis ist damit technisch abgeschlossen. Offen bleiben
 produktiver Rollback-/Redeploytest, vollständige Betreiberabnahme und der
 separate Cloudflare-Alias-/Wildcard-Rollout.
+
+## Vergleichsreihe Remote-CI-Performance am 5. August 2026
+
+Die drei erfolgreichen `check`-Läufe `31035178872`, `31039700680` und
+`31040896873` enthielten jeweils ein nicht abgelaufenes
+`web-diagnostics-<run>`-Artefakt mit demselben Chromium-Performance-Gate. Die
+Messungen stammen vom GitHub-Actions-Runner und sind daher eine vergleichbare
+Remote-CI-Baseline, aber keine direkte Pages-Produktionsmessung.
+
+| Lauf | Generator-SHA | Hub DCL/Load | Hub Transfer | Galerie DCL/Load | Galerie Transfer | CLS | Fremde Runtime-Requests |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `31035178872` | `01971ea` | `267,2/269,7 ms` | `16.517 B` | `280,8/282,2 ms` | `5.234 B` | `0` | `0` |
+| `31039700680` | `1e280b0` | `359,4/359,9 ms` | `16.482 B` | `261,5/262,4 ms` | `5.433 B` | `0` | `0` |
+| `31040896873` | `ef84058` | `364,7/365,1 ms` | `16.482 B` | `243,6/245,2 ms` | `5.433 B` | `0` | `0` |
+
+Die Reihe stärkt den reproduzierbaren Runner-Nachweis für Transfer, Ladezeit,
+CLS und Fremdrequests. Sie ersetzt weder die fehlende historische
+Medienwachstumskurve (`insufficient_history`) noch Pages-/DNS-/Rechte- oder
+Rollbackabnahme.
