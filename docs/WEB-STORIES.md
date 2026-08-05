@@ -22,6 +22,22 @@ EPUB-Links entstehen ausschließlich aus einem geprüften `epub-manifest.json`.
 Fehlt das Manifest oder scheitert die ZIP-, MIME-, Größen-, Hash- oder
 Releaseprüfung, werden keine Downloadlinks gerendert.
 
+Ein EPUB kann lokal deterministisch aus einer kanonischen Storyquelle erzeugt
+werden. Der Builder übernimmt alle timestamped `##`-Kapitel, lässt leere
+Kapitel als leere, aber navigierbare EPUB-Kapitel bestehen und schreibt kein
+Release oder Manifest automatisch:
+
+```bash
+python3 scripts/build_epub.py \
+  --story data/current-story.md --volume 2 --output /tmp/story-2.epub
+python3 -m unittest tests.test_epub_builder
+```
+
+Für veröffentlichte Downloads bleibt der geprüfte Manifestvertrag maßgeblich:
+`mimetype` muss als erster unkomprimierter ZIP-Eintrag vorliegen; Hash, Größe,
+MIME und Release-Asset müssen vor dem Eintrag in `epub-manifest.json` bestätigt
+sein.
+
 Medien-zu-Kapitel-Verweise werden nur über stabile Kapitel-IDs oder eindeutig
 auflösbare Quellzeitstempel verbunden. Ein nicht auflösbarer Verweis wird
 nicht in eine Route übersetzt. Wenn der Zeitstempel des Bilddateinamens von der
@@ -62,6 +78,7 @@ als aktuelle Kapitelrelationen ausgegeben.
 npm --prefix web test
 npm --prefix web run test:browser
 python3 tests/test_web_plan.py
+python3 -m unittest tests.test_epub_builder
 python3 tests/test_epub_contract.py
 npm --prefix web run test:e2e -- full-story
 ```
