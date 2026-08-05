@@ -146,6 +146,7 @@ jobs:
             config/web-budgets.json
             data
             web
+            scripts/build_web_site.py
             scripts/build_web_status.py
             scripts/validate_pages_artifact.py
             scripts/validate_web_budgets.py
@@ -193,7 +194,7 @@ jobs:
           WIRTELPRIMPF_SITE_PROFILE: hub
           WIRTELPRIMPF_SITE_URL: https://wirtelprimpf.telacore.org
         run: |
-          npm --prefix web run build
+          python3 scripts/build_web_site.py --profile hub --site-url https://wirtelprimpf.telacore.org --expected-domain wirtelprimpf.telacore.org --data-root "${{ github.workspace }}/data" --check
           grep -R -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
           python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
           python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
@@ -205,7 +206,7 @@ jobs:
           WIRTELPRIMPF_SITE_PROFILE: archive
           WIRTELPRIMPF_SITE_URL: https://wirtelprimpf-0001.telacore.org
         run: |
-          npm --prefix web run build
+          python3 scripts/build_web_site.py --profile archive --site-url https://wirtelprimpf-0001.telacore.org --expected-domain wirtelprimpf-0001.telacore.org --data-root "${{ github.workspace }}/web/fixtures/site" --check
           grep -R -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
           python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org
           python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict

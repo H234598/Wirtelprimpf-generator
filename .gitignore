@@ -17,6 +17,7 @@ build/
 .venv/
 web/node_modules/
 web/dist/
+web/.staging/
 web/.astro/
 web/test-results/
 web/playwright-report/

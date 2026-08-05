@@ -3506,3 +3506,24 @@ Die Master-Spezifikation ist in 60 tracebaren Anforderungen, 13 ADR-Entwürfen, 
 - Der Planpunkt ist deshalb `teilweise umgesetzt`, nicht abgeschlossen. Die
   lokale Evidenz ersetzt weder Rechte-/Lizenzprüfung noch Factory-Repin,
   externe Pages-/DNS-Abnahme, Review oder produktiven Rollback.
+
+## WEB-P02-02-Nachlauf: sicheres Staging und reproduzierbarer Build am 5. August 2026, 23:13 CEST
+
+- `tests/test_web_build.py` besteht jetzt mit `6/6`. Die Regressionen prüfen,
+  dass eine fehlerhafte Artefaktvalidierung das vorhandene `web/dist`-Ziel
+  unverändert lässt und dass zwei erfolgreiche Builds denselben Tree-Hash
+  veröffentlichen.
+- `scripts/build_web_site.py --check` baut in `web/.staging`, validiert den
+  Pages-Baum und die Budgets vor dem atomaren Linux-Verzeichnistausch, prüft
+  die Arbeitskopie und leitet eine feste `SOURCE_DATE_EPOCH` aus der
+  Quellrevision weiter. Der finale Bericht zeigt weiterhin `web/dist` als
+  Veröffentlichungsziel.
+- Zwei echte Archiv-Fixture-Läufe mit 31 Dateien, 9 HTML-Seiten und 145
+  geprüften internen Links endeten mit Exitcode `0`, ohne Budgetfehler und
+  jeweils mit Tree-Hash
+  `1ff86e00327d22d6657651adca770debc813c3d91eae7c94aec4aad20ee0fdf0`.
+- Der Read-only-`check.yml`-Webjob verwendet den Wrapper für Hub und Archiv;
+  CSP-, Artefakt- und Budget-Gates bleiben zusätzlich aktiv. Runbook,
+  Operations-Dokument und Check-Äquivalenzmatrix sind angepasst.
+- `WEB-P02-02` bleibt wegen ausstehendem externem Staginglauf sowie Merge-,
+  Review- und vollständigem CI-/Produktionsnachweis teilweise umgesetzt.

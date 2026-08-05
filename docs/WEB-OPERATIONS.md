@@ -12,16 +12,23 @@ cd /home/teladi/.local/share/wirtelprimpf-generator
 npm --prefix web ci --ignore-scripts
 npm --prefix web run check
 npm --prefix web test
-npm --prefix web run build
+python3 scripts/build_web_site.py \
+  --profile hub \
+  --site-url https://wirtelprimpf.telacore.org \
+  --expected-domain wirtelprimpf.telacore.org \
+  --data-root data \
+  --check
 python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
 python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
 git diff --check
 ```
 
-Für ein Publikationsarchiv werden `WIRTELPRIMPF_SITE_PROFILE=archive`, der
-Archiv-Datenroot und die konkrete Archivdomain gesetzt. Ein erfolgreicher
-lokaler Build ist noch kein Deployment; dafür sind die externen Freigaben und
-die GitHub-Pages-Abnahme offen.
+Für ein Publikationsarchiv werden `--profile archive`, der Archiv-Datenroot und
+die konkrete Archivdomain gesetzt. Der Wrapper verwendet ein fixes
+`SOURCE_DATE_EPOCH` aus der Quellrevision, prüft den Baum vor Veröffentlichung
+und tauscht ihn erst danach atomar aus. Ein erfolgreicher lokaler Build ist
+noch kein Deployment; dafür sind die externen Freigaben und die GitHub-Pages-
+Abnahme offen.
 
 ## Öffentliche und interne Daten
 

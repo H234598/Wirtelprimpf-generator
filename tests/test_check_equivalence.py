@@ -51,7 +51,7 @@ class CheckEquivalenceTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertRegex(workflow, r"(?ms)^  applet:.*?^        run: make check-applet$")
-        self.assertIn("npm --prefix web run build", workflow)
+        self.assertIn("python3 scripts/build_web_site.py --profile hub", workflow)
         self.assertIn("validate_pages_artifact.py", workflow)
         self.assertIn("validate_web_budgets.py", workflow)
         self.assertNotIn("pages: write", workflow)
@@ -68,7 +68,7 @@ class CheckEquivalenceTests(unittest.TestCase):
             with self.subTest(heading=heading):
                 self.assertIn(heading, matrix)
         self.assertIn("make check", matrix)
-        self.assertIn("npm --prefix web run build", matrix)
+        self.assertIn("python3 scripts/build_web_site.py --check", matrix)
         self.assertIn("validate_pages_artifact.py", matrix)
 
 

@@ -22,14 +22,22 @@ python3 tests/test_optional_scope.py
 ## Build und Abnahme
 
 ```bash
-npm --prefix web run build
+python3 scripts/build_web_site.py \
+  --profile hub \
+  --site-url https://wirtelprimpf.telacore.org \
+  --expected-domain wirtelprimpf.telacore.org \
+  --data-root data \
+  --check
 python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
 python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
 ```
 
-Für Archive ist der Datenroot explizit zu setzen; Hub- und Archivstatus dürfen
-nicht vermischt werden. Vor einer Veröffentlichung werden Quellrevision,
-Statusmanifest und Artefaktbaumhash als ein Satz von Nachweisen gesichert.
+Für Archive werden `--profile archive`, der Archiv-Datenroot und die konkrete
+Archivdomain explizit gesetzt. Der Wrapper baut in einem temporären Ziel,
+validiert vor dem atomaren Wechsel nach `web/dist` und lässt bei Fehlern das
+letzte vollständige Artefakt stehen. Hub- und Archivstatus dürfen nicht
+vermischt werden; Quellrevision, Statusmanifest und Baumhash werden gemeinsam
+als Nachweis gesichert.
 
 ## Fehlerbehandlung
 
