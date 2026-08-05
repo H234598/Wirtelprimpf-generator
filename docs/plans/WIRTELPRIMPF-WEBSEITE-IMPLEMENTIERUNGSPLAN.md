@@ -2054,7 +2054,7 @@ make check
   2. **Teilweise erledigt:** Git-Historie auswerten und 12/24/36-Monatsprojektionen nur bei mindestens zwei belastbaren Punkten berechnen; aktuell `insufficient_history`.
   3. **Erledigt:** Pages-Artefaktumfang vom releasegebundenen Originalumfang trennen und Budgetentscheidung ausweisen.
   4. **Teilweise erledigt:** Die synthetische 10-Bilder-Neue-Story-Fixture erreicht gegen den vollständig vorgefüllten Archivcache `98,7326 %` kombinierte Hits (`1.558/1.578`) bei `0` Invalids; drei echte vergleichbare Produktionsläufe mit aktueller Plattformgrenzen-/Rechteprüfung bleiben offen.
-  5. **Offen:** ADR-002/Hostingentscheidung nach diesem Nachweis aktualisieren; keine externe Veröffentlichung ohne gesonderte Freigabe.
+  5. **Teilweise erledigt:** `docs/WEB-HOSTING-DECISION.md` und `docs/adr/ADR-002.md` führen den aktuellen lokalen Dreifachlauf und die Schwellenentscheidung. Die formale Produktionsentscheidung bleibt wegen belastbarer Wachstumshistorie, Rechteprüfung, Factory-Repin sowie externer Pages-/DNS-/Rollbackabnahme offen.
 - **Lokale Prüfkommandos:**
 
 ```bash
@@ -3490,3 +3490,12 @@ Die Master-Spezifikation ist in 60 tracebaren Anforderungen, 13 ADR-Entwürfen, 
 - Commit `27ff272` und CI-Lauf `31031555930` sind vollständig grün; CI deckt
   Light-Auswahl mit Endpoint, stillen Static-Fallback bei Worker-Ausfall,
   Accessibility, Performance sowie Hub-/Archiv-Builds ab.
+
+## ADR-002-Hostingnachweis am 5. August 2026
+
+- `WEB-P03-04` ist lokal weiterbearbeitet: Der bestehende erfolgreiche
+  Dreifachlauf ist jetzt zusätzlich in `docs/adr/ADR-002.md` festgehalten;
+  Messwerte und Grenzen bleiben identisch zu `docs/WEB-HOSTING-DECISION.md`.
+- Der Planpunkt ist deshalb `teilweise umgesetzt`, nicht abgeschlossen. Die
+  lokale Evidenz ersetzt weder Rechte-/Lizenzprüfung noch Factory-Repin,
+  externe Pages-/DNS-Abnahme, Review oder produktiven Rollback.
