@@ -3219,7 +3219,7 @@ Die Master-Spezifikation ist in 60 tracebaren Anforderungen, 13 ADR-Entwürfen, 
 
 **Status:** in Arbeit. Revisionsbaseline, Governance, Inventurwerkzeug, Tests und kanonischer Plan. Kein Deployment und keine Quelländerung.
 
-**Lokale Ausführungsevidenz 2026-08-05:** Branch `main`, beobachteter HEAD `52ba59a` (`fix(web): close final governance review gaps`) mit absichtlich nicht abgeschlossenem Arbeitsbaum. `make check`, `git diff --check`, Plan- und Governancevalidator liefen grün; PR-, Merge- und blockierende Remote-Check-Evidenz fehlen weiterhin; P00 bleibt deshalb `in Arbeit`.
+**Historische lokale Ausführungsevidenz (Snapshot) 2026-08-05:** Branch `main`, damals beobachteter HEAD `52ba59a` (`fix(web): close final governance review gaps`) mit absichtlich nicht abgeschlossenem Arbeitsbaum. `make check`, `git diff --check`, Plan- und Governancevalidator liefen grün; PR-, Merge- und blockierende Remote-Check-Evidenz fehlten weiterhin. Der Snapshot wird durch die späteren Nachverifikationen am Ende dieses Plans ergänzt; P00 bleibt wegen der externen Gates `in Arbeit`.
 
 ## P01
 
@@ -3462,15 +3462,17 @@ Die Master-Spezifikation ist in 60 tracebaren Anforderungen, 13 ADR-Entwürfen, 
 
 ## Aktuelle lokale Browser-/Unit-Nachverifikation am 5. August 2026
 
-- `npm --prefix web test` besteht mit `70/70`; `npm --prefix web run check`
+- `npm --prefix web test` besteht mit `71/71`; `npm --prefix web run check`
   endet mit `0` Fehlern, Warnungen und Hinweisen.
-- `npm --prefix web run test:e2e -- accessibility` besteht mit `4/4`, der
-  Comfort-Gate mit `3/3`.
-- `npm --prefix web run test:browser` besteht mit `23/23`. Die Matrix umfasst
+- `npm --prefix web run test:browser` besteht mit `25/25`. Die Matrix umfasst
   statische Routen, Origin-/SEO-/Maintenance-Verträge, Galerie-/Detail-/Story-
   Navigation, No-JS, Lightbox, Touch, Reduced Motion, Tastatur, Storagefehler,
-  320-/Tablet-/Desktop-Layouts, axe Serious/Critical und die 15 visuellen
-  P08-Stichproben.
+  die CatGPT-S-/CatGPT-L-Auswahl und Fallbacks, 320-/Tablet-/Desktop-Layouts,
+  axe Serious/Critical sowie die visuellen P08-Stichproben.
+- Die Implementierung steht auf `27ff272`; der anschließende reine
+  Plan-/Statusabgleich steht auf `c48bb79`. Der CI-Lauf `31032236493` ist für
+  `c48bb79` vollständig grün und bestätigt Web-, Browser-, Accessibility-,
+  Performance-, Hub-, Archiv-, Worker-, Applet- und Plattform-Gates.
 - Diese lokale Nachverifikation ändert weder Pages-, Cloudflare-, DNS- noch
   Secretzustände; die externe Artefakt-, Merge-, Review- und Liveabnahme bleibt
   offen.
