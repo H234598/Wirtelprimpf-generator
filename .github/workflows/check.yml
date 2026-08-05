@@ -30,6 +30,8 @@ jobs:
             tests
             docs
             config
+            data
+            web
             README.md
             PROVENANCE.md
             wirtelprimpf_platform
@@ -136,6 +138,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             config/web-budgets.json
+            data
             web
             scripts/build_web_status.py
             scripts/validate_pages_artifact.py
