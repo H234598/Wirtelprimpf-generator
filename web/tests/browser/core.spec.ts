@@ -248,6 +248,29 @@ test("comfort state persists locally and can be explicitly cleared", async ({ pa
   expect(await page.evaluate(() => localStorage.getItem("wirtelprimpf.site-state.v1"))).toBeNull();
 });
 
+test("CatGPT Light falls back silently when the Worker is unavailable", async ({ page }) => {
+  let workerRequests = 0;
+  await page.route("https://catgpt.wirtelprimpf.telacore.org/v1/chat", async (route) => {
+    workerRequests += 1;
+    await route.abort("failed");
+  });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.locator("[data-settings-toggle]").click();
+  const mode = page.locator("[data-catgpt-mode]");
+  await expect(mode).toBeEnabled();
+  await mode.check();
+  await page.locator("[data-catgpt-launcher]").click();
+  await page.locator("#catgpt-input").fill("Bitte antworte kurz.");
+  await page.locator("[data-catgpt-form] button[type='submit']").click();
+  await expect(page.locator("[data-catgpt-messages] li[data-role='assistant']")).toHaveCount(1);
+  await expect(page.locator("[data-catgpt-messages] li[data-role='assistant']")).toContainText(/.+/);
+  expect(workerRequests).toBe(1);
+  await page.locator("[data-settings-toggle]").click();
+  await mode.uncheck();
+  await expect(page.locator("[data-catgpt-messages] li")).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem("wirtelprimpf-catgpt-history"))).toBeNull();
+});
+
 test("paper theme is visible and switchable through settings", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("wirtelprimpf-theme", "paper"));
   await page.goto("/", { waitUntil: "domcontentloaded" });
