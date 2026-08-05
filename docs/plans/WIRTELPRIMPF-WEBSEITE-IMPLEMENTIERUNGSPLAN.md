@@ -82,8 +82,8 @@ Die grundlegende Zielarchitektur aus v1.0 wurde inzwischen weitgehend realisiert
 
 Der Plan steht daher nicht mehr am Anfang von P00. Der belastbare aktuelle Befund lautet:
 
-- **14 von 48 Paketen umgesetzt**;
-- **31 teilweise umgesetzt**;
+- **15 von 48 Paketen umgesetzt**;
+- **30 teilweise umgesetzt**;
 - **3 in Arbeit**;
 - **0 offen**.
 
@@ -418,14 +418,14 @@ flowchart LR
 | `WEB-P11-02` | Hosting- und Großrepository-Freeze | **umgesetzt** | Originale/Derivate liegen in Releases; aktueller Git-Baum enthält keine Bildbinärdateien. | Schwellen regelmäßig mit Wachstum und Releaseanzahl neu prüfen. | `Pflege` |
 | `WEB-P11-03` | SEO, Sitemap, Feed und Social-Metadaten | **umgesetzt** | Canonical, Open Graph, Feed, Sitemap und robots-Verträge sind implementiert und durch einen origin-gebundenen Browser-/URL-Gate geprüft. | Nur laufende Social-Preview-/URL- und Größenabnahme. | `M03/M04` |
 | `WEB-P11-04` | Custom Domain und Releaseabnahme | **in Arbeit** | Read-only-Recheck am 05.08.2026 08:17:57Z: Hub und Archiv antworten über HTTPS mit HTTP 200 und HSTS, ohne Redirect; robots, Sitemap und Feed liefern 200, die getesteten nummerischen Negativhosts liefern keine A-/AAAA-Antwort. Der Archivworkflow verwendet weiter Factory `b00d824…`; live stehen Hub/Archiv bei 798 Medien gegenüber lokal 779/195. | Factory-Repin und geprüften Stand auf Hub/Archiv verifizieren, danach Live-Content, Freshness, Review, Rollback und Releaseabnahme abschließen. | `M01` |
-| `WEB-P12-01` | Optionen priorisieren und isolieren | **teilweise umgesetzt** | Optionenregister, bewusster MVP-Verzicht und isolierte Tests sind vorhanden. | Merge, Review und erneute fachliche Neubewertung bei belastbarer Datenbasis. | `M06` |
+| `WEB-P12-01` | Optionen priorisieren und isolieren | **umgesetzt** | Optionenregister, bewusster MVP-Verzicht und isolierte Tests sind vorhanden; die aktuelle CatGPT-S-/CatGPT-L-Aufteilung besitzt eigene Launcher-, Modus-, Fallback- und Browserverträge. | Laufende fachliche Neubewertung bei belastbarer Datenbasis. | `M06` |
 
 ### 8.1 Zusammenfassung
 
 | Status | Anzahl |
 |---|---:|
-| umgesetzt | 14 |
-| teilweise umgesetzt | 31 |
+| umgesetzt | 15 |
+| teilweise umgesetzt | 30 |
 | in Arbeit | 3 |
 | offen | 0 |
 | **Gesamt** | **48** |
@@ -444,7 +444,7 @@ flowchart LR
 | `P09` | 2 | 2 | 0 | 0 | 4 |
 | `P10` | 0 | 4 | 0 | 0 | 4 |
 | `P11` | 2 | 1 | 1 | 0 | 4 |
-| `P12` | 0 | 1 | 0 | 0 | 1 |
+| `P12` | 1 | 0 | 0 | 0 | 1 |
 
 > [!NOTE] Konservative Bewertung
 > `teilweise umgesetzt` bedeutet nicht, dass die vorhandene Software unbrauchbar wäre. Es bedeutet, dass der umfassendere DoD des ursprünglichen Plans — häufig einschließlich Browserabnahme, Fehlerfixtures, Bericht, Migration und Rollback — noch nicht vollständig belegt ist.
@@ -3124,7 +3124,7 @@ manuelle Checkliste plus HTTP-Smoke
 
 ### WEB-P12-01 – Optionen priorisieren und isolieren
 
-- **Status:** teilweise umgesetzt
+- **Status:** umgesetzt
 - **Phase / empfohlener PR:** P12 / separate optionale PRs
 - **Anforderungs-IDs:** `WEB-REQ-059`
 - **Ziel und Begründung:** Bewertet Überrasche mich, Favoriten, PWA, TTS, Slideshow, Suche und Offline-Lesezeichen getrennt vom Kern.
@@ -3267,7 +3267,7 @@ Die Master-Spezifikation ist in 60 tracebaren Anforderungen, 13 ADR-Entwürfen, 
 
 ## P12
 
-**Status:** teilweise umgesetzt. Optionenregister und bewusste Scope-Isolation sind vorhanden; Neubewertung und getrennte Erweiterungs-PRs folgen erst nach stabilem Kern.
+**Status:** umgesetzt. Optionenregister und bewusste Scope-Isolation sind vorhanden; `CatGPT-S` und `CatGPT-L` besitzen getrennte Launcher sowie eigene Modus-, Fallback- und Browserverträge. Eine spätere fachliche Neubewertung bleibt ein Pflegepunkt.
 
 ## Lokale Nachverifikation `WEB-P07-03` am 5. August 2026
 
@@ -3389,9 +3389,10 @@ Die Master-Spezifikation ist in 60 tracebaren Anforderungen, 13 ADR-Entwürfen, 
   Kosten/Risiko, A11y/Datenschutz sowie eigenem Test-/Rollbackpfad.
 - Keine Option ist Bestandteil des MVP-Kernbuilds; der No-JS-Sitebaum,
   öffentliche Datenumfang und die bestehenden Budgets bleiben unabhängig.
-- P12 bleibt `teilweise umgesetzt`: fachliche Neubewertung, einzelne
-  optionale PRs, externe Review-/CI-Evidenz und die jeweilige manuelle
-  Abnahme beginnen erst nach stabiler Kern- und Releaseabnahme.
+- P12 ist für den aktuellen Kernstand umgesetzt: Das Optionenregister bleibt
+  vom MVP isoliert, `CatGPT-S` und `CatGPT-L` besitzen getrennte Launcher und
+  eigene Modus-/Fallback-/Browserverträge. Eine spätere fachliche
+  Neubewertung bleibt ein Pflegepunkt; sie blockiert den Kernbuild nicht.
 
 ## Read-only-Live-Recheck am 5. August 2026, 08:17:57Z
 
@@ -3473,3 +3474,17 @@ Die Master-Spezifikation ist in 60 tracebaren Anforderungen, 13 ADR-Entwürfen, 
 - Diese lokale Nachverifikation ändert weder Pages-, Cloudflare-, DNS- noch
   Secretzustände; die externe Artefakt-, Merge-, Review- und Liveabnahme bleibt
   offen.
+
+## CatGPT-Launcher-Aufteilung am 5. August 2026
+
+- Der gemeinsame `CatGPT`-Button wurde durch `CatGPT-S` für Static und
+  `CatGPT-L` für Light ersetzt. `CatGPT-L` ist ohne bytegenau erlaubten
+  Endpoint deaktiviert und bleibt damit fail-closed.
+- Die Moduswahl wurde aus dem Settings-Dialog entfernt. Der Dialog verwaltet
+  weiterhin Farbschema und lokale Datenbereinigung; der Chatdialog zeigt den
+  aktiven Modus als `CatGPT-S` beziehungsweise `CatGPT-L`.
+- Lokale Verifikation: `npm test` `71/71`, Astro-Check `0/0/0` und
+  Browser-Suite `25/25` einschließlich 320-Pixel- und Visual-Sample-Gates.
+- Commit `27ff272` und CI-Lauf `31031555930` sind vollständig grün; CI deckt
+  Light-Auswahl mit Endpoint, stillen Static-Fallback bei Worker-Ausfall,
+  Accessibility, Performance sowie Hub-/Archiv-Builds ab.
