@@ -111,6 +111,7 @@ CI_STEP_NAMES = {
     "platform": (
         "Checkout generator sources", "Set up Python", "Install generator package",
         "Verify transactional settings entrypoint", "Run platform contract tests",
+        "Run web content schema contracts",
         "Compile all Python sources", "Verify CLI entrypoint",
     ),
     "catgpt-worker": (
@@ -134,6 +135,7 @@ CI_JOB_COMMANDS = {
         "python -m pip install --disable-pip-version-check -e .",
         "wirtelprimpf-settings --help >/dev/null",
         "python -m unittest discover -s tests/platform -p 'test_*.py' -v",
+        "python -m unittest tests.test_web_content_schemas",
         "python -m compileall -q Sourcecode wirtelprimpf_platform scripts",
         "wirtelprimpf-platform mapping 51",
     ),

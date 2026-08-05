@@ -19,3 +19,10 @@ Die aktuellen Manifest- und Storyfixtures werden mit
 und Aliasmigration werden in den nachfolgenden P01-Verträgen ergänzt; bei
 widersprüchlichen Quellen bleibt der Datensatz blockiert und wird nicht still zu
 `classic`, `story` oder einer gültigen Kapitelroute hochgestuft.
+
+Der Schema-Test verwendet dafür `jsonschema==4.26.0` mit dem
+`Draft202012Validator` und einem URI-Formatchecker. Er validiert alle `779`
+aktuellen Manifestdatensätze sowie positive Band-/Kapitelfixtures und weist
+unbekannte Felder, falsche Versionen, falsche Typen und unsichere Pfade in
+Negativfixtures zurück. Der read-only Platform-CI-Job führt denselben Contracttest
+nach der Paketinstallation aus.
