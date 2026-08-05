@@ -133,3 +133,21 @@ Die Reihe stärkt den reproduzierbaren Runner-Nachweis für Transfer, Ladezeit,
 CLS und Fremdrequests. Sie ersetzt weder die fehlende historische
 Medienwachstumskurve (`insufficient_history`) noch Pages-/DNS-/Rechte- oder
 Rollbackabnahme.
+
+## Read-only Archivhistorie für Medienwachstum am 5. August 2026
+
+Das kanonische Archiv `H234598/Wirtelprimpf-0001` führt `media-manifest.json`
+über `26` echte Historienpunkte vom Commit `ba74783` bis
+`717346e41fb9939d04cb8d0f0add2605bbbffe78`. Der initiale Seed-Sprung von `0`
+auf `779` Medien wird nicht als laufende Wachstumsrate verwendet. Im
+inkrementellen Nachlauf von `db5500b` (`779` Medien,
+`3.654.670.091` Quellbytes, 1. August) bis `717346e` (`803` Medien,
+`3.766.196.025` Quellbytes, 5. August) liegen `4,754` Tage echte Historie.
+
+- Rate im kurzen Nachlauf: `5,048` Medien/Tag und `23.458.452` Quellbytes/Tag.
+- Lineare Szenarien ab `803` Medien / `3.766.196.025` Bytes ergeben nach
+  12/24/36 Monaten rechnerisch `2.647`/`4.491`/`6.335` Medien und
+  `12.334`/`20.903`/`29.471` Millionen Quellbytes.
+- Diese Werte sind ausdrücklich Kurzzeit-Szenarien aus weniger als fünf Tagen,
+  keine eingefrorene Produktionsprognose. Die Langzeit-Wachstumshistorie bleibt
+  bis zu einer mehrmonatigen Reihe `insufficient_history`.
