@@ -146,7 +146,7 @@ export function assertReleaseAssetUrl(url: string, owner: string, repository: st
     throw new Error(`invalid release asset URL: ${String(error)}`);
   }
   const segments = parsed.pathname.split("/").filter(Boolean).map(decodeURIComponent);
-  const valid = parsed.protocol === "https:"
+  const common = parsed.protocol === "https:"
     && parsed.hostname === "github.com"
     && parsed.username === ""
     && parsed.password === ""
@@ -156,9 +156,14 @@ export function assertReleaseAssetUrl(url: string, owner: string, repository: st
     && segments[0] === owner
     && segments[1] === repository
     && segments[2] === "releases"
-    && segments[3] === "download"
-    && /^archive-\d{4}-media-\d{4}$/.test(segments[4] ?? "")
-    && /^[A-Za-z0-9._-]*[a-f0-9]{16}[A-Za-z0-9._-]*$/.test(segments[5] ?? "");
+    && segments[3] === "download";
+  const tag = segments[4] ?? "";
+  const asset = segments[5] ?? "";
+  const validMedia = /^archive-\d{4}-media-\d{4}$/.test(tag)
+    && /^[A-Za-z0-9._-]*[a-f0-9]{16}[A-Za-z0-9._-]*$/.test(asset);
+  const validEpub = /^archive-\d{4}-epub-\d{4}$/.test(tag)
+    && /^[A-Za-z0-9._-]+\.epub$/i.test(asset);
+  const valid = common && (validMedia || validEpub);
   if (!valid) {
     throw new Error(`release asset URL violates archive contract: ${url}`);
   }

@@ -1,0 +1,25 @@
+{
+  "downloads": [
+    {
+      "asset_name": "wirtelprimpf-story-1.epub",
+      "header_verified": true,
+      "mime_type": "application/epub+zip",
+      "release_asset_verified": true,
+      "sha256": "85f3dd9053a26e449eb94fb39dcd0e30ac782f3310c13095b2f8091bddcff1a9",
+      "size_bytes": 843393,
+      "url": "https://github.com/H234598/Wirtelprimpf-0001/releases/download/archive-0001-epub-0001/wirtelprimpf-story-1.epub",
+      "volume": 1
+    },
+    {
+      "asset_name": "wirtelprimpf-story-2.epub",
+      "header_verified": true,
+      "mime_type": "application/epub+zip",
+      "release_asset_verified": true,
+      "sha256": "c7cc431bc150df915cf83e108ac3e419c48f73a746e50be368016a5ca9577d48",
+      "size_bytes": 957347,
+      "url": "https://github.com/H234598/Wirtelprimpf-0001/releases/download/archive-0001-epub-0001/wirtelprimpf-story-2.epub",
+      "volume": 2
+    }
+  ],
+  "schema_version": "1.0.0"
+}

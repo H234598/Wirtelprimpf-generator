@@ -134,12 +134,18 @@ test("unsafe markdown HTML, scripts and javascript URLs are removed", () => {
 test("only hash-bound release URLs from the declared archive are accepted", () => {
   const valid = "https://github.com/H234598/Wirtelprimpf-0001/releases/download/archive-0001-media-0001/wirtel--abcdef1234567890.w640.webp";
   assert.equal(assertReleaseAssetUrl(valid, "H234598", "Wirtelprimpf-0001"), valid);
+  const validEpub = "https://github.com/H234598/Wirtelprimpf-0001/releases/download/archive-0001-epub-0001/wirtelprimpf-story-2.epub";
+  assert.equal(assertReleaseAssetUrl(validEpub, "H234598", "Wirtelprimpf-0001"), validEpub);
   assert.throws(
     () => assertReleaseAssetUrl("https://attacker.invalid/image.webp", "H234598", "Wirtelprimpf-0001"),
     /release asset URL/,
   );
   assert.throws(
     () => assertReleaseAssetUrl("https://github.com/H234598/Other/releases/download/tag/x.webp", "H234598", "Wirtelprimpf-0001"),
+    /release asset URL/,
+  );
+  assert.throws(
+    () => assertReleaseAssetUrl("https://github.com/H234598/Wirtelprimpf-0001/releases/download/archive-0001-epub-0001/story.txt", "H234598", "Wirtelprimpf-0001"),
     /release asset URL/,
   );
 });
