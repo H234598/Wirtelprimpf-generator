@@ -52,6 +52,9 @@ jobs:
       - name: Install runtime test dependencies
         run: python -m pip install --disable-pip-version-check -r Sourcecode/requirements.txt
 
+      - name: Install exact web dependencies for repository checks
+        run: npm --prefix web ci --ignore-scripts
+
       - name: Run repository checks
         run: make check
 
