@@ -157,7 +157,7 @@ jobs:
       - name: Test and type-check the site factory
         working-directory: web
         env:
-          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/web/fixtures/site
+          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/data
           WIRTELPRIMPF_SITE_PROFILE: hub
         run: |
           npm test
@@ -171,7 +171,7 @@ jobs:
         working-directory: web
         env:
           PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
-          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/web/fixtures/site
+          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/data
           WIRTELPRIMPF_SITE_PROFILE: hub
           WIRTELPRIMPF_SITE_URL: https://wirtelprimpf.telacore.org
         run: |
@@ -181,7 +181,7 @@ jobs:
       - name: Build and validate hub profile
         env:
           PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
-          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/web/fixtures/site
+          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/data
           WIRTELPRIMPF_SITE_PROFILE: hub
           WIRTELPRIMPF_SITE_URL: https://wirtelprimpf.telacore.org
         run: |
