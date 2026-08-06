@@ -53,6 +53,30 @@ Artefaktvalidator und die öffentliche Domain separat verifiziert. Ein
 Rollback ohne bekannte gute Referenz ist ein Blocker, kein Anlass für einen
 best-effort Build.
 
+### Exakter Hub-Redeploy mit festem Revisionssatz
+
+Für einen produktiven Rückweg wird der Workflow `hub-pages.yml` manuell mit
+dem vollständigen bekannten-Gut-Satz gestartet:
+
+```bash
+gh workflow run hub-pages.yml \
+  --ref main \
+  -f generator_ref=<40-stellige-Generator-SHA> \
+  -f active_repository=Wirtelprimpf-0001 \
+  -f archive_ref=<40-stellige-Archiv-SHA> \
+  -f current_volume=<positives-Storyvolumen>
+```
+
+`generator_ref`, `archive_ref` und `current_volume` werden dabei gemeinsam aus
+dem dokumentierten Nachweissatz übernommen. Der Workflow prüft den Hub-Build,
+den Artefaktbaum und die Budgets vor dem getrennten Deployjob. Ein unvollständiger
+manueller Eingabesatz wird abgewiesen; ein Branchname ersetzt keine Revision.
+Nach einem ausdrücklich freigegebenen Redeploy sind mindestens `/`,
+`/bilder/`, `/geschichten/`, `/projekt/`, `/projekt/status/`, `/robots.txt`,
+`/sitemap.xml` und `/feed.xml` über die öffentliche Domain per HTTP/2 zu prüfen.
+Der Prüfbericht dokumentiert Generator-SHA, Archiv-SHA, Storyvolumen, Pages-
+Lauf und Baumhash. Ohne diese Rückabnahme bleibt der Rollback offen.
+
 ## Verifizierter bekannter-Gut-Redeploy am 5. August 2026
 
 Der Hub wurde aus Generator-Commit `1e280b0` mit dem unveränderlichen

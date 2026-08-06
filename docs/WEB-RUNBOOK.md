@@ -52,3 +52,24 @@ Hub-Artefakt stehen.
 
 Die detaillierten Schritte stehen in `WEB-RECOVERY.md`. Jeder Rollback muss auf
 eine konkrete frühere Revision oder einen unveränderten Artefaktbaum zeigen.
+
+## Exakter Rollback-Redeploy
+
+Nur mit separater produktiver Freigabe und einem vorhandenen bekannten-Gut-
+Nachweissatz:
+
+```bash
+gh workflow run hub-pages.yml \
+  --ref main \
+  -f generator_ref=<40-stellige-Generator-SHA> \
+  -f active_repository=Wirtelprimpf-0001 \
+  -f archive_ref=<40-stellige-Archiv-SHA> \
+  -f current_volume=<positives-Storyvolumen>
+```
+
+Der Generator- und der Archiv-SHA müssen beide vollständig und unveränderlich
+festgelegt sein. Nach einem erfolgreichen Pages-Lauf werden Buildbericht,
+Baumhash und die HTTP/2-Smokes für Hub, Galerie, Geschichten, Projekt,
+Projektstatus, robots, Sitemap und Feed gemeinsam als Rückabnahme gespeichert.
+Bei einem Fehler bleibt der aktuelle produktive Stand unverändert; es gibt
+keinen best-effort- oder Branch-Rollback.

@@ -1,6 +1,6 @@
 name: Publish Wirtelprimpf hub Pages
 run-name: >-
-  Wirtelprimpf hub${{ inputs.active_repository && format(' · {0}@{1}', inputs.active_repository, inputs.archive_ref) || '' }}
+  Wirtelprimpf hub${{ inputs.generator_ref && format(' · generator {0}', inputs.generator_ref) || '' }}${{ inputs.active_repository && format(' · {0}@{1}', inputs.active_repository, inputs.archive_ref) || '' }}
 
 on:
 
@@ -9,6 +9,10 @@ on:
 
   workflow_dispatch:
     inputs:
+      generator_ref:
+        description: Full generator commit SHA for an exact build or rollback
+        required: false
+        type: string
       active_repository:
         description: Canonical active publication repository
         required: false
@@ -36,9 +40,37 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Validate manual revision inputs
+        id: revisions
+        shell: bash
+        env:
+          INPUT_GENERATOR_REF: ${{ inputs.generator_ref }}
+          INPUT_REPOSITORY: ${{ inputs.active_repository }}
+          INPUT_ARCHIVE_REF: ${{ inputs.archive_ref }}
+          INPUT_CURRENT_VOLUME: ${{ inputs.current_volume }}
+        run: |
+          set -euo pipefail
+          generator_ref="${INPUT_GENERATOR_REF:-${GITHUB_SHA}}"
+          [[ "${generator_ref}" =~ ^[0-9a-fA-F]{40}$ ]]
+          if [[ -n "${INPUT_GENERATOR_REF}" ]]; then
+            [[ "${INPUT_GENERATOR_REF}" =~ ^[0-9a-fA-F]{40}$ ]]
+            test -n "${INPUT_REPOSITORY}"
+            test -n "${INPUT_ARCHIVE_REF}"
+            test -n "${INPUT_CURRENT_VOLUME}"
+          fi
+          if [[ -n "${INPUT_REPOSITORY}" || -n "${INPUT_ARCHIVE_REF}" || -n "${INPUT_CURRENT_VOLUME}" ]]; then
+            test -n "${INPUT_REPOSITORY}"
+            test -n "${INPUT_ARCHIVE_REF}"
+            test -n "${INPUT_CURRENT_VOLUME}"
+            [[ "${INPUT_ARCHIVE_REF}" =~ ^[0-9a-fA-F]{40}$ ]]
+            [[ "${INPUT_CURRENT_VOLUME}" =~ ^[1-9][0-9]*$ ]]
+          fi
+          echo "generator_ref=${generator_ref}" >> "${GITHUB_OUTPUT}"
+
       - name: Checkout generator and public data
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.generator_ref || github.sha }}
           sparse-checkout: |
             data
             README.md
@@ -124,7 +156,14 @@ jobs:
             --expected-domain wirtelprimpf.telacore.org \
             --data-root "${GITHUB_WORKSPACE}/data" \
             --config config/web-budgets.json \
-            --check | tee "$RUNNER_TEMP/pages-build-report.json"
+            --check > "$RUNNER_TEMP/pages-build-report.raw.json"
+          jq \
+            --arg generator_revision "${{ steps.revisions.outputs.generator_ref }}" \
+            --arg archive_revision "${{ steps.source.outputs.revision }}" \
+            --arg current_volume "${{ steps.source.outputs.current_volume }}" \
+            '. + {generator_revision: $generator_revision, archive_revision: $archive_revision, current_volume: $current_volume}' \
+            "$RUNNER_TEMP/pages-build-report.raw.json" > "$RUNNER_TEMP/pages-build-report.json"
+          cat "$RUNNER_TEMP/pages-build-report.json"
           grep -R -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
           grep -E -q '"tree_sha256": "[0-9a-f]{64}"' "$RUNNER_TEMP/pages-build-report.json"
 
