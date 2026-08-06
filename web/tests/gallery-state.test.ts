@@ -44,6 +44,13 @@ test("invalid query values fall back without reflecting unknown parameters", () 
 });
 
 
+test("favorites is a serializable local gallery filter", () => {
+  const state = parseGalleryQuery("?typ=favorites&seite=2&proseite=50");
+  assert.deepEqual(state, { typ: "favorites", seite: 2, jahr: null, proseite: 50 });
+  assert.equal(serializeGalleryQuery(state), "?typ=favorites&seite=2&proseite=50");
+});
+
+
 test("unknown is a distinct media category and never becomes classic", () => {
   const media = [item("unknown", 2026, "u"), item("classic", 2026, "c"), item("story", 2025, "s")];
   assert.deepEqual(filterGalleryMedia(media, { typ: "unknown", seite: 1, jahr: null, proseite: 20 }).map((entry) => entry.asset_id), ["u"]);

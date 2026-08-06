@@ -8,6 +8,7 @@ import {
   serializeGalleryQuery,
   type GalleryState,
 } from "../lib/routes.ts";
+import { readSiteState } from "../lib/site-state.ts";
 import {
   galleryHistoryEntry,
   pushGalleryHistory,
@@ -58,8 +59,25 @@ function mount(root: HTMLElement): void {
 
   const apply = (state: GalleryState, restore?: GalleryHistoryEntry | null): void => {
     const fullGallery = root.dataset.galleryFull === "true";
+    const favoriteIds = state.typ === "favorites"
+      ? (() => {
+        try {
+          return new Set(readSiteState(localStorage).favorites);
+        } catch {
+          return new Set<string>();
+        }
+      })()
+      : null;
+    const typeMatches = (card: HTMLElement): boolean => {
+      if (state.typ === "all") return true;
+      if (state.typ === "favorites") {
+        const favoriteId = card.querySelector<HTMLElement>("[data-favorite-id]")?.dataset.favoriteId;
+        return favoriteIds?.has(favoriteId || "") ?? false;
+      }
+      return card.dataset.kind === state.typ;
+    };
     const matching = fullGallery
-      ? cards.filter((card) => state.typ === "all" || card.dataset.kind === state.typ)
+      ? cards.filter(typeMatches)
         .filter((card) => state.jahr === null || card.dataset.year === String(state.jahr))
       : cards;
     const pageSize = galleryPageSize(state);
@@ -71,7 +89,7 @@ function mount(root: HTMLElement): void {
       : state;
     let matchingIndex = 0;
     for (const card of cards) {
-      const isMatch = effectiveState.typ === "all" || card.dataset.kind === effectiveState.typ;
+      const isMatch = typeMatches(card);
       const yearMatches = effectiveState.jahr === null || card.dataset.year === String(effectiveState.jahr);
       const onPage = !fullGallery || pageSize === null || (matchingIndex >= (effectiveState.seite - 1) * pageSize && matchingIndex < effectiveState.seite * pageSize);
       card.hidden = !(isMatch && yearMatches && onPage);
@@ -182,6 +200,9 @@ function mount(root: HTMLElement): void {
 
   window.addEventListener("pageshow", () => {
     apply(stateForPage(root), galleryHistoryEntry(window.history.state));
+  });
+  window.addEventListener("wirtelprimpf:favorites-changed", () => {
+    apply(stateForPage(root));
   });
 }
 

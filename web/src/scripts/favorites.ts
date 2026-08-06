@@ -37,8 +37,9 @@ function mount(): void {
     sync(button);
     button.addEventListener("click", () => {
       const id = button.dataset.favoriteId;
-      if (id) toggleFavorite(storage, id);
+      const result = id ? toggleFavorite(storage, id) : null;
       sync(button);
+      if (result !== null) window.dispatchEvent(new Event("wirtelprimpf:favorites-changed"));
     });
   }
 }

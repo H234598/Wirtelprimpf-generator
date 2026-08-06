@@ -111,6 +111,30 @@ test("gallery pagination preserves page and selected page size", async ({ page }
   await expect(page.locator("[data-gallery-pagination-nav]")).toBeHidden();
 });
 
+test("favorites filter uses local favorites and updates after removal", async ({ page }) => {
+  await page.goto("/bilder/", { waitUntil: "domcontentloaded" });
+  const favoriteId = await page.locator("[data-gallery-card] button[data-favorite-id]").first().getAttribute("data-favorite-id");
+  if (!favoriteId) throw new Error("favorite id missing");
+  await page.evaluate((id) => {
+    localStorage.setItem("wirtelprimpf.site-state.v1", JSON.stringify({
+      schema_version: 1,
+      theme: "night",
+      reading_view: "chapter",
+      gallery: { typ: "all", seite: 1, jahr: null, focus_id: null, scroll_y: 0 },
+      progress: {},
+      favorites: [id],
+    }));
+  }, favoriteId);
+  await page.goto("/bilder/?typ=favorites", { waitUntil: "domcontentloaded" });
+  await expect(page.locator("#galerie-filter-favorites")).toHaveText("Favoriten");
+  await expect(page.locator("#galerie-filter-favorites")).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("[data-gallery-card]:visible")).toHaveCount(1);
+  await expect(page.locator("[data-gallery-card]:visible button[data-favorite-id]")).toHaveAttribute("data-favorite-id", favoriteId);
+  await page.locator("[data-gallery-card]:visible button[data-favorite-id]").click();
+  await expect(page.locator("[data-gallery-card]:visible")).toHaveCount(0);
+  await expect(page.locator("[data-gallery-empty]")).toBeVisible();
+});
+
 test("maintenance pages expose only redacted public status", async ({ page }) => {
   for (const route of ["/projekt/", "/projekt/status/"]) {
     const response = await page.goto(route, { waitUntil: "domcontentloaded" });

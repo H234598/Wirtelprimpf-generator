@@ -5,7 +5,7 @@ export const GALLERY_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200, 500] as const;
 export const GALLERY_DEFAULT_PAGE_SIZE = 20;
 export const GALLERY_PAGE_SIZE = GALLERY_DEFAULT_PAGE_SIZE;
 export type GalleryPageSize = typeof GALLERY_PAGE_SIZE_OPTIONS[number] | "all";
-export const GALLERY_TYPES = ["all", "story", "classic", "legacy", "unknown"] as const;
+export const GALLERY_TYPES = ["all", "story", "classic", "legacy", "unknown", "favorites"] as const;
 export type GalleryType = typeof GALLERY_TYPES[number];
 
 export interface GalleryState {
@@ -60,7 +60,8 @@ export function parseGalleryQuery(input: string | URLSearchParams): GalleryState
 
 export function filterGalleryMedia(items: readonly MediaItem[], state: GalleryState): MediaItem[] {
   return items.filter((item) => {
-    const typeMatches = state.typ === "all" || item.kind === state.typ as MediaKind;
+    // Favorites are local-only and are applied by the browser after the full gallery loads.
+    const typeMatches = state.typ === "all" || state.typ === "favorites" || item.kind === state.typ as MediaKind;
     const yearMatches = state.jahr === null || item.year === state.jahr;
     return typeMatches && yearMatches;
   });
