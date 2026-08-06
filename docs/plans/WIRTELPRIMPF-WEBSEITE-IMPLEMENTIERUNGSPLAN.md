@@ -5783,3 +5783,11 @@ Damit ist der externe Growth-Mechanismus aktuell gegen das Archiv verifiziert; P
 - Dieser Archivreport ist der maßgebliche Mehrquellen-Nachweis. Der vorherige Generatorreport mit `779` Medien, `195` Kapiteln und `246` historischen Orphans bleibt als Einzelquellenprojektion gültig; beide Zählerbereiche sind wegen unterschiedlicher Quellenumfänge nicht zu vermischen. Der verschmutzte lokale Archivcheckout wurde nicht verändert.
 
 Damit ist die aktuelle Mehrquellen-Relation im Archiv strikt und fehlerfrei nachgewiesen; lediglich die vier klar historischen Orphans sowie die externe Artefakt-/Betreiberabnahme bleiben als Restgate offen.
+
+### WEB-P08-02-P08-03-Current-Live-320px-Reflow-Audit am 6. August 2026, 09:04 CEST
+
+- Ein echter Chromium-Lauf gegen `https://wirtelprimpf.telacore.org` mit Viewport `320x844` prüfte `/bilder/`, `/geschichten/2/`, `/projekt/`, `/projekt/status/`, `/projekt/lokaler-betrieb/`, `/projekt/web-media/` und `/projekt/web-media-security/`.
+- Alle sieben Routen antworteten mit HTTP `200`, enthielten ein `main`-Element und meldeten `document.documentElement.scrollWidth == 320` sowie `body.scrollWidth == 320`. Keine Route zeigte horizontalen Überlauf; die Seitentitel waren jeweils vorhanden.
+- Der Test lief read-only gegen den produktiven Hub und änderte weder Generatorquellen noch Archivcheckout. Er belegt den aktuellen automatisierten Live-Reflow, ersetzt aber nicht die manuelle Touch-, Zoom- und Assistenztechnikabnahme auf einem realen Gerät.
+
+Damit ist der aktuelle produktive 320-Pixel-Reflow für die zentralen Projekt-, Galerie- und Leseseiten nachgewiesen; das manuelle P08-Betreiber-Gate bleibt korrekt offen.
