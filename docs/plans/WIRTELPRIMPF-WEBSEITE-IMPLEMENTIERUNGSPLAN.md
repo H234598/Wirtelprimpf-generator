@@ -5686,3 +5686,23 @@ manuellen und zeitgebundenen Gates bleiben offen.
 
 Der GitHub-Settings-Read-only-Teil ist damit geprüft; die offenen manuellen
 Betreibergrenzen bleiben bestehen.
+
+### WEB-P11-04-GitHub-Pages-HTTPS-Aktivierungsversuch am 6. August 2026, 08:32 CEST
+
+- Auf Basis des read-only Settingsbefunds wurde ausschließlich die
+  freigegebene Pages-Konfiguration mit `https_enforced=true` angefragt; es
+  wurden keine DNS-, Cloudflare-, Environment- oder Ruleset-Daten verändert.
+- GitHub Pages lehnte die Aktualisierung fail-closed mit HTTP `404` und der
+  Meldung `The certificate does not exist yet` ab. Der anschließende Read-back
+  bestätigt unverändert `https_enforced=false`, Custom Domain
+  `wirtelprimpf.telacore.org`, Buildtyp `workflow` und Quelle `main:/`.
+- Der öffentliche Hub antwortet weiterhin über HTTP/2 mit `200`, Cloudflare
+  und HSTS. Dieser funktionierende Edge-HTTPS-Nachweis ist jedoch nicht
+  gleichbedeutend mit einem von GitHub Pages ausgestellten Zertifikat.
+- Eine DNS-/Proxy-Umschaltung zur Zertifikatsbeschaffung wurde bewusst nicht
+  als best-effort ausgeführt, weil sie die laufende Versorgung der geschützten
+  Domainnamen beeinflussen könnte. Der fehlende GitHub-Zertifikatsnachweis
+  bleibt damit ein konkreter Betreiber-/Plattformblocker.
+
+Der HTTPS-Aktivierungsversuch ist belastbar fehlgeschlagen dokumentiert;
+die bestehende Cloudflare-HTTPS-Auslieferung bleibt unverändert aktiv.
