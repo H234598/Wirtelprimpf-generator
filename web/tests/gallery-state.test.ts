@@ -39,8 +39,8 @@ test("gallery query accepts the canonical fields and drops unknown values when s
 
 
 test("invalid query values fall back without reflecting unknown parameters", () => {
-  assert.deepEqual(parseGalleryQuery("?typ=unsafe&seite=0&jahr=20x6&proseite=24&debug=true"), { typ: "all", seite: 1, jahr: null, proseite: 20 });
-  assert.equal(serializeGalleryQuery({ typ: "all", seite: 1, jahr: null, proseite: 20 }), "");
+  assert.deepEqual(parseGalleryQuery("?typ=unsafe&seite=0&jahr=20x6&proseite=24&debug=true"), { typ: "all", seite: 1, jahr: null, proseite: 100 });
+  assert.equal(serializeGalleryQuery({ typ: "all", seite: 1, jahr: null, proseite: 100 }), "");
 });
 
 
@@ -65,7 +65,7 @@ test("year is parsed from the source filename and page state clamps to available
   const media = Array.from({ length: 25 }, (_, index) => item("story", 2026, String(index)));
   const raw = parseGalleryQuery("?seite=9&jahr=2025");
   const normalized = normalizeGalleryState(raw, { items: media });
-  assert.deepEqual(normalized, { typ: "all", seite: 2, jahr: null, proseite: 20 });
+  assert.deepEqual(normalized, { typ: "all", seite: 1, jahr: null, proseite: 100 });
   assert.equal(galleryPageCount(media, { typ: "all", seite: 1, jahr: null, proseite: 20 }), 2);
   assert.equal(galleryPageItems(media, { typ: "all", seite: 2, jahr: null, proseite: 20 }).length, 5);
 });

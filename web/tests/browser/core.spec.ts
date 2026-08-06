@@ -97,7 +97,7 @@ test("project tiles keep the requested columns and compact row spacing", async (
 test("gallery pagination preserves page and selected page size", async ({ page }) => {
   await page.goto("/bilder/", { waitUntil: "domcontentloaded" });
   const select = page.locator("[data-gallery-page-size]");
-  await expect(select).toHaveValue("20");
+  await expect(select).toHaveValue("100");
   await select.selectOption("50");
   await expect(page).toHaveURL(/\/bilder\/\?proseite=50$/);
   await expect(page.locator("[data-gallery-card]:visible")).toHaveCount(50);
@@ -187,6 +187,7 @@ test("gallery return keeps filter, page, scroll position and origin focus", asyn
 
 test("empty filters and failed media expose quiet reversible states", async ({ page }) => {
   await page.goto("/bilder/?typ=unknown&jahr=2026", { waitUntil: "domcontentloaded" });
+  await expect(page.locator("#galerie-filter-unknown")).toHaveCount(0);
   await expect(page.locator("[data-gallery-empty]")).toBeVisible();
   await expect(page.locator("[data-gallery-status]")).toContainText("0 Bilder");
   await page.locator("#galerie-filter-all").click();

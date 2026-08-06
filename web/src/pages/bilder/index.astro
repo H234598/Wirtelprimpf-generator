@@ -11,15 +11,14 @@ import {
   galleryUrl,
   type GalleryState,
 } from "../../lib/routes.ts";
-import { mediaKindLabel, type MediaKind } from "../../lib/data.ts";
 const data = loadSiteData();
 const page = 1;
 const pageSize = GALLERY_DEFAULT_PAGE_SIZE;
 const pageItems = data.media.slice(0, pageSize);
 const pageCount = Math.max(1, Math.ceil(data.media.length / pageSize));
 const years = availableGalleryYears(data.media);
-const types: Array<GalleryState["typ"]> = ["all", "story", "classic", "legacy", "unknown", "favorites"];
-const labelForType = (type: GalleryState["typ"]): string => type === "all" ? "Alle" : type === "favorites" ? "Favoriten" : mediaKindLabel(type as MediaKind);
+const types: Array<GalleryState["typ"]> = ["all", "story", "classic", "legacy", "favorites"];
+const labelForType = (type: GalleryState["typ"]): string => type === "all" ? "Alle" : type === "favorites" ? "Favoriten" : type === "story" ? "Storybild" : type === "classic" ? "Atelierbild" : "Historisches Bild";
 const hrefFor = (state: Omit<GalleryState, "proseite">): string => galleryUrl(galleryPagePath(page), { ...state, proseite: GALLERY_DEFAULT_PAGE_SIZE });
 ---
 <BaseLayout title="Bilder" description="Storybilder, Atelierbilder und historische Wirtelprimpf-Motive." section="bilder">
