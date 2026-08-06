@@ -4,19 +4,22 @@ run-name: >-
 
 on:
 
+  schedule:
+    - cron: "*/15 * * * *"
+
   workflow_dispatch:
     inputs:
       active_repository:
         description: Canonical active publication repository
-        required: true
+        required: false
         type: string
       archive_ref:
         description: Full active archive commit SHA
-        required: true
+        required: false
         type: string
       current_volume:
         description: Positive global current story volume
-        required: true
+        required: false
         type: string
 
 permissions:
@@ -59,13 +62,24 @@ jobs:
           INPUT_CURRENT_VOLUME: ${{ inputs.current_volume }}
         run: |
           set -euo pipefail
+          if [[ -n "${INPUT_REPOSITORY}" || -n "${INPUT_ARCHIVE_REF}" || -n "${INPUT_CURRENT_VOLUME}" ]]; then
+            test -n "${INPUT_REPOSITORY}" && test -n "${INPUT_ARCHIVE_REF}" && test -n "${INPUT_CURRENT_VOLUME}"
+            active_repository="${INPUT_REPOSITORY}"
+            archive_ref="${INPUT_ARCHIVE_REF}"
+            current_volume="${INPUT_CURRENT_VOLUME}"
+          else
+            active_repository="$(jq -er '.repository' "${GITHUB_WORKSPACE}/data/hub-source.json")"
+            current_volume="$(jq -er '.current_volume | tostring' "${GITHUB_WORKSPACE}/data/hub-source.json")"
+            archive_ref="$(git ls-remote "https://github.com/H234598/${active_repository}.git" refs/heads/main | awk 'NF { print $1; exit }')"
+            test -n "${archive_ref}"
+          fi
           python3 -m wirtelprimpf_platform.hub \
             --data-root "${GITHUB_WORKSPACE}/data" \
             --external-root "${GITHUB_WORKSPACE}/current-archive" \
             --github-output "${GITHUB_OUTPUT}" \
-            --repository "${INPUT_REPOSITORY}" \
-            --revision "${INPUT_ARCHIVE_REF}" \
-            --current-volume "${INPUT_CURRENT_VOLUME}"
+            --repository "${active_repository}" \
+            --revision "${archive_ref}" \
+            --current-volume "${current_volume}"
 
       - name: Checkout exact active publication archive
         if: steps.source.outputs.external == 'true'

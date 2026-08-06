@@ -679,8 +679,8 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 self.assertNotRegex(deploy.group("body"), r"npm .*build")
                 self.assertIn("cancel-in-progress: false", workflow)
 
-    def test_hub_workflow_passes_all_dispatch_inputs_to_one_source_command(self) -> None:
-        """Keeps required Hub dispatch inputs attached to its source resolver."""
+    def test_hub_workflow_resolves_exact_sources_for_manual_and_scheduled_runs(self) -> None:
+        """Keeps manual inputs and scheduled latest resolution attached to one source resolver."""
         workflow = (ROOT / HUB_PAGES_WORKFLOW).read_text(encoding="utf-8")
         source = re.search(
             r"- name: Resolve an exact current-story source\n(?P<body>.*?)(?=\n      - name:)",
@@ -689,10 +689,10 @@ class WebGovernanceValidationTests(unittest.TestCase):
         )
         self.assertIsNotNone(source)
         assert source is not None
-        self.assertIn(
-            '--github-output "${GITHUB_OUTPUT}" \\\n            --repository "${INPUT_REPOSITORY}"',
-            source.group("body"),
-        )
+        self.assertIn('active_repository="${INPUT_REPOSITORY}"', source.group("body"))
+        self.assertIn('archive_ref="${INPUT_ARCHIVE_REF}"', source.group("body"))
+        self.assertIn('current_volume="${INPUT_CURRENT_VOLUME}"', source.group("body"))
+        self.assertIn("git ls-remote", source.group("body"))
         self.assertNotRegex(
             source.group("body"),
             r'--(?:data-root|external-root|github-output|repository|revision) "[^\n]+"\n',
@@ -801,7 +801,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 self.assert_rejected(result, message)
 
     def test_pages_governance_rejects_quoted_extra_hub_trigger(self) -> None:
-        """Rejects valid quoted YAML triggers beyond manual dispatch."""
+        """Rejects valid quoted YAML triggers beyond schedule and manual dispatch."""
         with self.copied_root() as temporary:
             root = Path(temporary)
             workflow = root / HUB_PAGES_WORKFLOW

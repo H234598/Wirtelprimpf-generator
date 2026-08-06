@@ -112,6 +112,29 @@ class WebStatusTests(unittest.TestCase):
         self.assertEqual(status["stories"]["latest_volume"], 2)
         self.assertEqual(status["source_revision"], "d" * 40)
 
+    def test_latest_media_uses_embedded_timestamp_across_legacy_path_formats(self) -> None:
+        self.manifest["media"] = [
+            {
+                "asset_id": "legacy-asset",
+                "source_path": "wirtelprimpf_2026-07-31_18-17-30-795563.png",
+                "sha256": "b" * 64,
+            },
+            {
+                "asset_id": "current-asset",
+                "source_path": "Wirtelprimpf/wirtelprimpf_2026-08-05_20-23-48-880481.png",
+                "sha256": "c" * 64,
+            },
+        ]
+        (self.data / "media-manifest.json").write_text(json.dumps(self.manifest), encoding="utf-8")
+
+        status = build_status(root=self.root, data_root=self.data, profile="hub")
+
+        self.assertEqual(status["media"]["latest_id"], "current-asset")
+        self.assertEqual(
+            status["media"]["latest_source_path"],
+            "Wirtelprimpf/wirtelprimpf_2026-08-05_20-23-48-880481.png",
+        )
+
     def test_invalid_explicit_source_revision_is_rejected(self) -> None:
         with patch.dict(os.environ, {"WIRTELPRIMPF_SOURCE_REVISION": "not-a-sha"}):
             with self.assertRaisesRegex(RuntimeError, "full lower-case Git commit SHA"):

@@ -20,6 +20,9 @@ SHA1 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 STORY_FILE = re.compile(r"^Wirtelprimpf_Story_([IVXLCDM]+)\.md$")
 PART_HEADING = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*$", re.MULTILINE)
+MEDIA_TIMESTAMP = re.compile(
+    r"(?<!\d)(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:-(\d{6}))?(?!\d)"
+)
 
 
 class StatusError(RuntimeError):
@@ -166,7 +169,14 @@ def _media_summary(manifest: dict[str, Any]) -> dict[str, Any]:
             raise StatusError("media record contains a local path")
         if not isinstance(digest, str) or not SHA256.fullmatch(digest):
             raise StatusError("media record has an invalid source hash")
-    latest = max(records, key=lambda item: (str(item["source_path"]), str(item["asset_id"])), default=None)
+    def sort_key(pair: tuple[int, dict[str, Any]]) -> tuple[int, str, int, str]:
+        index, item = pair
+        match = MEDIA_TIMESTAMP.search(item["source_path"])
+        timestamp = "".join(part or "" for part in match.groups()) if match else ""
+        return (1 if match else 0, timestamp, index, str(item["asset_id"]))
+
+    latest_pair = max(enumerate(records), key=sort_key, default=None)
+    latest = latest_pair[1] if latest_pair is not None else None
     return {
         "count": len(records),
         "latest_id": latest["asset_id"] if latest else None,

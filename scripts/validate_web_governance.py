@@ -475,12 +475,12 @@ def validate_pages_workflows(root: Path) -> None:
     hub = read_text(root, HUB_PAGES_WORKFLOW_PATH)
     triggers = hub.split("on:\n", 1)[1].split("\npermissions:\n", 1)[0]
     require(
-        yaml_mapping_keys(triggers, 2, "Pages workflow Hub trigger") == ["workflow_dispatch"],
+        yaml_mapping_keys(triggers, 2, "Pages workflow Hub trigger") == ["schedule", "workflow_dispatch"],
         "Pages workflow Hub trigger",
     )
     for name in ("active_repository", "archive_ref", "current_volume"):
         input_definition = re.search(rf"^      {name}:\n(?P<body>(?:        .*\n)+)", triggers, re.MULTILINE)
-        require(input_definition is not None and "        required: true\n" in input_definition.group("body"), "Pages workflow Hub inputs")
+        require(input_definition is not None and "        required: false\n" in input_definition.group("body"), "Pages workflow Hub inputs")
     source = re.search(
         r"- name: Resolve an exact current-story source\n(?P<body>.*?)(?=\n      - name:)",
         hub,
@@ -493,9 +493,10 @@ def validate_pages_workflows(root: Path) -> None:
         len(re.findall(r'--(?:data-root|external-root|github-output|repository|revision) "[^"]+" \\\n', source_body)) == 5,
         "Pages workflow Hub source",
     )
-    require("--repository \"${INPUT_REPOSITORY}\"" in source_body, "Pages workflow Hub source")
-    require("--revision \"${INPUT_ARCHIVE_REF}\"" in source_body, "Pages workflow Hub source")
-    require("--current-volume \"${INPUT_CURRENT_VOLUME}\"" in source_body, "Pages workflow Hub source")
+    require("active_repository=\"${INPUT_REPOSITORY}\"" in source_body, "Pages workflow Hub source")
+    require("archive_ref=\"${INPUT_ARCHIVE_REF}\"" in source_body, "Pages workflow Hub source")
+    require("current_volume=\"${INPUT_CURRENT_VOLUME}\"" in source_body, "Pages workflow Hub source")
+    require("git ls-remote" in source_body, "Pages workflow Hub source")
 
 
 def validate_repository_integration(root: Path) -> None:

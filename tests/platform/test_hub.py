@@ -75,12 +75,13 @@ class HubSourceTests(unittest.TestCase):
                 re.MULTILINE,
             )
         ]
-        self.assertEqual(trigger_names, ["workflow_dispatch"])
+        self.assertEqual(trigger_names, ["schedule", "workflow_dispatch"])
         for name in ("active_repository", "archive_ref", "current_volume"):
             match = re.search(rf"^      {name}:\n(?P<body>(?:        .*\n)+)", triggers, re.MULTILINE)
             self.assertIsNotNone(match, name)
             assert match is not None
-            self.assertIn("        required: true\n", match.group("body"), name)
+            self.assertIn("        required: false\n", match.group("body"), name)
+        self.assertIn('cron: "*/15 * * * *"', triggers)
 
     def test_dispatcher_sends_only_validated_exact_inputs(self) -> None:
         calls: list[list[str]] = []

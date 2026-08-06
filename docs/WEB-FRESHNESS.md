@@ -4,7 +4,8 @@
 
 `web/src/generated/status.json` wird unmittelbar vor `astro build` durch
 `scripts/build_web_status.py` erzeugt. Der Build verwendet dabei den aktiven
-Profil- und Datenroot. Bei einem Hub-Build werden die vom Dispatch aufgelösten
+Profil- und Datenroot. Bei einem Hub-Build werden die vom geplanten oder
+manuellen Dispatch aufgelösten
 Werte `WIRTELPRIMPF_CURRENT_STORY`, `WIRTELPRIMPF_CURRENT_VOLUME`,
 `WIRTELPRIMPF_MEDIA_MANIFEST` und `WIRTELPRIMPF_SOURCE_REVISION` ebenfalls an
 den Statusgenerator gegeben. Damit beschreiben Status und gerenderte Site
@@ -45,7 +46,8 @@ des Manifestzeitpunkts erfunden.
 
 ## Gate-Reihenfolge
 
-1. Exakten Datenstand und Quellrevision bestimmen.
+1. Exakten Datenstand und Quellrevision bestimmen; geplante Läufe lesen dazu
+   den aktuellen `main`-Commit des aktiven Archivs und pinnen ihn für den Build.
 2. Statusmanifest erzeugen und gegen Schema sowie Parser prüfen.
 3. Statischen Sitebaum bauen.
 4. Artefaktvalidator, Budget- und Browsergates ausführen.
