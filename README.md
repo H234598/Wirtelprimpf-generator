@@ -7,9 +7,9 @@ Dieses Repository enthält ausschließlich ausführbaren Code, Konfigurationstem
 Hub-Builddaten und die zentrale GitHub-Pages-Seite. Die eigentlichen Publikationen leben getrennt in
 fortlaufenden GitHub-Repositories:
 
-- `Wirtelprimpf-0001` für die vollständigen Storys 1 bis 50 beziehungsweise Bücher 1 bis 5;
-- `Wirtelprimpf-0002` für Storys 51 bis 100 beziehungsweise Bücher 6 bis 10;
-- danach `Wirtelprimpf-0003`, `Wirtelprimpf-0004`, … nach demselben Vertrag.
+- Das erste Publikationsarchiv enthält die vollständigen Storys 1 bis 50 beziehungsweise Bücher 1 bis 5;
+- das zweite Publikationsarchiv enthält Storys 51 bis 100 beziehungsweise Bücher 6 bis 10;
+- danach folgen weitere Publikationsarchive nach demselben Vertrag.
 
 Je zehn vollständig abgeschlossene Storys ergeben ein Buch. Ein späteres Archiv wird nicht vorab angelegt.
 Der Abschluss jeder 50. Story beziehungsweise jedes fünften Buchs gibt eine
