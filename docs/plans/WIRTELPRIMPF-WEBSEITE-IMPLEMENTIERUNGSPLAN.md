@@ -5775,3 +5775,11 @@ Damit ist der aktuelle lokale WEB-P06-04-Relationsvertrag strikt und fehlerfrei 
 - Der technische Messstatus ist `measured`; die 12-/24-/36-Monatsprojektionen werden erzeugt. Der fachliche Langzeitstatus bleibt korrekt `insufficient_history`, weil die echte Historie erst `5,1837` Tage statt `90` Tage umfasst. Die lokale Reportdatei ist ein ignoriertes Messartefakt und wurde nicht in den Git-Baum übernommen.
 
 Damit ist der externe Growth-Mechanismus aktuell gegen das Archiv verifiziert; P03-04/P11-01 bleiben bis zur echten 90-Tage-Historie, CI-/Hostingabnahme und Betreiberbaseline bewusst teilweise umgesetzt.
+
+### WEB-P06-04-Current-Archive-Multi-Story-Read-only-Audit am 6. August 2026, 08:59 CEST
+
+- Ein frischer read-only Sparse-Checkout des aktuellen Archiv-HEADs `017fa3bb8507bcc0782dd139663f7f83e40eb486` wurde mit beiden veröffentlichten Quellen `Wirtelprimpf_Story_I.md` (`Band 1`) und `Wirtelprimpf_Story_II.md` (`Band 2`) geprüft. `python3 scripts/validate_web_relations.py ... --strict` meldet `errors=[]`.
+- Der vollständige Archivreport umfasst `804` Medien, `518` Kapitel und `465` Bild-Kapitel-Relationen. `461` Relationen werden aufgelöst, `1` über den dokumentierten Sidecar-Fallback; `4` bleiben als historische Orphans aus dem Zeitfenster `2026-06-16 03:34:38` bis `04:06:05` isoliert. Es werden keine aktuellen Kapitelrouten aus ihnen erzeugt.
+- Dieser Archivreport ist der maßgebliche Mehrquellen-Nachweis. Der vorherige Generatorreport mit `779` Medien, `195` Kapiteln und `246` historischen Orphans bleibt als Einzelquellenprojektion gültig; beide Zählerbereiche sind wegen unterschiedlicher Quellenumfänge nicht zu vermischen. Der verschmutzte lokale Archivcheckout wurde nicht verändert.
+
+Damit ist die aktuelle Mehrquellen-Relation im Archiv strikt und fehlerfrei nachgewiesen; lediglich die vier klar historischen Orphans sowie die externe Artefakt-/Betreiberabnahme bleiben als Restgate offen.
