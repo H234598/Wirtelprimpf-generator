@@ -5807,3 +5807,11 @@ Damit sind die aktuellen produktiven Benennungs-, Favoriten-, Pagination- und Ka
 - Der Lauf war vollständig read-only und änderte weder DNS, SecurityRule, Pages-Einstellungen noch Repositorydateien. Damit ist die Erreichbarkeit der ausdrücklich geschützten Namen aktuell erneut belegt.
 
 Damit ist der Alias-/HTTP2-Teil von WEB-P11-04 technisch bestanden; offen bleiben ausschließlich Pages-Zertifikat/HTTPS-Enforcement, die manuelle Betreiberabnahme und die externe Abschlussentscheidung.
+
+### WEB-P03-01-P06-03-P09-03-Current-Live-ReleaseAsset-Hash-Audit am 6. August 2026, 09:14 CEST
+
+- Die öffentliche Detailseite `/bilder/archive-0001-d33700fc5ee33201-64dd2a0c/` bietet für ein aktuelles Medienobjekt Original, `w640`, `w1280` und `w3840` an. Alle vier unveränderlichen Releaseassets antworteten mit HTTP `200`.
+- Der direkte read-only Download-/Hashlauf gegen das aktuelle Archivmanifest verifizierte für alle vier Assets Byteumfang und SHA-256: Original `4.327.994` Bytes, `w640` `39.756` Bytes, `w1280` `123.448` Bytes und `w3840` `5.830.672` Bytes; jede Manifesthashprüfung war `true`.
+- Der Nachweis ist bewusst eine aktuelle Stichprobe und keine Behauptung über jedes einzelne Archivasset. Es wurden keine Release-, Manifest- oder Generator-Dateien verändert.
+
+Damit ist der aktuelle öffentliche Original-/Derivat-/4K-Releasevertrag für die Stichprobe hash- und bytegenau belegt; eine vollständige externe Assetstichprobe bleibt als P09-/Betreibergate offen.
