@@ -8,6 +8,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "check.yml"
 GROWTH_WORKFLOW = ROOT / ".github" / "workflows" / "web-growth-history.yml"
+HUB_PAGES_WORKFLOW = ROOT / ".github" / "workflows" / "hub-pages.yml"
 
 
 class WebWorkflowTests(unittest.TestCase):
@@ -55,6 +56,12 @@ class WebWorkflowTests(unittest.TestCase):
         self.assertIn("retention-days: 90", workflow)
         self.assertNotIn("pages: write", workflow)
         self.assertNotIn("id-token: write", workflow)
+
+    def test_hub_pages_uses_the_dedicated_runner_and_latest_revision_wins(self) -> None:
+        workflow = HUB_PAGES_WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(workflow.count("runs-on: [self-hosted, Linux, X64, wirtelprimpf-pages]"), 2)
+        self.assertIn("cancel-in-progress: true", workflow)
+        self.assertNotIn("cache: npm", workflow)
 
 
 if __name__ == "__main__":
