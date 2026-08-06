@@ -1,5 +1,6 @@
 ---
 import { mediaAltText, mediaKindLabel, type MediaItem } from "../lib/data.ts";
+import { isMiscMedia } from "../lib/media-filters.ts";
 import MediaError from "./MediaError.astro";
 
 interface Props { item: MediaItem; priority?: boolean; hidden?: boolean; }
@@ -9,7 +10,7 @@ const src = small?.url ?? item.original.url;
 const srcset = item.variants.map((variant) => `${variant.url} ${variant.actual_width}w`).join(", ");
 const label = mediaKindLabel(item.kind);
 ---
-<article class="media-card" data-gallery-card data-kind={item.kind} data-year={item.year ?? "unknown"} hidden={hidden || undefined}>
+<article class="media-card" data-gallery-card data-kind={item.kind} data-misc={isMiscMedia(item) ? "true" : undefined} data-year={item.year ?? "unknown"} hidden={hidden || undefined}>
   <a id={`gallery-card-${item.asset_id}`} data-gallery-return-link href={`/bilder/${item.asset_id}/`}>
     <div class="media-frame" data-media-frame style={`--ratio:${item.width}/${item.height}`}>
       <img data-media-image src={src} srcset={srcset || undefined} sizes="(max-width: 720px) 92vw, (max-width: 1100px) 45vw, 30vw" width={small?.actual_width ?? item.width} height={small?.actual_height ?? item.height} alt={mediaAltText(item)} loading={priority ? "eager" : "lazy"} fetchpriority={priority ? "high" : "auto"} decoding="async" />

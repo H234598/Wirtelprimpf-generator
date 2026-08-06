@@ -74,6 +74,7 @@ function mount(root: HTMLElement): void {
         const favoriteId = card.querySelector<HTMLElement>("[data-favorite-id]")?.dataset.favoriteId;
         return favoriteIds?.has(favoriteId || "") ?? false;
       }
+      if (state.typ === "misc") return card.dataset.misc === "true";
       return card.dataset.kind === state.typ;
     };
     const matching = fullGallery

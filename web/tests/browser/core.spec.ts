@@ -135,6 +135,15 @@ test("favorites filter uses local favorites and updates after removal", async ({
   await expect(page.locator("[data-gallery-empty]")).toBeVisible();
 });
 
+test("misc filter groups unknown and test media behind one visible button", async ({ page }) => {
+  await page.goto("/bilder/?typ=misc", { waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(/\/bilder\/\?typ=misc$/);
+  await expect(page.locator("#galerie-filter-misc")).toHaveText("MISC");
+  await expect(page.locator("#galerie-filter-misc")).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("#galerie-filter-unknown")).toHaveCount(0);
+  expect(await page.locator("[data-gallery-card]:visible").evaluateAll((cards) => cards.every((card) => card.getAttribute("data-misc") === "true"))).toBe(true);
+});
+
 test("maintenance pages expose only redacted public status", async ({ page }) => {
   for (const route of ["/projekt/", "/projekt/status/"]) {
     const response = await page.goto(route, { waitUntil: "domcontentloaded" });

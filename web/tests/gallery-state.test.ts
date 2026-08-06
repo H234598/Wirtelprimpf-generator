@@ -51,6 +51,17 @@ test("favorites is a serializable local gallery filter", () => {
 });
 
 
+test("misc groups unknown and test media without absorbing regular images", () => {
+  const media = [
+    item("unknown", 2026, "u"),
+    { ...item("classic", 2026, "test"), source_path: "testbild-2026.png" },
+    item("legacy", 2026, "legacy"),
+    item("story", 2026, "story"),
+  ];
+  assert.deepEqual(filterGalleryMedia(media, { typ: "misc", seite: 1, jahr: null, proseite: 20 }).map((entry) => entry.asset_id), ["u", "test"]);
+});
+
+
 test("unknown is a distinct media category and never becomes classic", () => {
   const media = [item("unknown", 2026, "u"), item("classic", 2026, "c"), item("story", 2025, "s")];
   assert.deepEqual(filterGalleryMedia(media, { typ: "unknown", seite: 1, jahr: null, proseite: 20 }).map((entry) => entry.asset_id), ["u"]);

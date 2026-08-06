@@ -15,8 +15,8 @@ export function getStaticPaths() { const pageSize=GALLERY_DEFAULT_PAGE_SIZE; con
 const { page, items, pages } = Astro.props;
 const data = loadSiteData();
 const years = availableGalleryYears(data.media);
-const types: Array<GalleryState["typ"]> = ["all", "story", "classic", "legacy", "favorites"];
-const labelForType = (type: GalleryState["typ"]): string => type === "all" ? "Alle" : type === "favorites" ? "Favoriten" : type === "story" ? "Storybild" : type === "classic" ? "Atelierbild" : "Historisches Bild";
+const types: Array<GalleryState["typ"]> = ["all", "story", "classic", "legacy", "misc", "favorites"];
+const labelForType = (type: GalleryState["typ"]): string => type === "all" ? "Alle" : type === "favorites" ? "Favoriten" : type === "misc" ? "MISC" : type === "story" ? "Storybild" : type === "classic" ? "Atelierbild" : "Historisches Bild";
 const hrefFor = (state: Omit<GalleryState, "proseite">): string => galleryUrl("/bilder/", { ...state, seite: 1, proseite: GALLERY_DEFAULT_PAGE_SIZE });
 ---
 <BaseLayout title={`Bilder · Seite ${page}`} section="bilder">
