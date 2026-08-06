@@ -3,13 +3,22 @@ import { resolveDownload, type DownloadTarget } from "../lib/downloads.ts";
 
 interface Props {
   original: DownloadTarget;
-  variants?: readonly DownloadTarget[];
+  variants?: readonly (DownloadTarget & { requested_width?: number })[];
 }
 
 const { original, variants = [] } = Astro.props;
 const originalDownload = resolveDownload(original);
 const derivativeDownloads = variants
-  .map((variant) => resolveDownload(variant))
+  .map((variant) => {
+    const download = resolveDownload(variant);
+    if (!download) return null;
+    const label = variant.requested_width === 3840
+      ? "4K"
+      : variant.requested_width
+        ? `${variant.requested_width}px`
+        : null;
+    return { ...download, label };
+  })
   .filter((download): download is NonNullable<typeof download> => download !== null);
 ---
 <div class="media-actions" data-media-actions>
@@ -21,5 +30,5 @@ const derivativeDownloads = variants
     <button type="button" data-media-share hidden aria-label="Bild teilen">Teilen</button>
   </div>
   <span class="media-action-status" data-media-action-status role="status" aria-live="polite"></span>
-  {derivativeDownloads.length > 0 && <div><h3>Derivate</h3><ul class="derivative-list">{derivativeDownloads.map((download) => <li><a href={download.href} download={download.filename}>{download.filename}</a></li>)}</ul></div>}
+  {derivativeDownloads.length > 0 && <div><h3>Derivate</h3><ul class="derivative-list">{derivativeDownloads.map((download) => <li><a href={download.href} download={download.filename}>{download.label ? `${download.label} · ` : ""}{download.filename}</a></li>)}</ul></div>}
 </div>

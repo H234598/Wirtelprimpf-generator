@@ -20,7 +20,7 @@ from PIL import Image
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from wirtelprimpf_platform.media import MEDIA_TRANSFORM_TOOL_VERSION, _materialize_variant
+from wirtelprimpf_platform.media import DERIVATIVE_WIDTHS, MEDIA_TRANSFORM_TOOL_VERSION, _materialize_variant
 from wirtelprimpf_platform.media_cache import (
     TRANSFORM_CONFIG_VERSION,
     MediaDerivativeCache,
@@ -265,7 +265,7 @@ def _measure_new_story_baseline(
         tool_version=MEDIA_TRANSFORM_TOOL_VERSION,
         writable=True,
     )
-    new_story_requests = story_images * 2
+    new_story_requests = story_images * len(DERIVATIVE_WIDTHS)
     started = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="wirtelprimpf-new-story-") as directory:
         source_root = Path(directory)
@@ -279,7 +279,7 @@ def _measure_new_story_baseline(
                 ((index * 37) % 256, (index * 71) % 256, (index * 113) % 256),
             ).save(source, format="PNG")
             original_sha = _sha256(source)
-            for target_width in (640, 1280):
+            for target_width in DERIVATIVE_WIDTHS:
                 target = target_root / "new-story" / f"story-{index + 1:02d}.w{target_width}.webp"
                 cache.materialize(
                     original_sha256=original_sha,

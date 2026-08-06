@@ -122,7 +122,7 @@ class MediaReleaseTests(unittest.TestCase):
             for record in shard.records:
                 self.assertIn(record.sha256[:16], record.original_asset_name)
                 self.assertIn(f"/releases/download/{shard.tag}/", record.original_url)
-                self.assertEqual({variant.width for variant in record.variants}, {640, 1280})
+                self.assertEqual({variant.width for variant in record.variants}, {640, 1280, 3840})
 
     def test_materialization_strips_metadata_and_publisher_reverifies_every_download(self) -> None:
         inventory = build_media_inventory(self.source, archive_index=1)
@@ -177,6 +177,17 @@ class MediaReleaseTests(unittest.TestCase):
             self.assertNotIn("exif", derivative.info)
             self.assertNotIn("icc_profile", derivative.info)
 
+        wide_record = next(item for shard in prepared.shards for item in shard.records if item.width == 80)
+        four_k_path = next(
+            path
+            for shard in prepared.shards
+            for path in shard.asset_paths
+            if path.name == wide_record.variants[-1].asset_name
+        )
+        with Image.open(four_k_path) as derivative:
+            self.assertEqual(derivative.size, (3840, 1920))
+        self.assertEqual(four_k_path.read_bytes()[12:16], b"VP8L")
+
     def test_truncated_image_is_rejected_without_an_absolute_path(self) -> None:
         truncated = self.source / "truncated.png"
         truncated.write_bytes(png_bytes(20, 20, (10, 20, 30))[:-12])
@@ -208,8 +219,8 @@ class MediaReleaseTests(unittest.TestCase):
             cache_root=self.root / "cache",
         )
 
-        self.assertEqual(first.cache_report["misses"], 6)
-        self.assertEqual(second.cache_report["hits"], 6)
+        self.assertEqual(first.cache_report["misses"], 9)
+        self.assertEqual(second.cache_report["hits"], 9)
         self.assertEqual(second.cache_report["cache_hit_rate"], 1.0)
         self.assertEqual(
             [path.read_bytes() for shard in first.shards for path in shard.asset_paths],

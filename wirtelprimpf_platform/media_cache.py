@@ -15,7 +15,7 @@ from typing import Any
 from PIL import Image
 
 CACHE_SCHEMA_VERSION = "1.0.0"
-TRANSFORM_CONFIG_VERSION = "media-transform-v1"
+TRANSFORM_CONFIG_VERSION = "media-transform-v2"
 TARGET_FORMAT = "webp"
 
 

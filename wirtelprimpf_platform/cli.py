@@ -16,6 +16,7 @@ from .cloudflare_credentials import CloudflareCredentialResolver
 from .cloudflare_dns import CloudflareDNS, CloudflareHTTPTransport, resolve_zone_id
 from .github_provision import GitHubProvisioner
 from .media import (
+    DEFAULT_ORIGINALS_PER_SHARD,
     GitHubReleaseBackend,
     build_media_inventory,
     build_release_plan,
@@ -178,7 +179,7 @@ def _build_parser() -> argparse.ArgumentParser:
     media.add_argument("--repository", required=True)
     media.add_argument("--archive-index", type=int, required=True)
     media.add_argument("--manifest-output", type=Path, required=True)
-    media.add_argument("--max-originals-per-shard", type=int, default=250)
+    media.add_argument("--max-originals-per-shard", type=int, default=DEFAULT_ORIGINALS_PER_SHARD)
     media.add_argument("--cache-root", type=Path)
     media.add_argument("--cache-read-only", action="store_true")
     media.add_argument("--publish", action="store_true")

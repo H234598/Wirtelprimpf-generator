@@ -46,7 +46,7 @@ class IncrementalMediaTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def publisher(self, *, max_records_per_shard: int = 240) -> IncrementalMediaPublisher:
+    def publisher(self, *, max_records_per_shard: int = 199) -> IncrementalMediaPublisher:
         return IncrementalMediaPublisher(
             owner="H234598",
             repository="Wirtelprimpf-0001",
@@ -57,7 +57,7 @@ class IncrementalMediaTests(unittest.TestCase):
             max_records_per_shard=max_records_per_shard,
         )
 
-    def test_new_image_is_published_as_original_two_derivatives_and_immutable_record_manifest(self) -> None:
+    def test_new_image_is_published_as_original_three_derivatives_and_immutable_record_manifest(self) -> None:
         record = self.publisher().publish(
             self.image,
             source_path=f"Wirtelprimpf/{self.image.name}",
@@ -67,8 +67,8 @@ class IncrementalMediaTests(unittest.TestCase):
         )
 
         self.assertEqual(record["release_tag"], "archive-0001-media-0001")
-        self.assertEqual(self.backend.upload_count, 4)
-        self.assertEqual(len(self.backend.assets[record["release_tag"]]), 4)
+        self.assertEqual(self.backend.upload_count, 5)
+        self.assertEqual(len(self.backend.assets[record["release_tag"]]), 5)
         payload = json.loads(self.manifest.read_text(encoding="utf-8"))
         self.assertEqual(payload["media_count"], 1)
         self.assertEqual(payload["media"], [record])

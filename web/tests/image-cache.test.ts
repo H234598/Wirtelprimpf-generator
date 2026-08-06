@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 
-test("release image manifest binds every media item to two derivative widths", () => {
+test("historical release image manifest binds every media item to its two stored derivative widths", () => {
   const manifest = JSON.parse(readFileSync(join(process.cwd(), "../data/media-manifest.json"), "utf8")) as {
     schema_version: string;
     media: Array<{ sha256: string; variants: Array<{ requested_width: number; sha256: string; mime_type: string }> }>;

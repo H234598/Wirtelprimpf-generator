@@ -7,7 +7,7 @@
   },
   "derivatives": {
     "format": "image/webp",
-    "widths": [640, 1280],
+    "widths": [640, 1280, 3840],
     "apply_exif_orientation": true,
     "strip_metadata": true
   }

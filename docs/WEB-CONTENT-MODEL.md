@@ -3,7 +3,7 @@
 Die buildzeitigen Webdaten verwenden versionierte, strikt geschlossene Verträge:
 
 - `web-image.schema.json` beschreibt Asset-ID, Quellpfad, Typ, Hash, Dimensionen,
-  Releaseziel, Prompt-/Storybeziehung und 640/1280-Derivate.
+  Releaseziel, Prompt-/Storybeziehung und 640/1280/3840-Derivate.
 - `web-story-volume.schema.json` beschreibt Bandnummer, Buchposition, Titel,
   Quelldatei und die geordneten Kapitel.
 - `web-story-chapter.schema.json` beschreibt stabile Kapitel-ID, Quellzeitstempel,

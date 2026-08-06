@@ -179,10 +179,10 @@ class MediaCacheReplayTests(unittest.TestCase):
             self.assertTrue(report["cache_contract"]["new_story_baseline_measured"])
             self.assertTrue(baseline["synthetic_fixture"])
             self.assertEqual(baseline["archive_replay"]["cache_hit_rate"], 1.0)
-            self.assertEqual(baseline["new_story"]["misses"], 4)
-            self.assertEqual(baseline["new_story"]["writes"], 4)
-            self.assertEqual(baseline["combined"]["requests"], 6)
-            self.assertAlmostEqual(baseline["combined"]["cache_hit_rate"], 2 / 6)
+            self.assertEqual(baseline["new_story"]["misses"], 6)
+            self.assertEqual(baseline["new_story"]["writes"], 6)
+            self.assertEqual(baseline["combined"]["requests"], 8)
+            self.assertAlmostEqual(baseline["combined"]["cache_hit_rate"], 2 / 8)
 
 
 if __name__ == "__main__":

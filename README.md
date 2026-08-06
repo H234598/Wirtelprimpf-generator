@@ -20,11 +20,12 @@ GitHub-Repository erreichbar. Bis dieser Ablauf verifiziert ist, bleibt die näc
 
 ## Medienvertrag
 
-Neue Bilddateien werden nicht nach Git `main` geschrieben. Der Generator veröffentlicht pro Bild genau vier
-unveränderliche GitHub-Release-Assets: Original, WebP mit 640 Pixel Breite, WebP mit 1280 Pixel Breite und einen
-JSON-Datensatz. Jedes Asset wird nach dem Upload über die öffentliche Downloadadresse erneut geladen und mit
-SHA-256 geprüft. Erst danach darf das kleine `media-manifest.json` im Publikationsrepository fortgeschrieben,
-committet und gepusht werden.
+Neue Bilddateien werden nicht nach Git `main` geschrieben. Der Generator veröffentlicht pro Bild fünf
+unveränderliche GitHub-Release-Assets: Original, WebP mit 640 Pixel Breite, WebP mit 1280 Pixel Breite,
+hochqualitativ auf 3840 Pixel Breite (4K) hochskaliertes verlustfreies WebP und einen JSON-Datensatz. Jedes
+Asset wird nach dem Upload über die öffentliche Downloadadresse erneut geladen und mit SHA-256 geprüft. Erst
+danach darf das kleine `media-manifest.json` im Publikationsrepository fortgeschrieben, committet und gepusht
+werden.
 
 Der Bestandsmigrator wendet denselben Hashvertrag auf historische Bilder an und erzeugt zusätzlich
 deterministische Originalpakete und Shardmanifeste. Bereits vorhandene Assets werden niemals überschrieben.

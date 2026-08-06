@@ -29,11 +29,12 @@ from .naming import archive_name
 
 MEDIA_SCHEMA_VERSION = "1.0.0"
 MAX_RELEASE_ASSETS = 1_000
-DEFAULT_ORIGINALS_PER_SHARD = 250
 DEFAULT_SOURCE_BYTES_PER_SHARD = 1_500_000_000
 MAX_SOURCE_BYTES = 25 * 1024 * 1024
 MAX_SOURCE_PIXELS = 50_000_000
-DERIVATIVE_WIDTHS = (640, 1280)
+UPSCALED_4K_WIDTH = 3840
+DERIVATIVE_WIDTHS = (640, 1280, UPSCALED_4K_WIDTH)
+DEFAULT_ORIGINALS_PER_SHARD = (MAX_RELEASE_ASSETS - 2) // (1 + len(DERIVATIVE_WIDTHS))
 SUPPORTED_SUFFIXES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 TIMESTAMP_IMAGE_RE = re.compile(r"^wirtelprimpf_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(?:-\d{6})?", re.IGNORECASE)
 SAFE_ASSET_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -309,15 +310,16 @@ def build_release_plan(
     max_originals_per_shard: int = DEFAULT_ORIGINALS_PER_SHARD,
     max_source_bytes_per_shard: int = DEFAULT_SOURCE_BYTES_PER_SHARD,
 ) -> ReleasePlan:
-    """Assign originals and two web derivatives to deterministic release shards."""
+    """Assign originals and three web derivatives to deterministic release shards."""
     _validate_repository_component(owner, label="owner")
     _validate_repository_component(repository, label="repository")
     if repository != archive_name(inventory.archive_index):
         raise ValueError(
             f"repository {repository!r} does not match archive {inventory.archive_index:04d}"
         )
-    if isinstance(max_originals_per_shard, bool) or not 1 <= max_originals_per_shard <= 332:
-        raise ValueError("max_originals_per_shard must be between 1 and 332")
+    max_allowed_originals = (MAX_RELEASE_ASSETS - 2) // (1 + len(DERIVATIVE_WIDTHS))
+    if isinstance(max_originals_per_shard, bool) or not 1 <= max_originals_per_shard <= max_allowed_originals:
+        raise ValueError(f"max_originals_per_shard must be between 1 and {max_allowed_originals}")
     if max_source_bytes_per_shard < 1:
         raise ValueError("max_source_bytes_per_shard must be positive")
 
@@ -419,10 +421,13 @@ def _materialize_variant(source: Path, target: Path, target_width: int) -> tuple
         converted = ImageOps.exif_transpose(image).convert("RGB")
     converted.info.clear()
     try:
-        if converted.width > target_width:
+        if converted.width > target_width or target_width == UPSCALED_4K_WIDTH:
             height = max(1, round(converted.height * target_width / converted.width))
             converted = converted.resize((target_width, height), Image.Resampling.LANCZOS)
-        converted.save(target, format="WEBP", quality=82, method=6, exif=b"")
+        if target_width == UPSCALED_4K_WIDTH:
+            converted.save(target, format="WEBP", lossless=True, quality=100, method=6, exif=b"")
+        else:
+            converted.save(target, format="WEBP", quality=82, method=6, exif=b"")
         actual_width, actual_height = converted.size
     finally:
         converted.close()

@@ -35,8 +35,8 @@ from .media import (
 from .media_cache import MediaDerivativeCache
 from .naming import archive_name
 
-DEFAULT_RECORDS_PER_SHARD = 240
-ASSETS_PER_RECORD = 4
+ASSETS_PER_RECORD = 2 + len(DERIVATIVE_WIDTHS)
+DEFAULT_RECORDS_PER_SHARD = (MAX_RELEASE_ASSETS - 1) // ASSETS_PER_RECORD
 
 
 def _utc_now() -> str:

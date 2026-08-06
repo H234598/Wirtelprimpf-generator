@@ -221,6 +221,8 @@ def build_inventory(manifest_path: Path, *, source_root: Path | None = None, str
     variant_counts: Counter[str] = Counter()
     missing_prompt = 0
     missing_story = 0
+    release_asset_counts: Counter[str] = Counter()
+    record_asset_units = 0
 
     for index, record in enumerate(records):
         if not isinstance(record, dict):
@@ -274,6 +276,10 @@ def build_inventory(manifest_path: Path, *, source_root: Path | None = None, str
             key = str(requested_width)
             variant_counts[key] += 1
             variant_sizes[key] += variant_size
+        record_asset_units += 1 + len(variants)
+        release_tag = record.get("release_tag")
+        if isinstance(release_tag, str) and release_tag:
+            release_asset_counts[release_tag] += 1 + len(variants)
 
     shard_errors: list[str] = []
     shards = payload.get("shards", [])
@@ -291,8 +297,15 @@ def build_inventory(manifest_path: Path, *, source_root: Path | None = None, str
             shard_errors.append(f"shards[{index}].record_count is invalid")
             continue
         shard_record_count += record_count
-        if asset_count != record_count * 3 + 2:
-            shard_errors.append(f"shards[{index}].asset_count does not match 3 media assets plus bundle/manifest")
+        release_tag = shard.get("tag")
+        if isinstance(release_tag, str) and release_tag in release_asset_counts:
+            expected_asset_count = release_asset_counts[release_tag] + 2
+        elif len(shards) == 1 and record_count == len(records):
+            expected_asset_count = record_asset_units + 2
+        else:
+            expected_asset_count = record_count * 3 + 2
+        if asset_count != expected_asset_count:
+            shard_errors.append(f"shards[{index}].asset_count does not match the media variants plus bundle/manifest")
         if shard.get("open") is not False:
             shard_errors.append(f"shards[{index}] is not closed")
     errors.extend(shard_errors)
@@ -347,7 +360,13 @@ def build_inventory(manifest_path: Path, *, source_root: Path | None = None, str
             "record_count_from_shards": shard_record_count,
             "closed_shards": sum(isinstance(shard, dict) and shard.get("open") is False for shard in shards),
             "expected_asset_count": sum(
-                shard.get("record_count", 0) * 3 + 2
+                (
+                    release_asset_counts.get(shard.get("tag"), 0) + 2
+                    if isinstance(shard, dict) and isinstance(shard.get("tag"), str) and shard.get("tag") in release_asset_counts
+                    else record_asset_units + 2
+                    if len(shards) == 1 and isinstance(shard, dict) and shard.get("record_count") == len(records)
+                    else shard.get("record_count", 0) * 3 + 2
+                )
                 for shard in shards
                 if isinstance(shard, dict) and isinstance(shard.get("record_count"), int)
             ),

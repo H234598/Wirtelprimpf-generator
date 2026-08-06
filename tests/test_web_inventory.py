@@ -57,7 +57,7 @@ class WebInventoryTests(unittest.TestCase):
                         "media_count": 1,
                         "media": [_record("one", "one.png", "a" * 64)],
                         "shards": [
-                            {"record_count": 1, "asset_count": 5, "open": False},
+                            {"record_count": 1, "asset_count": 4, "open": False},
                         ],
                     }
                 ),
@@ -77,7 +77,7 @@ class WebInventoryTests(unittest.TestCase):
                 "schema_version": "1.0.0",
                 "media_count": 1,
                 "media": [_record("one", "one.png", "a" * 64)],
-                "shards": [{"record_count": 1, "asset_count": 5, "open": True}],
+                "shards": [{"record_count": 1, "asset_count": 4, "open": True}],
             }
             manifest.write_text(json.dumps(payload), encoding="utf-8")
             with self.assertRaises(InventoryError):
@@ -92,7 +92,7 @@ class WebInventoryTests(unittest.TestCase):
                     "schema_version": "1.0.0",
                     "media_count": 1,
                     "media": [_record("one", "one.png", "a" * 64)],
-                    "shards": [{"record_count": 1, "asset_count": 5, "open": False}],
+                    "shards": [{"record_count": 1, "asset_count": 4, "open": False}],
                 }),
                 encoding="utf-8",
             )
@@ -124,7 +124,7 @@ class WebInventoryTests(unittest.TestCase):
                     "schema_version": "1.0.0",
                     "media_count": 1,
                     "media": [_record("one", "one.png", "a" * 64)],
-                    "shards": [{"record_count": 1, "asset_count": 5, "open": False}],
+                    "shards": [{"record_count": 1, "asset_count": 4, "open": False}],
                 }),
                 encoding="utf-8",
             )

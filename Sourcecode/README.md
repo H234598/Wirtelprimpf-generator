@@ -23,9 +23,10 @@ secrets.
 
 The generator creates Wirtelprimpf images and continuing story parts with the
 OpenAI API. Local PNGs remain in the private output directory. In the production
-`release` mode, originals and two WebP derivatives are published as immutable
-GitHub Release assets, publicly downloaded, SHA-256 verified and only then
-referenced by the small manifest committed to the active publication archive.
+`release` mode, originals and three WebP derivatives are published as immutable
+GitHub Release assets, including a high-quality lossless 3840-pixel (4K) upscale.
+Every asset is publicly downloaded, SHA-256 verified and only then referenced by
+the small manifest committed to the active publication archive.
 
 ## Files
 
@@ -137,8 +138,9 @@ Publication policy:
   generated-image patch offset in the publish-state file.
 - When `VERSION` changes, the generator treats that value as the new SemVer
   base and starts counting generated-image patches from that point.
-- Every new image is uploaded as original, 640-WebP, 1280-WebP and immutable
-  record JSON; all four public downloads must match their local SHA-256 values.
+- Every new image is uploaded as original, 640-WebP, 1280-WebP, lossless
+  3840-WebP (4K) and immutable record JSON; all five public downloads must
+  match their local SHA-256 values.
 - Git receives prompt, story documents and `media-manifest.json`, never the PNG.
 - Each verified publication commit is pushed immediately.
 - Exactly ten completed stories form one book and five books (50 completed stories) belong to one archive. Boundary completion

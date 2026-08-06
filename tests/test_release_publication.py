@@ -78,7 +78,7 @@ class ReleasePublicationTests(unittest.TestCase):
             publish_immediately=True,
         )
 
-    def test_release_mode_publishes_four_assets_and_only_writes_manifest_to_repository(self) -> None:
+    def test_release_mode_publishes_five_assets_and_only_writes_manifest_to_repository(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             config = self.config(root)
@@ -99,7 +99,7 @@ class ReleasePublicationTests(unittest.TestCase):
             )
 
             self.assertEqual(record["release_tag"], "archive-0001-media-0001")
-            self.assertEqual(sum(len(assets) for assets in backend.assets.values()), 4)
+            self.assertEqual(sum(len(assets) for assets in backend.assets.values()), 5)
             self.assertEqual(manifest, config.repo_path / "media-manifest.json")
             payload = json.loads(manifest.read_text(encoding="utf-8"))
             self.assertEqual(payload["media_count"], 1)

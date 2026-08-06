@@ -32,7 +32,7 @@ const detailUrl = (entry: MediaItem): string => `/bilder/${entry.asset_id}/`;
       <p>Release: <code>{item.release_tag}</code></p>
       <p>Asset-ID: <code>{item.asset_id}</code></p>
       <div class="detail-actions">
-        <ImageActions original={item.original} variants={item.variants.map((variant) => ({ asset_name: variant.asset_name, url: variant.url }))} />
+        <ImageActions original={item.original} variants={item.variants.map((variant) => ({ requested_width: variant.requested_width, asset_name: variant.asset_name, url: variant.url }))} />
         {item.story_part_path && <p><a href={storyHref ?? "/geschichten/"}>{storyLabel ?? "Zur zugehörigen Geschichte"}</a><br /><code>{item.story_part_path}</code></p>}
         {!item.story_part_path && item.kind === "story" && <p><a href="/geschichten/">Zur Geschichtenbibliothek</a></p>}
       </div>

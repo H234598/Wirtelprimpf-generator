@@ -1,8 +1,9 @@
 # Web-Medien, Derivate und Cache
 
 Der öffentliche Medienvertrag ist releasegebunden. Ein Manifestdatensatz bindet das Original über seinen
-SHA-256-Hash, zwei WebP-Derivate über die angeforderten Breiten `640` und `1280` sowie jedes Derivat erneut
-über den eigenen Hash, MIME-Typ, Byteumfang und die tatsächlichen Pixelmaße. Das Manifest bleibt ein kleiner
+SHA-256-Hash, drei WebP-Derivate über die angeforderten Breiten `640`, `1280` und `3840` sowie jedes Derivat
+erneut über den eigenen Hash, MIME-Typ, Byteumfang und die tatsächlichen Pixelmaße. Das 3840er Derivat wird
+hochqualitativ mit Lanczos hochskaliert und verlustfrei als WebP gespeichert. Das Manifest bleibt ein kleiner
 JSON-Vertrag; Bildbinärdaten werden nicht in den Git-Hauptbaum geschrieben.
 
 ## Derivatcache
@@ -37,9 +38,10 @@ SOURCE_DATE_EPOCH=0 python3 scripts/validate_web_manifest.py --root . --strict
 Der Validator liest nur. Er lädt keine Releaseassets nach, schreibt keine Quellen und erzeugt keine
 Derivate. Die öffentliche Wiederabruf- und SHA-Prüfung bleibt Teil des Releasepublishers.
 
-Der derzeit eingecheckte Manifeststand besteht aus `779` Medienobjekten in `4` geschlossenen Shards mit den
-Derivatbreiten `640` und `1280`. Diese Zahlen sind Prüf- und Snapshotwerte, keine unveränderliche
-Archivgesamtzahl.
+Der derzeit eingecheckte historische Manifeststand besteht aus `779` Medienobjekten in `4` geschlossenen
+Shards mit den Derivatbreiten `640` und `1280`. Neue Veröffentlichungen enthalten zusätzlich `3840` (4K);
+die historischen Snapshotwerte werden dafür nicht künstlich neu erzeugt. Alle Zahlen sind Prüf- und
+Snapshotwerte, keine unveränderliche Archivgesamtzahl.
 
 ## Vollständiger Cache-Replay
 

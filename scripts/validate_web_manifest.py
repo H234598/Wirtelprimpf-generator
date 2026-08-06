@@ -70,7 +70,6 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
         _require(shard["open"] is False, f"shard {index} is open")
         record_count = shard["record_count"]
         _require(isinstance(record_count, int) and record_count >= 1, f"shard {index} record count is invalid")
-        _require(shard["asset_count"] == record_count * 3 + 2, f"shard {index} asset count mismatch")
         _sha(shard["manifest_sha256"], f"shard {index} manifest sha256")
         _sha(shard["bundle_sha256"], f"shard {index} bundle sha256")
         shard_count += record_count
@@ -79,6 +78,7 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
     ids: set[str] = set()
     source_paths: set[str] = set()
     release_counts: dict[str, int] = {}
+    release_asset_counts: dict[str, int] = {}
     for index, raw in enumerate(media):
         item = _object(
             raw,
@@ -112,6 +112,7 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
         _require(isinstance(original["url"], str) and original["url"].startswith("https://github.com/"), f"media {index} original URL is invalid")
         variants = item["variants"]
         _require(isinstance(variants, list) and variants, f"media {index} variants are missing")
+        release_asset_counts[release_tag] = release_asset_counts.get(release_tag, 0) + 1 + len(variants)
         widths: list[int] = []
         for variant_index, variant_raw in enumerate(variants):
             variant = _object(variant_raw, f"media {index} variant {variant_index}", {"requested_width", "actual_width", "actual_height", "asset_name", "url", "sha256", "byte_size", "mime_type"})
@@ -127,6 +128,10 @@ def validate_manifest(payload: Any) -> dict[str, Any]:
         _require(widths == sorted(set(widths)), f"media {index} variant widths are not sorted and unique")
     for shard in shards:
         _require(release_counts.get(shard["tag"], 0) == shard["record_count"], f"shard media count mismatch: {shard['tag']}")
+        _require(
+            shard["asset_count"] == release_asset_counts.get(shard["tag"], 0) + 2,
+            f"shard asset count mismatch: {shard['tag']}",
+        )
     return {"schema_version": "1.0.0", "media_count": len(media), "shard_count": len(shards), "variant_widths": sorted({width for item in media for width in (variant["requested_width"] for variant in item["variants"])})}
 
 
