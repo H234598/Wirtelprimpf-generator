@@ -6084,3 +6084,20 @@ Code-Scanning-Abnahme bleibt mangels eingerichtetem Dienst separat offen.
 Damit ist der DNS-Zustand der später beschlossenen Single-Hub-Architektur
 aktuell nachgewiesen; Pages-Zertifikat, Hosted-Runner und Betreiberabnahmen
 bleiben unabhängige externe Gates.
+
+### WEB-P11-04-SecurityRule1-Exact-Readback am 6. August 2026, 11:33 CEST
+
+- Der autoritative Ruleset-Readback für `telacore.org` bestätigt die aktive
+  Dynamic-Redirect-Regel `Telacore_SecurityRule1` mit ID
+  `acbaba3eee5341d39386d0c4ff52dada`, Version `9`, als letzte Regel des
+  Rulesets `31f6c38b7d6e409e8e28ea9f79942457`.
+- Die Regel greift unverändert für HTTP/1.0/1.1 sowie für die dokumentierten
+  Geo-, Cookie- und URI-Bedingungen und leitet auf die bestehende
+  `awsas.de/403-page.html`-Zielseite. Ausgenommen bleiben exakt
+  `wirtelprimpf.telacore.org` und `catgpt.wirtelprimpf.telacore.org`.
+- Die separaten Aliasregeln laufen davor; die geschützten Aliasnamen werden
+  über HTTP/2 ausgeliefert und bleiben damit erreichbar, während der Rest der
+  Sicherheitsregel weiter greift. Der Readback war vollständig read-only.
+
+Damit ist der aktuelle Regel-/Ausnahmevertrag exakt belegt; eine Änderung der
+SecurityRule war für den aktuellen Single-Hub- und HTTP/2-Vertrag nicht nötig.
