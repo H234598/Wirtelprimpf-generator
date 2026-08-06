@@ -160,6 +160,34 @@ class OperationalStatusTests(unittest.TestCase):
         self.assertEqual(status["archive"]["repository"], "Wirtelprimpf-0001")
         self.assertEqual(status["timer"]["interval_minutes"], 120)
 
+    def test_active_archive_manifest_supersedes_stale_generator_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = StatusPaths.for_root(root)
+            StateStore(paths.platform_state).save(PlatformState(active_archive_index=1))
+            paths.media_manifest.parent.mkdir(parents=True, exist_ok=True)
+            paths.media_manifest.write_text(
+                json.dumps({"media": [{"release_tag": "archive-0001-media-0001"}]}),
+                encoding="utf-8",
+            )
+            active_repo = root / "archive"
+            active_repo.mkdir()
+            (active_repo / "media-manifest.json").write_text(
+                json.dumps({"media": [{"release_tag": "archive-0001-media-0009"}]}),
+                encoding="utf-8",
+            )
+            snapshot = snapshot_for_test(
+                revision="b" * 64,
+                settings={"repo_path": str(active_repo)},
+            )
+            status = OperationalStatusCollector(
+                paths=paths,
+                snapshot_reader=lambda: snapshot,
+                timer_reader=active_timer,
+                service_reader=lambda: {"active_state": "inactive"},
+            ).collect()
+        self.assertEqual(status["publication"]["release"]["value"], "archive-0001-media-0009")
+
     def test_hub_repository_mismatch_is_visible_before_the_hub_value_wins(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

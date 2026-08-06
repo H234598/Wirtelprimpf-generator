@@ -12,6 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]*")
+_LEGACY_ENV_ALIASES = {"CatGPT_Key": "OPENAI_API_KEY"}
+
+
+def _canonical_env_key(key: str) -> str:
+    return _LEGACY_ENV_ALIASES.get(key, key)
 
 
 class SettingsIOError(RuntimeError):
@@ -40,17 +45,22 @@ class EnvironmentDocument:
                 raise SettingsIOError("malformed environment line")
             key_text, raw = content.split("=", 1)
             key = key_text.strip()
-            if not _ENV_NAME.fullmatch(key):
+            canonical_key = _canonical_env_key(key)
+            if not _ENV_NAME.fullmatch(canonical_key):
                 raise SettingsIOError(f"invalid environment key: {key!r}")
-            if key in values:
-                raise SettingsIOError(f"duplicate environment key: {key}")
             try:
                 words = shlex.split(raw.strip(), comments=False, posix=True)
             except ValueError as exc:
                 raise SettingsIOError("invalid quoted environment value") from exc
             if len(words) > 1:
                 raise SettingsIOError("environment value must be exactly one shell word")
-            values[key] = words[0] if words else ""
+            if canonical_key in values:
+                if key == canonical_key:
+                    raise SettingsIOError(f"duplicate environment key: {canonical_key}")
+                # Keep the canonical key authoritative when an older alias is
+                # still present beside it in a user-managed environment file.
+                continue
+            values[canonical_key] = words[0] if words else ""
         return cls(lines, values)
 
     @property
@@ -72,11 +82,12 @@ class EnvironmentDocument:
                 rendered.append(line)
                 continue
             key = content.split("=", 1)[0].strip()
-            if key not in updates:
+            canonical_key = _canonical_env_key(key)
+            if canonical_key not in updates:
                 rendered.append(line)
                 continue
-            consumed.add(key)
-            value = updates[key]
+            consumed.add(canonical_key)
+            value = updates[canonical_key]
             if value is not None:
                 ending = line[len(content) :]
                 rendered.append(f"{key}={shlex.quote(value)}{ending or os.linesep}")

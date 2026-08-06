@@ -37,6 +37,16 @@ class SettingsIOTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(SettingsIOError):
                 EnvironmentDocument.parse(text)
 
+    def test_legacy_catgpt_key_alias_is_read_without_overriding_openai_key(self) -> None:
+        document = EnvironmentDocument.parse(
+            "OPENAI_API_KEY=canonical\nCatGPT_Key=legacy\n"
+        )
+        self.assertEqual(document.values["OPENAI_API_KEY"], "canonical")
+        self.assertEqual(
+            document.render({"OPENAI_API_KEY": "updated"}),
+            "OPENAI_API_KEY=updated\nCatGPT_Key=updated\n",
+        )
+
     def test_environment_values_are_exactly_zero_or_one_shell_word(self) -> None:
         document = EnvironmentDocument.parse("EMPTY=\nSPACED='one  two   three'\n")
         self.assertEqual(document.values, {"EMPTY": "", "SPACED": "one  two   three"})

@@ -378,12 +378,23 @@ class OperationalStatusCollector:
                 "source": "local-git",
             }
 
-    def _collect_release(self, status: dict[str, object]) -> None:
-        if not self.paths.media_manifest.exists():
+    def _collect_release(
+        self,
+        status: dict[str, object],
+        snapshot: SettingsSnapshot | None,
+    ) -> None:
+        manifest_path = self.paths.media_manifest
+        if snapshot is not None:
+            raw_repo = snapshot.settings.get("repo_path")
+            if isinstance(raw_repo, str) and raw_repo:
+                candidate = Path(raw_repo).expanduser() / "media-manifest.json"
+                if candidate.exists():
+                    manifest_path = candidate
+        if not manifest_path.exists():
             return
 
         def read_latest_release() -> str | None:
-            manifest = _read_json_object(self.paths.media_manifest)
+            manifest = _read_json_object(manifest_path)
             media = manifest.get("media")
             if not isinstance(media, list):
                 raise ValueError("media manifest list is invalid")
@@ -412,7 +423,7 @@ class OperationalStatusCollector:
             status["publication"]["release"] = {
                 "state": "observed",
                 "value": release_tag,
-                "observed_at": _mtime(self.paths.media_manifest),
+                "observed_at": _mtime(manifest_path),
                 "source": "media-manifest.json",
             }
 
@@ -422,9 +433,28 @@ class OperationalStatusCollector:
         if self.paths.hub_outbox.exists():
             source_path = self.paths.hub_outbox
             state = "pending"
-        elif self.paths.hub_source.exists():
-            source_path = self.paths.hub_source
-            state = "observed"
+        else:
+            publication_git = status["publication"]["git"]
+            archive = status["archive"]
+            if (
+                isinstance(publication_git, dict)
+                and publication_git.get("state") == "observed"
+                and isinstance(publication_git.get("value"), str)
+                and isinstance(archive, dict)
+                and isinstance(archive.get("repository"), str)
+            ):
+                repository = archive["repository"]
+                revision = publication_git["value"]
+                status["publication"]["hub"] = {
+                    "state": "observed",
+                    "value": f"{repository}@{revision}",
+                    "observed_at": publication_git.get("observed_at"),
+                    "source": "local-git",
+                }
+                return
+            if self.paths.hub_source.exists():
+                source_path = self.paths.hub_source
+                state = "observed"
         if source_path is None:
             return
 
@@ -514,7 +544,7 @@ class OperationalStatusCollector:
         self._collect_timer(status)
         self._collect_story(status)
         self._collect_git(status, snapshot)
-        self._collect_release(status)
+        self._collect_release(status, snapshot)
         self._collect_hub(status)
         self._collect_catalog(status)
         return status

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .settings_io import FileBackup, SecureFile
@@ -125,6 +127,18 @@ def _boolean(value: str) -> bool:
     raise SystemdCommandError("systemctl returned an invalid boolean")
 
 
+def _monotonic_deadline(value: str) -> str | None:
+    """Convert systemd's absolute monotonic deadline into local wall time."""
+    if not value.strip():
+        return None
+    deadline = _duration_seconds(value)
+    seconds_until = deadline - time.monotonic()
+    if seconds_until < 0:
+        return None
+    target = datetime.now().astimezone() + timedelta(seconds=seconds_until)
+    return target.strftime("%a %Y-%m-%d %H:%M:%S %Z")
+
+
 class SystemdUserManager:
     def __init__(
         self,
@@ -183,6 +197,7 @@ class SystemdUserManager:
             "TimersMonotonic",
             "LastTriggerUSec",
             "NextElapseUSecRealtime",
+            "NextElapseUSecMonotonic",
         )
         arguments = ["show", _TIMER_UNIT]
         for name in properties:
@@ -225,7 +240,8 @@ class SystemdUserManager:
             randomized_delay_seconds=delay_seconds,
             persistent=persistent,
             last_trigger=(values.get("LastTriggerUSec") or [""])[-1] or None,
-            next_run=(values.get("NextElapseUSecRealtime") or [""])[-1] or None,
+            next_run=(values.get("NextElapseUSecRealtime") or [""])[-1]
+            or _monotonic_deadline((values.get("NextElapseUSecMonotonic") or [""])[-1]),
             result=(values.get("Result") or [""])[-1] or "unknown",
         )
 

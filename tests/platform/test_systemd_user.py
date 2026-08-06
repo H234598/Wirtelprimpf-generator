@@ -21,10 +21,14 @@ class FakeRunner:
         interval: str = "2h",
         delay: str = "2min",
         monotonic_entries: tuple[str, ...] | None = None,
+        next_realtime: str = "Sat 2026-08-01 07:28:15 CEST",
+        next_monotonic: str | None = None,
     ) -> None:
         self.commands: list[list[str]] = []
         self.interval = interval
         self.delay = delay
+        self.next_realtime = next_realtime
+        self.next_monotonic = next_monotonic
         self.monotonic_entries = monotonic_entries or (
             f"{{ OnUnitActiveUSec={self.interval} ; next_elapse=12h 4min 6.248989s }}",
         )
@@ -46,7 +50,12 @@ class FakeRunner:
                     f"RandomizedDelayUSec={self.delay}\n"
                     f"{monotonic_lines}"
                     "LastTriggerUSec=Sat 2026-08-01 05:26:37 CEST\n"
-                    "NextElapseUSecRealtime=Sat 2026-08-01 07:28:15 CEST\n"
+                    f"NextElapseUSecRealtime={self.next_realtime}\n"
+                    + (
+                        f"NextElapseUSecMonotonic={self.next_monotonic}\n"
+                        if self.next_monotonic is not None
+                        else ""
+                    )
                 ),
                 "",
             )
@@ -161,6 +170,15 @@ class SystemdUserTests(unittest.TestCase):
         self.assertEqual(observation.interval_minutes, 120)
         self.assertEqual(observation.randomized_delay_seconds, 120)
         self.assertEqual(observation.last_trigger, "Sat 2026-08-01 05:26:37 CEST")
+
+    def test_monotonic_next_deadline_is_exposed_when_realtime_deadline_is_empty(self) -> None:
+        runner = FakeRunner(next_realtime="", next_monotonic="900000s")
+        with tempfile.TemporaryDirectory() as temporary:
+            observation = SystemdUserManager(
+                Path(temporary) / "override.conf",
+                runner=runner,
+            ).observe_timer()
+        self.assertIsNotNone(observation.next_run)
 
     def test_compound_duration_components_are_summed(self) -> None:
         self.assertEqual(_duration_seconds("1h 30min"), 5_400)
