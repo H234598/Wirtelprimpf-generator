@@ -439,7 +439,7 @@ def validate_pages_workflow(root: Path, path: Path) -> None:
     names = yaml_mapping_keys(jobs, 2, "Pages workflow jobs")
     require(names == ["build", "deploy"], "Pages workflow jobs")
     require("permissions:\n  contents: read\n" in workflow, "Pages workflow permissions")
-    require("cancel-in-progress: false" in workflow, "Pages workflow concurrency")
+    require("cancel-in-progress: true" in workflow, "Pages workflow concurrency")
 
     build = pages_job(workflow, "build")
     require(

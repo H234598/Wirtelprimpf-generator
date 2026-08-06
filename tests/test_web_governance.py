@@ -677,7 +677,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 self.assertIn("actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128", deploy.group("body"))
                 self.assertNotIn("actions/checkout", deploy.group("body"))
                 self.assertNotRegex(deploy.group("body"), r"npm .*build")
-                self.assertIn("cancel-in-progress: false", workflow)
+                self.assertIn("cancel-in-progress: true", workflow)
 
     def test_hub_workflow_resolves_exact_sources_for_manual_and_scheduled_runs(self) -> None:
         """Keeps manual inputs and scheduled latest resolution attached to one source resolver."""

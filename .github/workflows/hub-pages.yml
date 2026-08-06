@@ -31,7 +31,8 @@ permissions:
 
 concurrency:
   group: wirtelprimpf-hub-pages
-  cancel-in-progress: false
+  # A stale hosted-runner queue must never hide a newer published archive.
+  cancel-in-progress: true
 
 jobs:
   build:
