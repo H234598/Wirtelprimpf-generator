@@ -133,6 +133,10 @@ class SystemdUnitTests(unittest.TestCase):
     def test_manual_atelier_unit_is_fixed_to_classic_mode_and_shared_lock(self) -> None:
         source = (UNIT_ROOT / "wirtelprimpf-atelier.service").read_text(encoding="utf-8")
         self.assertIn("Environment=WIRTELPRIMPF_OPERANDI=classic", source)
+        self.assertIn(
+            "ExecStart=/usr/bin/env WIRTELPRIMPF_OPERANDI=classic /usr/bin/flock",
+            source,
+        )
         self.assertIn("generation.lock", source)
         self.assertIn("EnvironmentFile=%h/.config/wirtelprimpf/openai.env", source)
 

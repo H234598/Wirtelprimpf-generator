@@ -15,7 +15,8 @@ Environment=TMPDIR=%t/wirtelprimpf-generator
 Environment=TMP=%t/wirtelprimpf-generator
 Environment=TEMP=%t/wirtelprimpf-generator
 ExecStartPre=%h/.local/share/wirtelprimpf-generator/.venv/bin/python %h/.local/bin/wirtelprimpf-story-directives apply --env-file %h/.config/wirtelprimpf/openai.env
-ExecStart=/usr/bin/flock --nonblock %t/wirtelprimpf-generator/generation.lock %h/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator
+# EnvironmentFile values win over Environment=; set the manual mode at exec time.
+ExecStart=/usr/bin/env WIRTELPRIMPF_OPERANDI=classic /usr/bin/flock --nonblock %t/wirtelprimpf-generator/generation.lock %h/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator
 NoNewPrivileges=true
 PrivateTmp=false
 PrivateDevices=true
