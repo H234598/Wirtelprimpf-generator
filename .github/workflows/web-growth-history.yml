@@ -1,0 +1,127 @@
+name: Web growth history
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wirtelprimpf-web-growth-history
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout generator measurement sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            config/web-budgets.json
+            data
+            docs/WEB-MEDIA.md
+            docs/WEB-MEDIA-SECURITY.md
+            web
+            scripts/build_web_site.py
+            scripts/build_web_status.py
+            scripts/measure_web_media.py
+            scripts/validate_pages_artifact.py
+            scripts/validate_web_budgets.py
+            wirtelprimpf_platform
+            pyproject.toml
+            README.md
+            LICENSE
+          sparse-checkout-cone-mode: true
+          lfs: false
+
+      - name: Resolve exact active archive revision
+        id: archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="$(git ls-remote https://github.com/H234598/Wirtelprimpf-0001.git refs/heads/main | awk 'NF { print $1; exit }')"
+          [[ "${revision}" =~ ^[0-9a-fA-F]{40}$ ]]
+          echo "revision=${revision}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout archive manifest history without media blobs
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: H234598/Wirtelprimpf-0001
+          ref: ${{ steps.archive.outputs.revision }}
+          path: growth-archive
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: media-manifest.json
+          sparse-checkout-cone-mode: true
+          persist-credentials: false
+          lfs: false
+
+      - name: Move read-only archive outside the source tree
+        run: mv "${GITHUB_WORKSPACE}/growth-archive" "${RUNNER_TEMP}/growth-archive"
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install measurement dependencies
+        run: python -m pip install --disable-pip-version-check -e .
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.13.1"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install exact web dependencies
+        working-directory: web
+        run: npm ci --ignore-scripts
+
+      - name: Measure external growth history
+        env:
+          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/data
+          WIRTELPRIMPF_SITE_PROFILE: hub
+          WIRTELPRIMPF_SITE_URL: https://wirtelprimpf.telacore.org
+          PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
+          SOURCE_DATE_EPOCH: "0"
+        run: >-
+          python3 scripts/measure_web_media.py --root . --runs 3 --strict
+          --growth-root "${RUNNER_TEMP}/growth-archive"
+          --growth-manifest media-manifest.json
+          --growth-baseline-commit db5500b743b68dd47cdc2bb3d7f8896bea7557e1
+          --output build/reports/web-media-costs-archive-growth.json
+
+      - name: Validate durable growth report
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("build/reports/web-media-costs-archive-growth.json").read_text())
+          growth = report["growth"]
+          assert report["source_tree_unchanged"] is True
+          assert report["errors"] == []
+          assert growth["history_source"] == "external_git"
+          assert growth["point_count"] >= 2
+          print(json.dumps({
+              "archive_revision": "${{ steps.archive.outputs.revision }}",
+              "point_count": growth["point_count"],
+              "window_days": growth.get("window_days"),
+              "long_term_status": growth.get("long_term_status"),
+          }, sort_keys=True))
+          PY
+
+      - name: Upload dated growth evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-growth-history-${{ github.run_id }}
+          path: build/reports/web-media-costs-archive-growth.json
+          if-no-files-found: error
+          retention-days: 90

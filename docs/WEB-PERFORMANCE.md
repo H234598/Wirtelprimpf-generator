@@ -75,6 +75,22 @@ Baseline-Commit `db5500b743b68dd47cdc2bb3d7f8896bea7557e1` lieferte `25` Punkte
 `3.766.196.025` Quellbytes; der Langzeitstatus blieb korrekt
 `insufficient_history`.
 
+## Dauerhafte Wachstumsevidenz
+
+`.github/workflows/web-growth-history.yml` führt den externen Messlauf täglich
+und zusätzlich manuell aus. Der Workflow löst zuerst die aktuelle
+Archiv-`main` auf eine vollständige SHA auf, checkt nur die
+`media-manifest.json`-Historie blobless aus und verschiebt diesen read-only
+Checkout außerhalb des Generator-Arbeitsbaums. Danach laufen drei
+reproduzierbare Builds mit `--growth-root`, festem Baseline-Commit und
+`--strict`; der Report muss `history_source=external_git`, mindestens zwei
+Historienpunkte, einen unveränderten Quellbaum und keine Messfehler ausweisen.
+
+Jeder erfolgreiche Report wird 90 Tage als datiertes GitHub-Actions-Artefakt
+aufbewahrt. Das schafft die dauerhafte Nachweiskette für die Zeit bis zur
+echten 90-Tage-Historie, ändert aber den Status nicht künstlich: Solange das
+Manifestfenster kürzer ist, bleibt `long_term_status=insufficient_history`.
+
 ## Reproduzierbarer Wachstumslauf am 6. August 2026
 
 Der erneute strikte Dreifachlauf gegen einen vollständigen read-only Checkout
