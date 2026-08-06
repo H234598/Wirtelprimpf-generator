@@ -6001,3 +6001,21 @@ Bauplangates bleiben unabhängig davon offen.
 Damit ist der responsive, automatisiert prüfbare Admin-Button-Nachweis ergänzt;
 die manuelle Bedienung mit Tastatur, Touch, Zoom und Screenreader bleibt als
 Betreiber-/Accessibility-Gate ausdrücklich offen.
+
+### WEB-P11-04-Current-Protected-Alias-API-Smoke am 6. August 2026, 11:15 CEST
+
+- Der read-only HTTP/2-Recheck der elf ausdrücklich geschützten Namen ergab
+  für `wirtelprimpf.telacore.org` direkt `200` und für die zehn Aliasnamen
+  jeweils den vorgesehenen `301` zum normativen Ziel. Für
+  `catgpt.telacore.org` führt dieser Zielhost zu
+  `catgpt.wirtelprimpf.telacore.org`; der Worker ist dort absichtlich kein
+  HTML-Webauftritt, sondern stellt ausschließlich `/v1/chat` bereit. Der
+  `404` am Worker-Root ist deshalb kein Ausfall des CatGPT-Endpunkts.
+- Der fachlich relevante Aliasaufruf `OPTIONS /v1/chat` antwortete direkt am
+  Worker mit HTTP/2 `204` und den erwarteten CORS-Headern. Derselbe Pfad unter
+  `catgpt.telacore.org/v1/chat` antwortete mit HTTP/2 `301` auf den Worker.
+  Ein absichtlich ungültiger direkter POST an den Worker wurde mit `400`
+  fail-closed abgewiesen; dadurch wurde kein OpenAI-Aufruf ausgelöst.
+
+Damit ist der geschützte CatGPT-Alias gegen seinen tatsächlichen API-Vertrag
+geprüft; die übrigen Pages-/Betreiber-/Langzeit-Gates bleiben unabhängig offen.
