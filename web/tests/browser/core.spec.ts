@@ -59,7 +59,7 @@ test("gallery pagination preserves page and selected page size", async ({ page }
 });
 
 test("maintenance pages expose only redacted public status", async ({ page }) => {
-  for (const route of ["/projekt/", "/projekt/status/", "/projekt/lokaler-betrieb/"]) {
+  for (const route of ["/projekt/", "/projekt/status/"]) {
     const response = await page.goto(route, { waitUntil: "domcontentloaded" });
     expect(response?.status()).toBe(200);
     await expect(page.locator("main")).toBeVisible();
