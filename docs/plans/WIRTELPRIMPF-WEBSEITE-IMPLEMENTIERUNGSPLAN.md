@@ -5707,6 +5707,32 @@ Betreibergrenzen bleiben bestehen.
 Der HTTPS-Aktivierungsversuch ist belastbar fehlgeschlagen dokumentiert;
 die bestehende Cloudflare-HTTPS-Auslieferung bleibt unverändert aktiv.
 
+### WEB-P11-04-DNS-Proxy-Restore-und-finaler-HTTPS-Recheck am 6. August 2026, 08:41 CEST
+
+- Der DNS-only-Versuch wurde nach dem eindeutigen TLS-Fehler des kanonischen
+  Hubnamens (`curl` Fehler 60, kein passender Subject Name) kontrolliert
+  zurückgenommen. Der exakt verifizierte Record
+  `82588621913193e7a712952792f19248` steht wieder auf
+  `proxied=true`; der CNAME und alle übrigen Recordfelder blieben erhalten.
+- Öffentliche Resolver zeigen wieder Cloudflare-IP-Adressen. Der echte
+  HTTPS-Smoke ohne Zertifikatsumgehung liefert für
+  `wirtelprimpf.telacore.org` HTTP/2 `200`; alle elf geschützten Aliase
+  liefern weiterhin HTTP/2 `301`.
+- Der aktuelle GitHub-Pages-Health-Readback bestätigt
+  `dns_resolves=true`, `is_proxied=true`, `is_cloudflare_ip=true`,
+  `is_valid=true`, `is_served_by_pages=true`, `responds_to_https=true` und
+  `enforces_https=true`. `is_https_eligible=false` ist in diesem Zustand
+  erwartbar, weil Cloudflare den TLS-Edge bedient. Die Pages-API-Einstellung
+  `https_enforced=false` bleibt unverändert; die effektive öffentliche
+  HTTPS-/HSTS-Auslieferung ist durch Cloudflare gegeben.
+- Die elf ausdrücklich geschützten Namen sind weiterhin vollständig im DNS
+  vorhanden. Es wurde kein Wildcard- oder numerischer Host erzeugt und keine
+  SecurityRule verändert.
+
+Der DNS-/HTTPS-Endzustand ist damit wieder funktionsfähig und gegenüber dem
+kurzen DNS-only-Experiment korrigiert; der GitHub-Pages-Zertifikatsnachweis
+bleibt für die nicht-proxied Origin-Konfiguration separat offen.
+
 ### WEB-P11-04-Kanonischer-CNAME-DNS-only-und-Alias-Smoke am 6. August 2026, 08:37 CEST
 
 - Der kanonische Record `82588621913193e7a712952792f19248` wurde vor der
