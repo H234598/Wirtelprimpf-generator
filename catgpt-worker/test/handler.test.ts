@@ -102,6 +102,12 @@ test("strict client IP predicate accepts only canonical IPv4 and valid IPv6 lite
 
 test("preserves path and method contracts before the origin gate", async () => {
   const handler = createHandler();
+  const health = await handler(new Request("https://worker.test/"), makeEnv({ enabled: "false", openAiKey: "" }));
+  expect(health.status).toBe(200);
+  await expect(health.text()).resolves.toBe("CatGPT Light API is online. Use POST /v1/chat.\n");
+  expect(health.headers.get("Content-Type")).toContain("text/plain");
+  expect(health.headers.get("Cache-Control")).toBe("no-store");
+
   const notFound = await handler(new Request("https://worker.test/other", {
     method: "POST",
     headers: { Origin: allowedOrigin },

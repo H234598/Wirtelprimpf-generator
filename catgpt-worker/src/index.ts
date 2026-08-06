@@ -15,7 +15,7 @@ type HandlerDependencies = {
 
 class BodyTooLarge extends Error {}
 
-function response(status: number, origin: string | null, headers?: HeadersInit): Response {
+function response(status: number, origin: string | null, headers?: HeadersInit, body: BodyInit | null = null): Response {
   const responseHeaders = new Headers(headers);
   responseHeaders.set("Cache-Control", "no-store");
   responseHeaders.set("Vary", "Origin");
@@ -24,7 +24,7 @@ function response(status: number, origin: string | null, headers?: HeadersInit):
     responseHeaders.set("Access-Control-Allow-Methods", "POST, OPTIONS");
     responseHeaders.set("Access-Control-Allow-Headers", "Content-Type");
   }
-  return new Response(null, { status, headers: responseHeaders });
+  return new Response(body, { status, headers: responseHeaders });
 }
 
 async function readBoundedJson(request: Request): Promise<unknown> {
@@ -91,6 +91,14 @@ export function createHandler({
     const origin = request.headers.get("Origin");
     const extraOrigins = typeof env.EXTRA_ALLOWED_ORIGINS === "string" ? env.EXTRA_ALLOWED_ORIGINS : "";
     const corsOrigin = isAllowedOrigin(origin, extraOrigins) ? origin : null;
+    if (url.pathname === "/" && (request.method === "GET" || request.method === "HEAD")) {
+      return response(
+        200,
+        null,
+        { "Content-Type": "text/plain; charset=utf-8" },
+        "CatGPT Light API is online. Use POST /v1/chat.\n",
+      );
+    }
     if (url.pathname !== "/v1/chat") return response(404, corsOrigin);
     if (request.method !== "POST" && request.method !== "OPTIONS") {
       return response(405, corsOrigin, { Allow: "POST, OPTIONS" });
