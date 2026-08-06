@@ -169,6 +169,17 @@ class WebGovernanceValidationTests(unittest.TestCase):
             result = self.validate(root)
         self.assert_rejected(result, "Pages workflow README source")
 
+    def test_rejects_pages_workflow_without_mirrored_media_documents(self) -> None:
+        """Rejects a Pages build that cannot build the internal media-document mirrors."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            workflow = root / HUB_PAGES_WORKFLOW
+            content = workflow.read_text(encoding="utf-8")
+            content = content.replace("            docs/WEB-MEDIA.md\n", "", 1)
+            workflow.write_text(content, encoding="utf-8")
+            result = self.validate(root)
+        self.assert_rejected(result, "Pages workflow mirrored media documents")
+
     def test_rejects_duplicate_repository(self) -> None:
         """Rejects a second frozen record for one repository."""
         with self.copied_root() as temporary:

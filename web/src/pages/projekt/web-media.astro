@@ -1,0 +1,12 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { loadRepositoryDocument } from "../../lib/readme.ts";
+
+const document = loadRepositoryDocument("docs/WEB-MEDIA.md");
+---
+<BaseLayout title="WEB-MEDIA" section="projekt">
+  <header class="page-heading"><span class="eyebrow">Projektvertrag</span><h1>WEB-MEDIA</h1><p class="lede">Die aktuelle Medien-, Derivat- und Cache-Dokumentation des Generator-Repositories.</p></header>
+  <section class="section readme-document" aria-label="WEB-MEDIA-Dokumentation">
+    <div class="prose" set:html={document.html} />
+  </section>
+</BaseLayout>

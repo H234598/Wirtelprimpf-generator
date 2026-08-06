@@ -11,13 +11,31 @@ export interface ReadmeSection {
 }
 
 
+export interface RepositoryDocument {
+  path: string;
+  markdown: string;
+  html: string;
+}
+
+
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const HEADING = /^(#{1,6})[ \t]+(.+?)[ \t]*$/;
 const REPOSITORY_DOCUMENT = "https://github.com/H234598/Wirtelprimpf-generator/blob/main/";
+const REPOSITORY = "https://github.com/H234598/";
+const LOCAL_PATH = /\/(?:home|root)\/[A-Za-z0-9._/-]+/g;
+const INTERNAL_DOCUMENT_ROUTES: Record<string, string> = {
+  "docs/WEB-MEDIA.md": "/projekt/web-media/",
+  "docs/WEB-MEDIA-SECURITY.md": "/projekt/web-media-security/",
+};
+
+
+function repositoryRoot(): string {
+  return process.env.WIRTELPRIMPF_REPOSITORY_ROOT || resolve(process.cwd(), "..");
+}
 
 
 function readmePath(): string {
-  return process.env.WIRTELPRIMPF_README_PATH || resolve(process.cwd(), "../README.md");
+  return process.env.WIRTELPRIMPF_README_PATH || resolve(repositoryRoot(), "README.md");
 }
 
 
@@ -27,9 +45,29 @@ function renderSection(title: string, markdown: string): ReadmeSection {
 
 
 function publicMarkdown(markdown: string): string {
-  return markdown.replace(/\]\((?![a-z][a-z0-9+.-]*:|\/|#)([^)\s]+)\)/gi, (_match, target: string) => {
+  const withDocumentRoutes = markdown.replace(/\]\((?![a-z][a-z0-9+.-]*:|\/|#)([^)\s]+)\)/gi, (_match, target: string) => {
+    const [path, fragment] = target.split("#", 2);
+    const route = INTERNAL_DOCUMENT_ROUTES[path ?? ""];
+    if (route) return `](${route}${fragment ? `#${fragment}` : ""})`;
     return `](${REPOSITORY_DOCUMENT}${target})`;
   });
+  const withRepositoryLinks = withDocumentRoutes.replace(/`(Wirtelprimpf-\d{4})`/g, (_match, repository: string) => {
+    return `[${repository}](${REPOSITORY}${repository})`;
+  });
+  return withRepositoryLinks.replace(LOCAL_PATH, "<lokaler-medienbestand>");
+}
+
+
+function repositoryDocumentPath(relativePath: string): string {
+  if (!relativePath || relativePath.startsWith("/") || relativePath.includes("\\")) {
+    throw new Error(`repository document path must be relative: ${relativePath}`);
+  }
+  const root = resolve(repositoryRoot());
+  const candidate = resolve(root, relativePath);
+  if (candidate !== root && !candidate.startsWith(`${root}/`)) {
+    throw new Error(`repository document escapes repository root: ${relativePath}`);
+  }
+  return candidate;
 }
 
 
@@ -83,6 +121,12 @@ export function loadReadmeSections(titles: readonly string[]): ReadmeSection[] {
   const missing = titles.filter((title) => !byTitle.has(title));
   if (missing.length) throw new Error(`README sections missing: ${missing.join(", ")}`);
   return titles.map((title) => byTitle.get(title)!);
+}
+
+
+export function loadRepositoryDocument(relativePath: string): RepositoryDocument {
+  const markdown = readFileSync(repositoryDocumentPath(relativePath), "utf8");
+  return { path: relativePath, markdown, html: renderSafeMarkdown(publicMarkdown(markdown)) };
 }
 
 

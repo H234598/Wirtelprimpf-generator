@@ -448,6 +448,7 @@ def validate_pages_workflow(root: Path, path: Path) -> None:
     )
     require(build.count("python3 scripts/build_web_site.py") == 1, "Pages workflow build facade")
     require("README.md" in build and "WIRTELPRIMPF_README_PATH" in build, "Pages workflow README source")
+    require("docs/WEB-MEDIA.md" in build and "docs/WEB-MEDIA-SECURITY.md" in build, "Pages workflow mirrored media documents")
     require("npm --prefix web run build" not in build, "Pages workflow direct build")
     require("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" in build, "Pages workflow action pin")
     require("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020" in build, "Pages workflow action pin")

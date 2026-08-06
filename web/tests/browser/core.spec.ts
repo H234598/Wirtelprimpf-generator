@@ -34,10 +34,50 @@ async function runAxe(page: Page): Promise<void> {
 
 test("core routes expose static navigation and no foreign runtime requests", async ({ page }) => {
   await assertNoForeignRuntimeRequests(page);
-  for (const route of ["/bilder/", "/geschichten/", "/projekt/status/", "/projekt/lokaler-betrieb/", "/does-not-exist/"]) {
+  for (const route of ["/bilder/", "/geschichten/", "/projekt/status/", "/projekt/lokaler-betrieb/", "/projekt/web-media/", "/projekt/web-media-security/", "/does-not-exist/"]) {
     const response = await page.goto(route, { waitUntil: "domcontentloaded" });
     expect(response?.status()).toBe(route === "/does-not-exist/" ? 404 : 200);
     await expect(page.locator("main")).toBeVisible();
+  }
+});
+
+test("project page mirrors media documents and links archive repositories", async ({ page }) => {
+  await page.goto("/projekt/", { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".readme-brief a[href='/projekt/web-media/']")).toHaveText("WEB-MEDIA");
+  await expect(page.locator(".readme-brief a[href='/projekt/web-media-security/']")).toHaveText("WEB-MEDIA-SECURITY");
+  await expect(page.locator(".readme-brief a[href='https://github.com/H234598/Wirtelprimpf-0001']")).toBeVisible();
+  await expect(page.locator(".readme-brief a[href='https://github.com/H234598/Wirtelprimpf-0002']")).toBeVisible();
+  await expect(page.locator(".project-grid > .archive-card")).toHaveCount(7);
+  await expect(page.locator(".project-grid a[href='/projekt/lokaler-betrieb/']")).not.toHaveClass(/button/);
+
+  const cards = await page.locator(".project-grid > .archive-card").evaluateAll((elements) => elements.map((element) => {
+    const rect = element.getBoundingClientRect();
+    return { left: Math.round(rect.left), top: Math.round(rect.top) };
+  }));
+  expect(new Set(cards.slice(0, 3).map((card) => card.top)).size).toBe(1);
+  expect(new Set(cards.slice(0, 3).map((card) => card.left)).size).toBe(3);
+
+  await page.goto("/projekt/web-media/", { waitUntil: "domcontentloaded" });
+  await expect(page.locator("main")).toContainText("Derivatcache");
+  await page.goto("/projekt/web-media-security/", { waitUntil: "domcontentloaded" });
+  await expect(page.locator("main")).toContainText("Web-Mediensicherheit");
+});
+
+test("project tiles keep the requested columns and compact row spacing", async ({ page }) => {
+  for (const viewport of [{ width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/projekt/", { waitUntil: "domcontentloaded" });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const cards = await page.locator(".project-grid > .archive-card").evaluateAll((elements) => elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { left: Math.round(rect.left), top: Math.round(rect.top), bottom: Math.round(rect.bottom) };
+    }));
+    if (viewport.width >= 900) {
+      expect(new Set(cards.slice(0, 3).map((card) => card.top)).size).toBe(1);
+      expect(new Set(cards.slice(0, 3).map((card) => card.left)).size).toBe(3);
+      const firstRowBottom = Math.max(...cards.slice(0, 3).map((card) => card.bottom));
+      expect(cards[3]!.top - firstRowBottom).toBeLessThanOrEqual(16);
+    }
   }
 });
 

@@ -39,6 +39,8 @@ jobs:
           sparse-checkout: |
             data
             README.md
+            docs/WEB-MEDIA.md
+            docs/WEB-MEDIA-SECURITY.md
             config/web-budgets.json
             web
             scripts/build_web_site.py

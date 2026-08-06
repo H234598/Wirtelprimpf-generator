@@ -191,6 +191,7 @@
   .favorite-toggle { border: 1px solid var(--line); border-radius: .6rem; padding: .5rem .7rem; color: var(--ink); background: var(--surface); cursor: pointer; font-weight: 750; }
   .media-card > .favorite-toggle { margin-top: .55rem; }
   .archive-grid, .media-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+  .project-grid { row-gap: .9rem; }
   .gallery-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem .8rem; margin-top: 1rem; }
   .gallery-controls label { font-weight: 750; }
   .gallery-controls select { min-width: 8rem; border: 1px solid var(--line); border-radius: .6rem; padding: .55rem .7rem; color: var(--ink); background: var(--surface); }

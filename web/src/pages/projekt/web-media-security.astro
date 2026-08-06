@@ -1,0 +1,12 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { loadRepositoryDocument } from "../../lib/readme.ts";
+
+const document = loadRepositoryDocument("docs/WEB-MEDIA-SECURITY.md");
+---
+<BaseLayout title="WEB-MEDIA-SECURITY" section="projekt">
+  <header class="page-heading"><span class="eyebrow">Projektvertrag</span><h1>WEB-MEDIA-SECURITY</h1><p class="lede">Die aktuelle Sicherheits- und Validierungspolicy für öffentliche Medien.</p></header>
+  <section class="section readme-document" aria-label="WEB-MEDIA-SECURITY-Dokumentation">
+    <div class="prose" set:html={document.html} />
+  </section>
+</BaseLayout>
