@@ -5920,3 +5920,27 @@ bleiben unabhängige Restgates.
 
 Damit ist der exakte aktuelle Pages-Nachweis angestoßen; der Hosted-Runner,
 der eigentliche Pages-Deploy und der öffentliche Live-Smoke bleiben offen.
+
+### WEB-P10-04-Admin-Stale-CSRF-Token-Recovery am 6. August 2026, 10:41 CEST
+
+- Die Ursache für den sichtbaren Fehler `invalid CSRF token` war ein bereits
+  geöffnetes Adminfenster mit einem Token aus einem früheren Prozesslauf. Der
+  Admindienst erzeugt den Token bewusst pro Prozess; ein Neustart macht den
+  alten Token ungültig, ohne die Sicherheitsgrenze zu lockern.
+- `wirtelprimpf_platform/static/admin.mjs` erneuert nach einer exakt
+  erkannten 403-Antwort mit `invalid CSRF token` einmalig die HTML-Seite
+  same-origin mit `cache: no-store`, liest den neuen Servertoken und sendet
+  denselben unveränderten Request genau einmal erneut. Andere 403-/Fehlerfälle
+  werden nicht wiederholt; der Server bleibt fail-closed.
+- Die UI-Regressionstests bestehen mit `35/35`, die Python-Admin-Suite mit
+  `24/24`, und `make check` ist vollständig grün. Der Live-Smoke am laufenden
+  Dienst `127.0.0.1:8765` bestätigte `stale:403`, `fresh:200` und
+  `settings_unchanged=true`; der Admindienst blieb `active/running`.
+- Die Korrektur ist als Generatorcommit
+  `7796901` (`fix(admin): refresh stale csrf tokens`) nach `origin/main`
+  veröffentlicht. Es wurden keine Schlüssel, Modelleinstellungen oder
+  sonstigen Nutzwerte durch den Smoke verändert.
+
+Damit ist der stale-Token-Fehler technisch behoben und gegen den laufenden
+Admindienst verifiziert. Die übrigen Pages-/Betreiber-/Langzeit-Gates des
+Bauplans bleiben davon unabhängig offen.
