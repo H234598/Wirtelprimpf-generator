@@ -6040,3 +6040,16 @@ geprüft; die übrigen Pages-/Betreiber-/Langzeit-Gates bleiben unabhängig offe
 
 Damit funktionieren die ausdrücklich geschützten CatGPT-Hosts jetzt auch am
 Root sichtbar, ohne den bestehenden API-Vertrag zu erweitern.
+
+### WEB-P11-04-CatGPT-L-Realprovider-Smoke am 6. August 2026, 11:23 CEST
+
+- Ein einzelner echter, kurzer Light-Provider-Aufruf über
+  `https://catgpt.wirtelprimpf.telacore.org/v1/chat` lief mit dem erlaubten
+  Origin `https://wirtelprimpf.telacore.org` über HTTP/2 `200`.
+- Die Antwort erfüllte den Worker-Vertrag als JSON mit einem zweistelligen
+  String `OK`. Der Lauf nutzte den konfigurierten Flex-Pfad und veränderte
+  keine Repository-, Archiv-, DNS- oder Pages-Daten; es wurde genau eine
+  externe Modellanfrage ausgeführt.
+
+Damit ist der produktive CatGPT-L-Transport nach dem Worker-Deploy nicht nur
+über Preflight und Negativpfad, sondern auch über eine echte Antwort belegt.
