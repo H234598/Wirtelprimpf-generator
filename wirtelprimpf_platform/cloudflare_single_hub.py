@@ -29,13 +29,13 @@ class SingleHubRetirementPlan:
     zone: str
     ruleset_id: str
     ruleset_version: int
-    wildcard_record_id: str
+    wildcard_record_id: str | None
     numeric_record_ids: tuple[str, ...]
     rules: tuple[dict[str, Any], ...]
 
     @property
     def deleted_record_ids(self) -> tuple[str, ...]:
-        return (self.wildcard_record_id, *self.numeric_record_ids)
+        return tuple(record_id for record_id in (self.wildcard_record_id, *self.numeric_record_ids) if record_id)
 
 
 def retire_numeric_security_exceptions(expression: str) -> str:
@@ -71,15 +71,16 @@ def _rule_update_shape(rule: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_single_hub_retirement_plan(snapshot: Any) -> SingleHubRetirementPlan:
-    """Plan deletion of wildcard/numeric DNS and removal of the numeric rule."""
+    """Plan deletion of wildcard/numeric DNS and removal of the numeric rule.
+
+    A fully retired snapshot is a validated no-op. Any partial retirement still
+    fails closed so a caller cannot silently leave the DNS and ruleset split.
+    """
     current = validate_snapshot(snapshot)
     records = _record_id_map(current["dns_records"])
     wildcard = [
         record for record in records.values() if str(record.get("name", "")).rstrip(".").lower() == "*.telacore.org"
     ]
-    if len(wildcard) != 1:
-        raise CloudflareSingleHubError("expected exactly one wildcard DNS record (*.telacore.org)")
-
     numeric_records = sorted(
         record["id"]
         for record in records.values()
@@ -97,16 +98,41 @@ def build_single_hub_retirement_plan(snapshot: Any) -> SingleHubRetirementPlan:
         for rule in rules
         if rule.get("ref") == NUMERIC_RULE_REF or rule.get("description") == NUMERIC_RULE_DESCRIPTION
     ]
+    security_rules = [rule for rule in rules if rule.get("description") == SECURITY_RULE_DESCRIPTION]
+    if len(security_rules) != 1:
+        raise CloudflareSingleHubError("expected exactly one Telacore_SecurityRule1")
+    security_rule = security_rules[0]
+
+    if not wildcard and not numeric_records and not numeric_rules:
+        if _NUMERIC_HOST.search(str(security_rule.get("expression", ""))):
+            raise CloudflareSingleHubError("retirement state is incomplete: numeric host remains in SecurityRule")
+        updated_rules = []
+        for rule in rules:
+            shaped = _rule_update_shape(rule)
+            if rule is security_rule:
+                shaped["expression"] = retire_numeric_security_exceptions(str(rule.get("expression", "")))
+            updated_rules.append(shaped)
+        if any(rule.get("ref") == NUMERIC_RULE_REF for rule in updated_rules):
+            raise CloudflareSingleHubError("numeric rule survived retirement")
+        if any(_NUMERIC_HOST.search(str(rule.get("expression", ""))) for rule in updated_rules):
+            raise CloudflareSingleHubError("numeric host survived ruleset retirement")
+        return SingleHubRetirementPlan(
+            zone=current["zone"],
+            ruleset_id=current["ruleset"]["id"],
+            ruleset_version=current["ruleset"]["version"],
+            wildcard_record_id=None,
+            numeric_record_ids=(),
+            rules=tuple(updated_rules),
+        )
+
+    if len(wildcard) != 1:
+        raise CloudflareSingleHubError("expected exactly one wildcard DNS record (*.telacore.org)")
     if len(numeric_rules) != 1:
         raise CloudflareSingleHubError("expected exactly one active numeric redirect rule")
     numeric_rule = numeric_rules[0]
     if numeric_rule.get("action") != "redirect":
         raise CloudflareSingleHubError("numeric rule is not a redirect rule")
 
-    security_rules = [rule for rule in rules if rule.get("description") == SECURITY_RULE_DESCRIPTION]
-    if len(security_rules) != 1:
-        raise CloudflareSingleHubError("expected exactly one Telacore_SecurityRule1")
-    security_rule = security_rules[0]
     updated_rules: list[dict[str, Any]] = []
     for rule in rules:
         if rule is numeric_rule:

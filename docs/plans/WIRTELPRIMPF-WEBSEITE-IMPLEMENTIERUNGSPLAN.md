@@ -5608,3 +5608,31 @@ und zeitgebundenen Gates bleiben offen.
 
 Damit ist der technische ARIA-Namensvertrag geschlossen; die manuelle
 Screenreader-/Betreiberabnahme und die echte 90-Tage-Historie bleiben offen.
+
+### WEB-P11-04-Cloudflare-Read-only-Abgleich-und-idempotenter-Rueckbau am 6. August 2026, 08:13 CEST
+
+- Der direkte Cloudflare-Abgleich wurde ausschließlich lesend gegen die Zone
+  `telacore.org` ausgeführt. Das aktive Dynamic-Redirect-Ruleset steht auf
+  Version `21`; die Zone liefert `62` DNS-Einträge.
+- Der gewünschte Single-Hub-Rückbau ist im Live-Stand bereits vollständig
+  vorhanden: Es gibt keinen `*.telacore.org`-Eintrag, keine numerischen
+  `wirtelprimpf-0001`-bis-`9999`-DNS-Einträge und keine numerische
+  Redirectregel. Der kanonische Hub und CatGPT bleiben erhalten.
+- Die elf ausdrücklich geschützten Namen `wirtelprimpf`, `wirtel`, `catgpt`,
+  `katzen`, `katzenbilder`, `kratzkratz`, `wirtel-primpf`,
+  `wirtelprimpf-chronik`, `wirtelprimpf-katzenblog`, `primpf` und `unfug`
+  sind im Live-DNS-Abgleich vorhanden. Die SecurityRule mit der
+  Cloudflare-ID `acbaba3eee5341d39386d0c4ff52dada` enthält keinen numerischen
+  Host mehr.
+- Der bisherige Planer hat diesen bereits zurückgebauten Zustand vor der
+  Codeanpassung korrekt fail-closed als fehlenden Wildcard-Eintrag abgelehnt.
+  `build_single_hub_retirement_plan` behandelt ihn nun als validierten No-op
+  mit leerer Löschliste. Unvollständige Zwischenstände, etwa nur teilweise
+  entfernte DNS-Einträge oder Regeln, bleiben fail-closed.
+- Es wurde kein Cloudflare-Schreibzugriff ausgeführt. Dieser Nachweis belegt
+  den technischen Live-Stand und die sichere Wiederholbarkeit des Planers;
+  die manuelle Betreiberabnahme, die echte 90-Tage-Historie und die formale
+  unabhängige Rechteprüfung bleiben offen.
+
+Damit ist der technische Cloudflare-Read-only-/Idempotenz-Teil geschlossen;
+die unabhängigen und zeitgebundenen Gates bleiben offen.

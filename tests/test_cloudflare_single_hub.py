@@ -43,6 +43,10 @@ def live_like_snapshot() -> dict:
     }
 
 
+def _numeric_host_in_rule(rule: dict) -> bool:
+    return "wirtelprimpf-0001.telacore.org" in str(rule.get("expression", ""))
+
+
 class CloudflareSingleHubTests(unittest.TestCase):
     def test_plan_removes_only_wildcard_numeric_records_and_rule(self) -> None:
         snapshot = live_like_snapshot()
@@ -68,6 +72,42 @@ class CloudflareSingleHubTests(unittest.TestCase):
         self.assertNotIn("wirtelprimpf-0001", updated)
         self.assertIn("catgpt.wirtelprimpf.telacore.org", updated)
         self.assertIn("http.cookie eq \"1337\"", updated)
+
+    def test_plan_accepts_fully_retired_state_as_validated_noop(self) -> None:
+        retired = live_like_snapshot()
+        retired["dns_records"] = [record for record in retired["dns_records"] if record["id"] not in {"wildcard", "archive-0001"}]
+        retired["quota"]["used"] = 2
+        retired["ruleset"]["rules"] = [
+            rule for rule in retired["ruleset"]["rules"] if rule.get("ref") != NUMERIC_RULE_REF
+        ]
+        security = next(rule for rule in retired["ruleset"]["rules"] if rule.get("description") == "Telacore_SecurityRule1")
+        security["expression"] = retire_numeric_security_exceptions(security["expression"])
+
+        plan = build_single_hub_retirement_plan(retired)
+
+        self.assertIsNone(plan.wildcard_record_id)
+        self.assertEqual(plan.numeric_record_ids, ())
+        self.assertEqual(plan.deleted_record_ids, ())
+        self.assertEqual(len(plan.rules), 4)
+        self.assertFalse(any(_numeric_host_in_rule(rule) for rule in plan.rules))
+
+    def test_plan_rejects_partial_retirement(self) -> None:
+        partial = live_like_snapshot()
+        partial["dns_records"] = [record for record in partial["dns_records"] if record["id"] != "wildcard"]
+        partial["quota"]["used"] = 3
+        with self.assertRaisesRegex(CloudflareSingleHubError, "wildcard"):
+            build_single_hub_retirement_plan(partial)
+
+        security_partial = live_like_snapshot()
+        security_partial["dns_records"] = [
+            record for record in security_partial["dns_records"] if record["id"] not in {"wildcard", "archive-0001"}
+        ]
+        security_partial["quota"]["used"] = 2
+        security_partial["ruleset"]["rules"] = [
+            rule for rule in security_partial["ruleset"]["rules"] if rule.get("ref") != NUMERIC_RULE_REF
+        ]
+        with self.assertRaisesRegex(CloudflareSingleHubError, "numeric host remains"):
+            build_single_hub_retirement_plan(security_partial)
 
     def test_plan_rejects_missing_wildcard_or_numeric_rule(self) -> None:
         no_wildcard = live_like_snapshot()
