@@ -34,7 +34,7 @@ async function runAxe(page: Page): Promise<void> {
 
 test("core routes expose static navigation and no foreign runtime requests", async ({ page }) => {
   await assertNoForeignRuntimeRequests(page);
-  for (const route of ["/bilder/", "/geschichten/", "/projekt/status/", "/does-not-exist/"]) {
+  for (const route of ["/bilder/", "/geschichten/", "/projekt/status/", "/projekt/lokaler-betrieb/", "/does-not-exist/"]) {
     const response = await page.goto(route, { waitUntil: "domcontentloaded" });
     expect(response?.status()).toBe(route === "/does-not-exist/" ? 404 : 200);
     await expect(page.locator("main")).toBeVisible();
@@ -59,7 +59,7 @@ test("gallery pagination preserves page and selected page size", async ({ page }
 });
 
 test("maintenance pages expose only redacted public status", async ({ page }) => {
-  for (const route of ["/projekt/", "/projekt/status/"]) {
+  for (const route of ["/projekt/", "/projekt/status/", "/projekt/lokaler-betrieb/"]) {
     const response = await page.goto(route, { waitUntil: "domcontentloaded" });
     expect(response?.status()).toBe(200);
     await expect(page.locator("main")).toBeVisible();

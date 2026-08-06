@@ -38,6 +38,7 @@ jobs:
         with:
           sparse-checkout: |
             data
+            README.md
             config/web-budgets.json
             web
             scripts/build_web_site.py
@@ -97,6 +98,7 @@ jobs:
           WIRTELPRIMPF_CURRENT_VOLUME: ${{ steps.source.outputs.current_volume }}
           WIRTELPRIMPF_MEDIA_MANIFEST: ${{ steps.source.outputs.media_manifest }}
           WIRTELPRIMPF_MEDIA_REPOSITORY: ${{ steps.source.outputs.repository }}
+          WIRTELPRIMPF_README_PATH: ${{ github.workspace }}/README.md
           WIRTELPRIMPF_SOURCE_REVISION: ${{ steps.source.outputs.revision }}
         run: |
           set -euo pipefail

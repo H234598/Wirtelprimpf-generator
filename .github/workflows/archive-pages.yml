@@ -56,6 +56,7 @@ jobs:
           ref: ${{ inputs.factory_ref }}
           path: factory
           sparse-checkout: |
+            README.md
             config/web-budgets.json
             web
             scripts/build_web_site.py
@@ -83,6 +84,7 @@ jobs:
         env:
           PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
           WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/archive
+          WIRTELPRIMPF_README_PATH: ${{ github.workspace }}/factory/README.md
           WIRTELPRIMPF_SITE_PROFILE: archive
           WIRTELPRIMPF_SITE_URL: https://${{ inputs.custom_domain }}
         run: |

@@ -447,6 +447,7 @@ def validate_pages_workflow(root: Path, path: Path) -> None:
         "Pages workflow build permissions",
     )
     require(build.count("python3 scripts/build_web_site.py") == 1, "Pages workflow build facade")
+    require("README.md" in build and "WIRTELPRIMPF_README_PATH" in build, "Pages workflow README source")
     require("npm --prefix web run build" not in build, "Pages workflow direct build")
     require("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" in build, "Pages workflow action pin")
     require("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020" in build, "Pages workflow action pin")
@@ -567,7 +568,9 @@ def render_provenance(revisions: dict) -> str:
         "- `not-used`: MkDocs-/Material-Theme aus `H234598/Cheatsheets` wird nicht übernommen.",
         "",
         "Alle Referenzen sind eingefrorene Commit-SHAs, keine beweglichen Branches.",
-        "Lizenzfreigaben werden hier nicht behauptet.",
+        "Alle im Projekt verwendeten Quelltexte, Texte, Bilder und sonstigen Assets wurden von uns selbst erstellt.",
+        "Die erforderlichen Nutzungs- und Lizenzrechte liegen bei uns; fremde Inhalte werden nicht als eigene",
+        "Projektinhalte ausgegeben.",
         "",
     ])
     return "\n".join(lines)

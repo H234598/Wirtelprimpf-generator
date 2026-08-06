@@ -126,6 +126,18 @@
   .section-heading p { color: var(--muted); }
   .page-heading { padding: clamp(4rem, 8vw, 7rem) 0 3rem; display: grid; gap: 1rem; }
   .page-heading h1 { font-size: 4rem; }
+  .readme-brief { display: grid; gap: 1.4rem; max-width: 78ch; margin-top: .5rem; }
+  .readme-brief section { min-width: 0; }
+  .readme-brief section + section { padding-top: 1.2rem; border-top: 1px solid var(--line); }
+  .readme-brief h2 { margin-bottom: .45rem; font-size: 1.55rem; }
+  .readme-brief .prose { font-size: 1rem; line-height: 1.65; }
+  .readme-card { min-height: 0; }
+  .readme-card .prose { font-size: 1rem; line-height: 1.55; }
+  .readme-note { color: var(--muted); font-size: .9rem; }
+  .readme-document { display: grid; gap: 0; }
+  .readme-section { min-width: 0; padding: 2.5rem 0; border-top: 1px solid var(--line); }
+  .readme-section:first-child { padding-top: 0; border-top: 0; }
+  .readme-section h2 { margin-bottom: 1rem; }
   .story-stream { display: grid; gap: 1.25rem; counter-reset: parts; }
   .story-overview, .reader-section { display: grid; gap: 2rem; }
   .story-overview > *, .reader-section > *, .story-toc, .story-toc ol, .story-toc li, .story-toc li a, .story-stream, .story-part, .reader { min-width: 0; }
@@ -183,6 +195,7 @@
   .gallery-controls label { font-weight: 750; }
   .gallery-controls select { min-width: 8rem; border: 1px solid var(--line); border-radius: .6rem; padding: .55rem .7rem; color: var(--ink); background: var(--surface); }
   .archive-card { min-height: 230px; padding: 1.4rem; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: .8rem; }
+  .archive-card h2 { font-size: 2.1rem; }
   .archive-card.active { border-color: var(--mint); }
   .archive-card .card-actions { margin-top: auto; }
   .media-card { min-width: 0; }
@@ -238,6 +251,7 @@
   .status-facts div { min-width: 0; padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
   .status-facts dt { color: var(--muted); font-size: .8rem; }
   .status-facts dd { margin: .35rem 0 0; overflow-wrap: anywhere; }
+  .status-facts a { overflow-wrap: anywhere; }
 }
 
 @layer utilities {

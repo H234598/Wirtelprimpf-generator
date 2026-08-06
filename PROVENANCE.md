@@ -16,4 +16,6 @@ M00-Governance übernimmt keine Implementierungscodes oder Assets Dritter.
 - `not-used`: MkDocs-/Material-Theme aus `H234598/Cheatsheets` wird nicht übernommen.
 
 Alle Referenzen sind eingefrorene Commit-SHAs, keine beweglichen Branches.
-Lizenzfreigaben werden hier nicht behauptet.
+Alle im Projekt verwendeten Quelltexte, Texte, Bilder und sonstigen Assets wurden von uns selbst erstellt.
+Die erforderlichen Nutzungs- und Lizenzrechte liegen bei uns; fremde Inhalte werden nicht als eigene
+Projektinhalte ausgegeben.

@@ -159,6 +159,16 @@ class WebGovernanceValidationTests(unittest.TestCase):
         result = self.validate(ROOT)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_rejects_pages_workflow_without_dynamic_readme_source(self) -> None:
+        """Rejects a Pages build that cannot mirror the repository README."""
+        with self.copied_root() as temporary:
+            root = Path(temporary)
+            workflow = root / HUB_PAGES_WORKFLOW
+            content = workflow.read_text(encoding="utf-8")
+            workflow.write_text(content.replace("          WIRTELPRIMPF_README_PATH: ${{ github.workspace }}/README.md\n", "", 1), encoding="utf-8")
+            result = self.validate(root)
+        self.assert_rejected(result, "Pages workflow README source")
+
     def test_rejects_duplicate_repository(self) -> None:
         """Rejects a second frozen record for one repository."""
         with self.copied_root() as temporary:
@@ -519,7 +529,10 @@ class WebGovernanceValidationTests(unittest.TestCase):
             ("H234598/Cheatsheets |", "H234598/extra |"),
             ("Direkte Watchdog-/RKI-Logik aus `H234598/desinfect` wird nicht übernommen.", ""),
             ("MkDocs-/Material-Theme aus `H234598/Cheatsheets` wird nicht übernommen.", ""),
-            ("Lizenzfreigaben werden hier nicht behauptet.", "Lizenzfreigaben liegen vor."),
+            (
+                "Alle im Projekt verwendeten Quelltexte, Texte, Bilder und sonstigen Assets wurden von uns selbst erstellt.",
+                "Die Projektinhalte wurden nicht selbst erstellt.",
+            ),
         )
         for original, mutated in mutations:
             with self.subTest(original=original), self.copied_root() as temporary:

@@ -145,6 +145,8 @@ export interface SiteData {
   profile: SiteProfile;
   archiveIndex: number;
   repository: string;
+  activeArchiveRepository: string;
+  activeArchiveGithubUrl: string;
   domain: string;
   title: string;
   intro: string;
@@ -395,6 +397,9 @@ export function loadSiteData(): SiteData {
     : (process.env.WIRTELPRIMPF_MEDIA_REPOSITORY
       || catalog.find((entry) => entry.active)?.repository
       || "Wirtelprimpf-0001");
+  const activeArchive = catalog.find((entry) => entry.active);
+  const activeArchiveRepository = activeArchive?.repository ?? mediaRepository;
+  const activeArchiveGithubUrl = activeArchive?.github_url ?? `https://github.com/${owner}/${activeArchiveRepository}`;
   const domain = profile === "hub" ? "wirtelprimpf.telacore.org" : `wirtelprimpf-${String(archiveIndex).padStart(4, "0")}.telacore.org`;
   const stories = loadStories(dataRoot, profile);
   const media = loadMedia(dataRoot, owner, mediaRepository, stories);
@@ -403,6 +408,8 @@ export function loadSiteData(): SiteData {
     profile,
     archiveIndex,
     repository,
+    activeArchiveRepository,
+    activeArchiveGithubUrl,
     domain,
     title: process.env.WIRTELPRIMPF_SITE_TITLE || (profile === "hub" ? "Wirtelprimpfs Geschichtenatelier" : `Wirtelprimpf · Archiv ${String(archiveIndex).padStart(4, "0")}`),
     intro: process.env.WIRTELPRIMPF_SITE_INTRO || "Zwei Katzen, eine Möhre, eine Maus und ein fortlaufendes Abenteuer.",
