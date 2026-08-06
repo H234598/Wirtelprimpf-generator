@@ -6068,3 +6068,19 @@ Damit ist der produktive CatGPT-L-Transport nach dem Worker-Deploy nicht nur
 
 Damit ist der aktuelle Dependabot-/npm-Audit-Stand nachgewiesen; eine
 Code-Scanning-Abnahme bleibt mangels eingerichtetem Dienst separat offen.
+
+### WEB-P11-04-Current-Single-Hub-DNS-Reconcile am 6. August 2026, 11:27 CEST
+
+- Der autoritative read-only Cloudflare-Readback für `telacore.org` meldete
+  `62` DNS-Records. Es existiert kein Wildcard-Record und kein numerischer
+  `wirtelprimpf-0001`-bis-`wirtelprimpf-9999`-Record.
+- Alle elf ausdrücklich geschützten Namen sind als DNS-Records vorhanden:
+  `wirtelprimpf`, `wirtel`, `catgpt`, `katzen`, `katzenbilder`, `kratzkratz`,
+  `wirtel-primpf`, `wirtelprimpf-chronik`, `wirtelprimpf-katzenblog`,
+  `primpf` und `unfug` unter `.telacore.org`.
+- Der Readback war vollständig read-only; weder DNS, SecurityRule, Worker,
+  Pages noch Repositorydaten wurden verändert.
+
+Damit ist der DNS-Zustand der später beschlossenen Single-Hub-Architektur
+aktuell nachgewiesen; Pages-Zertifikat, Hosted-Runner und Betreiberabnahmen
+bleiben unabhängige externe Gates.
