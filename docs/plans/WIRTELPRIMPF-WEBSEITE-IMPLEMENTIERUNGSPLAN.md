@@ -5536,3 +5536,26 @@ die unabhängige formale Rechteprüfung.
 Damit ist der technische Mechanismus für die dauerhafte Wachstumsevidenz
 geschlossen. Offen bleiben die echte 90-Tage-Historie, die manuelle
 Screenreader-/Betreiberabnahme und die unabhängige formale Rechteprüfung.
+
+### WEB-P00-03-M00-Kanonisierung am 6. August 2026, 07:49 CEST
+
+- Die fortgeschriebene Bauplandatei wurde als kanonische Repo-Projektion in
+  `docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md` übernommen. Die
+  Vault- und Repo-Datei sind bytegleich und tragen den Digest
+  `e697ef88122c7c4ce4dc1a6ec608c1855757a6d0c58eb8242a70d5e977782287`.
+- `config/web-plan-status.json`, `config/reference-revisions.json`,
+  `config/web-requirements.json`, `config/architecture-decisions.json`, die
+  lesbaren Anforderungs-/ADR-Projektionen und der Planvalidator sind auf
+  diesen Digest synchronisiert. Die historische Factory-Pin-Evidenz bleibt
+  erhalten, wird nach der Single-Hub-Entscheidung aber nicht mehr als aktiver
+  Archiv-Pages-Pfad behandelt.
+- Der Governance-/Planvertrag besteht lokal mit `90/90` Tests; beide
+  Validatoren, `git diff --check` und `astro check` bestehen. Commit
+  `2257b503242b3349fda576de4db306e97d21fce5` ist nach `origin/main`
+  veröffentlicht. Der Remote-Check `31075225824` war bei diesem Nachtrag
+  noch in der Runner-Warteschlange und wird deshalb nicht als abgeschlossen
+  behauptet.
+
+Damit ist der technische M00-Kanonisierungsschritt abgeschlossen. Offen
+bleiben die echte 90-Tage-Historie, manuelle Screenreader-/Zoom-/Betreiber-
+abnahme, externe Rechte-/Reviewabnahme und der tatsächliche Remote-CI-Lauf.
