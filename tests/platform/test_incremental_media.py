@@ -93,6 +93,16 @@ class IncrementalMediaTests(unittest.TestCase):
         self.assertEqual(self.backend.upload_count, uploads)
         self.assertEqual(json.loads(self.manifest.read_text(encoding="utf-8"))["media_count"], 1)
 
+    def test_unknown_test_image_is_published_and_retained(self) -> None:
+        record = self.publisher().publish(
+            self.image,
+            source_path=f"Wirtelprimp/{self.image.name}",
+            kind="unknown",
+        )
+
+        self.assertEqual(record["kind"], "unknown")
+        self.assertEqual(json.loads(self.manifest.read_text(encoding="utf-8"))["media_count"], 1)
+
     def test_open_shard_rolls_over_before_asset_limit(self) -> None:
         first = self.publisher(max_records_per_shard=1).publish(
             self.image,

@@ -44,6 +44,11 @@ OPERANDI_CLASSIC: Final = "classic"
 OPERANDI_STORY: Final = "story"
 OPERANDI_BOTH: Final = "both"
 OPERANDI_VALUES: Final = frozenset({OPERANDI_CLASSIC, OPERANDI_STORY, OPERANDI_BOTH})
+MEDIA_KIND_UNKNOWN: Final = "unknown"
+TEST_IMAGE_PROMPT: Final = (
+    "A clearly marked test image for a cat story generator: two expressive cats in a warm, whimsical indoor "
+    "atelier beside a carrot and a tiny mouse, clean composition, soft daylight, no logos, no watermarks, no text."
+)
 PROMPT_CONFIG_MAIN_SECTION: Final = "hauptteil"
 PROMPT_CONFIG_FIXED_SECTION_WORDS: Final = ("fix", "zwingend", "bildregel")
 STORY_HISTORY_COUNT: Final = 10
@@ -2063,6 +2068,10 @@ def build_classic_plans(config_path: Path, now: datetime) -> list[GenerationPlan
     return [GenerationPlan(prompt=prompt, kind=OPERANDI_CLASSIC) for prompt in build_prompts(config_path, now)]
 
 
+def build_test_plans() -> list[GenerationPlan]:
+    return [GenerationPlan(prompt=TEST_IMAGE_PROMPT, kind=MEDIA_KIND_UNKNOWN)]
+
+
 def _extract_text_response(response: object) -> str:
     output_text = getattr(response, "output_text", None)
     if isinstance(output_text, str) and output_text.strip():
@@ -2357,6 +2366,11 @@ def parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Generate prompts and print them, but do not call OpenAI API or publish to git.",
+    )
+    parser.add_argument(
+        "--test-image",
+        action="store_true",
+        help="Generate and publish one retained test image for the MISC gallery filter.",
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable status output.")
     return parser.parse_args()
@@ -2741,7 +2755,7 @@ def main() -> None:
             _die("OPENAI_API_KEY environment variable is required")
 
         config = load_config()
-        if not config.prompt_config_path.exists():
+        if not args.test_image and not config.prompt_config_path.exists():
             if args.json:
                 emit_unexpected_failure(
                     f"Prompt config file not found: {config.prompt_config_path}",
@@ -2749,7 +2763,7 @@ def main() -> None:
                     runtime_mode,
                 )
             _die(f"Prompt config file not found: {config.prompt_config_path}")
-        if operandi_includes(config, OPERANDI_STORY) and not config.story_prompt_config_path.exists():
+        if not args.test_image and operandi_includes(config, OPERANDI_STORY) and not config.story_prompt_config_path.exists():
             if args.json:
                 emit_unexpected_failure(
                     f"Story prompt config file not found: {config.story_prompt_config_path}",
@@ -2759,7 +2773,7 @@ def main() -> None:
             _die(f"Story prompt config file not found: {config.story_prompt_config_path}")
 
         try:
-            plans = build_generation_plans(config, datetime.now(), None, dry_run=True)
+            plans = build_test_plans() if args.test_image else build_generation_plans(config, datetime.now(), None, dry_run=True)
         except Exception as exc:
             runtime_version = resolve_runtime_version(
                 patch_count=(
@@ -2967,7 +2981,7 @@ def main() -> None:
             return
 
         client = OpenAI()
-        if operandi_includes(config, OPERANDI_STORY):
+        if not args.test_image and operandi_includes(config, OPERANDI_STORY):
             plans = build_generation_plans(config, datetime.now(), client, dry_run=False)
             total_prompts = len(plans)
             summary.total = len(plans)
@@ -2977,7 +2991,11 @@ def main() -> None:
             timestamp = build_timestamp()
             per_kind_counts[plan.kind] = per_kind_counts.get(plan.kind, 0) + 1
             kind_index = per_kind_counts[plan.kind]
-            suffix = f"_{plan.kind}-{kind_index:02d}" if len(plans) > 1 else ""
+            suffix = (
+                f"_testbild-{kind_index:02d}"
+                if plan.kind == MEDIA_KIND_UNKNOWN
+                else f"_{plan.kind}-{kind_index:02d}" if len(plans) > 1 else ""
+            )
             stem = f"wirtelprimpf_{timestamp}{suffix}"
             local_png = config.local_outdir / f"{stem}.png"
             local_prompt = config.local_outdir / f"{stem}.txt"

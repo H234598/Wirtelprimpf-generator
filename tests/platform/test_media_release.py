@@ -103,6 +103,15 @@ class MediaReleaseTests(unittest.TestCase):
         self.assertEqual(record.kind, "story")
         self.assertEqual(record.story_part_path, f"{stem}.md")
 
+    def test_timestamped_test_image_is_unknown_media(self) -> None:
+        stem = "wirtelprimpf_2026-01-03_12-00-00-000003_testbild-01"
+        (self.source / f"{stem}.png").write_bytes(png_bytes(100, 50, (40, 60, 80)))
+
+        inventory = build_media_inventory(self.source, archive_index=1)
+        record = next(item for item in inventory.records if item.source_path == f"{stem}.png")
+
+        self.assertEqual(record.kind, "unknown")
+
     def test_release_plan_shards_below_asset_limit_and_uses_hash_bound_urls(self) -> None:
         inventory = build_media_inventory(self.source, archive_index=1)
         plan = build_release_plan(

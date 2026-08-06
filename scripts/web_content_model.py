@@ -14,6 +14,7 @@ FILENAME_TIMESTAMP = re.compile(r"(?<!\d)(\d{4}-\d{2}-\d{2})[_T -](\d{2})[-:](\d
 HEADING_TIMESTAMP = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2}):(\d{2})\s*$", re.MULTILINE)
 GIT_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 FULL_STORY = re.compile(r"^(?:full_story|wirtelprimpf_story_[ivxlcdm]+)\.md$", re.IGNORECASE)
+TEST_IMAGE = re.compile(r"(?:^|[/_.-])(?:test|testbild)(?:$|[/_.-])", re.IGNORECASE)
 
 
 class ContentModelError(RuntimeError):
@@ -38,7 +39,9 @@ def _heading_timestamps(path: Path) -> list[str]:
 
 
 def _kind_for(image: Path, story_path: Path | None) -> str:
-    lower = image.stem.lower()
+    lower = image.name.lower()
+    if TEST_IMAGE.search(lower):
+        return "unknown"
     if story_path is not None:
         return "story"
     if "geburtstag" in lower or "_classic-" in lower or _filename_timestamp(image):

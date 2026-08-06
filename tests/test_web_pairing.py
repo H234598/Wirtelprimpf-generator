@@ -44,6 +44,14 @@ class WebPairingTests(unittest.TestCase):
         self.assertEqual(by_path["wirtelprimpf_2026-01-01_01-02-03.png"]["timestamp_source"], "filename")
         self.assertEqual(by_path["without-time.png"]["timestamp_source"], "git")
 
+    def test_timestamped_test_image_is_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_image(root, "wirtelprimpf_2026-01-01_01-02-03_testbild-01.png")
+            report = build_content_model(root)
+
+        self.assertEqual(report["records"][0]["kind"], "unknown")
+
     def test_working_and_full_story_are_separate_and_orphans_are_classified(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

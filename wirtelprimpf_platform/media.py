@@ -37,6 +37,7 @@ DERIVATIVE_WIDTHS = (640, 1280, UPSCALED_4K_WIDTH)
 DEFAULT_ORIGINALS_PER_SHARD = (MAX_RELEASE_ASSETS - 2) // (1 + len(DERIVATIVE_WIDTHS))
 SUPPORTED_SUFFIXES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 TIMESTAMP_IMAGE_RE = re.compile(r"^wirtelprimpf_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(?:-\d{6})?", re.IGNORECASE)
+TEST_IMAGE_RE = re.compile(r"(?:^|[/_.-])(?:test|testbild)(?:$|[/_.-])", re.IGNORECASE)
 SAFE_ASSET_RE = re.compile(r"[^A-Za-z0-9._-]+")
 PUBLIC_DOWNLOAD_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0, 30.0)
 DEFAULT_PUBLIC_DOWNLOAD_TIMEOUT_SECONDS = 120.0
@@ -193,7 +194,9 @@ class PublishReport:
 
 
 def _kind_for(path: Path, *, story_path: Path | None) -> str:
-    lower = path.stem.lower()
+    lower = path.name.lower()
+    if TEST_IMAGE_RE.search(lower):
+        return "unknown"
     if story_path is not None:
         return "story"
     if "geburtstag" in lower or "_classic-" in lower or TIMESTAMP_IMAGE_RE.match(path.stem):

@@ -382,7 +382,7 @@ class IncrementalMediaPublisher:
         story_part_path: str | None = None,
     ) -> dict[str, Any]:
         """Publish one image and atomically append its verified manifest record."""
-        if kind not in {"story", "classic", "legacy"}:
+        if kind not in {"story", "classic", "legacy", "unknown"}:
             raise MediaError(f"invalid media kind: {kind!r}")
         source_path = _repository_path(source_path, label="source path") or ""
         prompt_path = _repository_path(prompt_path, label="prompt path")
