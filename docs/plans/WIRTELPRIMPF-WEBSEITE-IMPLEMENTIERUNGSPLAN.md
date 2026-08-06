@@ -5862,3 +5862,44 @@ Damit ist die Story-1-Kachel samt stabiler Route im produktiven Buildvertrag tec
 - Der Lauf war lokal und read-only gegenüber dem externen Archiv; es wurden weder Archivdateien, Releases, Manifeste noch die lokale Fallback-Story erweitert. Der öffentliche Rollout bleibt wegen des ausstehenden GitHub-Hosted-Runners und Pages-Deployments ein externes Restgate.
 
 Damit ist der zentrale Mehrarchiv-Story-/Buchkatalog mit optionalen EPUB-Links technisch implementiert; die externe Build-/Pages-Abnahme und die manuelle Betreiberabnahme bleiben offen.
+
+### M01-02-M01-05-Current-Hub-Realquellenlauf-und-Generator-Recovery am 6. August 2026, 10:18 CEST
+
+- Der aktuelle Generatorstand `4468dc98e740f5e27c08698a94861499fbc58a70` und der
+  aktuelle Archivstand `H234598/Wirtelprimpf-0001@6cb7714255dece467802b987952835f11e1f3dab`
+  wurden read-only gegen den jeweiligen Remote-`main` abgeglichen. Der Archiv-
+  Checkout ist sauber; lokaler HEAD und Remote-HEAD sind identisch.
+- Der Hub-Factorylauf verwendete die reale Archivquelle mit Story I und II,
+  `WIRTELPRIMPF_CURRENT_VOLUME=2`, dem Archiv-`media-manifest.json` mit `805`
+  Medien und dem aktuellen Generator-HEAD. Der fail-closed Build-/Artifact-/
+  Budgetlauf bestand mit `1.396` Dateien, `1.375` HTML-Dateien, `164.909`
+  internen Links, `42.031.997` Bytes und Treehash
+  `626c90ebcef8eb062c82bcdf1800820c267893f7e5789398fc3759cba69f52a6`.
+- Die Budgets meldeten `errors=[]` und keine externen Runtime-Requests. Der
+  Galerieindex blieb bei `52.954` gzip unter dem Limit `153.600`, initiales
+  JavaScript bei `5.664` gzip unter `35.840`, CSS bei `5.088` gzip unter
+  `40.960`, drei Bilder wurden eager geladen, Originalquellen nicht initial
+  geladen und alle `805` Medienquellen blieben releasegebunden.
+- Der erzeugte Statusdatensatz verknüpft das neueste Bild
+  `archive-0001-6ae644097139fdec-7276ab2c` mit
+  `Wirtelprimpf/wirtelprimpf_2026-08-06_10-12-31-772020.png`; der neueste
+  Story-Stand ist Story II, Kapitel-ID `band-0002-teil-01600668b38f`, mit
+  `519` Kapiteln über zwei Storys. Der aktuelle Releaseeintrag enthält neben
+  dem Original auch `w640`, `w1280` und `w3840` (`3840x2160`).
+- Der lokale Generator-One-shot lief erfolgreich (`ExecMainStatus=0`,
+  `Result=success`, `NRestarts=0`); der Timer ist aktiv und besitzt eine
+  nächste monotone Ausführungsfrist. Die zuvor blockierende lokale
+  Archiv-Fast-forward-Situation wurde durch einen nicht-destruktiven Stash
+  und anschließenden `git pull --ff-only` bereinigt. Die Admin-API akzeptiert
+  den historischen `CatGPT_Key`-Alias wieder, und der Timerstatus wird auch
+  aus `NextElapseUSecMonotonic` angezeigt.
+- Die lokale Vollprüfung `make check` sowie die fokussierte Admin-/Status-
+  Suite mit `66/66` Tests waren grün. Der Hosted-Check `31084372365` blieb
+  bei der letzten Beobachtung `queued`, der Hub-Pages-Lauf `31084100215`
+  `pending`; beide Zustände werden nicht als externer Erfolgsnachweis
+  ausgegeben.
+
+Damit ist der aktuelle lokale M01-Hub-/Archiv-Realquellenlauf einschliesslich
+der Generator-Recovery technisch belegt. Der externe Runner-/Pages-Nachweis,
+die manuelle Betreiber-/Accessibility-Abnahme und die echte 90-Tage-Historie
+bleiben unabhängige Restgates.

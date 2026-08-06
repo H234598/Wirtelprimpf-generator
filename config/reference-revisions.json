@@ -64,7 +64,7 @@
     "P11",
     "P12"
   ],
-  "plan_sha256": "198ba6ce65a700c61377c60c0cf2087f88f741de2241a4bb3da0fd8c68296f90",
+  "plan_sha256": "065c3ea90e12e0e5bfb71ec01ee3aaa29e173df71b1aaf4e42588c8360c78992",
   "repositories": [
     {
       "branch": "main",
@@ -73,7 +73,7 @@
       "frozen_sha": "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f",
       "id": "H234598/Wirtelprimpf-generator",
       "observed": {
-        "sha": "01971ea3eed05d00a1c50a31834496f8dfab65c4",
+        "sha": "4468dc98e740f5e27c08698a94861499fbc58a70",
         "source": "local-git",
         "status": "checked"
       },
@@ -85,7 +85,7 @@
       "drift_classification": "drift",
       "frozen_sha": "79274c1fef77306eb9ee0e9bd2682f4b28b74849",
       "id": "H234598/Wirtelprimpf-0001",
-      "observed": {"sha": "4692189ecf69a70f5526587649a2c426c0949126", "source": "github-api", "status": "checked"},
+      "observed": {"sha": "6cb7714255dece467802b987952835f11e1f3dab", "source": "github-api", "status": "checked"},
       "role": "Story-/Medienmanifest, Archivvertrag, dünner Pages-Aufrufer"
     },
     {

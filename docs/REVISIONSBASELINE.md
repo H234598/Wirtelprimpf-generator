@@ -6,8 +6,8 @@ nach dokumentierter Prüfung aktualisiert.
 
 | Repository | Rolle | Freeze-HEAD | Beobachtung |
 | --- | --- | --- | --- |
-| `H234598/Wirtelprimpf-generator` | Generator, Plattform, Applet, Admin, Seitenfabrik, Hub | `274b25c9e1f9ea97d3b060997ed5c425d2b30e9f` | `01971ea3eed05d00a1c50a31834496f8dfab65c4`, lokal via `local-git`, drift |
-| `H234598/Wirtelprimpf-0001` | Story-/Medienmanifest, Archivvertrag, dünner Pages-Aufrufer | `79274c1fef77306eb9ee0e9bd2682f4b28b74849` | `4692189ecf69a70f5526587649a2c426c0949126`, lokal via `github-api`, drift |
+| `H234598/Wirtelprimpf-generator` | Generator, Plattform, Applet, Admin, Seitenfabrik, Hub | `274b25c9e1f9ea97d3b060997ed5c425d2b30e9f` | `4468dc98e740f5e27c08698a94861499fbc58a70`, lokal via `local-git`, drift |
+| `H234598/Wirtelprimpf-0001` | Story-/Medienmanifest, Archivvertrag, dünner Pages-Aufrufer | `79274c1fef77306eb9ee0e9bd2682f4b28b74849` | `6cb7714255dece467802b987952835f11e1f3dab`, lokal via `github-api`, drift |
 | `H234598/desinfect` | Governance-/Storage-/Statusreferenz | `3bed7ac358b861490727adce36a418db133f8daf` | not-checked |
 | `H234598/ADHS-Lernpfad` | Browser-/Recovery-/Reviewreferenz | `ee91741ec71a1232a4c3b90f42b805591a0d9359` | not-checked |
 | `H234598/Cheatsheets` | Pages-/Artefakt-/IO-Referenz | `71bcad7a8ab183144e8ff007b85aea8bb6cff3b9` | not-checked |
