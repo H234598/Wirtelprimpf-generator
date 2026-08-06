@@ -55,7 +55,12 @@ class MediaCacheTests(unittest.TestCase):
 
     def test_transform_config_change_gets_a_new_cache_entry(self) -> None:
         cache_root = self.root / "cache"
-        first = MediaDerivativeCache(cache_root, tool_version="pillow-test", writable=True)
+        first = MediaDerivativeCache(
+            cache_root,
+            tool_version="pillow-test",
+            transform_config_version="media-transform-v1",
+            writable=True,
+        )
         first.materialize(
             original_sha256="b" * 64,
             target_width=640,
