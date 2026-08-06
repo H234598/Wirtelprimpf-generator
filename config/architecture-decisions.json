@@ -18,6 +18,6 @@
     {"decision": "Repin nur nach vollständigem Profil-/Live-Nachweis", "id": "ADR-WEB-015", "reevaluation_trigger": "gilt für jedes Archiv dauerhaft", "status": "**empfohlen M01**"}
   ],
   "historical_core_ids": ["ADR-WEB-001", "ADR-WEB-002", "ADR-WEB-003", "ADR-WEB-004", "ADR-WEB-005", "ADR-WEB-006", "ADR-WEB-007", "ADR-WEB-008", "ADR-WEB-009", "ADR-WEB-010", "ADR-WEB-011", "ADR-WEB-012", "ADR-WEB-013"],
-    "plan_sha256": "0990f513112825fc511b0a8dce99affda1762b7bda48b3cd5042ce8893867132",
+    "plan_sha256": "198ba6ce65a700c61377c60c0cf2087f88f741de2241a4bb3da0fd8c68296f90",
   "schema_version": 1
 }

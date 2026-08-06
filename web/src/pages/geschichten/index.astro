@@ -1,5 +1,6 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
+import EpubDownload from "../../components/EpubDownload.astro";
 import { loadSiteData } from "../../lib/data.ts";
 import { groupStoriesByBook } from "../../lib/content.ts";
 const data = loadSiteData();
@@ -7,5 +8,5 @@ const books = groupStoriesByBook(data.stories);
 ---
 <BaseLayout title="Geschichten" description="Alle veröffentlichten Wirtelprimpf-Bücher, Storys und ihre Teile." section="geschichten">
   <header class="page-heading"><span class="eyebrow">Bücherregal</span><h1>Geschichten zum Wiederfinden</h1><p class="lede">Je zehn vollständig abgeschlossene Storys bilden ein Buch. Auf der Zentrale steht der neueste Teil oben; jede Story bleibt zusätzlich chronologisch lesbar.</p></header>
-  {books.length ? books.map((book) => <section class="section" style="padding-top:1rem" aria-labelledby={`buch-${book.number}`}><div class="section-heading"><div><span class="eyebrow">Storys {book.storyStart}–{book.storyEnd}</span><h2 id={`buch-${book.number}`}>Buch {book.number}</h2></div><p>{book.stories.length === 10 ? "Vollständig: zehn Storys." : `Laufendes Buch: ${book.stories.length} von 10 Storys veröffentlicht.`}</p></div><div class="archive-grid">{book.stories.map((story)=><article class="archive-card"><span class="eyebrow">Story {story.volume} · {story.storyInBook} von 10</span><h3>{story.title}</h3><p>{story.parts.length} veröffentlichte Teile</p><div class="card-actions"><a class="button" href={`/geschichten/${story.volume}/`}>Story lesen</a></div></article>)}</div></section>) : <section class="section" style="padding-top:1rem"><p class="empty-state">Noch keine validierte Story in diesem Datenstand.</p></section>}
+  {books.length ? books.map((book) => <section class="section" style="padding-top:1rem" aria-labelledby={`buch-${book.number}`}><div class="section-heading"><div><span class="eyebrow">Storys {book.storyStart}–{book.storyEnd}</span><h2 id={`buch-${book.number}`}>Buch {book.number}</h2></div><p>{book.stories.length === 10 ? "Vollständig: zehn Storys." : `Laufendes Buch: ${book.stories.length} von 10 Storys veröffentlicht.`}</p></div><div class="archive-grid">{book.stories.map((story)=><article class="archive-card"><span class="eyebrow">Story {story.volume} · {story.storyInBook} von 10</span><h3>{story.title}</h3><p>{story.parts.length} veröffentlichte Teile</p><EpubDownload downloads={data.epubs.filter((download) => download.volume === story.volume)} compact /><div class="card-actions"><a class="button" href={`/geschichten/${story.volume}/`}>Story lesen</a></div></article>)}</div></section>) : <section class="section" style="padding-top:1rem"><p class="empty-state">Noch keine validierte Story in diesem Datenstand.</p></section>}
 </BaseLayout>

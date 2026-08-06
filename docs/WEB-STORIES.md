@@ -17,10 +17,13 @@ Die Kapitelroute bleibt ohne JavaScript lesbar und enthält:
 - optionale, nur aus validierten Relationen eingebundene Kapitelbilder.
 
 Der Hub lädt aus dem exakt gepinnten aktiven Archiv alle bis zur aktuellen
-Story veröffentlichten `Wirtelprimpf_Story_*.md`-Quellen. Dadurch erscheinen
-abgeschlossene Storys wie Story 1 neben der aktiven Story 2 im Katalog und
-erhalten dieselben stabilen Story- und Kapitelrouten; `current-story.md` bleibt
-nur der lokale Fallback für Vorschau und Validierung.
+Story veröffentlichten `Wirtelprimpf_Story_*.md`-Quellen. Zusätzlich werden
+alle als verifiziert eingetragenen älteren Archive aus dem
+`publication-catalog.json` exakt ausgecheckt und in denselben globalen
+Story-/Buchkatalog aufgenommen. Dadurch bleiben abgeschlossene Storys und
+Bücher auch nach einer Archivrotation auf der zentralen Geschichten-Seite
+erreichbar; `current-story.md` bleibt nur der lokale Fallback für Vorschau und
+Validierung.
 
 ## EPUB und Relationen
 
@@ -72,6 +75,12 @@ nahe Zeitstempel werden als `approximate_resolved_count` separat ausgewiesen;
 unbekannte, zukünftige oder formal ungültige Verweise bleiben Fehler. Die aktuelle
 Generatorquelle enthält weiterhin bekannte historische Medienpfade außerhalb der
 eingebundenen Storyquelle; dieser Bestand wird nicht automatisch umgeschrieben.
+
+Die Geschichten-Übersicht gruppiert alle geladenen Storyquellen nach globalem
+Buch und rendert pro Story einen EPUB-Link, sobald das validierte Manifest einen
+Download für dieselbe globale Bandnummer enthält. Fehlt der Eintrag oder ist er
+nicht an eines der verifizierten Archiv-Repositories gebunden, erscheint kein
+Downloadlink.
 
 Die Relationsprüfung kann mehrere veröffentlichte Storyquellen in einem Lauf
 prüfen. Jede Quelle erhält ihren Band über das zugehörige `--volume`; mit

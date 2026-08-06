@@ -152,6 +152,8 @@
   .download-panel h2 { font-size: 2.1rem; }
   .download-panel p { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem 1rem; }
   .download-panel small { color: var(--muted); overflow-wrap: anywhere; }
+  .compact-downloads { display: grid; gap: .2rem; }
+  .compact-downloads a { color: var(--ink); font-weight: 800; }
   .story-part { position: relative; background: var(--paper); color: var(--paper-ink); padding: clamp(1.25rem, 4vw, 2.4rem); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid #fff7; }
   .story-part code { color: var(--paper-code); }
   .story-part:nth-child(even) { transform: rotate(.18deg); }

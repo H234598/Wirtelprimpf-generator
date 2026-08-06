@@ -155,11 +155,42 @@ test("EPUB downloads are fail-closed and reject non-EPUB or LFS content", () => 
 });
 
 
+test("EPUB downloads may come from any verified publication archive", () => {
+  const root = mkdtempSync(join(process.cwd(), ".test-epub-repositories-"));
+  try {
+    const filename = "story-51-abcdef1234567890.epub";
+    writeFileSync(join(root, "epub-manifest.json"), JSON.stringify({
+      schema_version: "1.0.0",
+      downloads: [{
+        volume: 51,
+        asset_name: filename,
+        url: `https://github.com/H234598/Wirtelprimpf-0002/releases/download/archive-0002-epub-0001/${filename}`,
+        size_bytes: 31,
+        sha256: "a".repeat(64),
+        mime_type: "application/epub+zip",
+        header_verified: true,
+        release_asset_verified: true,
+      }],
+    }));
+
+    const downloads = loadEpubDownloads(root, "H234598", ["Wirtelprimpf-0001", "Wirtelprimpf-0002"]);
+    assert.equal(downloads[0]?.volume, 51);
+    assert.throws(
+      () => loadEpubDownloads(root, "H234598", "Wirtelprimpf-0001"),
+      /not bound to a verified archive/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
 test("reader, TOC, band and detail routes expose the chapter relationship", () => {
   const reader = readFileSync(new URL("../src/components/Reader.astro", import.meta.url), "utf8");
   const toc = readFileSync(new URL("../src/components/StoryToc.astro", import.meta.url), "utf8");
   const band = readFileSync(new URL("../src/pages/geschichten/[volume].astro", import.meta.url), "utf8");
   const chapter = readFileSync(new URL("../src/pages/geschichten/[volume]/[chapter].astro", import.meta.url), "utf8");
+  const library = readFileSync(new URL("../src/pages/geschichten/index.astro", import.meta.url), "utf8");
   const detail = readFileSync(new URL("../src/components/MediaDetail.astro", import.meta.url), "utf8");
   const noScript = readFileSync(new URL("../src/components/NoScriptNotice.astro", import.meta.url), "utf8");
 
@@ -170,6 +201,8 @@ test("reader, TOC, band and detail routes expose the chapter relationship", () =
   assert.match(band, /chapterHref/);
   assert.match(chapter, /getStaticPaths/);
   assert.match(chapter, /mediaForChapter/);
+  assert.match(library, /EpubDownload/);
+  assert.match(library, /compact/);
   assert.match(detail, /storyHref/);
   assert.match(noScript, /<noscript>/);
 });

@@ -5852,3 +5852,13 @@ Damit ist der DNS-Wartungsversuch sicher abgeschlossen; das von GitHub Pages aus
 - Die lokale Fallbackdatei `data/current-story.md` wurde nicht um historische Inhalte erweitert. Der externe Nachweis änderte weder Archivcheckout noch Releases; der beim Build erzeugte lokale Status-Arbeitsstand wurde nach der Prüfung verworfen.
 
 Damit ist die Story-1-Kachel samt stabiler Route im produktiven Buildvertrag technisch umgesetzt; der neue Generatorstand muss noch durch den ausstehenden Remote-Runner und den Pages-Deploy öffentlich ausgerollt werden.
+
+### WEB-P04-02-Mehrarchiv-Geschichtenkatalog-und-EPUB-Links am 6. August 2026, 09:52 CEST
+
+- Die Geschichten-Übersicht rendert jetzt alle geladenen Storys in ihren globalen Büchern. Jede Story-Kachel erhält zusätzlich einen EPUB-Downloadlink, wenn das geprüfte `data/epub-manifest.json` einen passenden, releasegebundenen Eintrag enthält; für den aktuellen Stand sind Story 1 und Story 2 mit den jeweiligen `archive-0001-epub-0001`-Assets verknüpft.
+- `loadEpubDownloads()` akzeptiert mehrere verifizierte Archiv-Repositories, bleibt bei fehlendem oder ungültigem Manifest fail-closed und weist EPUB-URLs zurück, die keinem erlaubten Archiv zugeordnet sind.
+- Der Hub-Workflow löst zuerst Repository, exakte Archivrevision und globale Storynummer auf, checkt danach das aktive Archiv aus und validiert erst dann dessen Storyquellen. Verifizierte ältere Katalogarchive werden zusätzlich auf ihre katalogisierte Revision ausgecheckt; alle kanonischen Storyquellen bis zur aktuellen globalen Story werden anschließend als `WIRTELPRIMPF_STORY_FILES` übergeben. Der Build bleibt damit nach einer Archivrotation ein zentraler Katalog für alle veröffentlichten Bücher und Storys.
+- Der read-only Hub-Build gegen `Wirtelprimpf-0001@017fa3bb8507bcc0782dd139663f7f83e40eb486` mit Story I/II, `804` Medien und `2` EPUB-Manifesteinträgen bestand mit `budgets.errors=[]`, `file_count=1394`, `html_count=1373`, `total_bytes=41915737` und Baumhash `7ff9882ff96a08f0fd73d67d1ec63ce9cf77702661afac232df036caac926771`. `npm test` meldet `80/80`, `npm run check` `0` Fehler, die gezielten Python-Workflow-/Hub-Tests `16/16`.
+- Der Lauf war lokal und read-only gegenüber dem externen Archiv; es wurden weder Archivdateien, Releases, Manifeste noch die lokale Fallback-Story erweitert. Der öffentliche Rollout bleibt wegen des ausstehenden GitHub-Hosted-Runners und Pages-Deployments ein externes Restgate.
+
+Damit ist der zentrale Mehrarchiv-Story-/Buchkatalog mit optionalen EPUB-Links technisch implementiert; die externe Build-/Pages-Abnahme und die manuelle Betreiberabnahme bleiben offen.

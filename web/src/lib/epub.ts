@@ -70,9 +70,15 @@ export function formatDownloadSize(bytes: number): string {
 }
 
 
-export function loadEpubDownloads(dataRoot: string, owner: string, repository: string): EpubDownload[] {
+export function loadEpubDownloads(
+  dataRoot: string,
+  owner: string,
+  repositories: string | readonly string[],
+): EpubDownload[] {
   const path = process.env.WIRTELPRIMPF_EPUB_MANIFEST || resolve(dataRoot, EPUB_MANIFEST);
   if (!existsSync(path)) return [];
+  const allowedRepositories = new Set(typeof repositories === "string" ? [repositories] : repositories);
+  if (allowedRepositories.size === 0) throw new Error("at least one EPUB repository is required");
   let payload: unknown;
   try {
     payload = JSON.parse(readFileSync(path, "utf8"));
@@ -91,7 +97,17 @@ export function loadEpubDownloads(dataRoot: string, owner: string, repository: s
     seen.add(volume);
     const assetName = stringValue(item.asset_name, "EPUB asset name");
     if (!/^[A-Za-z0-9._-]+\.epub$/i.test(assetName)) throw new Error(`invalid EPUB asset name: ${assetName}`);
-    const url = assertReleaseAssetUrl(stringValue(item.url, "EPUB URL"), owner, repository);
+    const urlValue = stringValue(item.url, "EPUB URL");
+    let url: string | undefined;
+    for (const repository of allowedRepositories) {
+      try {
+        url = assertReleaseAssetUrl(urlValue, owner, repository);
+        break;
+      } catch {
+        // Try the next verified archive repository.
+      }
+    }
+    if (!url) throw new Error(`EPUB URL is not bound to a verified archive: ${urlValue}`);
     if (decodeURIComponent(url.slice(url.lastIndexOf("/") + 1)) !== assetName) {
       throw new Error(`EPUB URL asset mismatch: ${assetName}`);
     }

@@ -489,14 +489,22 @@ def validate_pages_workflows(root: Path) -> None:
     require(source is not None, "Pages workflow Hub source")
     assert source is not None
     source_body = source.group("body")
-    require(
-        len(re.findall(r'--(?:data-root|external-root|github-output|repository|revision) "[^"]+" \\\n', source_body)) == 5,
-        "Pages workflow Hub source",
-    )
     require("active_repository=\"${INPUT_REPOSITORY}\"" in source_body, "Pages workflow Hub source")
     require("archive_ref=\"${INPUT_ARCHIVE_REF}\"" in source_body, "Pages workflow Hub source")
     require("current_volume=\"${INPUT_CURRENT_VOLUME}\"" in source_body, "Pages workflow Hub source")
     require("git ls-remote" in source_body, "Pages workflow Hub source")
+    validation = re.search(
+        r"- name: Validate exact current-story source\n(?P<body>.*?)(?=\n      - name:)",
+        hub,
+        re.DOTALL,
+    )
+    require(validation is not None, "Pages workflow Hub source validation")
+    assert validation is not None
+    validation_body = validation.group("body")
+    require(
+        len(re.findall(r'--(?:data-root|external-root|github-output|repository|revision) "[^"]+" \\\n', validation_body)) == 5,
+        "Pages workflow Hub source validation",
+    )
 
 
 def validate_repository_integration(root: Path) -> None:

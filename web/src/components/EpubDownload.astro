@@ -1,10 +1,13 @@
 ---
 import { formatDownloadSize, type EpubDownload as EpubDownloadType } from "../lib/epub.ts";
 
-interface Props { downloads: readonly EpubDownloadType[]; }
-const { downloads } = Astro.props;
+interface Props { downloads: readonly EpubDownloadType[]; compact?: boolean; }
+const { downloads, compact = false } = Astro.props;
 ---
-{downloads.length ? <aside class="download-panel" aria-labelledby="download-heading">
+{downloads.length && compact ? <div class="compact-downloads">
+  <span class="eyebrow">EPUB</span>
+  {downloads.map((download) => <a href={download.url} download={download.asset_name} rel="noopener noreferrer">Herunterladen · {formatDownloadSize(download.size_bytes)}</a>)}
+</div> : downloads.length ? <aside class="download-panel" aria-labelledby="download-heading">
   <span class="eyebrow">Archivformat</span>
   <h2 id="download-heading">Gesamte Story herunterladen</h2>
   {downloads.map((download) => <p><a class="button" href={download.url} download={download.asset_name}>EPUB herunterladen · {formatDownloadSize(download.size_bytes)}</a><small><code>{download.sha256}</code></small></p>)}

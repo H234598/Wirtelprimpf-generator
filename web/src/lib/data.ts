@@ -440,7 +440,12 @@ export function loadSiteData(): SiteData {
   const domain = "wirtelprimpf.telacore.org";
   const stories = loadStories(dataRoot, profile);
   const media = loadMedia(dataRoot, owner, mediaRepository, stories);
-  const epubs = loadEpubDownloads(dataRoot, owner, mediaRepository);
+  const epubRepositories = [...new Set([
+    mediaRepository,
+    activeArchiveRepository,
+    ...catalog.map((entry) => entry.repository),
+  ])];
+  const epubs = loadEpubDownloads(dataRoot, owner, epubRepositories);
   cached = {
     profile,
     archiveIndex,

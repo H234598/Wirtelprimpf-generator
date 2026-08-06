@@ -26,3 +26,4 @@ catgpt-worker/node_modules/
 catgpt-worker/.wrangler/
 catgpt-worker/.dev.vars
 media-staging/
+current-archive/
