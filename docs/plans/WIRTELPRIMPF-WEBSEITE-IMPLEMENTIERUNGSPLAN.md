@@ -5706,3 +5706,30 @@ Betreibergrenzen bleiben bestehen.
 
 Der HTTPS-Aktivierungsversuch ist belastbar fehlgeschlagen dokumentiert;
 die bestehende Cloudflare-HTTPS-Auslieferung bleibt unverändert aktiv.
+
+### WEB-P11-04-Kanonischer-CNAME-DNS-only-und-Alias-Smoke am 6. August 2026, 08:37 CEST
+
+- Der kanonische Record `82588621913193e7a712952792f19248` wurde vor der
+  Änderung exakt als CNAME `wirtelprimpf.telacore.org ->
+  h234598.github.io` mit `proxied=true` verifiziert. Ausschließlich dieser
+  Record wurde per Cloudflare-PATCH auf `proxied=false` gesetzt; Wildcard-
+  und numerische Records blieben unangetastet.
+- Der Read-back bestätigt DNS-only. Alle elf ausdrücklich geschützten Namen
+  sind weiterhin im Cloudflare-DNS vorhanden. DNS löst den kanonischen Namen
+  auf `h234598.github.io` auf.
+- Der GitHub-Pages-Health-Readback meldet `dns_resolves=true`,
+  `is_valid=true`, `is_served_by_pages=true` und `is_https_eligible=true`,
+  aber weiterhin `responds_to_https=false` und
+  `https_error=peer_failed_verification`. Das GitHub-Zertifikat bleibt damit
+  in Bereitstellung.
+- Der echte HTTPS/HTTP-2-Smoke ohne Zertifikatsumgehung liefert für den Hub
+  `200` und für alle elf geschützten Aliasnamen `301`; alle Antworten nutzen
+  HTTP/2. Der laufende öffentliche Cloudflare-/HSTS-Zugang bleibt damit
+  funktionsfähig.
+- Die GitHub-Pages-Einstellung `https_enforced=true` wurde nach der DNS-only-
+  Umstellung erneut angefragt und wegen des noch fehlenden Zertifikats erneut
+  mit HTTP `404` abgelehnt. Die Einstellung bleibt `false`; kein weiterer
+  best-effort-DNS-Eingriff wird ausgeführt.
+
+Der DNS-/Alias-Funktionstest ist damit aktuell bestanden; das GitHub-
+Zertifikat und Pages-HTTPS-Enforcement bleiben als externer Nachlauf offen.
