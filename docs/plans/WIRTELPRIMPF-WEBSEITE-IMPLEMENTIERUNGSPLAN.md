@@ -5636,3 +5636,28 @@ Screenreader-/Betreiberabnahme und die echte 90-Tage-Historie bleiben offen.
 
 Damit ist der technische Cloudflare-Read-only-/Idempotenz-Teil geschlossen;
 die unabhängigen und zeitgebundenen Gates bleiben offen.
+
+### WEB-P09-02/P11-04-Finaler-Lokalcheck-und-aktueller-Release-Stand am 6. August 2026, 08:23 CEST
+
+- Der vollständige lokale `make check`-Lauf auf Generator-HEAD `fb0c014`
+  bestand mit Exitcode `0`. Darin bestehen auch der neue idempotente
+  Cloudflare-Single-Hub-Test, die Plan-/Governancevalidatoren und die
+  vollständige Web-/Plattform-Suite; der bekannte Worker-abhängige CatGPT-L-
+  Test bleibt der einzige dokumentierte Skip.
+- Der read-only Branchabgleich bestätigt Generator
+  `fb0c01469f97e8e7792ca80caa1657f5e44f26ed` und Archiv
+  `017fa3bb8507bcc0782dd139663f7f83e40eb486`. Die veröffentlichten
+  Medien-Releases enthalten aktuell `752`, `752`, `752`, `89` und `101`
+  Assets; das EPUB-Release enthält `2` Assets. Die Releases sind nicht als
+  Draft oder Pre-Release markiert. Diese Inventur ergänzt die bereits
+  dokumentierte öffentliche Hashstichprobe und führt keine Mutation aus.
+- Der nach dem Push gestartete GitHub-Check `31076787139` ist weiterhin
+  `pending`; die vier Jobs `web`, `applet`, `catgpt-worker` und `platform`
+  warten noch auf Runner. Er wird deshalb nicht als erfolgreicher CI-Nachweis
+  behauptet.
+- Dieser Recheck schließt den technischen lokalen Teil weiter ab, ändert aber
+  nichts an den offenen manuellen Screenreader-/Zoom-/Betreibergates, der
+  echten 90-Tage-Historie und der unabhängigen formalen Rechteprüfung.
+
+Damit ist der aktuelle technische Recheck dokumentiert; die externen,
+manuellen und zeitgebundenen Gates bleiben offen.

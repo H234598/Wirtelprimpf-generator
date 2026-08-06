@@ -1,6 +1,6 @@
 # Wirtelprimpf-Webseite – Anforderungen
 
-Autorität: `docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md` (SHA-256 `c9aa390037a0b5d75d08301060e878eb7bb8b05a6282b5398fdd14615b0d3157`). V2-Kapitel 0–28 hat Vorrang; diese Datei ist deterministische Projektion von `config/web-requirements.json`.
+Autorität: `docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md` (SHA-256 `d2555362f8623cc991ee94e2e81d43a6415fc26dd07dd3e8bd13946088f30d1f`). V2-Kapitel 0–28 hat Vorrang; diese Datei ist deterministische Projektion von `config/web-requirements.json`.
 
 | ID | Anforderung | Paket(e) | Meilenstein(e) | Verifikation |
 | --- | --- | --- | --- | --- |
