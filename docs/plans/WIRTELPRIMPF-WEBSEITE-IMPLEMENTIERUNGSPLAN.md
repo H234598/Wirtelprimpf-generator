@@ -573,7 +573,8 @@ Soll:
 
 1. `build` mit `contents: read`, Factory-/Datencheckout, Tests, genau einem Build, Artefaktvalidator, Treehash und Upload;
 2. `deploy` mit `needs: build`, ohne Checkout/Build, nur `pages: write` und `id-token: write`, konsumiert exakt das hochgeladene Artefakt;
-3. `cancel-in-progress: false` für produktive Pagesgruppe;
+3. `cancel-in-progress: true` für die produktive Pagesgruppe, damit eine neue
+   geprüfte Revision keine veraltete Runner-Warteschlange abwartet;
 4. Deployment erhält Environment `github-pages` und Output-URL;
 5. fehlerhafter Build verändert die letzte gültige Site nicht.
 
@@ -1455,7 +1456,7 @@ Filter und Pagination sind URL-basiert und ohne JS verfügbar. Favoriten/Lesefor
 
 ## 28. GitHub-Actions-/Pages-Architektur
 
-PR-Workflow: `permissions: contents: read`, `ubuntu-24.04`, feste Python-/Nodeversionen, volle Action-SHAs, `persist-credentials: false`, Timeouts, PR-Concurrency mit Abbruch alter Läufe, kein Secret/Environment/Deploy. Pages: global leere Rechte, Buildjob mit read/pages-Konfiguration, Deployjob nur `pages: write`/`id-token: write`, Environment `github-pages`, `cancel-in-progress: false`, genau ein validiertes Artefakt, kein Checkout oder Build im Deployjob.
+PR-Workflow: `permissions: contents: read`, `ubuntu-24.04`, feste Python-/Nodeversionen, volle Action-SHAs, `persist-credentials: false`, Timeouts, PR-Concurrency mit Abbruch alter Läufe, kein Secret/Environment/Deploy. Pages: global leere Rechte, Buildjob mit read/pages-Konfiguration, Deployjob nur `pages: write`/`id-token: write`, Environment `github-pages`, `cancel-in-progress: true`, genau ein validiertes Artefakt, kein Checkout oder Build im Deployjob. Der produktive Hub nutzt für Build und Deploy den dauerhaft registrierten Self-hosted-Runner `teladi-pages-runner` mit Label `wirtelprimpf-pages`, damit die Veröffentlichung nicht an der GitHub-hosted-Runner-Warteschlange hängt.
 
 ## 29. Review-, CodeRabbit-/Gate- und Evidenzmodell
 
@@ -6101,3 +6102,39 @@ bleiben unabhängige externe Gates.
 
 Damit ist der aktuelle Regel-/Ausnahmevertrag exakt belegt; eine Änderung der
 SecurityRule war für den aktuellen Single-Hub- und HTTP/2-Vertrag nicht nötig.
+
+### WEB-P10-04-Current-Generation-to-Live-Pages-E2E am 6. August 2026, 12:07 CEST
+
+- Die beiden vom Admin angestoßenen Läufe wurden erfolgreich abgeschlossen:
+  der Storylauf veröffentlichte `053a50b1d335ca86d602164faeae5bc1f0abc941`,
+  der Atelierlauf `36fec4c95d67971d8cb865b7107f1264747a9ee8`. Beide meldeten
+  `pushed=True` und einen akzeptierten Hub-Pages-Dispatch; der Atelierlauf
+  fiel nach dem abgelehnten Flex-Image-Request kontrolliert auf den normalen
+  Providerpfad zurück.
+- Ursache der zunächst unveränderten Website war eine seit Stunden queued
+  GitHub-hosted Pages-Ausführung ohne zugewiesenen Runner; auch der normale
+  `check`-Workflow stand in derselben Zeit in der Warteschlange. Die produktive
+  Pagesgruppe verwendet deshalb jetzt `cancel-in-progress: true` sowie für
+  Build und Deploy den registrierten lokalen Runner
+  `teladi-pages-runner` (`self-hosted`, `Linux`, `X64`, `wirtelprimpf-pages`).
+  Der Benutzer-Systemdienst ist `enabled` und `active`; beim Neustart bleibt
+  genau eine Listener-Session bestehen.
+- Der veröffentlichte Lauf `31091650442` verwendete Generator-Revision
+  `881b236519b8e7ba48eb10b983b121182f7c0790` und Archiv-Revision
+  `36fec4c95d67971d8cb865b7107f1264747a9ee8`. Build und Deploy meldeten
+  jeweils `success`; die fest gepinnten Action-SHAs blieben erhalten. Der
+  Sparse-Checkout läuft im dateisicheren Nicht-Cone-Modus, der optionale
+  npm-Cache wurde wegen eines blockierenden Cache-Save-Schritts entfernt.
+- Der cache-brechend geprüfte Live-Stand zeigt auf `/projekt/status/`
+  `807 Bilder · 2 Storys`, die Archivquelle `36fec4c…`, einen Link auf die
+  neueste Bild-ID `archive-0001-1adf028dd0836425-0488c4cf` und einen Link auf
+  das neueste Kapitel `band-0002-teil-cbc598630ccc`. Das Bild mit ID
+  `wirtelprimpf_2026-08-06_11-56-11-242132` ist auf der öffentlichen Detailseite
+  samt PNG sowie 640-, 1280- und 3840-WebP-Derivat erreichbar; alle vier
+  Releaseassets antworteten mit HTTP `200`. `/geschichten/` enthält Story 1
+  und Story 2 einschließlich der vorhandenen EPUB-Links.
+
+Damit ist der Weg von manueller Generation über exakte Archiv-Revision und
+validierten Pages-Build bis zur öffentlichen Website E2E nachgewiesen. Die
+übrigen Betreiber-, Review-, Accessibility- und Langzeit-Gates des Bauplans
+bleiben unabhängig davon offen.
