@@ -5576,3 +5576,19 @@ abnahme, externe Rechte-/Reviewabnahme und der tatsächliche Remote-CI-Lauf.
 
 Dieses technische Browser-Teilgate ist geschlossen; die unabhängige
 manuelle Abnahme und die echte 90-Tage-Historie bleiben offen.
+
+### WEB-P09-01-Gesamtcheck am 6. August 2026, 07:58 CEST
+
+- Der vollständige lokale `make check`-Lauf bestand. Er umfasste die
+  Generator-, Applet-, Plattform-, Settings-, Storydirektiven-, Flex-, EPUB-,
+  Pages-Artefakt-, Webbuild-, Cloudflare-, Recovery-, Medien-, Plan- und
+  Governance-Verträge sowie die vorhandenen Regressionstests.
+- Alle ausgeführten Befehle meldeten Erfolg; der einzige übersprungene Test
+  entspricht dem bereits dokumentierten Worker-abhängigen CatGPT-Test. Der
+  Lauf schreibt keine fachlichen Änderungen in den Generator-Arbeitsbaum.
+- Dieser Gesamtcheck bestätigt die technische Repo-Konsistenz. Er schließt
+  weder die manuelle Screenreader-/Betreiberabnahme noch die echte
+  90-Tage-Historie oder die externe Rechte-/Reviewabnahme.
+
+Damit ist der technische Gesamtcheck geschlossen; die unabhängigen externen
+und zeitgebundenen Gates bleiben offen.
