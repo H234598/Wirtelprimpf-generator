@@ -84,7 +84,7 @@ jobs:
             scripts/validate_pages_artifact.py
             scripts/validate_web_budgets.py
             wirtelprimpf_platform
-          sparse-checkout-cone-mode: true
+          sparse-checkout-cone-mode: false
 
       - name: Resolve an exact current-story source
         id: revision
