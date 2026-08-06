@@ -5542,7 +5542,7 @@ Screenreader-/Betreiberabnahme und die unabhängige formale Rechteprüfung.
 - Die fortgeschriebene Bauplandatei wurde als kanonische Repo-Projektion in
   `docs/plans/WIRTELPRIMPF-WEBSEITE-IMPLEMENTIERUNGSPLAN.md` übernommen. Die
   Vault- und Repo-Datei sind bytegleich und tragen den Digest
-  `e697ef88122c7c4ce4dc1a6ec608c1855757a6d0c58eb8242a70d5e977782287`.
+  `cf4f6f167544ea98266f33766658afed12790b0f0209f03383bfae9e71b2a564`.
 - `config/web-plan-status.json`, `config/reference-revisions.json`,
   `config/web-requirements.json`, `config/architecture-decisions.json`, die
   lesbaren Anforderungs-/ADR-Projektionen und der Planvalidator sind auf
@@ -5551,7 +5551,7 @@ Screenreader-/Betreiberabnahme und die unabhängige formale Rechteprüfung.
   Archiv-Pages-Pfad behandelt.
 - Der Governance-/Planvertrag besteht lokal mit `90/90` Tests; beide
   Validatoren, `git diff --check` und `astro check` bestehen. Commit
-  `2257b503242b3349fda576de4db306e97d21fce5` ist nach `origin/main`
+  `a084c12aff5bdee67945db77410dd21f349c4733` ist nach `origin/main`
   veröffentlicht. Der Remote-Check `31075225824` war bei diesem Nachtrag
   noch in der Runner-Warteschlange und wird deshalb nicht als abgeschlossen
   behauptet.
@@ -5559,3 +5559,20 @@ Screenreader-/Betreiberabnahme und die unabhängige formale Rechteprüfung.
 Damit ist der technische M00-Kanonisierungsschritt abgeschlossen. Offen
 bleiben die echte 90-Tage-Historie, manuelle Screenreader-/Zoom-/Betreiber-
 abnahme, externe Rechte-/Reviewabnahme und der tatsächliche Remote-CI-Lauf.
+
+### WEB-P08-03-Lokaler-Browser-Recheck am 6. August 2026, 07:53 CEST
+
+- Die vollständige lokale Browser-Gate-Suite bestand mit `34/34` ausgeführten
+  Tests; ein Worker-abhängiger CatGPT-L-Test wurde separat übersprungen.
+- Der Lauf deckte Kernrouten, Projektspiegel, Galeriepagination, den
+  Favoritenfilter, No-JS, Lightbox-Fokus, Touchnavigation, Reduced Motion,
+  Storage-Ausfall, 320-Pixel-Reflow, 200%-Zoom-Proxy, schmale Medienfelder,
+  Overlay-Geometrie und Tablet-/Desktopbreiten ab. Der axe-Lauf meldete
+  `0` Verstöße der Stufen `serious` und `critical`; der Visual-Contract lief
+  über die unterstützten Viewports erfolgreich.
+- Diese automatisierte Gegenprobe stärkt die technische Accessibility- und
+  Reflow-Evidenz, schließt aber bewusst nicht die manuelle
+  Screenreader-/Zoom-/Betreiberabnahme.
+
+Dieses technische Browser-Teilgate ist geschlossen; die unabhängige
+manuelle Abnahme und die echte 90-Tage-Historie bleiben offen.
