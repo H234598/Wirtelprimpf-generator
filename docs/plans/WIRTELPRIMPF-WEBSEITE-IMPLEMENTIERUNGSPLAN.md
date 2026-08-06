@@ -5984,3 +5984,20 @@ Damit sind die beiden manuellen Generatoraktionen lokal technisch umgesetzt
 und gegen die Admin-/Systemd-Grenzen geprüft. Der externe Pages-Deploy, die
 manuelle Betreiber-/Accessibility-Abnahme und die übrigen zeitgebundenen
 Bauplangates bleiben unabhängig davon offen.
+
+### WEB-P08-04-Admin-Button-Responsive-Smoke am 6. August 2026, 11:05 CEST
+
+- Ein schreibgeschützter Playwright-Smoke gegen `http://127.0.0.1:8765/`
+  bestätigte mit dem lokal vorhandenen Chromium auf `390x844` und `1280x900`
+  HTTP `200`, den Titel `Wirtelprimpf · Ateliersteuerung` und beide sichtbaren
+  Aktionsbuttons `Neuen Storyteil erzeugen` sowie `Neues Atelierbild erzeugen`.
+- Auf beiden Viewports lagen `document.documentElement.scrollWidth` und
+  `document.body.scrollWidth` exakt auf der jeweiligen Viewportbreite; es gab
+  keinen horizontalen Überlauf. Die Buttons wurden ausschließlich ausgelesen,
+  nicht geklickt, daher wurde kein Generatorlauf gestartet und kein Zustand
+  verändert. Screenshots wurden als `/tmp/wirtelprimpf-admin-mobile.png` und
+  `/tmp/wirtelprimpf-admin-desktop.png` erzeugt und visuell geprüft.
+
+Damit ist der responsive, automatisiert prüfbare Admin-Button-Nachweis ergänzt;
+die manuelle Bedienung mit Tastatur, Touch, Zoom und Screenreader bleibt als
+Betreiber-/Accessibility-Gate ausdrücklich offen.
