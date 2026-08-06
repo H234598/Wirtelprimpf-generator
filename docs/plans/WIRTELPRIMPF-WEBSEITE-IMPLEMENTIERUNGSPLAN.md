@@ -5815,3 +5815,11 @@ Damit ist der Alias-/HTTP2-Teil von WEB-P11-04 technisch bestanden; offen bleibe
 - Der Nachweis ist bewusst eine aktuelle Stichprobe und keine Behauptung über jedes einzelne Archivasset. Es wurden keine Release-, Manifest- oder Generator-Dateien verändert.
 
 Damit ist der aktuelle öffentliche Original-/Derivat-/4K-Releasevertrag für die Stichprobe hash- und bytegenau belegt; eine vollständige externe Assetstichprobe bleibt als P09-/Betreibergate offen.
+
+### WEB-P09-03-P03-01-Current-External-Release-Sample-3 am 6. August 2026, 09:16 CEST
+
+- Die externe Stichprobe wurde auf drei zeitlich verteilte Datensätze aus dem aktuellen Manifest mit `804` Medien erweitert: ältestes Objekt aus Release `archive-0001-media-0001`, mittleres Objekt aus `archive-0001-media-0002` und jüngstes Objekt aus `archive-0001-media-0005`.
+- Für alle `10` geprüften Assets antworteten die Release-URLs mit HTTP `200`; jeder Byteumfang und jeder SHA-256-Hash stimmte mit dem Manifest überein. Die beiden älteren Objekte besitzen Original/`w640`/`w1280`; das jüngste Objekt besitzt zusätzlich `w3840`.
+- Die Prüfung erfolgte ausschließlich lesend über das aktuelle Archivmanifest und die unveränderlichen GitHub-Releaseassets. Es wurden keine Binärdaten, Releases, Manifeste oder Arbeitskopien verändert.
+
+Damit ist der externe Original-/Derivatvertrag über drei Archivstände hinweg reproduzierbar bestätigt; eine vollständige Assetprüfung und Betreiberabnahme bleiben als unabhängige Restgates offen.
