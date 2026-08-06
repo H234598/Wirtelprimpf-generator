@@ -450,6 +450,21 @@ test("320 pixel pages have no horizontal document overflow", async ({ page }) =>
   }
 });
 
+test("200 percent zoom proxy keeps core routes reflowed", async ({ page }) => {
+  await page.setViewportSize({ width: 195, height: 844 });
+  for (const route of ["/", "/bilder/", "/geschichten/", "/projekt/", "/projekt/status/"]) {
+    await page.goto(route, { waitUntil: "domcontentloaded" });
+    const metrics = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      bodyWidth: document.body.scrollWidth,
+    }));
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
+    expect(metrics.bodyWidth).toBeLessThanOrEqual(metrics.clientWidth);
+    await expect(page.locator("main")).toBeVisible();
+  }
+});
+
 test("mobile story stream and reader stay within the viewport", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto("/geschichten/2/", { waitUntil: "domcontentloaded" });
