@@ -362,6 +362,10 @@ def validate_ci_integration(root: Path) -> None:
     require(sparse_checkout is not None, "CI applet sparse checkout")
     paths = {line.strip() for line in sparse_checkout.group("paths").splitlines()}
     require(paths == EXPECTED_APPLET_PATHS, "CI applet sparse checkout")
+    web_sparse_checkout = re.search(r"sparse-checkout: \|\n(?P<paths>(?:            .*\n)+)", bodies["web"])
+    require(web_sparse_checkout is not None, "CI web sparse checkout")
+    web_paths = {line.strip() for line in web_sparse_checkout.group("paths").splitlines()}
+    require({"docs/WEB-MEDIA.md", "docs/WEB-MEDIA-SECURITY.md"}.issubset(web_paths), "CI web mirrored media documents")
     for name, commands in CI_JOB_COMMANDS.items():
         job_actions = tuple(re.findall(r"^\s+uses:\s+(\S+)(?:\s+#.*)?$", bodies[name], re.MULTILINE))
         require(job_actions == CI_JOB_ACTIONS[name], "CI action pin")

@@ -640,6 +640,15 @@ class WebGovernanceValidationTests(unittest.TestCase):
         self.assertNotRegex(applet_body, r"(?i)\bwrite\b")
         self.assertNotRegex(applet_body, r"(?i)\bdeploy(?:ment)?\b")
 
+    def test_web_ci_checkout_includes_dynamic_project_documents(self) -> None:
+        """Keeps the dynamic media-document sources in the web job checkout."""
+        workflow = (ROOT / WORKFLOW).read_text(encoding="utf-8")
+        web = re.search(r"^  web:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:|\Z)", workflow, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(web)
+        assert web is not None
+        for required in ("docs/WEB-MEDIA.md", "docs/WEB-MEDIA-SECURITY.md"):
+            self.assertRegex(web.group("body"), rf"(?m)^            {re.escape(required)}$")
+
     def test_pages_workflows_isolate_build_from_deploy_permissions(self) -> None:
         """Keeps Pages build validation unprivileged and deploy artifact-only."""
         for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):

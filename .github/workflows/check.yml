@@ -145,6 +145,8 @@ jobs:
           sparse-checkout: |
             config/web-budgets.json
             data
+            docs/WEB-MEDIA.md
+            docs/WEB-MEDIA-SECURITY.md
             web
             scripts/build_web_site.py
             scripts/build_web_status.py
