@@ -140,10 +140,14 @@ def validate(root: Path) -> None:
     freeze_section = freeze_parts[0]
     freezes = set(re.findall(r"\| `H234598/[^`]+` \|.*?\| `main` \| `([0-9a-f]+)` \|", freeze_section))
     require(freezes == FREEZE_SHAS, "frozen repository SHA")
-    require(FACTORY_PIN in current_plan, "Factory pin")
+    # The pin is retained as historical evidence after the Single-Hub
+    # decision; it no longer belongs to the active archive publication path.
+    require(FACTORY_PIN in plan, "Factory pin")
     require(status.get("archive_factory_pin") == FACTORY_PIN, "Factory pin")
     require(re.fullmatch(r"[0-9a-f]{40}", status["archive_factory_pin"]) is not None, "Factory pin")
 
+    # The historical appendix carries the detailed package headings; later
+    # evidence notes are kept outside this exact title form.
     headings = PACKAGE_PATTERN.findall(plan)
     require(len(headings) == 48 and len(set(headings)) == 48, "historical package headings")
     expected_packages = set(headings)
