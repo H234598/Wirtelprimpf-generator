@@ -5903,3 +5903,20 @@ Damit ist der aktuelle lokale M01-Hub-/Archiv-Realquellenlauf einschliesslich
 der Generator-Recovery technisch belegt. Der externe Runner-/Pages-Nachweis,
 die manuelle Betreiber-/Accessibility-Abnahme und die echte 90-Tage-Historie
 bleiben unabhängige Restgates.
+
+### M01-05-Current-Hub-Pages-Dispatch am 6. August 2026, 10:34 CEST
+
+- Ein einzelner manueller Hub-Pages-Lauf `31085441997` wurde mit den
+  vollständigen Eingaben `generator_ref=c80c2c8ac8571a77104b3ea867d2e9e348edfc0b`,
+  `active_repository=Wirtelprimpf-0001`,
+  `archive_ref=6cb7714255dece467802b987952835f11e1f3dab` und
+  `current_volume=2` ausgelöst.
+- GitHub meldete den Lauf bei der letzten Beobachtung als `queued`, ohne Job-
+  Ergebnis oder Conclusion. Der Stand ist deshalb nur als angefordert, nicht
+  als gebaut, deployt oder live verifiziert dokumentiert.
+- Der Lauf änderte keine Archivdateien, Releases, Manifeste, DNS- oder
+  Cloudflare-Einstellungen. Der weiterhin ältere Lauf `31084100215` bleibt
+  separat `pending` und wird nicht mit dem aktuellen Dispatch vermischt.
+
+Damit ist der exakte aktuelle Pages-Nachweis angestoßen; der Hosted-Runner,
+der eigentliche Pages-Deploy und der öffentliche Live-Smoke bleiben offen.
