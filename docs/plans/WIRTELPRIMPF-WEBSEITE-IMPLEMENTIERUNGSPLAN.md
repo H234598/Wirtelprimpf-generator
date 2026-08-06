@@ -5791,3 +5791,11 @@ Damit ist die aktuelle Mehrquellen-Relation im Archiv strikt und fehlerfrei nach
 - Der Test lief read-only gegen den produktiven Hub und änderte weder Generatorquellen noch Archivcheckout. Er belegt den aktuellen automatisierten Live-Reflow, ersetzt aber nicht die manuelle Touch-, Zoom- und Assistenztechnikabnahme auf einem realen Gerät.
 
 Damit ist der aktuelle produktive 320-Pixel-Reflow für die zentralen Projekt-, Galerie- und Leseseiten nachgewiesen; das manuelle P08-Betreiber-Gate bleibt korrekt offen.
+
+### WEB-P04-03-P06-02-P08-03-Current-Live-Interaction-Audit am 6. August 2026, 09:09 CEST
+
+- Ein read-only Chromium-Lauf gegen den produktiven Hub bestätigt die benannten Bedienbereiche: `Hauptnavigation` enthält Bilder, Geschichten und Projekt; die Gruppe `CatGPT-Modus` enthält `CatGPT-S` und `CatGPT-L`.
+- Auf `/bilder/?typ=favorites` sind `Galerietyp`, `Favoriten` und `Alle` zugänglich benannt. Auf `/bilder/?seite=2` ist der Seitenzustand in der kanonischen URL erhalten und `Galerieseiten` enthält die Seitennavigation.
+- Von `/geschichten/` führt der echte erste Storylink nach `/geschichten/2/`; der erste TOC-Link öffnet einen gültigen Kapitel-Deep-Link und die `Kapitelnavigation` enthält `Gesamtansicht` und Kapitelsteuerung. Der Lauf änderte keine Dateien.
+
+Damit sind die aktuellen produktiven Benennungs-, Favoriten-, Pagination- und Kapitel-Deep-Link-Verträge automatisiert nachgewiesen; manuelle Tastatur-, Touch-, Zoom- und Screenreader-Abnahme bleibt separat offen.
