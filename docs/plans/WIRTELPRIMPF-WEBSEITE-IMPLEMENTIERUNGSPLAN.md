@@ -5759,3 +5759,11 @@ bleibt für die nicht-proxied Origin-Konfiguration separat offen.
 
 Der DNS-/Alias-Funktionstest ist damit aktuell bestanden; das GitHub-
 Zertifikat und Pages-HTTPS-Enforcement bleiben als externer Nachlauf offen.
+
+### WEB-P06-04-Current-Generator-Relations-Read-only-Audit am 6. August 2026, 08:45 CEST
+
+- Der strikte aktuelle Lauf `python3 scripts/validate_web_relations.py --root . --strict` besteht mit `errors=[]`. Die geprüfte Generatorquelle umfasst `779` Medien, `195` Kapitel und `440` Bild-Kapitel-Relationen; `194` werden direkt aufgelöst, `193` als nahe Zeitauflösung markiert, `0` Sidecars benötigt und `246` bleiben als historische Orphans isoliert.
+- Die historischen Orphans liegen im Zeitbereich `2026-06-16 03:37:30` bis `2026-07-04 07:29:40`, also vor der aktuell veröffentlichten Storyquelle. Der Validator erzeugt daraus keine aktuellen Kapitelrouten und meldet keine aktuelle Fehlrelation.
+- Dieser Einzelquellen-Report ist bewusst nicht mit dem früheren Multi-Story-/Archivreport zu vermischen; der unterschiedliche Umfang erklärt die unterschiedlichen Zähler. Es wurden keine Manifest-, Story- oder Archivdateien geändert.
+
+Damit ist der aktuelle lokale WEB-P06-04-Relationsvertrag strikt und fehlerfrei nachgewiesen; die historische Inhaltslücke und externe Artefakt-/Betreiberabnahme bleiben offen.
