@@ -472,6 +472,20 @@ test("narrow media frames stay inside their layout columns", async ({ page }) =>
   }
 });
 
+test("narrow home decoration stays inside the viewport", async ({ page }) => {
+  for (const width of [320, 640]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const note = page.locator(".hero-note");
+    const geometry = await note.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, viewport: document.documentElement.clientWidth };
+    });
+    expect(geometry.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.right).toBeLessThanOrEqual(geometry.viewport);
+  }
+});
+
 test("200 percent zoom proxy keeps core routes reflowed", async ({ page }) => {
   await page.setViewportSize({ width: 195, height: 844 });
   for (const route of ["/", "/bilder/", "/geschichten/", "/projekt/", "/projekt/status/"]) {

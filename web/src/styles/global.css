@@ -269,6 +269,7 @@
   .site-header > nav { order: 3; width: 100%; flex-wrap: wrap; overflow: visible; justify-content: center; }
   .hero { grid-template-columns: 1fr; }
   .hero-art { min-height: 330px; }
+  .hero-note { right: .25rem; }
   .section-heading, .detail-grid { grid-template-columns: 1fr; }
   .detail-meta { position: static; }
   .archive-grid, .media-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
