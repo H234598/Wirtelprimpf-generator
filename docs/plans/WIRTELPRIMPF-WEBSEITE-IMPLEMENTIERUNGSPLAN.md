@@ -5661,3 +5661,28 @@ die unabhängigen und zeitgebundenen Gates bleiben offen.
 
 Damit ist der aktuelle technische Recheck dokumentiert; die externen,
 manuellen und zeitgebundenen Gates bleiben offen.
+
+### WEB-P11-04-GitHub-Settings-Read-only-Abgleich am 6. August 2026, 08:28 CEST
+
+- Die read-only GitHub-API bestätigt für den Generator Pages mit Buildtyp
+  `workflow`, Quelle `main:/` und Custom Domain
+  `wirtelprimpf.telacore.org`. Die API meldet jedoch
+  `https_enforced=false`; der externe HSTS-/HTTPS-Livebefund aus Cloudflare
+  ist davon getrennt und ersetzt diese Betreiberprüfung nicht.
+- Das Environment `github-pages` existiert, weist aber keine Reviewer, keinen
+  Wait Timer und keine aus der API sichtbare Schutzregel auf. Repository-
+  Rulesets liefern aktuell eine leere Liste.
+- Actions sind repositoryweit aktiviert, erlaubte Actions stehen auf `all`
+  und eine globale SHA-Pinning-Pflicht ist nicht gesetzt. Die tatsächlich
+  verwendeten Workflowdateien referenzieren die Actions dennoch mit
+  vollständigen Commit-SHAs; die Workflow-Defaultberechtigung ist `read`,
+  und Pull-Request-Freigaben durch Workflows sind deaktiviert.
+- Der Generator und das Archiv haben jeweils keine offenen Pull Requests und
+  keine offenen Dependabot-Alerts. Dieser read-only Abgleich änderte keine
+  GitHub-, Pages-, Environment- oder Ruleset-Einstellung.
+- Damit ist der technische Konfigurationsbefund belastbar dokumentiert; die
+  Betreiberentscheidung zu HTTPS-Enforcement, Environment-/Branchschutz und
+  Actions-Policy bleibt bewusst offen und wird nicht als erledigt behauptet.
+
+Der GitHub-Settings-Read-only-Teil ist damit geprüft; die offenen manuellen
+Betreibergrenzen bleiben bestehen.
