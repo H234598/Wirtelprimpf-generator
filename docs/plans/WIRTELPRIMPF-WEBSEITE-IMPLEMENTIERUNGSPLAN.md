@@ -6019,3 +6019,24 @@ Betreiber-/Accessibility-Gate ausdrücklich offen.
 
 Damit ist der geschützte CatGPT-Alias gegen seinen tatsächlichen API-Vertrag
 geprüft; die übrigen Pages-/Betreiber-/Langzeit-Gates bleiben unabhängig offen.
+
+### WEB-P11-04-CatGPT-Root-Health-Contract am 6. August 2026, 11:20 CEST
+
+- Der Worker-Root antwortete zuvor zwar erwartungsgemäß API-only mit `404`,
+  ließ den ausdrücklich geschützten `catgpt`-Host beim direkten Aufruf aber
+  wie einen defekten Namen aussehen. Der Worker bietet jetzt am Root für
+  `GET`/`HEAD` eine neutrale `200`-Textantwort ohne Konfigurationsprüfung,
+  Durable-Object-Zugriff oder OpenAI-Aufruf; `/v1/chat` bleibt der einzige
+  interaktive API-Pfad.
+- Der Fix ist als Generatorcommit `ca8b4b0` veröffentlicht und mit Wrangler
+  über die vorhandene Custom-Domain deployt. Cloudflare bestätigte die
+  Worker-Version `9db46219-5a82-4341-99cf-bb75171535e2`.
+- Live antworteten sowohl `https://catgpt.wirtelprimpf.telacore.org/` direkt
+  als auch `https://catgpt.telacore.org/` nach dem vorgesehenen Redirect mit
+  HTTP/2 `200` und dem API-Hinweis. Der `/v1/chat`-Preflight blieb `204`; ein
+  absichtlich ungültiger POST blieb `400`, sodass kein kostenpflichtiger
+  Upstream-Aufruf ausgelöst wurde. Die Worker-Suite besteht mit `28/28`, der
+  Typecheck und der Wrangler-Dry-Run sind grün.
+
+Damit funktionieren die ausdrücklich geschützten CatGPT-Hosts jetzt auch am
+Root sichtbar, ohne den bestehenden API-Vertrag zu erweitern.
