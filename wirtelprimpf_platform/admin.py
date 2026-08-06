@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from urllib.parse import urlsplit
 
+from .generation import GenerationBusy, GenerationUnavailable, SystemdGenerationController
 from .operational_status import OperationalStatusCollector
 from .settings import (
     ChangeRequest,
@@ -135,10 +136,12 @@ class AdminApplication:
         status: OperationalStatusCollector,
         *,
         csrf_token: str | None = None,
+        generation: SystemdGenerationController | None = None,
     ) -> None:
         self.settings = settings
         self.status = status
         self.csrf_token = csrf_token or secrets.token_urlsafe(32)
+        self.generation = generation or SystemdGenerationController()
 
     def _get_settings(self) -> AdminResponse:
         try:
@@ -195,6 +198,17 @@ class AdminApplication:
         except Exception:
             return _json_response(503, {"ok": False, "error": "settings transaction unavailable"})
 
+    def _post_generation(self, mode: str, body: bytes) -> AdminResponse:
+        if body.strip() not in (b"", b"{}"):
+            return _json_response(422, {"ok": False, "error": "generation request has an invalid envelope"})
+        try:
+            result = self.generation.trigger(mode)  # type: ignore[arg-type]
+            return _json_response(202, {"ok": True, **result})
+        except GenerationBusy:
+            return _json_response(409, {"ok": False, "error": "generation already running"})
+        except GenerationUnavailable:
+            return _json_response(503, {"ok": False, "error": "generator start unavailable"})
+
     def handle(
         self,
         method: str,
@@ -225,6 +239,15 @@ class AdminApplication:
             if not hmac.compare_digest(supplied, self.csrf_token):
                 return _json_response(403, {"ok": False, "error": "invalid CSRF token"})
             return self._post_settings(body)
+        generation_mode = {
+            "/api/generate/story": "story",
+            "/api/generate/atelier": "atelier",
+        }.get(path)
+        if generation_mode is not None and effective_verb == "POST":
+            supplied = normalized_headers.get("x-wirtelprimpf-csrf", "")
+            if not hmac.compare_digest(supplied, self.csrf_token):
+                return _json_response(403, {"ok": False, "error": "invalid CSRF token"})
+            return self._post_generation(generation_mode, body)
         if path == "/assets/admin.css" and effective_verb == "GET":
             return AdminResponse(
                 status=200,

@@ -14,6 +14,7 @@ class SystemdUnitTests(unittest.TestCase):
     def test_services_use_isolated_runtime_tmp_without_private_tmp_namespace(self) -> None:
         expected = {
             "wirtelprimpf.service": "wirtelprimpf-generator",
+            "wirtelprimpf-atelier.service": "wirtelprimpf-generator",
             "wirtelprimpf-admin.service": "wirtelprimpf-admin",
             "wirtelprimpf-version-watch.service": "wirtelprimpf-version-watch",
         }
@@ -128,6 +129,12 @@ class SystemdUnitTests(unittest.TestCase):
             "CLOUDFLARE_API_TOKEN=",
             (ROOT / "Sourcecode/env.example").read_text(encoding="utf-8"),
         )
+
+    def test_manual_atelier_unit_is_fixed_to_classic_mode_and_shared_lock(self) -> None:
+        source = (UNIT_ROOT / "wirtelprimpf-atelier.service").read_text(encoding="utf-8")
+        self.assertIn("Environment=WIRTELPRIMPF_OPERANDI=classic", source)
+        self.assertIn("generation.lock", source)
+        self.assertIn("EnvironmentFile=%h/.config/wirtelprimpf/openai.env", source)
 
 
 if __name__ == "__main__":

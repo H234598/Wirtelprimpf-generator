@@ -9,6 +9,7 @@ const {
   InteractionGate,
   RequestEpochGate,
   buildSecretActions,
+  classifyGenerationResponse,
   classifySettingsSaveResponse,
   extractCsrfToken,
   controlValue,
@@ -20,6 +21,7 @@ const {
   optionValuesMatch,
   pollSettingsOnce,
   postSettingsWithCsrf,
+  postGenerationWithCsrf,
   prepareBootstrap,
   reconcileControlValue,
   runBootstrapFailClosed,
@@ -289,6 +291,55 @@ test("CSRF token extraction rejects missing or malformed admin pages", () => {
   );
   assert.throws(() => extractCsrfToken("<html></html>"), /CSRF token is missing/);
   assert.throws(() => extractCsrfToken(null), /CSRF page is not text/);
+});
+
+test("manual generation uses fixed endpoints and refreshes stale CSRF once", async () => {
+  const requests = [];
+  const fetcher = async (endpoint, options = {}) => {
+    requests.push({ endpoint, options });
+    if (endpoint === "/") {
+      return { ok: true, text: async () => '<meta name="csrf-token" content="fresh-token">' };
+    }
+    if (requests.filter((request) => request.endpoint === "/api/generate/atelier").length === 1) {
+      return {
+        ok: false,
+        status: 403,
+        json: async () => ({ ok: false, error: "invalid CSRF token" }),
+      };
+    }
+    return {
+      ok: true,
+      status: 202,
+      json: async () => ({ ok: true, mode: "atelier", unit: "wirtelprimpf-atelier.service", state: "queued" }),
+    };
+  };
+
+  const result = await postGenerationWithCsrf("atelier", "stale-token", fetcher);
+  assert.equal(result.outcome.kind, "accepted");
+  assert.equal(result.csrfToken, "fresh-token");
+  assert.equal(requests[0].endpoint, "/api/generate/atelier");
+  assert.equal(requests[2].options.headers["X-Wirtelprimpf-CSRF"], "fresh-token");
+});
+
+test("manual generation responses fail closed when the queue contract is malformed", async () => {
+  await assert.rejects(
+    classifyGenerationResponse({
+      ok: true,
+      status: 200,
+      async json() { return { ok: true, mode: "story", state: "running" }; },
+    }),
+    /generation response was invalid/,
+  );
+  assert.deepEqual(
+    await classifyGenerationResponse({
+      ok: false,
+      status: 409,
+      async json() { return { ok: false, error: "generation already running" }; },
+    }),
+    { kind: "rejected", message: "generation already running" },
+  );
+  assert.match(ADMIN_HTML, /data-generation-mode="story"/);
+  assert.match(ADMIN_HTML, /data-generation-mode="atelier"/);
 });
 
 test("settings snapshots require a 64-character lowercase hexadecimal revision", () => {

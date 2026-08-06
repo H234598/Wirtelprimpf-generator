@@ -65,6 +65,18 @@ class FakeStatusCollector:
         }
 
 
+class FakeGeneration:
+    def __init__(self, result: dict[str, str] | Exception | None = None) -> None:
+        self.result = result or {"mode": "story", "unit": "wirtelprimpf.service", "state": "queued"}
+        self.calls: list[str] = []
+
+    def trigger(self, mode: str) -> dict[str, str]:
+        self.calls.append(mode)
+        if isinstance(self.result, Exception):
+            raise self.result
+        return {**self.result, "mode": mode}
+
+
 class RaisingSettingsManager:
     def __init__(self, failure: Exception) -> None:
         self.failure = failure
@@ -104,10 +116,12 @@ class AdminTests(unittest.TestCase):
             validator=lambda values: None,
         )
         self.status_collector = FakeStatusCollector()
+        self.generation = FakeGeneration()
         self.app = AdminApplication(
             self.manager,
             self.status_collector,
             csrf_token="csrf-token-for-tests",
+            generation=self.generation,
         )
 
     def tearDown(self) -> None:
@@ -242,6 +256,36 @@ class AdminTests(unittest.TestCase):
 
         self.assertEqual(status, 200, decoded)
         self.assertEqual(decoded["settings"]["output_resolution"], "source")
+
+    def test_manual_generation_endpoints_start_only_the_requested_fixed_mode(self) -> None:
+        headers = {
+            "Origin": "http://127.0.0.1:8765",
+            "X-Wirtelprimpf-CSRF": "csrf-token-for-tests",
+        }
+        story = self.request("POST", "/api/generate/story", headers=headers, body={})
+        atelier = self.request("POST", "/api/generate/atelier", headers=headers, body={})
+
+        self.assertEqual(story.status, 202)
+        self.assertEqual(atelier.status, 202)
+        self.assertEqual(self.generation.calls, ["story", "atelier"])
+        self.assertEqual(json.loads(story.body)["state"], "queued")
+        self.assertEqual(json.loads(atelier.body)["mode"], "atelier")
+
+    def test_manual_generation_requires_csrf_and_exact_empty_envelope(self) -> None:
+        missing = self.request("POST", "/api/generate/story", body={})
+        malformed = self.request(
+            "POST",
+            "/api/generate/story",
+            headers={
+                "Origin": "http://127.0.0.1:8765",
+                "X-Wirtelprimpf-CSRF": "csrf-token-for-tests",
+            },
+            body={"unexpected": True},
+        )
+
+        self.assertEqual(missing.status, 403)
+        self.assertEqual(malformed.status, 422)
+        self.assertEqual(self.generation.calls, [])
 
     def test_real_socket_rejects_case_variant_duplicate_security_headers(self) -> None:
         before = self.env_file.read_bytes()

@@ -38,7 +38,8 @@ the small manifest committed to the active publication archive.
 - `requirements.txt`: Python dependency list.
 - `STORY_DIRECTIVES.md`: complete per-story-directives format, UI, installation, security, and operations guide.
 - `../files/wirtelprimfgenerator@H234598/story_directives_core.py`: shared story-directives CLI source used by Cinnamon and systemd.
-- `systemd-user/wirtelprimpf.service`: optional user service template.
+- `systemd-user/wirtelprimpf.service`: optional scheduled story-generation service template.
+- `systemd-user/wirtelprimpf-atelier.service`: optional manual classic/atelier-generation service template.
 - `systemd-user/wirtelprimpf.timer`: optional two-hour timer template.
 
 ## Requirements
@@ -72,6 +73,7 @@ install -Dm0755 files/wirtelprimfgenerator@H234598/story_directives_core.py ~/.l
 install -Dm0644 Sourcecode/wirtelprimpf_prompt_config.md ~/.config/wirtelprimpf/prompt_config.md
 install -Dm0644 Sourcecode/wirtelprimpf_story_prompt_config.md ~/.config/wirtelprimpf/story_prompt_config.md
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf.service ~/.config/systemd/user/wirtelprimpf.service
+install -Dm0644 Sourcecode/systemd-user/wirtelprimpf-atelier.service ~/.config/systemd/user/wirtelprimpf-atelier.service
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf.timer ~/.config/systemd/user/wirtelprimpf.timer
 ```
 

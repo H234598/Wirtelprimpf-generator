@@ -382,6 +382,57 @@ export async function postSettingsWithCsrf(payload, csrfToken, fetcher = globalT
   throw new Error("CSRF retry exhausted");
 }
 
+const GENERATION_ENDPOINTS = Object.freeze({
+  story: "/api/generate/story",
+  atelier: "/api/generate/atelier",
+});
+
+export async function classifyGenerationResponse(response) {
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    return { kind: "rejected", message: "Generatorantwort war ungültig." };
+  }
+  if (!response.ok) {
+    const error = isRecord(data) && typeof data.error === "string" ? data.error.trim() : "";
+    return { kind: "rejected", message: error || "Generierung konnte nicht gestartet werden." };
+  }
+  if (
+    response.status !== 202
+    || !isRecord(data)
+    || data.ok !== true
+    || data.state !== "queued"
+    || !Object.hasOwn(GENERATION_ENDPOINTS, data.mode)
+  ) {
+    throw new TypeError("generation response was invalid");
+  }
+  return { kind: "accepted", data };
+}
+
+export async function postGenerationWithCsrf(mode, csrfToken, fetcher = globalThis.fetch) {
+  const endpoint = GENERATION_ENDPOINTS[mode];
+  if (!endpoint) throw new TypeError("unknown generation mode");
+  let currentToken = csrfToken;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetcher(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Wirtelprimpf-CSRF": currentToken,
+      },
+      body: "{}",
+    });
+    const outcome = await classifyGenerationResponse(response);
+    if (attempt === 0 && outcome.kind === "rejected" && outcome.message === "invalid CSRF token") {
+      currentToken = await refreshCsrfToken(fetcher);
+      continue;
+    }
+    return { outcome, csrfToken: currentToken };
+  }
+  throw new Error("CSRF retry exhausted");
+}
+
 function text(value, fallback = "Unbekannt") {
   return value === null || value === undefined || value === "" ? fallback : String(value);
 }
@@ -499,6 +550,7 @@ async function bootstrap(documentRef) {
   let syncState = null;
   let settingsInFlight = false;
   let statusInFlight = false;
+  let generationInFlight = false;
 
   const controls = () => [...form.elements].filter((element) => element.name);
   const settingControl = (name) => form.elements.namedItem(name);
@@ -628,6 +680,41 @@ async function bootstrap(documentRef) {
     documentRef.querySelector("#status-story").textContent = labels.story;
     documentRef.querySelector("#status-repository").textContent = labels.repository;
     documentRef.querySelector("#status-result").textContent = labels.result;
+  }
+
+  const generationStatus = documentRef.querySelector("#generation-status");
+  const generationButtons = [...documentRef.querySelectorAll("[data-generation-mode]")];
+  function setGenerationControlsEnabled(enabled) {
+    for (const button of generationButtons) button.disabled = !enabled;
+  }
+
+  async function triggerGeneration(mode) {
+    if (generationInFlight || !generationStatus) return;
+    generationInFlight = true;
+    setGenerationControlsEnabled(false);
+    const label = mode === "story" ? "Storyteil" : "Atelierbild";
+    generationStatus.textContent = `${label} wird gestartet …`;
+    try {
+      const result = await postGenerationWithCsrf(mode, csrfToken);
+      csrfToken = result.csrfToken;
+      if (result.outcome.kind === "rejected") {
+        generationStatus.textContent = result.outcome.message;
+      } else {
+        generationStatus.textContent = `${label} wurde zur Generierung eingereiht.`;
+        void pollStatus();
+      }
+    } catch {
+      generationStatus.textContent = "Generierung konnte nicht gestartet werden.";
+    } finally {
+      generationInFlight = false;
+      setGenerationControlsEnabled(true);
+    }
+  }
+
+  for (const button of generationButtons) {
+    button.addEventListener("click", () => {
+      void triggerGeneration(button.dataset.generationMode);
+    });
   }
 
   async function pollSettings() {

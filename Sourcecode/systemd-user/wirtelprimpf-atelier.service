@@ -1,5 +1,5 @@
 [Unit]
-Description=Generate one Wirtelprimpf image
+Description=Generate one Wirtelprimpf atelier image
 Wants=network-online.target
 After=network-online.target
 
@@ -7,7 +7,7 @@ After=network-online.target
 Type=oneshot
 EnvironmentFile=%h/.config/wirtelprimpf/openai.env
 EnvironmentFile=-%h/.config/cloudflare/api-token.env
-Environment=WIRTELPRIMPF_OPERANDI=story
+Environment=WIRTELPRIMPF_OPERANDI=classic
 WorkingDirectory=%h/.local/share/wirtelprimpf-generator
 RuntimeDirectory=wirtelprimpf-generator
 RuntimeDirectoryMode=0700
@@ -16,8 +16,6 @@ Environment=TMP=%t/wirtelprimpf-generator
 Environment=TEMP=%t/wirtelprimpf-generator
 ExecStartPre=%h/.local/share/wirtelprimpf-generator/.venv/bin/python %h/.local/bin/wirtelprimpf-story-directives apply --env-file %h/.config/wirtelprimpf/openai.env
 ExecStart=/usr/bin/flock --nonblock %t/wirtelprimpf-generator/generation.lock %h/.local/share/wirtelprimpf-generator/.venv/bin/wirtelprimpf-generator
-Restart=on-failure
-RestartSec=5min
 NoNewPrivileges=true
 PrivateTmp=false
 PrivateDevices=true
