@@ -5767,3 +5767,11 @@ Zertifikat und Pages-HTTPS-Enforcement bleiben als externer Nachlauf offen.
 - Dieser Einzelquellen-Report ist bewusst nicht mit dem früheren Multi-Story-/Archivreport zu vermischen; der unterschiedliche Umfang erklärt die unterschiedlichen Zähler. Es wurden keine Manifest-, Story- oder Archivdateien geändert.
 
 Damit ist der aktuelle lokale WEB-P06-04-Relationsvertrag strikt und fehlerfrei nachgewiesen; die historische Inhaltslücke und externe Artefakt-/Betreiberabnahme bleiben offen.
+
+### WEB-P03-04-P11-01-Current-External-Growth-Audit am 6. August 2026, 08:55 CEST
+
+- Der lokale Lauf entspricht dem schreibgeschützten Workflowvertrag: `python3 scripts/measure_web_media.py --root . --runs 3 --strict --growth-root <temporary-read-only-archive> --growth-manifest media-manifest.json --growth-baseline-commit db5500b743b68dd47cdc2bb3d7f8896bea7557e1 --output build/reports/web-media-costs-archive-growth-local.json` meldet `errors=[]` und `source_tree_unchanged=true`.
+- Gegen den aktuellen Archiv-HEAD `017fa3bb8507bcc0782dd139663f7f83e40eb486` wurden `26` echte Manifestpunkte über `5,1837` Tage gemessen. Der Anker umfasst `804` Medien und `3.770.524.019` Quellbytes; der Basispunkt `db5500b...` umfasst `779` Medien und `3.654.670.091` Quellbytes.
+- Der technische Messstatus ist `measured`; die 12-/24-/36-Monatsprojektionen werden erzeugt. Der fachliche Langzeitstatus bleibt korrekt `insufficient_history`, weil die echte Historie erst `5,1837` Tage statt `90` Tage umfasst. Die lokale Reportdatei ist ein ignoriertes Messartefakt und wurde nicht in den Git-Baum übernommen.
+
+Damit ist der externe Growth-Mechanismus aktuell gegen das Archiv verifiziert; P03-04/P11-01 bleiben bis zur echten 90-Tage-Historie, CI-/Hostingabnahme und Betreiberbaseline bewusst teilweise umgesetzt.
