@@ -450,6 +450,28 @@ test("320 pixel pages have no horizontal document overflow", async ({ page }) =>
   }
 });
 
+test("narrow media frames stay inside their layout columns", async ({ page }) => {
+  for (const width of [320, 640]) {
+    await page.setViewportSize({ width, height: 800 });
+    for (const route of ["/", "/bilder/"]) {
+      await page.goto(route, { waitUntil: "domcontentloaded" });
+      const frames = await page.locator(".media-frame:visible").evaluateAll((elements) => {
+        const viewport = document.documentElement.clientWidth;
+        return elements.map((element) => ({
+          left: element.getBoundingClientRect().left,
+          right: element.getBoundingClientRect().right,
+          viewport,
+        }));
+      });
+      expect(frames.length).toBeGreaterThan(0);
+      for (const frame of frames) {
+        expect(frame.left).toBeGreaterThanOrEqual(0);
+        expect(frame.right).toBeLessThanOrEqual(frame.viewport);
+      }
+    }
+  }
+});
+
 test("200 percent zoom proxy keeps core routes reflowed", async ({ page }) => {
   await page.setViewportSize({ width: 195, height: 844 });
   for (const route of ["/", "/bilder/", "/geschichten/", "/projekt/", "/projekt/status/"]) {
