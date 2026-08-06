@@ -12,6 +12,13 @@ den Statusgenerator gegeben. Damit beschreiben Status und gerenderte Site
 denselben exakten Archivstand, statt auf einen veralteten Generator-Fallback
 zurückzufallen. Das Dokument enthält nur:
 
+`WIRTELPRIMPF_STORY_FILES` ergänzt dabei die vollständige Liste der bis zur
+aktuellen Story im exakten Archiv veröffentlichten Storyquellen. Die aktive
+Story bleibt über `WIRTELPRIMPF_CURRENT_STORY` und `WIRTELPRIMPF_CURRENT_VOLUME`
+für Freshness und den neuesten Teil markiert; die übrigen Quellen werden für
+Story-Katalog, stabile Storyrouten und Bild-Kapitel-Relationen zusätzlich
+geladen.
+
 - Profil und Repositoryname;
 - Quellrevision, soweit Git sie sicher liefern kann;
 - Bild-/Story-/Kapitelzahlen und neueste stabile IDs;

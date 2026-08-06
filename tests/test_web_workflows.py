@@ -33,6 +33,7 @@ class WebWorkflowTests(unittest.TestCase):
         self.assertIn("web/test-results", web)
         self.assertIn("web/playwright-report", web)
         self.assertIn("WIRTELPRIMPF_SOURCE_REVISION: ${{ steps.source.outputs.revision }}", ROOT.joinpath(".github/workflows/hub-pages.yml").read_text(encoding="utf-8"))
+        self.assertIn("WIRTELPRIMPF_STORY_FILES: ${{ steps.source.outputs.story_files }}", ROOT.joinpath(".github/workflows/hub-pages.yml").read_text(encoding="utf-8"))
         self.assertNotIn("actions/deploy-pages", web)
         self.assertNotIn("pages: write", web)
         self.assertNotIn("id-token: write", web)

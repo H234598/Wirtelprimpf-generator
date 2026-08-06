@@ -16,6 +16,7 @@ from pathlib import Path
 from .naming import archive_target_for_volume
 
 HUB_SOURCE_SCHEMA = "1.0.0"
+STORY_FILE = re.compile(r"^Wirtelprimpf_Story_([IVXLCDM]+)\.md$")
 
 
 def _roman(value: int) -> str:
@@ -33,6 +34,19 @@ def _roman(value: int) -> str:
     return "".join(parts)
 
 
+def _roman_to_integer(value: str) -> int:
+    values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+    if not value or any(character not in values for character in value):
+        raise RuntimeError(f"invalid Roman story volume: {value!r}")
+    result = 0
+    previous = 0
+    for character in reversed(value):
+        current = values[character]
+        result += -current if current < previous else current
+        previous = max(previous, current)
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class HubSource:
     external: bool
@@ -40,6 +54,7 @@ class HubSource:
     revision: str | None
     current_volume: int
     story_file: Path
+    story_files: tuple[Path, ...]
     media_manifest: Path
 
 
@@ -65,6 +80,29 @@ def _validate_source(repository: str, current_volume: int) -> tuple[str, str]:
     return target.repository, story_path
 
 
+def _published_story_files(root: Path, current_volume: int) -> tuple[Path, ...]:
+    story_root = root / "Wirtelprimpf"
+    if story_root.is_symlink() or not story_root.is_dir():
+        raise RuntimeError("exact archive story directory is missing or unsafe")
+    archive_start = ((current_volume - 1) // 50) * 50 + 1
+    found: dict[int, Path] = {}
+    for path in sorted(story_root.iterdir(), key=lambda item: item.name.casefold()):
+        match = STORY_FILE.fullmatch(path.name)
+        if not match:
+            continue
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError(f"exact archive story file is missing or unsafe: {path.name}")
+        volume = _roman_to_integer(match.group(1))
+        if archive_start <= volume <= current_volume:
+            if volume in found:
+                raise RuntimeError(f"duplicate exact archive story volume: {volume}")
+            found[volume] = path
+    expected = story_root / f"Wirtelprimpf_Story_{_roman(current_volume)}.md"
+    if current_volume not in found or found[current_volume] != expected:
+        raise RuntimeError(f"exact current story is missing: {expected}")
+    return tuple(found[volume] for volume in sorted(found))
+
+
 def resolve_hub_source(
     data_root: Path,
     *,
@@ -86,12 +124,14 @@ def resolve_hub_source(
             raise RuntimeError("external archive checkout root is required")
         canonical_repository, story_path = _validate_source(repository, current_volume)
         root = Path(external_root)
+        story_files = _published_story_files(root, current_volume)
         return HubSource(
             external=True,
             repository=canonical_repository,
             revision=revision,
             current_volume=current_volume,
             story_file=root / story_path,
+            story_files=story_files,
             media_manifest=root / "media-manifest.json",
         )
 
@@ -125,6 +165,7 @@ def resolve_hub_source(
         revision=str(fallback_revision) if fallback_revision is not None else None,
         current_volume=fallback_volume,
         story_file=story_file,
+        story_files=(story_file,),
         media_manifest=data_root / "media-manifest.json",
     )
 
@@ -281,6 +322,7 @@ def main(argv: list[str] | None = None) -> int:
         "revision": source.revision or "",
         "current_volume": str(source.current_volume),
         "story_file": str(source.story_file),
+        "story_files": json.dumps([str(path) for path in source.story_files], separators=(",", ":")),
         "media_manifest": str(source.media_manifest),
     }
     with args.github_output.open("a", encoding="utf-8", newline="\n") as handle:

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
 import {
@@ -201,7 +201,54 @@ function romanToInteger(value: string): number {
 }
 
 
+function configuredStoryFiles(dataRoot: string): Array<{ path: string; volume: number }> | null {
+  const raw = process.env.WIRTELPRIMPF_STORY_FILES;
+  if (!raw || !raw.trim()) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`configured story files are invalid JSON: ${String(error)}`);
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every((value) => typeof value === "string" && value.trim())) {
+    throw new Error("configured story files must be a non-empty string array");
+  }
+  const configuredVolumeRaw = process.env.WIRTELPRIMPF_CURRENT_VOLUME;
+  const configuredVolume = configuredVolumeRaw && configuredVolumeRaw.trim()
+    ? integerValue(Number(configuredVolumeRaw), "current volume")
+    : null;
+  const seen = new Set<number>();
+  const sources = parsed.map((value) => {
+    const configured = String(value);
+    const path = configured.startsWith("/") ? configured : resolve(dataRoot, configured);
+    const match = basename(path).match(/^Wirtelprimpf_Story_([IVXLCDM]+)\.md$/);
+    if (!match?.[1]) throw new Error(`configured story file name is not canonical: ${basename(path)}`);
+    let metadata;
+    try {
+      metadata = lstatSync(path);
+    } catch (error) {
+      throw new Error(`configured story file is missing: ${basename(path)}: ${String(error)}`);
+    }
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      throw new Error(`configured story file is missing or unsafe: ${basename(path)}`);
+    }
+    const volume = romanToInteger(match[1]);
+    if (seen.has(volume)) throw new Error(`duplicate configured story volume: ${volume}`);
+    seen.add(volume);
+    return { path, volume };
+  }).sort((left, right) => left.volume - right.volume);
+  if (configuredVolume !== null && !seen.has(configuredVolume)) {
+    throw new Error(`configured story files omit current volume: ${configuredVolume}`);
+  }
+  return sources;
+}
+
+
 export function loadStories(dataRoot: string, profile: SiteProfile): StoryDocument[] {
+  const configured = configuredStoryFiles(dataRoot);
+  if (configured) {
+    return configured.map(({ path, volume }) => parseStoryDocument(readFileSync(path, "utf8"), basename(path), volume));
+  }
   const explicit = process.env.WIRTELPRIMPF_CURRENT_STORY;
   if (explicit) {
     const volume = integerValue(Number(process.env.WIRTELPRIMPF_CURRENT_VOLUME || "1"), "current volume");

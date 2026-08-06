@@ -41,6 +41,9 @@ class HubSourceTests(unittest.TestCase):
         self.assertEqual(source.story_file, self.root / "current-story.md")
 
     def test_dispatch_source_is_exact_ref_and_derives_canonical_roman_story_path(self) -> None:
+        story_root = self.root / "external" / "Wirtelprimpf"
+        story_root.mkdir(parents=True)
+        (story_root / "Wirtelprimpf_Story_LI.md").write_text("# Story LI\n", encoding="utf-8")
         source = resolve_hub_source(
             self.root,
             repository="Wirtelprimpf-0002",
@@ -51,6 +54,7 @@ class HubSourceTests(unittest.TestCase):
 
         self.assertTrue(source.external)
         self.assertEqual(source.story_file, self.root / "external/Wirtelprimpf/Wirtelprimpf_Story_LI.md")
+        self.assertEqual(source.story_files, (self.root / "external/Wirtelprimpf/Wirtelprimpf_Story_LI.md",))
         self.assertEqual(source.media_manifest, self.root / "external/media-manifest.json")
 
     def test_dispatch_source_rejects_repository_volume_mismatch(self) -> None:

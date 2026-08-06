@@ -90,6 +90,11 @@ class WebStatusTests(unittest.TestCase):
         }
         (exact / "media-manifest.json").write_text(json.dumps(exact_manifest), encoding="utf-8")
         story = exact / "Wirtelprimpf_Story_II.md"
+        previous_story = exact / "Wirtelprimpf_Story_I.md"
+        previous_story.write_text(
+            "## 2026-07-30 03:00:00\n\nEarlier.\n",
+            encoding="utf-8",
+        )
         story.write_text(
             "## 2026-08-05 03:00:00\n\nExact one.\n\n"
             "## 2026-08-05 04:00:00\n\nExact two.\n",
@@ -100,6 +105,7 @@ class WebStatusTests(unittest.TestCase):
             {
                 "WIRTELPRIMPF_MEDIA_MANIFEST": str(exact / "media-manifest.json"),
                 "WIRTELPRIMPF_CURRENT_STORY": str(story),
+                "WIRTELPRIMPF_STORY_FILES": json.dumps([str(previous_story), str(story)]),
                 "WIRTELPRIMPF_CURRENT_VOLUME": "2",
                 "WIRTELPRIMPF_SOURCE_REVISION": "d" * 40,
             },
@@ -107,8 +113,8 @@ class WebStatusTests(unittest.TestCase):
             status = build_status(root=self.root, data_root=self.data, profile="hub")
 
         self.assertEqual(status["media"]["latest_id"], "exact-asset")
-        self.assertEqual(status["stories"]["count"], 1)
-        self.assertEqual(status["stories"]["chapter_count"], 2)
+        self.assertEqual(status["stories"]["count"], 2)
+        self.assertEqual(status["stories"]["chapter_count"], 3)
         self.assertEqual(status["stories"]["latest_volume"], 2)
         self.assertEqual(status["source_revision"], "d" * 40)
 

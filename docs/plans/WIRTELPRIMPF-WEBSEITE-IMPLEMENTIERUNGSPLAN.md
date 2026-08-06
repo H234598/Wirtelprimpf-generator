@@ -5842,3 +5842,13 @@ Damit ist der aktuelle öffentliche Freshness-/Statuslink-Vertrag gegen den aktu
 - `PROVENANCE.md` enthält die freigegebene Betreiberattestation, dass die verwendeten Quelltexte, Texte, Bilder und sonstigen Assets selbst erstellt wurden und die erforderlichen Nutzungs- und Lizenzrechte vorliegen. Das ist eine Besitzererklärung, kein unabhängiger Rechtsnachweis.
 
 Damit ist der DNS-Wartungsversuch sicher abgeschlossen; das von GitHub Pages ausgestellte Zertifikat und `https_enforced=true` bleiben bis zur externen Zertifikatsbereitstellung offen.
+
+### WEB-P04-01-Mehrquellen-Storykatalog-und-Story-1-Reconcile am 6. August 2026, 09:36 CEST
+
+- Die Ursache für die fehlende Kachel war der bisherige Hub-Vertrag: `loadStories()` erhielt ausschließlich `WIRTELPRIMPF_CURRENT_STORY`, also Story II. Die abgeschlossene Story I lag zwar unverändert im Archiv, wurde aber nie an den Webbuild übergeben.
+- `resolve_hub_source()` liefert nun aus dem exakt gepinnten aktiven Archiv alle kanonischen `Wirtelprimpf_Story_*.md`-Quellen bis zur aktuellen globalen Story. Der Workflow übergibt sie als `WIRTELPRIMPF_STORY_FILES`; Story II bleibt zusätzlich als aktuelle Story für neuesten Teil und Freshness markiert.
+- Ein read-only Build mit aktuellem Archiv-HEAD `017fa3bb8507bcc0782dd139663f7f83e40eb486` und den Quellen `Wirtelprimpf_Story_I.md` sowie `Wirtelprimpf_Story_II.md` bestand mit `budgets.errors=[]` und Baumhash `9bc6b0c5f1d54ac98dc3619fb961284f791cc348d0f080f2e861d0236e4c6e04`.
+- Die erzeugte `/geschichten/`-Kachelansicht enthält nun `Story 1 · 1 von 10` und `Story 2 · 2 von 10`; `/geschichten/1/` und `/geschichten/2/` wurden beide erzeugt. Der Status zählt für denselben Archivstand `2` Storys und `518` Kapitel; die neueste Story bleibt Story II.
+- Die lokale Fallbackdatei `data/current-story.md` wurde nicht um historische Inhalte erweitert. Der externe Nachweis änderte weder Archivcheckout noch Releases; der beim Build erzeugte lokale Status-Arbeitsstand wurde nach der Prüfung verworfen.
+
+Damit ist die Story-1-Kachel samt stabiler Route im produktiven Buildvertrag technisch umgesetzt; der neue Generatorstand muss noch durch den ausstehenden Remote-Runner und den Pages-Deploy öffentlich ausgerollt werden.

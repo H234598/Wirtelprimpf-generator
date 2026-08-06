@@ -16,6 +16,12 @@ Die Kapitelroute bleibt ohne JavaScript lesbar und enthält:
 - leeren, aber weiterhin verlinkbaren Zustand für ein ungültiges Kapitel;
 - optionale, nur aus validierten Relationen eingebundene Kapitelbilder.
 
+Der Hub lädt aus dem exakt gepinnten aktiven Archiv alle bis zur aktuellen
+Story veröffentlichten `Wirtelprimpf_Story_*.md`-Quellen. Dadurch erscheinen
+abgeschlossene Storys wie Story 1 neben der aktiven Story 2 im Katalog und
+erhalten dieselben stabilen Story- und Kapitelrouten; `current-story.md` bleibt
+nur der lokale Fallback für Vorschau und Validierung.
+
 ## EPUB und Relationen
 
 EPUB-Links entstehen ausschließlich aus einem geprüften `epub-manifest.json`.

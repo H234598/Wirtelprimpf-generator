@@ -53,6 +53,42 @@ def _configured_path(name: str, data_root: Path) -> Path | None:
     return configured if configured.is_absolute() else data_root / configured
 
 
+def _configured_story_sources(data_root: Path) -> list[tuple[Path, int]] | None:
+    raw = os.environ.get("WIRTELPRIMPF_STORY_FILES")
+    if raw is None or not raw.strip():
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise StatusError(f"configured story files are invalid JSON: {exc}") from exc
+    if not isinstance(payload, list) or not payload or not all(isinstance(value, str) and value.strip() for value in payload):
+        raise StatusError("configured story files must be a non-empty string array")
+    sources: list[tuple[Path, int]] = []
+    seen: set[int] = set()
+    for value in payload:
+        configured = Path(value.strip()).expanduser()
+        path = configured if configured.is_absolute() else data_root / configured
+        if path.is_symlink() or not path.is_file():
+            raise StatusError(f"configured story file is missing or unsafe: {path.name}")
+        match = STORY_FILE.fullmatch(path.name)
+        if not match:
+            raise StatusError(f"configured story file name is not canonical: {path.name}")
+        volume = _roman(match.group(1))
+        if volume in seen:
+            raise StatusError(f"duplicate configured story volume: {volume}")
+        seen.add(volume)
+        sources.append((path, volume))
+    current_raw = os.environ.get("WIRTELPRIMPF_CURRENT_VOLUME")
+    if current_raw and current_raw.strip():
+        try:
+            current_volume = int(current_raw.strip())
+        except ValueError as exc:
+            raise StatusError("WIRTELPRIMPF_CURRENT_VOLUME must be an integer") from exc
+        if current_volume < 1 or current_volume not in seen:
+            raise StatusError("configured story files omit the current volume")
+    return sorted(sources, key=lambda item: item[1])
+
+
 def _parse_timestamp(value: str, *, label: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -100,11 +136,14 @@ def _roman(value: str) -> int:
 def _story_records(
     data_root: Path,
     *,
+    explicit_stories: list[tuple[Path, int]] | None = None,
     explicit_story: Path | None = None,
     explicit_volume: int | None = None,
 ) -> list[dict[str, Any]]:
     candidates: list[tuple[Path, int]] = []
-    if explicit_story is not None:
+    if explicit_stories is not None:
+        candidates.extend(explicit_stories)
+    elif explicit_story is not None:
         if explicit_story.is_symlink() or not explicit_story.is_file():
             raise StatusError(f"explicit current story is missing or unsafe: {explicit_story.name}")
         if explicit_volume is None or isinstance(explicit_volume, bool) or explicit_volume < 1:
@@ -228,6 +267,7 @@ def build_status(
     if manifest.get("schema_version") not in {None, "1.0.0"}:
         raise StatusError("unsupported media manifest schema")
     media = _media_summary(manifest)
+    configured_stories = _configured_story_sources(data_root)
     current_story = _configured_path("WIRTELPRIMPF_CURRENT_STORY", data_root)
     current_volume_raw = os.environ.get("WIRTELPRIMPF_CURRENT_VOLUME")
     current_volume: int | None = None
@@ -238,6 +278,7 @@ def build_status(
             raise StatusError("WIRTELPRIMPF_CURRENT_VOLUME must be an integer") from exc
     stories = _story_records(
         data_root,
+        explicit_stories=configured_stories,
         explicit_story=current_story,
         explicit_volume=current_volume,
     )

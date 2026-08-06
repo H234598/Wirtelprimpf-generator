@@ -178,6 +178,34 @@ test("hub loads the explicit current story with its declared global volume", () 
 });
 
 
+test("hub loads every published story in the exact archive through the configured source list", () => {
+  const root = mkdtempSync(join(process.cwd(), ".test-hub-story-list-"));
+  const previousFiles = process.env.WIRTELPRIMPF_STORY_FILES;
+  const previousVolume = process.env.WIRTELPRIMPF_CURRENT_VOLUME;
+  try {
+    const storyOne = join(root, "Wirtelprimpf_Story_I.md");
+    const storyTwo = join(root, "Wirtelprimpf_Story_II.md");
+    writeFileSync(storyOne, "# Story eins\n\n## 2026-07-30 20:00:00\n\nAbgeschlossen.\n");
+    writeFileSync(storyTwo, "# Story zwei\n\n## 2026-07-31 20:00:00\n\nAktuell.\n");
+    process.env.WIRTELPRIMPF_STORY_FILES = JSON.stringify([storyTwo, storyOne]);
+    process.env.WIRTELPRIMPF_CURRENT_VOLUME = "2";
+
+    const stories = loadStories(root, "hub");
+
+    assert.deepEqual(stories.map((story) => ({ volume: story.volume, title: story.title })), [
+      { volume: 1, title: "Story eins" },
+      { volume: 2, title: "Story zwei" },
+    ]);
+  } finally {
+    if (previousFiles === undefined) delete process.env.WIRTELPRIMPF_STORY_FILES;
+    else process.env.WIRTELPRIMPF_STORY_FILES = previousFiles;
+    if (previousVolume === undefined) delete process.env.WIRTELPRIMPF_CURRENT_VOLUME;
+    else process.env.WIRTELPRIMPF_CURRENT_VOLUME = previousVolume;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
 test("code inside paper story cards keeps WCAG AA text contrast", () => {
   const css = readFileSync(new URL("../src/styles/global.css", import.meta.url), "utf8");
   const paper = css.match(/--paper:\s*(#[0-9a-f]{6})/i)?.[1];

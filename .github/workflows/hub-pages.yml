@@ -143,6 +143,7 @@ jobs:
           WIRTELPRIMPF_SITE_PROFILE: hub
           WIRTELPRIMPF_SITE_URL: https://wirtelprimpf.telacore.org
           WIRTELPRIMPF_CURRENT_STORY: ${{ steps.source.outputs.story_file }}
+          WIRTELPRIMPF_STORY_FILES: ${{ steps.source.outputs.story_files }}
           WIRTELPRIMPF_CURRENT_VOLUME: ${{ steps.source.outputs.current_volume }}
           WIRTELPRIMPF_MEDIA_MANIFEST: ${{ steps.source.outputs.media_manifest }}
           WIRTELPRIMPF_MEDIA_REPOSITORY: ${{ steps.source.outputs.repository }}
