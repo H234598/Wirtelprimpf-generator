@@ -75,6 +75,23 @@ Baseline-Commit `db5500b743b68dd47cdc2bb3d7f8896bea7557e1` lieferte `25` Punkte
 `3.766.196.025` Quellbytes; der Langzeitstatus blieb korrekt
 `insufficient_history`.
 
+## Reproduzierbarer Wachstumslauf am 6. August 2026
+
+Der erneute strikte Dreifachlauf gegen einen vollständigen read-only Checkout
+von `H234598/Wirtelprimpf-0001` bestand mit drei Builds, Budgetentscheidung
+`pass`, `1.043` Artefaktdateien, `1.022` HTML-Dateien und Treehash
+`25d6eb2eb1e2d1bb42c6852a8fc30b2bb1728c43eeb6fada4adfc8fe399c93a8`.
+Die Laufzeiten betrugen `8,685`, `8,842` und `7,436` Sekunden (Median
+`8,685`, P95 `8,827`); die maximale Kindprozess-RSS lag bei `552.340 KiB`.
+
+Der Messvergleich ignoriert dabei genau die bereits im Buildvertrag erlaubte
+generierte Datei `web/src/generated/status.json`; andere Arbeitsbaumänderungen
+bleiben fehlerhaft. Der zugehörige Regressionstest besteht mit `5/5` Tests.
+Die Archivhistorie umfasst weiterhin `25` Punkte über `4,7541898148` Tage und
+bleibt deshalb korrekt bei `long_term_status=insufficient_history`. Die
+90-Tage-Grenze wird nicht aus Projektionen oder synthetischen Punkten
+abgeleitet.
+
 ## Lokaler Dreifachlauf 2026-08-05
 
 `npm run test:performance -- --repeat-each=3` war auf der lokalen statischen

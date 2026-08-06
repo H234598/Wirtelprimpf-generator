@@ -35,6 +35,9 @@ class MediaMeasurementError(RuntimeError):
     """The read-only measurement could not produce a trustworthy report."""
 
 
+ALLOWED_GENERATED_PATH = "web/src/generated/status.json"
+
+
 def _percentile(values: list[float], percentile: float) -> float:
     if not values or not 0 <= percentile <= 100:
         raise ValueError("percentile requires values and a range from 0 to 100")
@@ -56,7 +59,11 @@ def _git_status(root: Path) -> str:
         text=True,
         capture_output=True,
     )
-    return result.stdout
+    return "\n".join(
+        line
+        for line in result.stdout.splitlines()
+        if line[3:] != ALLOWED_GENERATED_PATH
+    )
 
 
 def _run_build(root: Path) -> dict[str, float | int]:

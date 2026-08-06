@@ -14,6 +14,7 @@ if __package__ in {None, ""}:
 from scripts.measure_web_media import (
     MediaMeasurementError,
     _growth_report,
+    _git_status,
     _manifest_stats,
     _percentile,
     _write_report,
@@ -24,6 +25,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WebMediaMeasurementTests(unittest.TestCase):
+    def test_generated_status_is_ignored_but_other_worktree_changes_are_not(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True)
+            generated = root / "web/src/generated/status.json"
+            generated.parent.mkdir(parents=True)
+            generated.write_text("{}\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "--quiet", "-m", "initial"], cwd=root, check=True)
+
+            generated.write_text('{"changed": true}\n', encoding="utf-8")
+            (root / "unrelated.txt").write_text("changed\n", encoding="utf-8")
+
+            status = _git_status(root)
+            self.assertNotIn("web/src/generated/status.json", status)
+            self.assertIn("unrelated.txt", status)
+
     def test_percentile_is_deterministic(self) -> None:
         self.assertEqual(_percentile([3.0, 1.0, 2.0], 50), 2.0)
         self.assertEqual(_percentile([1.0, 2.0, 3.0, 4.0], 95), 3.85)
