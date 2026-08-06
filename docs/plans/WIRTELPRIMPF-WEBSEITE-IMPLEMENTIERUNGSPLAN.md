@@ -5799,3 +5799,11 @@ Damit ist der aktuelle produktive 320-Pixel-Reflow für die zentralen Projekt-, 
 - Von `/geschichten/` führt der echte erste Storylink nach `/geschichten/2/`; der erste TOC-Link öffnet einen gültigen Kapitel-Deep-Link und die `Kapitelnavigation` enthält `Gesamtansicht` und Kapitelsteuerung. Der Lauf änderte keine Dateien.
 
 Damit sind die aktuellen produktiven Benennungs-, Favoriten-, Pagination- und Kapitel-Deep-Link-Verträge automatisiert nachgewiesen; manuelle Tastatur-, Touch-, Zoom- und Screenreader-Abnahme bleibt separat offen.
+
+### WEB-P11-04-Current-Protected-Alias-HTTP2-Smoke am 6. August 2026, 09:11 CEST
+
+- Der read-only HTTPS-Smoke prüfte alle elf ausdrücklich zu erhaltenden Namen `wirtelprimpf`, `wirtel`, `catgpt`, `katzen`, `katzenbilder`, `kratzkratz`, `wirtel-primpf`, `wirtelprimpf-chronik`, `wirtelprimpf-katzenblog`, `primpf` und `unfug` unter `.telacore.org`.
+- Der kanonische Hub antwortete mit HTTP `200`; alle zehn Aliasnamen antworteten mit HTTP `301`. Jede Antwort lief über HTTP/2 und wurde von einer Cloudflare-IP ausgeliefert. Es gab keine TLS- oder DNS-Auflösungsfehler.
+- Der Lauf war vollständig read-only und änderte weder DNS, SecurityRule, Pages-Einstellungen noch Repositorydateien. Damit ist die Erreichbarkeit der ausdrücklich geschützten Namen aktuell erneut belegt.
+
+Damit ist der Alias-/HTTP2-Teil von WEB-P11-04 technisch bestanden; offen bleiben ausschließlich Pages-Zertifikat/HTTPS-Enforcement, die manuelle Betreiberabnahme und die externe Abschlussentscheidung.
