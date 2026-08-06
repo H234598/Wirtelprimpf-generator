@@ -64,7 +64,7 @@
     "P11",
     "P12"
   ],
-  "plan_sha256": "3dfc068dcffbad58f872e4c570efd95d8b7121de0b70a5aeece5d9f99ff1c30f",
+  "plan_sha256": "5203a6df0f296848dff7846cb04f8af24a5b09d1b1b85a421a2da49445b14590",
   "repositories": [
     {
       "branch": "main",
@@ -73,7 +73,7 @@
       "frozen_sha": "274b25c9e1f9ea97d3b060997ed5c425d2b30e9f",
       "id": "H234598/Wirtelprimpf-generator",
       "observed": {
-        "sha": "5197969d22c4e8bedef03a20a73c43ea241b38ed",
+        "sha": "2d00d1aa18116ff88b0b2e2799975881d114c15d",
         "source": "local-git",
         "status": "checked"
       },

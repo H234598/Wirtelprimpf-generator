@@ -5944,3 +5944,43 @@ der eigentliche Pages-Deploy und der öffentliche Live-Smoke bleiben offen.
 Damit ist der stale-Token-Fehler technisch behoben und gegen den laufenden
 Admindienst verifiziert. Die übrigen Pages-/Betreiber-/Langzeit-Gates des
 Bauplans bleiben davon unabhängig offen.
+### WEB-P10-05-Admin-Manual-Story-und-Atelier-Generierung am 6. August 2026, 10:55 CEST
+
+- Das lokale Admin-Webinterface bietet jetzt zwei getrennte, klar benannte
+  Aktionen: „Neuen Storyteil erzeugen“ und „Neues Atelierbild erzeugen“.
+  Der Storybutton startet ausschließlich den bestehenden
+  `wirtelprimpf.service`; der Atelierbutton startet ausschließlich die neue
+  Unit `wirtelprimpf-atelier.service` mit festem
+  `WIRTELPRIMPF_OPERANDI=classic`. Es gibt keine frei übergebbaren
+  Kommandos oder Modi.
+- Die loopback-only Admin-API verwendet dafür die CSRF-geschützten Endpunkte
+  `POST /api/generate/story` und `POST /api/generate/atelier`. Beide starten
+  den User-Service mit `systemctl --user --no-block`, prüfen vorher beide
+  Generator-Units auf einen laufenden Lauf und melden bei belegtem Generator
+  `409` statt einen parallelen Lauf zu beginnen. Ein gemeinsamer
+  `flock`-Schutz in Story- und Atelier-Unit sichert zusätzlich den
+  Generator-/Publikationszustand gegen Timer-/Button-Rennen.
+- Bei einem veralteten Adminfenster greift dieselbe einmalige
+  same-origin-CSRF-Erneuerung wie beim Speichern: nur die exakt erkannte
+  `invalid CSRF token`-Antwort wird einmal mit unverändertem Request
+  wiederholt; sonst bleibt die UI fail-closed.
+- Die neue Unit wurde lokal installiert und mit `systemctl --user daemon-reload`
+  geladen. Read-back: `wirtelprimpf.service` und
+  `wirtelprimpf-atelier.service` sind `LoadState=loaded`, beide standen
+  nach der Installation in `ActiveState=inactive/SubState=dead`; der
+  Admindienst war `active/running` mit `Result=success`.
+- Die fokussierte Prüfung bestand mit `40/40` Python-Tests und `37/37`
+  Admin-UI-Tests; `make check` lief vollständig grün. Ein echter Live-Smoke
+  bestätigte für einen gültigen CSRF-Aufruf mit absichtlich falschem Envelope
+  `422` sowie für einen Aufruf ohne CSRF `403`; dadurch wurde kein
+  Generatorlauf ausgelöst. Der aktuelle Live-Admin-Readback enthielt beide
+  Buttons.
+- Die Implementierung ist als Commit
+  `2d00d1aa18116ff88b0b2e2799975881d114c15d` nach `origin/main` gepusht.
+  Es wurden durch die Verifikation keine Modelleinstellungen, Schlüssel,
+  Timerwerte, Storydaten oder Publikationsartefakte verändert.
+
+Damit sind die beiden manuellen Generatoraktionen lokal technisch umgesetzt
+und gegen die Admin-/Systemd-Grenzen geprüft. Der externe Pages-Deploy, die
+manuelle Betreiber-/Accessibility-Abnahme und die übrigen zeitgebundenen
+Bauplangates bleiben unabhängig davon offen.
