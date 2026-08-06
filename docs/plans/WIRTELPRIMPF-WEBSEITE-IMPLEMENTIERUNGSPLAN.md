@@ -6053,3 +6053,18 @@ Root sichtbar, ohne den bestehenden API-Vertrag zu erweitern.
 
 Damit ist der produktive CatGPT-L-Transport nach dem Worker-Deploy nicht nur
 über Preflight und Negativpfad, sondern auch über eine echte Antwort belegt.
+
+### WEB-P09-02-Current-Dependabot-Audit am 6. August 2026, 11:25 CEST
+
+- Die GitHub-REST-Abfrage nach offenen Dependabot-Alerts für
+  `H234598/Wirtelprimpf-generator` meldete `0`; offene Pull Requests gibt es
+  ebenfalls `0`.
+- `npm audit --omit=dev --json` meldete sowohl im `web`-Paket mit `281`
+  Produktionsabhängigkeiten als auch im `catgpt-worker` mit einer
+  Produktionsabhängigkeit `0` Schwachstellen in allen Schweregraden.
+- GitHub antwortete für Code-Scanning mit HTTP `404` (`no analysis found`),
+  weil für dieses Repository keine Analyse eingerichtet ist. Dieser fehlende
+  Dienst wurde nicht fälschlich als Sicherheitsfreigabe gewertet.
+
+Damit ist der aktuelle Dependabot-/npm-Audit-Stand nachgewiesen; eine
+Code-Scanning-Abnahme bleibt mangels eingerichtetem Dienst separat offen.
