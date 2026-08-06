@@ -348,6 +348,40 @@ export async function classifySettingsSaveResponse(response) {
   return { kind: "success", snapshot: data };
 }
 
+export function extractCsrfToken(markup) {
+  if (typeof markup !== "string") throw new TypeError("CSRF page is not text");
+  const match = markup.match(/<meta\s+name="csrf-token"\s+content="([A-Za-z0-9_-]+)">/i);
+  if (!match?.[1]) throw new TypeError("CSRF token is missing");
+  return match[1];
+}
+
+export async function refreshCsrfToken(fetcher = globalThis.fetch) {
+  const response = await fetcher("/", { cache: "no-store" });
+  if (!response.ok) throw new Error("CSRF page unavailable");
+  return extractCsrfToken(await response.text());
+}
+
+export async function postSettingsWithCsrf(payload, csrfToken, fetcher = globalThis.fetch) {
+  let currentToken = csrfToken;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetcher("/api/settings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Wirtelprimpf-CSRF": currentToken,
+      },
+      body: JSON.stringify(payload),
+    });
+    const outcome = await classifySettingsSaveResponse(response);
+    if (attempt === 0 && outcome.kind === "rejected" && outcome.message === "invalid CSRF token") {
+      currentToken = await refreshCsrfToken(fetcher);
+      continue;
+    }
+    return { outcome, csrfToken: currentToken };
+  }
+  throw new Error("CSRF retry exhausted");
+}
+
 function text(value, fallback = "Unbekannt") {
   return value === null || value === undefined || value === "" ? fallback : String(value);
 }
@@ -454,8 +488,8 @@ export async function runBootstrapFailClosed(documentRef, operation = bootstrap)
 async function bootstrap(documentRef) {
   const prepared = prepareBootstrap(documentRef);
   if (prepared === null) return;
+  let csrfToken = prepared.csrfToken;
   const {
-    csrfToken,
     form,
     pollStatus: settingsPollStatus,
     saveStatus,
@@ -702,15 +736,9 @@ async function bootstrap(documentRef) {
       requestGate.beginSave();
       saveStatus.textContent = "Prüfe und speichere …";
       try {
-        const response = await fetch("/api/settings", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Wirtelprimpf-CSRF": csrfToken,
-          },
-          body: JSON.stringify(request),
-        });
-        const outcome = await classifySettingsSaveResponse(response);
+        const result = await postSettingsWithCsrf(request, csrfToken);
+        csrfToken = result.csrfToken;
+        const outcome = result.outcome;
         if (outcome.kind === "conflict") {
           if (!isConflictPayload(outcome.data)) {
             saveStatus.textContent = "Konfliktantwort war ungültig; lokale Entwürfe bleiben erhalten.";

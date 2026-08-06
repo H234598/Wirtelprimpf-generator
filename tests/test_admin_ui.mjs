@@ -10,6 +10,7 @@ const {
   RequestEpochGate,
   buildSecretActions,
   classifySettingsSaveResponse,
+  extractCsrfToken,
   controlValue,
   isConflictPayload,
   isSettingsSnapshot,
@@ -18,6 +19,7 @@ const {
   numericBounds,
   optionValuesMatch,
   pollSettingsOnce,
+  postSettingsWithCsrf,
   prepareBootstrap,
   reconcileControlValue,
   runBootstrapFailClosed,
@@ -242,6 +244,51 @@ test("settings snapshots explicitly require ok true", () => {
   unsuccessful.ok = false;
   assert.equal(isSettingsSnapshot(unsuccessful), false);
   assert.equal(isSettingsSnapshot(completeAdminSnapshot()), true);
+});
+
+test("stale CSRF tokens refresh once before retrying the same save", async () => {
+  const requests = [];
+  const fetcher = async (endpoint, options = {}) => {
+    requests.push({ endpoint, options });
+    if (endpoint === "/") {
+      return {
+        ok: true,
+        text: async () => '<meta name="csrf-token" content="fresh-token">',
+      };
+    }
+    if (requests.filter((request) => request.endpoint === "/api/settings").length === 1) {
+      return {
+        ok: false,
+        status: 403,
+        json: async () => ({ ok: false, error: "invalid CSRF token" }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => completeAdminSnapshot(),
+    };
+  };
+  const result = await postSettingsWithCsrf({ changes: { image_model: "gpt-image-2" } }, "stale-token", fetcher);
+
+  assert.equal(result.outcome.kind, "success");
+  assert.equal(result.csrfToken, "fresh-token");
+  assert.equal(requests.length, 3);
+  assert.equal(requests[0].options.headers["X-Wirtelprimpf-CSRF"], "stale-token");
+  assert.deepEqual(requests[1], {
+    endpoint: "/",
+    options: { cache: "no-store" },
+  });
+  assert.equal(requests[2].options.headers["X-Wirtelprimpf-CSRF"], "fresh-token");
+});
+
+test("CSRF token extraction rejects missing or malformed admin pages", () => {
+  assert.equal(
+    extractCsrfToken('<meta name="csrf-token" content="token_123-abc">'),
+    "token_123-abc",
+  );
+  assert.throws(() => extractCsrfToken("<html></html>"), /CSRF token is missing/);
+  assert.throws(() => extractCsrfToken(null), /CSRF page is not text/);
 });
 
 test("settings snapshots require a 64-character lowercase hexadecimal revision", () => {
