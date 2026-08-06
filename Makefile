@@ -17,6 +17,7 @@ check:
 	$(PYTHON) -m py_compile wirtelprimpf_platform/cloudflare_preflight.py
 	$(PYTHON) -m py_compile wirtelprimpf_platform/cloudflare_rollback.py
 	$(PYTHON) -m py_compile wirtelprimpf_platform/cloudflare_audit.py
+	$(PYTHON) -m py_compile wirtelprimpf_platform/cloudflare_single_hub.py
 	$(PYTHON) -m py_compile scripts/build_web_status.py
 	$(PYTHON) -m py_compile scripts/build_epub.py
 	$(PYTHON) -m py_compile scripts/build_epub_manifest.py
@@ -44,6 +45,7 @@ check:
 	$(PYTHON) -m unittest tests.test_cloudflare_preflight
 	$(PYTHON) -m unittest tests.test_cloudflare_rollback
 	$(PYTHON) -m unittest tests.test_cloudflare_audit
+	$(PYTHON) -m unittest tests.test_cloudflare_single_hub
 	$(PYTHON) -m unittest tests.platform.test_cloudflare_credentials
 	$(PYTHON) -m unittest tests.test_rollout_plan_contract
 	$(PYTHON) -m unittest tests.test_web_plan
@@ -85,6 +87,7 @@ check-applet:
 	$(PYTHON) -m py_compile wirtelprimpf_platform/cloudflare_preflight.py
 	$(PYTHON) -m py_compile wirtelprimpf_platform/cloudflare_rollback.py
 	$(PYTHON) -m py_compile wirtelprimpf_platform/cloudflare_audit.py
+	$(PYTHON) -m py_compile wirtelprimpf_platform/cloudflare_single_hub.py
 	$(PYTHON) -m py_compile scripts/build_web_status.py
 	$(PYTHON) -m py_compile scripts/build_epub.py
 	$(PYTHON) -m py_compile scripts/build_epub_manifest.py

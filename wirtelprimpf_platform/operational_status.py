@@ -10,10 +10,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 from .catalog import CatalogStore
-from .naming import STORIES_PER_BOOK, book_target_for_story
+from .naming import PUBLIC_HUB_HOST, STORIES_PER_BOOK, book_target_for_story
 from .settings import SettingsPaths, SettingsSnapshot
 from .state import StateStore
 from .systemd_user import TimerObservation
@@ -483,19 +482,7 @@ class OperationalStatusCollector:
             entry = catalog.entry(catalog.active_archive_index)
             if entry is None or not entry.verified:
                 return None
-            pages_url = entry.pages_url
-            parsed = urlsplit(pages_url)
-            if (
-                parsed.scheme != "https"
-                or parsed.hostname is None
-                or parsed.username is not None
-                or parsed.password is not None
-                or parsed.query
-                or parsed.fragment
-                or parsed.path not in {"", "/"}
-            ):
-                raise ValueError("catalog Pages URL is invalid")
-            return pages_url, parsed.hostname
+            return f"https://{PUBLIC_HUB_HOST}", PUBLIC_HUB_HOST
 
         catalog_source = self._collect_source(
             status,

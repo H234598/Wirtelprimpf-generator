@@ -32,12 +32,12 @@ python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprim
 python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
 ```
 
-Für Archive werden `--profile archive`, der Archiv-Datenroot und die konkrete
-Archivdomain explizit gesetzt. Der Wrapper baut in einem temporären Ziel,
-validiert vor dem atomaren Wechsel nach `web/dist` und lässt bei Fehlern das
-letzte vollständige Artefakt stehen. Hub- und Archivstatus dürfen nicht
-vermischt werden; Quellrevision, Statusmanifest und Baumhash werden gemeinsam
-als Nachweis gesichert.
+Archiv-Repositories werden nicht als eigene Websites gebaut. Ihre Manifeste,
+Storys und GitHub-Links werden in den zentralen Hub-Build übernommen; der
+jeweilige Repositoryname und die Quellrevision werden gemeinsam als Nachweis
+gesichert. Der Wrapper baut in einem temporären Ziel, validiert vor dem
+atomaren Wechsel nach `web/dist` und lässt bei Fehlern das letzte vollständige
+Hub-Artefakt stehen.
 
 ## Fehlerbehandlung
 

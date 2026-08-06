@@ -21,7 +21,6 @@ const data = loadSiteData();
 const { title = data.title, description = data.intro, image, section = "" } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const fullTitle = title === data.title ? title : `${title} · ${data.title}`;
-const centralUrl = "https://wirtelprimpf.telacore.org/";
 const lightEndpoint = resolveCatGptLightEndpoint(import.meta.env.PUBLIC_CATGPT_LIGHT_ENDPOINT);
 const contentSecurityPolicy = `default-src 'self'; img-src 'self' data: https://github.com https://*.githubusercontent.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src ${lightEndpoint ? CATGPT_LIGHT_ORIGIN : "'none'"}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`;
 ---
@@ -44,7 +43,7 @@ const contentSecurityPolicy = `default-src 'self'; img-src 'self' data: https://
     <header class="site-header">
       <a class="brand" href="/" aria-label={`${data.title} – Startseite`}>
         <img src="/wirtelprimpf-mark.svg" width="52" height="52" alt="" />
-        <span><small>{data.profile === "hub" ? "Telacores:" : `Publikationsarchiv ${String(data.archiveIndex).padStart(4, "0")}`}</small>{data.title}</span>
+        <span><small>Telacores:</small>{data.title}</span>
       </a>
       <nav aria-label="Hauptnavigation">
         <a href="/" aria-current={section === "start" ? "page" : undefined}>Start</a>
@@ -62,7 +61,6 @@ const contentSecurityPolicy = `default-src 'self'; img-src 'self' data: https://
     <footer class="site-footer">
       <div><strong>Wirtelprimpf</strong><p>Fortlaufende Geschichten und Bilder, ruhig archiviert und frei zugänglich.</p></div>
       <div class="footer-links">
-        {data.profile === "archive" && <a href={centralUrl}>Zur Zentrale</a>}
         <a href="/projekt/status/">Publikationsstatus</a>
         <a href={`https://github.com/H234598/${data.repository}`}>GitHub</a>
       </div>

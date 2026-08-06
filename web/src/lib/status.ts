@@ -2,7 +2,7 @@ export type FreshnessState = "fresh" | "warning" | "stale" | "unknown";
 
 export interface PublicWebStatus {
   schema_version: "1.0.0";
-  profile: "hub" | "archive";
+  profile: "hub";
   repository: string;
   archive_index: number | null;
   source_revision: string | null;
@@ -76,7 +76,7 @@ function safePublicPath(value: string | null, label: string): string | null {
 export function parsePublicWebStatus(value: unknown): PublicWebStatus {
   const root = record(value, "web status");
   if (root.schema_version !== "1.0.0") throw new Error("unsupported web status schema");
-  if (root.profile !== "hub" && root.profile !== "archive") throw new Error("invalid web status profile");
+  if (root.profile !== "hub") throw new Error("invalid web status profile");
   if (typeof root.repository !== "string" || !/^[A-Za-z0-9_.-]+$/.test(root.repository)) throw new Error("invalid web status repository");
   const sourceRevision = nullableString(root.source_revision, "source revision");
   if (sourceRevision !== null && !/^[0-9a-f]{40}$/.test(sourceRevision)) throw new Error("invalid source revision");

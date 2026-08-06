@@ -10,7 +10,7 @@ import {
 import { loadEpubDownloads, type EpubDownload } from "./epub.ts";
 
 
-export type SiteProfile = "hub" | "archive";
+export type SiteProfile = "hub";
 
 const BOOKS_PER_ARCHIVE = 5;
 const STORIES_PER_ARCHIVE = STORIES_PER_BOOK * BOOKS_PER_ARCHIVE;
@@ -19,7 +19,6 @@ export interface ArchiveEntry {
   archive_index: number;
   repository: string;
   github_url: string;
-  pages_url: string;
   volume_start: number;
   volume_end: number;
   book_start: number;
@@ -241,7 +240,7 @@ export function loadStories(dataRoot: string, profile: SiteProfile): StoryDocume
         return parseStoryDocument(readFileSync(resolve(directory, item.name), "utf8"), item.name, volume);
       })
       .sort((left, right) => left.volume - right.volume);
-    if (stories.length) return profile === "hub" ? [stories.at(-1)!] : stories;
+    if (stories.length) return [stories.at(-1)!];
   }
   return [];
 }
@@ -284,7 +283,6 @@ export function loadCatalog(dataRoot: string): ArchiveEntry[] {
       archive_index: archiveIndex,
       repository,
       github_url: stringValue(entry.github_url, "GitHub URL"),
-      pages_url: stringValue(entry.pages_url, "Pages URL"),
       volume_start: volumeStart,
       volume_end: volumeEnd,
       book_start: books.bookStart,
@@ -380,27 +378,19 @@ let cached: SiteData | undefined;
 
 export function loadSiteData(): SiteData {
   if (cached) return cached;
-  const profile: SiteProfile = process.env.WIRTELPRIMPF_SITE_PROFILE === "archive" ? "archive" : "hub";
+  const profile: SiteProfile = "hub";
   const dataRoot = resolve(process.env.WIRTELPRIMPF_DATA_ROOT || "../data");
   const owner = process.env.WIRTELPRIMPF_GITHUB_OWNER || "H234598";
   const catalog = loadCatalog(dataRoot);
-  const archiveManifestRaw = readJson(resolve(dataRoot, "archive-manifest.json"), false);
-  const archiveManifest = archiveManifestRaw === null ? null : objectValue(archiveManifestRaw, "archive manifest");
-  const archiveIndex = profile === "archive"
-    ? integerValue(archiveManifest?.archive_index ?? 1, "archive index")
-    : Number(catalog.find((entry) => entry.active)?.archive_index ?? 1);
-  const repository = profile === "archive"
-    ? stringValue(archiveManifest?.repository ?? `Wirtelprimpf-${String(archiveIndex).padStart(4, "0")}`, "repository")
-    : "Wirtelprimpf-generator";
-  const mediaRepository = profile === "archive"
-    ? repository
-    : (process.env.WIRTELPRIMPF_MEDIA_REPOSITORY
-      || catalog.find((entry) => entry.active)?.repository
-      || "Wirtelprimpf-0001");
+  const archiveIndex = Number(catalog.find((entry) => entry.active)?.archive_index ?? 1);
+  const repository = "Wirtelprimpf-generator";
+  const mediaRepository = process.env.WIRTELPRIMPF_MEDIA_REPOSITORY
+    || catalog.find((entry) => entry.active)?.repository
+    || "Wirtelprimpf-0001";
   const activeArchive = catalog.find((entry) => entry.active);
   const activeArchiveRepository = activeArchive?.repository ?? mediaRepository;
   const activeArchiveGithubUrl = activeArchive?.github_url ?? `https://github.com/${owner}/${activeArchiveRepository}`;
-  const domain = profile === "hub" ? "wirtelprimpf.telacore.org" : `wirtelprimpf-${String(archiveIndex).padStart(4, "0")}.telacore.org`;
+  const domain = "wirtelprimpf.telacore.org";
   const stories = loadStories(dataRoot, profile);
   const media = loadMedia(dataRoot, owner, mediaRepository, stories);
   const epubs = loadEpubDownloads(dataRoot, owner, mediaRepository);
@@ -411,7 +401,7 @@ export function loadSiteData(): SiteData {
     activeArchiveRepository,
     activeArchiveGithubUrl,
     domain,
-    title: process.env.WIRTELPRIMPF_SITE_TITLE || (profile === "hub" ? "Wirtelprimpfs Geschichtenatelier" : `Wirtelprimpf · Archiv ${String(archiveIndex).padStart(4, "0")}`),
+    title: process.env.WIRTELPRIMP_SITE_TITLE || "Wirtelprimpfs Geschichtenatelier",
     intro: process.env.WIRTELPRIMPF_SITE_INTRO || "Zwei Katzen, eine Möhre, eine Maus und ein fortlaufendes Abenteuer.",
     catalog,
     stories,

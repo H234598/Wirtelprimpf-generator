@@ -23,12 +23,13 @@ python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budg
 git diff --check
 ```
 
-Für ein Publikationsarchiv werden `--profile archive`, der Archiv-Datenroot und
-die konkrete Archivdomain gesetzt. Der Wrapper verwendet ein fixes
+Publikationsarchive werden als GitHub-Repositories gepflegt und nicht als
+eigene Websites gebaut. Der zentrale Hub übernimmt ihre geprüften Manifeste,
+Storys und Repository-Links. Der Wrapper verwendet ein fixes
 `SOURCE_DATE_EPOCH` aus der Quellrevision, prüft den Baum vor Veröffentlichung
 und tauscht ihn erst danach atomar aus. Ein erfolgreicher lokaler Build ist
-noch kein Deployment; dafür sind die externen Freigaben und die GitHub-Pages-
-Abnahme offen.
+noch kein Deployment; dafür sind die externen Freigaben und die zentrale
+GitHub-Pages-Abnahme offen.
 
 ## Öffentliche und interne Daten
 

@@ -30,13 +30,9 @@ from .cloudflare_aliases import (
     CATALOG_VERSION,
     EXPECTED_GROUPS,
     EXPECTED_GROUP_TARGETS,
-    NUMERIC_REDIRECT_EXPRESSION,
     AliasCatalog,
     CloudflareAliasError,
     load_alias_catalog,
-    numeric_alias_host,
-    numeric_alias_number,
-    numeric_redirect_location,
     validate_alias_catalog,
 )
 from .cloudflare_snapshot import (
@@ -68,6 +64,15 @@ from .cloudflare_audit import (
     CloudflareAuditError,
     collect_snapshot,
 )
+from .cloudflare_single_hub import (
+    NUMERIC_RULE_DESCRIPTION,
+    NUMERIC_RULE_REF,
+    CloudflareSingleHubError,
+    SingleHubRetirementPlan,
+    build_single_hub_retirement_plan,
+    retire_numeric_security_exceptions,
+    ruleset_update_payload,
+)
 
 __all__ = [
     "ARCHIVE_CAPACITY",
@@ -96,13 +101,9 @@ __all__ = [
     "CATALOG_VERSION",
     "EXPECTED_GROUPS",
     "EXPECTED_GROUP_TARGETS",
-    "NUMERIC_REDIRECT_EXPRESSION",
     "AliasCatalog",
     "CloudflareAliasError",
     "load_alias_catalog",
-    "numeric_alias_host",
-    "numeric_alias_number",
-    "numeric_redirect_location",
     "validate_alias_catalog",
     "SNAPSHOT_VERSION",
     "CloudflareSnapshotError",
@@ -125,6 +126,13 @@ __all__ = [
     "RULESET_PHASE",
     "CloudflareAuditError",
     "collect_snapshot",
+    "NUMERIC_RULE_DESCRIPTION",
+    "NUMERIC_RULE_REF",
+    "CloudflareSingleHubError",
+    "SingleHubRetirementPlan",
+    "build_single_hub_retirement_plan",
+    "retire_numeric_security_exceptions",
+    "ruleset_update_payload",
 ]
 
 __version__ = "1.1.0"

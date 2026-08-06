@@ -100,29 +100,20 @@ class RotationOrchestrator:
                     archive_index=transaction.target_archive_index,
                     domain=transaction.target_domain,
                 )
-                state = self._save_advanced(state, RotationPhase.RELEASE_AND_PAGES_READY, target_revision=revision)
+                state = self._save_advanced(state, RotationPhase.CATALOG_UPDATED, target_revision=revision)
                 continue
 
-            if phase is RotationPhase.RELEASE_AND_PAGES_READY:
-                self.github.ensure_pages(target, domain=transaction.target_domain)
-                self.dns.ensure_cname(
-                    transaction.target_domain,
-                    self.pages_target,
-                    comment=f"Wirtelprimpf {transaction.transaction_id}"[:100],
-                )
-                state = self._save_advanced(state, RotationPhase.DNS_CREATED)
+            if phase in (
+                RotationPhase.RELEASE_AND_PAGES_READY,
+                RotationPhase.DNS_CREATED,
+                RotationPhase.PAGES_DOMAIN_VERIFIED,
+            ):
+                # Legacy transactions may have stopped at the retired archive
+                # Pages/DNS phases. Continue from their local repository state.
+                state = self._save_advanced(state, RotationPhase.CATALOG_UPDATED)
                 continue
 
-            if phase is RotationPhase.DNS_CREATED:
-                if not self.github.verify_pages_and_enable_https(target, domain=transaction.target_domain):
-                    raise ProvisionPending(
-                        f"Pages/HTTPS is not ready for {target} at {transaction.target_domain}; "
-                        "rotation remains blocked"
-                    )
-                state = self._save_advanced(state, RotationPhase.PAGES_DOMAIN_VERIFIED)
-                continue
-
-            if phase is RotationPhase.PAGES_DOMAIN_VERIFIED:
+            if phase is RotationPhase.CATALOG_UPDATED:
                 catalog = self.catalog_store.load()
                 source = CatalogEntry.for_archive(
                     transaction.source_archive_index,
@@ -142,10 +133,6 @@ class RotationOrchestrator:
                 )
                 catalog = catalog.upsert(source).upsert(target_entry).with_active(transaction.target_archive_index)
                 self.catalog_store.save(catalog)
-                state = self._save_advanced(state, RotationPhase.CATALOG_UPDATED)
-                continue
-
-            if phase is RotationPhase.CATALOG_UPDATED:
                 if self.target_switcher is not None:
                     self.target_switcher.switch_target(target)
                 state = self._save_advanced(state, RotationPhase.ACTIVE_TARGET_SWITCHED)

@@ -45,7 +45,7 @@ class WebStatusTests(unittest.TestCase):
         status = build_status(
             root=self.root,
             data_root=self.data,
-            profile="archive",
+            profile="hub",
             built_at=datetime(2026, 8, 5, 4, 0, tzinfo=UTC),
             freshness_sla_seconds=3 * 60 * 60,
         )
@@ -118,7 +118,7 @@ class WebStatusTests(unittest.TestCase):
                 build_status(root=self.root, data_root=self.data, profile="hub")
 
     def test_write_status_uses_a_regular_json_file(self) -> None:
-        status = build_status(root=self.root, data_root=self.data, profile="archive")
+        status = build_status(root=self.root, data_root=self.data, profile="hub")
         output = self.root / "generated" / "status.json"
         write_status(output, status)
         self.assertEqual(json.loads(output.read_text(encoding="utf-8")), status)

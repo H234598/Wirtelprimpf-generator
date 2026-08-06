@@ -491,9 +491,9 @@ class OperationalStatusTests(unittest.TestCase):
         self.assertEqual(status["publication"]["pages"]["state"], "verified")
         self.assertEqual(
             status["publication"]["pages"]["value"],
-            "https://wirtelprimpf-0001.telacore.org",
+            "https://wirtelprimpf.telacore.org",
         )
-        self.assertEqual(status["publication"]["dns"]["value"], "wirtelprimpf-0001.telacore.org")
+        self.assertEqual(status["publication"]["dns"]["value"], "wirtelprimpf.telacore.org")
 
 
 if __name__ == "__main__":

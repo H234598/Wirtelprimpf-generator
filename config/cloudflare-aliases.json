@@ -137,15 +137,5 @@
       "markdown-cheatsheet",
       "formel1-cheatsheet"
     ]
-  },
-  "numeric_rule": {
-    "prefix": "wirtelprimpf-",
-    "digits": 4,
-    "minimum": 1,
-    "maximum": 9999,
-    "excluded": ["0000"],
-    "redirect_status": 301,
-    "preserve_path": true,
-    "preserve_query": true
   }
 }

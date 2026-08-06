@@ -4,17 +4,16 @@ import MediaCard from "../components/MediaCard.astro";
 import StoryPart from "../components/StoryPart.astro";
 import BaseLayout from "../layouts/BaseLayout.astro";
 import { sortStoryPartsNewestFirst } from "../lib/content.ts";
-import { archiveBookRange, loadSiteData } from "../lib/data.ts";
+import { loadSiteData } from "../lib/data.ts";
 
 const data = loadSiteData();
 const currentParts = data.currentStory ? sortStoryPartsNewestFirst(data.currentStory.parts) : [];
 const latestMedia = data.media.slice(0, 6);
-const archiveBooks = archiveBookRange(data.archiveIndex);
 ---
 <BaseLayout section="start">
   <section class="hero">
     <div class="hero-copy">
-      <span class="eyebrow">{data.profile === "hub" ? "Ein fortlaufendes Geschichtenuniversum" : `Bücher ${archiveBooks.bookStart}–${archiveBooks.bookEnd} · Storys ${(data.archiveIndex - 1) * 50 + 1}–${data.archiveIndex * 50}`}</span>
+      <span class="eyebrow">Ein fortlaufendes Geschichtenuniversum</span>
       <h1>Wo Katzen Unfug und Geschichte schreiben.</h1>
       <p class="lede">{data.intro} Hier landen neue Teile zuerst, ältere Abenteuer bleiben dauerhaft in ihren nummerierten Archiven erhalten.</p>
       <div class="button-row"><a href="#aktuelle-story">Neueste Story lesen</a><a href="/bilder/">Bilder entdecken →</a></div>

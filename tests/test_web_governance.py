@@ -35,7 +35,6 @@ ADR_DOC = Path("docs/adr/README.md")
 PROVENANCE = Path("PROVENANCE.md")
 MAKEFILE = Path("Makefile")
 WORKFLOW = Path(".github/workflows/check.yml")
-ARCHIVE_PAGES_WORKFLOW = Path(".github/workflows/archive-pages.yml")
 HUB_PAGES_WORKFLOW = Path(".github/workflows/hub-pages.yml")
 README = Path("README.md")
 GITIGNORE = Path(".gitignore")
@@ -97,7 +96,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
         target = Path(temporary.name)
         for relative in (
             PLAN, BASELINE, REVISIONS, STATUS, REQUIREMENTS, DECISIONS,
-            REQUIREMENTS_DOC, ADR_DOC, PROVENANCE, WORKFLOW, ARCHIVE_PAGES_WORKFLOW,
+            REQUIREMENTS_DOC, ADR_DOC, PROVENANCE, WORKFLOW,
             HUB_PAGES_WORKFLOW, MAKEFILE,
             README, GITIGNORE,
         ):
@@ -651,7 +650,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
 
     def test_pages_workflows_isolate_build_from_deploy_permissions(self) -> None:
         """Keeps Pages build validation unprivileged and deploy artifact-only."""
-        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+        for path in (HUB_PAGES_WORKFLOW,):
             with self.subTest(workflow=path):
                 workflow = (ROOT / path).read_text(encoding="utf-8")
                 jobs = workflow.split("\njobs:\n", 1)[1]
@@ -703,7 +702,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
         """Rejects workflow edits that let a failed build deploy or retain Pages tokens."""
         with self.copied_root() as temporary:
             root = Path(temporary)
-            workflow = root / ARCHIVE_PAGES_WORKFLOW
+            workflow = root / HUB_PAGES_WORKFLOW
             content = workflow.read_text(encoding="utf-8")
             workflow.write_text(
                 content.replace("      contents: read", "      contents: read\n      pages: write", 1),
@@ -714,7 +713,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
 
     def test_pages_governance_rejects_extra_build_permission(self) -> None:
         """Rejects any build permission beyond read-only repository contents."""
-        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+        for path in (HUB_PAGES_WORKFLOW,):
             with self.subTest(workflow=path), self.copied_root() as temporary:
                 root = Path(temporary)
                 workflow = root / path
@@ -728,7 +727,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
 
     def test_pages_governance_rejects_extra_deploy_permission(self) -> None:
         """Rejects any deploy permission beyond Pages write and OIDC token issuance."""
-        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+        for path in (HUB_PAGES_WORKFLOW,):
             with self.subTest(workflow=path), self.copied_root() as temporary:
                 root = Path(temporary)
                 workflow = root / path
@@ -754,7 +753,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 "Pages workflow deploy permissions",
             ),
         )
-        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+        for path in (HUB_PAGES_WORKFLOW,):
             for original, mutated, message in cases:
                 with self.subTest(workflow=path, permission=message), self.copied_root() as temporary:
                     root = Path(temporary)
@@ -788,7 +787,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
                 "Pages workflow deploy permissions",
             ),
         )
-        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+        for path in (HUB_PAGES_WORKFLOW,):
             for original, mutated, message in cases:
                 with (
                     self.subTest(workflow=path, permission=message, mutation=mutated),
@@ -820,7 +819,7 @@ class WebGovernanceValidationTests(unittest.TestCase):
             '  "release":\n    runs-on: ubuntu-24.04\n',
             "  Release:\n    runs-on: ubuntu-24.04\n",
         )
-        for path in (ARCHIVE_PAGES_WORKFLOW, HUB_PAGES_WORKFLOW):
+        for path in (HUB_PAGES_WORKFLOW,):
             for extra_job in extra_jobs:
                 with self.subTest(workflow=path, extra_job=extra_job), self.copied_root() as temporary:
                     root = Path(temporary)

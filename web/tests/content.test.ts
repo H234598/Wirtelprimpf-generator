@@ -93,7 +93,6 @@ test("catalog volume bounds must match the declared archive index", () => {
         archive_index: 1,
         repository: "Wirtelprimpf-0001",
         github_url: "https://github.com/H234598/Wirtelprimpf-0001",
-        pages_url: "https://wirtelprimpf-0001.telacore.org",
         volume_start: 51,
         volume_end: 100,
         verified: true,

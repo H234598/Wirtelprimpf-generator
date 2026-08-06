@@ -34,11 +34,11 @@ class NamingTests(unittest.TestCase):
     def test_global_volume_mapping_is_contiguous_at_boundaries(self) -> None:
         self.assertEqual(ARCHIVE_CAPACITY, 50)
         cases = {
-            1: (1, 1, "Wirtelprimpf-0001", "wirtelprimpf-0001.telacore.org"),
-            50: (1, 50, "Wirtelprimpf-0001", "wirtelprimpf-0001.telacore.org"),
-            51: (2, 1, "Wirtelprimpf-0002", "wirtelprimpf-0002.telacore.org"),
-            100: (2, 50, "Wirtelprimpf-0002", "wirtelprimpf-0002.telacore.org"),
-            101: (3, 1, "Wirtelprimpf-0003", "wirtelprimpf-0003.telacore.org"),
+            1: (1, 1, "Wirtelprimpf-0001", "wirtelprimpf.telacore.org"),
+            50: (1, 50, "Wirtelprimpf-0001", "wirtelprimpf.telacore.org"),
+            51: (2, 1, "Wirtelprimpf-0002", "wirtelprimpf.telacore.org"),
+            100: (2, 50, "Wirtelprimpf-0002", "wirtelprimpf.telacore.org"),
+            101: (3, 1, "Wirtelprimpf-0003", "wirtelprimpf.telacore.org"),
         }
         for volume, expected in cases.items():
             with self.subTest(volume=volume):
@@ -122,7 +122,7 @@ class PlatformStateTests(unittest.TestCase):
         self.assertEqual(staged.rotation.phase, RotationPhase.ARCHIVE_FINALIZED)
         self.assertEqual(staged.rotation.source_repository, "Wirtelprimpf-0001")
         self.assertEqual(staged.rotation.target_repository, "Wirtelprimpf-0002")
-        self.assertEqual(staged.rotation.target_domain, "wirtelprimpf-0002.telacore.org")
+        self.assertEqual(staged.rotation.target_domain, "wirtelprimpf.telacore.org")
         self.assertTrue(staged.generation_blocked)
 
         with self.assertRaisesRegex(ValueError, "rotation"):

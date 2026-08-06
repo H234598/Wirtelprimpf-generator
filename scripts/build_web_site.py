@@ -25,7 +25,6 @@ except ImportError:
 
 PROFILE_DOMAINS = {
     "hub": "wirtelprimpf.telacore.org",
-    "archive": "wirtelprimpf-0001.telacore.org",
 }
 DEFAULT_CATGPT_ENDPOINT = "https://catgpt.wirtelprimpf.telacore.org/v1/chat"
 ALLOWED_GENERATED_PATH = "web/src/generated/status.json"

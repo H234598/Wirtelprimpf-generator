@@ -48,7 +48,7 @@ class GitHubProvisionerTests(unittest.TestCase):
             revision = provisioner.initialize_archive(
                 "Wirtelprimpf-0002",
                 archive_index=2,
-                domain="wirtelprimpf-0002.telacore.org",
+                domain="wirtelprimpf.telacore.org",
             )
 
             ignore = (checkout / ".gitignore").read_text(encoding="utf-8")
@@ -86,6 +86,9 @@ class GitHubProvisionerTests(unittest.TestCase):
             readme = (checkout / "README.md").read_text(encoding="utf-8")
             self.assertIn("Storys 51 bis 100", readme)
             self.assertIn("Bücher 6 bis 10", readme)
+            self.assertIn("Zentrale Website: <https://wirtelprimpf.telacore.org>", readme)
+            self.assertIn("Repository: <https://github.com/H234598/Wirtelprimpf-0002>", readme)
+            self.assertFalse((checkout / ".github/workflows/pages.yml").exists())
 
 
 if __name__ == "__main__":

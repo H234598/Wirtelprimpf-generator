@@ -140,14 +140,13 @@ class WebBuildContractTests(unittest.TestCase):
         self.assertIn("check", scripts)
         self.assertIn("test", scripts)
 
-    def test_ci_builds_both_profiles_with_fail_closed_validators(self) -> None:
+    def test_ci_builds_only_the_single_hub_profile_with_fail_closed_validators(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("python3 scripts/build_web_site.py --profile hub", workflow)
-        self.assertIn("python3 scripts/build_web_site.py --profile archive", workflow)
         self.assertIn("WIRTELPRIMPF_SITE_PROFILE: hub", workflow)
-        self.assertIn("WIRTELPRIMPF_SITE_PROFILE: archive", workflow)
         self.assertIn("--expected-domain wirtelprimpf.telacore.org", workflow)
-        self.assertIn("--expected-domain wirtelprimpf-0001.telacore.org", workflow)
+        self.assertNotIn("--profile archive", workflow)
+        self.assertNotIn("wirtelprimpf-0001.telacore.org", workflow)
         self.assertIn("validate_pages_artifact.py", workflow)
         self.assertIn("validate_web_budgets.py", workflow)
 

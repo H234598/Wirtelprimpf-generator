@@ -232,37 +232,13 @@ class GitHubProvisioner:
             "schema_version": "1.0.0",
             "shards": [],
         }
-        workflow = f'''name: Publish Wirtelprimpf archive Pages
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
-jobs:
-  publish:
-    uses: {self.owner}/Wirtelprimpf-generator/.github/workflows/archive-pages.yml@{self.factory_ref}
-    with:
-      archive_index: "{archive_index}"
-      custom_domain: "{domain}"
-      factory_ref: "{self.factory_ref}"
-'''
         readme = f"""# {repository}
 
 Publikationsarchiv für die globalen Wirtelprimpf-Storys {volume_start} bis {volume_end}
 beziehungsweise die Bücher {book_start} bis {book_end}. Je zehn vollständig abgeschlossene Storys bilden ein Buch.
 
-- Website: <https://{domain}>
-- Zentrale: <https://wirtelprimpf.telacore.org>
+- Zentrale Website: <https://wirtelprimpf.telacore.org>
+- Repository: <https://github.com/{self.owner}/{repository}>
 - Generator und Seitenfabrik: <https://github.com/{self.owner}/Wirtelprimpf-generator>
 
 Dieses Repository enthält Publikationsdaten und Manifeste. Ausführbarer Generator-, Applet-, Admin- und
@@ -279,8 +255,9 @@ GitHub Releases; `main` enthält kleine, reviewbare Verweise und Storytexte.
             json.dumps(media_manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         )
         _atomic_text(path / ".gitignore", ARCHIVE_GITIGNORE)
-        _atomic_text(path / ".github/workflows/pages.yml", workflow)
-        _atomic_text(path / ".nojekyll", "")
+        for retired_path in (path / ".github/workflows/pages.yml", path / ".nojekyll"):
+            if retired_path.is_file() and not retired_path.is_symlink():
+                retired_path.unlink()
         source_license = self.generator_root / "LICENSE"
         if source_license.is_file() and not (path / "LICENSE").exists():
             shutil.copyfile(source_license, path / "LICENSE")

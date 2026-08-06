@@ -7,5 +7,5 @@ const { entry } = Astro.props;
   <span class="eyebrow">{entry.active ? "Aktuelles Archiv" : "Versiegeltes Archiv"}</span>
   <h3>{entry.repository}</h3>
   <p>Bücher {entry.book_start}–{entry.book_end} · Storys {entry.volume_start}–{entry.volume_end}</p>
-  <div class="card-actions"><a class="button" href={entry.pages_url}>Archiv öffnen</a><a href={entry.github_url}>Quellen</a></div>
+  <div class="card-actions"><a class="button" href={entry.github_url} rel="noopener noreferrer">Repository öffnen</a></div>
 </article>

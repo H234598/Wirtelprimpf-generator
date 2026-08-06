@@ -9,7 +9,7 @@ const mediaCard = readFileSync(new URL("components/MediaCard.astro", root), "utf
 const projectStatus = readFileSync(new URL("pages/projekt/status.astro", root), "utf8");
 
 test("approved public copy is exact and superseded wording is absent", () => {
-  assert.match(layout, /data\.profile === "hub" \? "Telacores:"/);
+  assert.match(layout, /<small>Telacores:<\/small>/);
   assert.doesNotMatch(layout, /Zentrale Landingpage/);
 
   assert.doesNotMatch(index, /Die kanonische Storyansicht bleibt zusätzlich chronologisch lesbar\./);
@@ -22,4 +22,6 @@ test("approved public copy is exact and superseded wording is absent", () => {
 
   assert.match(projectStatus, /Dass er unbedeutend ist, und nichts weiß\./);
   assert.doesNotMatch(projectStatus, /Keine Live-API, keine Trackingabfrage/);
+  const project = readFileSync(new URL("pages/projekt/index.astro", root), "utf8");
+  assert.doesNotMatch(project, /Diese Spiegelung wird bei jedem Build aus der README\.md erzeugt/);
 });

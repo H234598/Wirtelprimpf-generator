@@ -206,7 +206,7 @@ def build_status(
     built_at: datetime | None = None,
     freshness_sla_seconds: int = DEFAULT_FRESHNESS_SLA_SECONDS,
 ) -> dict[str, Any]:
-    if profile not in {"hub", "archive"}:
+    if profile != "hub":
         raise StatusError(f"invalid site profile: {profile!r}")
     if isinstance(freshness_sla_seconds, bool) or freshness_sla_seconds < 1:
         raise StatusError("freshness SLA must be positive")
@@ -235,12 +235,7 @@ def build_status(
     archive_index = manifest.get("archive_index")
     if not isinstance(archive_index, int) or isinstance(archive_index, bool) or archive_index < 1:
         archive_index = None
-    if profile == "hub":
-        resolved_repository = repository or "Wirtelprimpf-generator"
-    else:
-        resolved_repository = repository or manifest.get("archive_repository")
-        if not isinstance(resolved_repository, str) or not resolved_repository:
-            resolved_repository = "Wirtelprimpf-0001"
+    resolved_repository = repository or "Wirtelprimpf-generator"
     source_date_epoch_raw = os.environ.get("SOURCE_DATE_EPOCH")
     source_date_epoch: int | None = None
     if source_date_epoch_raw is not None:
@@ -320,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--data-root", type=Path)
-    parser.add_argument("--profile", choices=("hub", "archive"), default=os.environ.get("WIRTELPRIMPF_SITE_PROFILE", "hub"))
+    parser.add_argument("--profile", choices=("hub",), default=os.environ.get("WIRTELPRIMPF_SITE_PROFILE", "hub"))
     parser.add_argument("--repository")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--built-at")

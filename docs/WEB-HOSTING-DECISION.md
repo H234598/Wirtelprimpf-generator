@@ -1,5 +1,18 @@
 # Web-Hosting-Messstand
 
+## Aktueller Vertrag ab 6. August 2026
+
+Die öffentliche Veröffentlichung ist auf den zentralen Hub
+`https://wirtelprimpf.telacore.org` konzentriert. `Wirtelprimpf-0001`,
+`Wirtelprimpf-0002` und weitere Archive bleiben GitHub-Repositories und werden
+von den Archivkarten direkt verlinkt; sie erhalten keine eigenen Webseiten.
+Die Archiv-Pages-Workflow-Datei wurde aus der Fabrik entfernt. Der produktive
+Cloudflare-Rückbau von Wildcard-DNS, numerischem Redirect und numerischer
+SecurityRule-Ausnahme erfolgt separat mit Vorher-/Nachher-Snapshot und
+Read-back. Die folgenden Abschnitte sind historische Mess- und Abnahmebelege
+aus dem damaligen Mehrseitenstand und überschreiben diesen aktuellen Vertrag
+nicht.
+
 Der Messbericht beschreibt den lokal reproduzierbaren Stand. Der separate
 read-only Abschnitt weiter unten dokumentiert lediglich die beobachtete
 Liveantwort; er aktiviert weder GitHub Pages noch DNS, Cloudflare oder eine

@@ -10,6 +10,7 @@ BOOKS_PER_ARCHIVE = ARCHIVE_CAPACITY // STORIES_PER_BOOK
 MAX_ARCHIVE_INDEX = 9_999
 REPOSITORY_PREFIX = "Wirtelprimpf"
 DOMAIN_SUFFIX = "telacore.org"
+PUBLIC_HUB_HOST = "wirtelprimpf.telacore.org"
 
 
 def _positive_integer(value: int, *, label: str) -> int:
@@ -29,8 +30,9 @@ def archive_name(archive_index: int) -> str:
 
 
 def archive_domain(archive_index: int) -> str:
-    """Return the canonical lower-case custom domain for an archive."""
-    return f"{archive_name(archive_index).lower()}.{DOMAIN_SUFFIX}"
+    """Return the one public site used for every publication archive."""
+    archive_name(archive_index)
+    return PUBLIC_HUB_HOST
 
 
 @dataclass(frozen=True, slots=True)

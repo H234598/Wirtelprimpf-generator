@@ -8,7 +8,7 @@ import uuid
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
-from .naming import ARCHIVE_CAPACITY, STORIES_PER_BOOK, archive_domain, archive_name
+from .naming import ARCHIVE_CAPACITY, PUBLIC_HUB_HOST, STORIES_PER_BOOK, archive_name
 
 CATALOG_SCHEMA_VERSION = "1.0.0"
 
@@ -18,7 +18,6 @@ class CatalogEntry:
     archive_index: int
     repository: str
     github_url: str
-    pages_url: str
     volume_start: int
     volume_end: int
     active: bool
@@ -53,7 +52,6 @@ class CatalogEntry:
             archive_index=archive_index,
             repository=repository,
             github_url=f"https://github.com/{owner}/{repository}",
-            pages_url=f"https://{archive_domain(archive_index)}",
             volume_start=first_volume,
             volume_end=first_volume + ARCHIVE_CAPACITY - 1,
             active=active,
@@ -65,8 +63,6 @@ class CatalogEntry:
     def __post_init__(self) -> None:
         if self.repository != archive_name(self.archive_index):
             raise ValueError("catalog repository violates archive naming contract")
-        if self.pages_url != f"https://{archive_domain(self.archive_index)}":
-            raise ValueError("catalog Pages URL violates archive domain contract")
         expected_start = ((self.archive_index - 1) * ARCHIVE_CAPACITY) + 1
         if (self.volume_start, self.volume_end) != (expected_start, expected_start + ARCHIVE_CAPACITY - 1):
             raise ValueError("catalog story range violates five-book / 50-story contract")
@@ -129,6 +125,9 @@ def _catalog_entry_from_dict(payload: object) -> CatalogEntry:
     missing = object()
     provided_book_start = values.pop("book_start", missing)
     provided_book_end = values.pop("book_end", missing)
+    legacy_pages_url = values.pop("pages_url", None)
+    if legacy_pages_url not in (None, f"https://{PUBLIC_HUB_HOST}"):
+        raise ValueError("catalog Pages URL must point to the central hub")
     entry = CatalogEntry(**values)
     for label, provided, expected in (
         ("book_start", provided_book_start, entry.book_start),

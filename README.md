@@ -5,7 +5,7 @@ Wirtelprimpf.
 
 Dieses Repository enthält ausschließlich ausführbaren Code, Konfigurationstemplates, Tests, öffentliche
 Hub-Builddaten und die zentrale GitHub-Pages-Seite. Die eigentlichen Publikationen leben getrennt in
-fortlaufenden Archiven:
+fortlaufenden GitHub-Repositories:
 
 - `Wirtelprimpf-0001` für die vollständigen Storys 1 bis 50 beziehungsweise Bücher 1 bis 5;
 - `Wirtelprimpf-0002` für Storys 51 bis 100 beziehungsweise Bücher 6 bis 10;
@@ -14,8 +14,9 @@ fortlaufenden Archiven:
 Je zehn vollständig abgeschlossene Storys ergeben ein Buch. Ein späteres Archiv wird nicht vorab angelegt.
 Der Abschluss jeder 50. Story beziehungsweise jedes fünften Buchs gibt eine
 Warnung aus, speichert eine wiederaufnehmbare Rotation und provisioniert automatisch genau das nächste
-Repository samt Releases, GitHub Pages, DNS-only-CNAME, HTTPS und zentralem Katalog. Bis dieser Ablauf
-verifiziert ist, bleibt die nächste Generierung blockiert.
+Repository samt Releases und den zentralen Katalog. Eine neue Archiv-Webseite oder ein eigener Archiv-DNS-
+Eintrag wird nicht angelegt; alle Publikationen bleiben über die zentrale Website und ihr jeweiliges
+GitHub-Repository erreichbar. Bis dieser Ablauf verifiziert ist, bleibt die nächste Generierung blockiert.
 
 ## Medienvertrag
 
@@ -32,13 +33,15 @@ Der Derivatcache, der fail-closed Manifestvertrag und die Ressourcen-/Metadatenl
 
 ## Webseiten
 
-- Zentrale: <https://wirtelprimpf.telacore.org>
-- Archive: `https://wirtelprimpf-0001.telacore.org`, `…-0002…`, fortlaufend
+- Zentrale Website: <https://wirtelprimpf.telacore.org>
+- Archiv 0001: <https://github.com/H234598/Wirtelprimpf-0001>
+- Archiv 0002: <https://github.com/H234598/Wirtelprimpf-0002>
+- Weitere Archive folgen als GitHub-Repositories nach demselben Namensvertrag.
 
-Die Astro-Fabrik unter `web/` baut sowohl die zentrale Landingpage als auch jede Archivseite. Die Landingpage
-zeigt die vollständige aktuelle Story mit dem neuesten Teil zuerst. Vollständige Storyseiten bleiben
-chronologisch; die Bibliothek gruppiert jeweils zehn Storys zu einem Buch. Galerie, Bilddetails, Buchübersicht,
-Feed, Sitemap, Statusseiten und No-JavaScript-Kern werden
+Die Astro-Fabrik unter `web/` baut ausschließlich die zentrale Website. Sie zeigt die vollständige aktuelle
+Story mit dem neuesten Teil zuerst und verlinkt die Archivkarten direkt auf die jeweiligen GitHub-Repositories.
+Vollständige Storyseiten bleiben chronologisch; die Bibliothek gruppiert jeweils zehn Storys zu einem Buch.
+Galerie, Bilddetails, Buchübersicht, Feed, Sitemap, Statusseiten und No-JavaScript-Kern werden
 aus strikt validierten Manifesten erzeugt.
 
 ## Lokaler Betrieb
@@ -87,7 +90,7 @@ führt zusätzlich alle 30 Sekunden sowie beim Öffnen/Fokussieren einen Refresh
 die blockierenden CLI-Aufrufe; GTK wird ausschließlich über die Main-Loop-Completion aktualisiert.
 
 `GET /api/status` liefert ausschließlich lokalen, redigierten Betriebsstatus zu Generator, Timer,
-Konfiguration, Story/Buch/Archiv, lokalem Git, Releases, Hub, Pages/DNS und Auth-Präsenz. Der Collector ruft
+Konfiguration, Story/Buch/Archiv, lokalem Git, Releases, zentraler Website und Auth-Präsenz. Der Collector ruft
 weder OpenAI noch GitHub noch Cloudflare auf. Ein fehlender oder defekter lokaler Teil bleibt explizit
 `unknown`/`null` und setzt `health` auf `degraded`, statt Story 1 oder eine andere Erfolgslage zu erfinden.
 

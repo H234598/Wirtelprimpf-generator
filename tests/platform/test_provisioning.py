@@ -6,7 +6,7 @@ from pathlib import Path
 
 from wirtelprimpf_platform.catalog import CatalogStore
 from wirtelprimpf_platform.cloudflare_dns import CloudflareDNS, DNSConflictError
-from wirtelprimpf_platform.provision import ProvisionPending, RotationOrchestrator
+from wirtelprimpf_platform.provision import RotationOrchestrator
 from wirtelprimpf_platform.state import PlatformState, RotationPhase, StateStore, complete_volume
 
 
@@ -119,11 +119,9 @@ class RotationOrchestratorTests(unittest.TestCase):
         self.assertEqual(result.active_repository, "Wirtelprimpf-0002")
         self.assertIsNone(result.rotation)
         self.assertEqual([name for name, _ in self.github.operations], [
-            "reserve", "create", "clone", "initialize", "pages", "verify"
+            "reserve", "create", "clone", "initialize"
         ])
-        self.assertEqual(self.dns.operations, [
-            ("wirtelprimpf-0002.telacore.org", "h234598.github.io")
-        ])
+        self.assertEqual(self.dns.operations, [])
         self.assertEqual(self.switcher.repositories, ["Wirtelprimpf-0002"])
         catalog = self.catalog_store.load()
         entry = catalog.entry(2)
@@ -171,22 +169,16 @@ class RotationOrchestratorTests(unittest.TestCase):
         self.assertIsNone(completed.rotation)
         self.assertEqual(self.switcher.repositories, ["Wirtelprimpf-0002", "Wirtelprimpf-0002"])
 
-    def test_unready_pages_stays_blocked_and_resumes_at_verification(self) -> None:
+    def test_rotation_does_not_create_archive_pages_or_dns(self) -> None:
         self.stage_boundary()
         self.github.pages_ready = False
 
-        with self.assertRaises(ProvisionPending):
-            self.orchestrator().run()
-
-        pending = self.state_store.load()
-        assert pending.rotation is not None
-        self.assertEqual(pending.rotation.phase, RotationPhase.DNS_CREATED)
-        self.assertTrue(pending.generation_blocked)
-
-        self.github.pages_ready = True
         completed = self.orchestrator().run()
         self.assertIsNone(completed.rotation)
         self.assertEqual([name for name, _ in self.github.operations].count("create"), 1)
+        self.assertNotIn("pages", [name for name, _ in self.github.operations])
+        self.assertNotIn("verify", [name for name, _ in self.github.operations])
+        self.assertEqual(self.dns.operations, [])
 
 
 class FakeCloudflareTransport:

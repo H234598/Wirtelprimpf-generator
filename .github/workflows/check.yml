@@ -201,18 +201,6 @@ jobs:
           python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org
           python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
 
-      - name: Build and validate archive profile
-        env:
-          PUBLIC_CATGPT_LIGHT_ENDPOINT: https://catgpt.wirtelprimpf.telacore.org/v1/chat
-          WIRTELPRIMPF_DATA_ROOT: ${{ github.workspace }}/web/fixtures/site
-          WIRTELPRIMPF_SITE_PROFILE: archive
-          WIRTELPRIMPF_SITE_URL: https://wirtelprimpf-0001.telacore.org
-        run: |
-          python3 scripts/build_web_site.py --profile archive --site-url https://wirtelprimpf-0001.telacore.org --expected-domain wirtelprimpf-0001.telacore.org --data-root "${{ github.workspace }}/web/fixtures/site" --check
-          grep -R -n "connect-src https://catgpt\.wirtelprimpf\.telacore\.org" web/dist
-          python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org
-          python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict
-
       - name: Verify source checkout remains unchanged
         run: |
           git diff --exit-code -- . ':(exclude)web/src/generated/status.json'

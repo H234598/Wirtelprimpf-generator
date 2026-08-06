@@ -22,7 +22,6 @@ REQUIREMENTS_DOC_PATH = Path("docs/requirements/WIRTELPRIMPF-WEBSEITE.md")
 ADR_DOC_PATH = Path("docs/adr/README.md")
 PROVENANCE_PATH = Path("PROVENANCE.md")
 WORKFLOW_PATH = Path(".github/workflows/check.yml")
-ARCHIVE_PAGES_WORKFLOW_PATH = Path(".github/workflows/archive-pages.yml")
 HUB_PAGES_WORKFLOW_PATH = Path(".github/workflows/hub-pages.yml")
 MAKEFILE_PATH = Path("Makefile")
 README_PATH = Path("README.md")
@@ -123,7 +122,7 @@ CI_STEP_NAMES = {
         "Checkout site factory", "Set up Node.js", "Install exact web dependencies",
         "Test and type-check the site factory", "Install Chromium for browser gates",
         "Run browser, accessibility, and performance gates", "Build and validate hub profile",
-        "Build and validate archive profile", "Verify source checkout remains unchanged",
+        "Verify source checkout remains unchanged",
         "Upload web diagnostics",
     ),
 }
@@ -158,10 +157,6 @@ CI_JOB_COMMANDS = {
         'grep -R -n "connect-src https://catgpt\\.wirtelprimpf\\.telacore\\.org" web/dist',
         "python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf.telacore.org",
         "python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict",
-        "python3 scripts/build_web_site.py --profile archive --site-url https://wirtelprimpf-0001.telacore.org --expected-domain wirtelprimpf-0001.telacore.org --data-root \"${{ github.workspace }}/web/fixtures/site\" --check",
-        'grep -R -n "connect-src https://catgpt\\.wirtelprimpf\\.telacore\\.org" web/dist',
-        "python3 scripts/validate_pages_artifact.py web/dist --expected-domain wirtelprimpf-0001.telacore.org",
-        "python3 scripts/validate_web_budgets.py --root web/dist --config config/web-budgets.json --strict",
         "git diff --exit-code -- . ':(exclude)web/src/generated/status.json'",
         "unexpected=\"$(git ls-files --others --exclude-standard | grep -v '^web/src/generated/status\\.json$' || true)\"",
         "test -z \"$unexpected\"",
@@ -187,6 +182,7 @@ REQUIRED_MAKE_CHECK_COMMANDS = (
     "$(PYTHON) tests/test_pages_artifact.py",
     "$(PYTHON) tests/test_web_build.py",
     "$(PYTHON) tests/test_check_equivalence.py",
+    "$(PYTHON) -m unittest tests.test_cloudflare_single_hub",
     "$(PYTHON) -m unittest tests.test_rollout_plan_contract",
     "$(PYTHON) -m unittest tests.test_web_plan", "$(PYTHON) -m unittest tests.test_web_inventory", "$(PYTHON) -m unittest tests.test_web_content_schemas", "$(PYTHON) -m unittest tests.test_web_ids", "$(PYTHON) -m unittest tests.test_web_pairing", "$(PYTHON) -m unittest tests.test_web_content_errors", "$(PYTHON) -m unittest tests.test_web_manifest", "$(PYTHON) -m unittest tests.test_web_media_measurement", "$(PYTHON) -m unittest tests.test_web_relations", "$(PYTHON) -m unittest tests.test_web_workflows",
     "$(PYTHON) tests/test_web_governance.py",
@@ -475,7 +471,6 @@ def validate_pages_workflow(root: Path, path: Path) -> None:
 
 
 def validate_pages_workflows(root: Path) -> None:
-    validate_pages_workflow(root, ARCHIVE_PAGES_WORKFLOW_PATH)
     validate_pages_workflow(root, HUB_PAGES_WORKFLOW_PATH)
     hub = read_text(root, HUB_PAGES_WORKFLOW_PATH)
     triggers = hub.split("on:\n", 1)[1].split("\npermissions:\n", 1)[0]
