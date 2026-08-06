@@ -5823,3 +5823,22 @@ Damit ist der aktuelle öffentliche Original-/Derivat-/4K-Releasevertrag für di
 - Die Prüfung erfolgte ausschließlich lesend über das aktuelle Archivmanifest und die unveränderlichen GitHub-Releaseassets. Es wurden keine Binärdaten, Releases, Manifeste oder Arbeitskopien verändert.
 
 Damit ist der externe Original-/Derivatvertrag über drei Archivstände hinweg reproduzierbar bestätigt; eine vollständige Assetprüfung und Betreiberabnahme bleiben als unabhängige Restgates offen.
+
+### WEB-P10-01-Current-Status-Freshness-Audit am 6. August 2026, 09:19 CEST
+
+- Der read-only Abgleich gegen den aktuellen Archiv-HEAD `017fa3bb8507bcc0782dd139663f7f83e40eb486` und dessen `804` Medien ermittelte als neuestes Bild `archive-0001-ab3abfbbe98cf518-c480a7f4`. Die Quelle ist `Wirtelprimpf/wirtelprimpf_2026-08-05_20-23-48-880481.png` aus Release `archive-0001-media-0005`.
+- Story II umfasst `275` Kapitel. Das neueste Kapitel trägt den Zeitstempel `2026-08-05 20:23:28` und die stabile ID `band-0002-teil-7f47a32fb939`.
+- Die produktive Seite `/projekt/status/` enthält beide kanonischen Links `/bilder/archive-0001-ab3abfbbe98cf518-c480a7f4/` und `/geschichten/2/band-0002-teil-7f47a32fb939/`; die Freshness-Sektion ist ebenfalls vorhanden.
+- Der Lauf las ausschließlich Archivmanifest, Storyquelle und die öffentliche Statusseite. Es wurden keine Quellen, Manifeste, Releases oder Arbeitskopien verändert.
+
+Damit ist der aktuelle öffentliche Freshness-/Statuslink-Vertrag gegen den aktuellen Archivstand nachgewiesen; Pages-Zertifikat, manuelle Betreiberabnahme und die echte 90-Tage-Historie bleiben unabhängige Restgates.
+
+### WEB-P11-04-Freigegebener-DNS-only-und-Pages-HTTPS-Versuch am 6. August 2026, 09:26 CEST
+
+- Die Freigabe für Pages-HTTPS-Enforcement, ein zeitlich begrenztes DNS-only-Wartungsfenster und die Besitzerattestation der Provenienz wurde erteilt. Die manuelle Screenreader-/Zoom-/Touch-Abnahme war davon ausdrücklich nicht umfasst.
+- Vor der Mutation wurde der kanonische Record `82588621913193e7a712952792f19248` exakt als CNAME `wirtelprimpf.telacore.org -> h234598.github.io` mit `proxied=true` gelesen. Ausschließlich dieses `proxied`-Flag wurde temporär auf `false` gesetzt; SecurityRule `acbaba3eee5341d39386d0c4ff52dada`, alle übrigen Recordfelder und alle geschützten Aliase blieben unangetastet.
+- GitHub Pages wurde zwölfmal innerhalb des Wartungsfensters geprüft. Nach der DNS-Konvergenz meldete der Health-Endpunkt `is_valid=true`, `is_served_by_pages=true` und `responds_to_https=true`, aber weiterhin `is_https_eligible=false`. Weil das Pages-Zertifikat damit nicht bereitstand, wurde `https_enforced=true` nicht angefordert.
+- Der CNAME wurde anschließend fail-safe wieder auf `proxied=true` gesetzt und per Read-back bestätigt. Der öffentliche HTTP/2-/Cloudflare-Zugang blieb erhalten; es wurde kein weiterer DNS- oder SecurityRule-Eingriff vorgenommen.
+- `PROVENANCE.md` enthält die freigegebene Betreiberattestation, dass die verwendeten Quelltexte, Texte, Bilder und sonstigen Assets selbst erstellt wurden und die erforderlichen Nutzungs- und Lizenzrechte vorliegen. Das ist eine Besitzererklärung, kein unabhängiger Rechtsnachweis.
+
+Damit ist der DNS-Wartungsversuch sicher abgeschlossen; das von GitHub Pages ausgestellte Zertifikat und `https_enforced=true` bleiben bis zur externen Zertifikatsbereitstellung offen.
