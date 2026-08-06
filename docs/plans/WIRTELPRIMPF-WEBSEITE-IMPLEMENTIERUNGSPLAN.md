@@ -5592,3 +5592,19 @@ manuelle Abnahme und die echte 90-Tage-Historie bleiben offen.
 
 Damit ist der technische Gesamtcheck geschlossen; die unabhängigen externen
 und zeitgebundenen Gates bleiben offen.
+
+### WEB-P08-03-ARIA-Namensvertrag am 6. August 2026, 08:06 CEST
+
+- `web/tests/browser/aria-names.spec.ts` prüft mit Playwright-ARIA-Snapshots
+  die benannte Hauptnavigation, die CatGPT-Modusgruppe, die Galeriefilter mit
+  `Favoriten`, die Seitennavigation sowie die benannte Kapitelnavigation.
+- Der neue Vertrag besteht isoliert mit `3/3` Tests und gemeinsam mit der
+  vollständigen Browser-Suite mit `37` ausgeführten Tests; ein Worker-
+  abhängiger CatGPT-L-Test bleibt separat übersprungen. `astro check` meldet
+  `0` Fehler, Warnungen und Hinweise.
+- Der ARIA-Snapshot ist ein reproduzierbarer technischer Screenreader-
+  Namensnachweis. Er ersetzt ausdrücklich weder die manuelle Bedienung mit
+  Orca/Firefox noch die Betreiberabnahme von Sprache, Fokusgefühl und Touch.
+
+Damit ist der technische ARIA-Namensvertrag geschlossen; die manuelle
+Screenreader-/Betreiberabnahme und die echte 90-Tage-Historie bleiben offen.
