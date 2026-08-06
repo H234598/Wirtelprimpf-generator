@@ -63,6 +63,19 @@ test("project page mirrors media documents and links archive repositories", asyn
   await expect(page.locator("main")).toContainText("Web-Mediensicherheit");
 });
 
+test("mirrored media documents keep the document heading close to the page lede", async ({ page }) => {
+  for (const route of ["/projekt/web-media/", "/projekt/web-media-security/"]) {
+    await page.goto(route, { waitUntil: "domcontentloaded" });
+    const gap = await page.evaluate(() => {
+      const lede = document.querySelector(".page-heading .lede");
+      const documentContent = document.querySelector(".readme-document .prose");
+      if (!(lede instanceof HTMLElement) || !(documentContent instanceof HTMLElement)) throw new Error("document content contract missing");
+      return documentContent.getBoundingClientRect().top - lede.getBoundingClientRect().bottom;
+    });
+    expect(gap).toBeLessThan(64);
+  }
+});
+
 test("project tiles keep the requested columns and compact row spacing", async ({ page }) => {
   for (const viewport of [{ width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(viewport);

@@ -14,7 +14,7 @@ const sections = loadReadmeSections([
 ]).map((section, index) => ({ ...section, id: sectionIds[index]! }));
 ---
 <BaseLayout title="Lokaler Betrieb" section="projekt">
-  <header class="page-heading"><span class="eyebrow">Projektbetrieb</span><h1>Lokaler Betrieb</h1><p class="lede">Einstellungen, Betriebsstatus sowie Backup und Wiederherstellung aus der aktuellen Projekt-README, automatisch in diese Seite gespiegelt.</p></header>
+  <header class="page-heading"><span class="eyebrow">Projektbetrieb</span><h1>Lokaler Betrieb</h1></header>
   <section class="section readme-document" aria-label="Dokumentation zum lokalen Betrieb">
     {sections.map((section) => <section class="readme-section" id={section.id} aria-labelledby={`${section.id}-heading`}><h2 id={`${section.id}-heading`}>{section.title}</h2><div class="prose" set:html={section.html} /></section>)}
   </section>
