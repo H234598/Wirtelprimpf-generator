@@ -33,6 +33,7 @@ check:
 	$(PYTHON) -m unittest tests.test_settings_schema
 	$(PYTHON) -m unittest tests.test_story_directives
 	$(PYTHON) -m unittest tests.test_flex_contract
+	$(PYTHON) -m unittest tests.test_image_batch_contract
 	$(PYTHON) -m unittest tests.test_story_blueprint
 	$(PYTHON) -m unittest tests.test_epub_builder
 	$(PYTHON) -m unittest tests.test_epub_manifest_builder

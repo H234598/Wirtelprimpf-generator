@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import urllib.request
+from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,6 +26,9 @@ ABOUT_IMAGE_CHOICES = {
     "story": "settings-about-story.png",
     "book": "settings-about-book.png",
 }
+VOICE_DOWNLOAD_MAX_BYTES = 512 * 1024 * 1024
+
+
 def _choice_asset(choices, value, default_key):
     selected = (value or default_key).strip()
     return choices.get(selected, choices[default_key])
@@ -696,9 +700,37 @@ class PiperModelChooser(SettingsWidget):
             GLib.idle_add(self._download_finished, "", str(exc))
 
     def _download_url(self, url, target):
-        tmp = target + ".tmp"
-        urllib.request.urlretrieve(url, tmp)
-        os.replace(tmp, target)
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.netloc != "huggingface.co":
+            raise ValueError("Stimmendownload ist nur von huggingface.co über HTTPS erlaubt")
+        if not parsed.path.startswith("/Thorsten-Voice/Piper/resolve/main/"):
+            raise ValueError("unerlaubter Pfad für Stimmendownload")
+
+        target_path = os.path.abspath(os.path.expanduser(target))
+        if os.path.islink(target_path):
+            raise ValueError("Ziel für Stimmendownload darf kein Symlink sein")
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        tmp = target_path + ".tmp"
+        if os.path.lexists(tmp):
+            os.unlink(tmp)
+        request = urllib.request.Request(url, headers={"User-Agent": "wirtelprimpf-settings"})
+        total = 0
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response, open(tmp, "xb") as output:  # nosec B310
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > VOICE_DOWNLOAD_MAX_BYTES:
+                        raise ValueError("Stimmendownload überschreitet das Größenlimit")
+                    output.write(chunk)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(tmp, target_path)
+        finally:
+            if os.path.lexists(tmp):
+                os.unlink(tmp)
 
     def _download_finished(self, model_path, error):
         self.download_button.set_sensitive(True)

@@ -63,7 +63,7 @@ class FlexContractTests(unittest.TestCase):
             ):
                 self.assertEqual(self.generator.parse_flex_processing(), "flex")
 
-    def test_only_explicit_service_tier_unsupported_error_drops_flex_once(self) -> None:
+    def test_image_retries_never_add_service_tier(self) -> None:
         request = {"model": "gpt-image-2", "prompt": "cat"}
         client = FakeClient([RuntimeError("temporary timeout")])
 

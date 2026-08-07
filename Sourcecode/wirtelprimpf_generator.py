@@ -82,6 +82,8 @@ IMAGE_BATCH_MODE_ON: Final = "on"
 IMAGE_BATCH_MODES = frozenset({IMAGE_BATCH_MODE_DEFAULT, IMAGE_BATCH_MODE_ON})
 IMAGE_BATCH_PENDING_NAME: Final = ".image-batch-pending.json"
 IMAGE_BATCH_STATE_MAX_BYTES: Final = 4 * 1024 * 1024
+IMAGE_BATCH_MAX_ENTRIES: Final = 100
+IMAGE_BATCH_OUTPUT_MAX_BYTES: Final = 200 * 1024 * 1024
 IMAGE_SIZE_PATTERN: Final = r"^\d+x\d+$"
 IMAGE_SIZE_PATTERN_RE: Final = re.compile(IMAGE_SIZE_PATTERN)
 OUTPUT_RESOLUTION_ALIASES: Final = {
@@ -2402,38 +2404,70 @@ def _serialize_generation_plan(plan: GenerationPlan) -> dict[str, object]:
 def _deserialize_generation_plan(payload: object) -> GenerationPlan:
     if not isinstance(payload, dict) or not isinstance(payload.get("prompt"), str):
         raise ValueError("image batch contains an invalid generation plan")
+    kind = payload.get("kind", OPERANDI_CLASSIC)
+    if not isinstance(kind, str) or kind not in {OPERANDI_CLASSIC, OPERANDI_STORY, MEDIA_KIND_UNKNOWN}:
+        raise ValueError("image batch contains an invalid generation kind")
+
+    def optional_text(key: str) -> str | None:
+        value = payload.get(key)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"image batch contains an invalid {key}")
+        return value
+
     state_payload = payload.get("story_state_after_success")
     state = None
     if state_payload is not None:
         if not isinstance(state_payload, dict):
             raise ValueError("image batch contains an invalid story state")
+        expected_state_keys = {
+            "current_volume",
+            "closing_remaining",
+            "closing_total",
+            "pending_new_volume",
+            "close_request_seen",
+        }
+        if set(state_payload) != expected_state_keys:
+            raise ValueError("image batch contains an incomplete story state")
+
+        def state_int(key: str) -> int:
+            value = state_payload[key]
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError("image batch contains an invalid story state integer")
+            return value
+
+        def state_bool(key: str) -> bool:
+            value = state_payload[key]
+            if not isinstance(value, bool):
+                raise ValueError("image batch contains an invalid story state boolean")
+            return value
+
+        current_volume = state_int("current_volume")
+        if current_volume < 1:
+            raise ValueError("image batch contains an invalid story volume")
         state = StoryState(
-            current_volume=int(state_payload["current_volume"]),
-            closing_remaining=int(state_payload["closing_remaining"]),
-            closing_total=int(state_payload["closing_total"]),
-            pending_new_volume=bool(state_payload["pending_new_volume"]),
-            close_request_seen=bool(state_payload["close_request_seen"]),
+            current_volume=current_volume,
+            closing_remaining=state_int("closing_remaining"),
+            closing_total=state_int("closing_total"),
+            pending_new_volume=state_bool("pending_new_volume"),
+            close_request_seen=state_bool("close_request_seen"),
         )
     document_path = payload.get("story_document_path")
     if document_path is not None and not isinstance(document_path, str):
         raise ValueError("image batch contains an invalid story document path")
+    if document_path == "":
+        raise ValueError("image batch contains an empty story document path")
+    title_after_success = payload.get("story_title_after_success", False)
+    if not isinstance(title_after_success, bool):
+        raise ValueError("image batch contains an invalid title flag")
     return GenerationPlan(
         prompt=validate_prompt(payload["prompt"]),
-        kind=str(payload.get("kind", OPERANDI_CLASSIC)),
-        story_part=payload.get("story_part") if isinstance(payload.get("story_part"), str) else None,
-        story_entry_markdown=(
-            payload.get("story_entry_markdown")
-            if isinstance(payload.get("story_entry_markdown"), str)
-            else None
-        ),
-        story_document_append=(
-            payload.get("story_document_append")
-            if isinstance(payload.get("story_document_append"), str)
-            else None
-        ),
+        kind=kind,
+        story_part=optional_text("story_part"),
+        story_entry_markdown=optional_text("story_entry_markdown"),
+        story_document_append=optional_text("story_document_append"),
         story_document_path=Path(document_path) if document_path else None,
         story_state_after_success=state,
-        story_title_after_success=bool(payload.get("story_title_after_success", False)),
+        story_title_after_success=title_after_success,
     )
 
 
@@ -2457,6 +2491,8 @@ def _batch_response_text(content: object) -> str:
 def _read_image_batch_results(client: OpenAI, output_file_id: str) -> dict[str, str]:
     results: dict[str, str] = {}
     raw = _batch_response_text(client.files.content(output_file_id))
+    if len(raw.encode("utf-8")) > IMAGE_BATCH_OUTPUT_MAX_BYTES:
+        raise RuntimeError("completed image batch output exceeds the size limit")
     for line in raw.splitlines():
         if not line.strip():
             continue
@@ -2546,7 +2582,12 @@ def _resume_image_batch(
     if not pending_path.is_file() or pending_path.stat().st_size > IMAGE_BATCH_STATE_MAX_BYTES:
         raise RuntimeError("image batch state must be a regular file within the size limit")
     payload = json.loads(pending_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or not isinstance(payload.get("batch_id"), str):
+    if (
+        not isinstance(payload, dict)
+        or payload.get("version") != 1
+        or not isinstance(payload.get("batch_id"), str)
+        or not isinstance(payload.get("input_file_id"), str)
+    ):
         raise RuntimeError("image batch state is invalid")
     batch = client.batches.retrieve(payload["batch_id"])
     status = str(getattr(batch, "status", "unknown"))
@@ -2560,22 +2601,38 @@ def _resume_image_batch(
         raise RuntimeError("completed image batch has no output file")
     results = _read_image_batch_results(client, output_file_id)
     entries = payload.get("entries")
-    if not isinstance(entries, list):
-        raise RuntimeError("image batch state has no entries")
+    if not isinstance(entries, list) or not 0 < len(entries) <= IMAGE_BATCH_MAX_ENTRIES:
+        raise RuntimeError("image batch state has an invalid entry count")
     plans: list[GenerationPlan] = []
     stems: dict[int, str] = {}
     images: dict[str, str] = {}
+    seen_custom_ids: set[str] = set()
+    seen_stems: set[str] = set()
     for index, entry in enumerate(entries, start=1):
         if not isinstance(entry, dict) or not isinstance(entry.get("custom_id"), str):
             raise RuntimeError("image batch state has an invalid entry")
         if not isinstance(entry.get("stem"), str) or not isinstance(entry.get("plan"), dict):
             raise RuntimeError("image batch state has an invalid entry payload")
-        image_b64 = results.get(entry["custom_id"])
+        custom_id = entry["custom_id"]
+        stem = entry["stem"]
+        if (
+            not re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", custom_id)
+            or custom_id in seen_custom_ids
+            or not re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", stem)
+            or stem in seen_stems
+        ):
+            raise RuntimeError("image batch state has duplicate or unsafe identifiers")
+        seen_custom_ids.add(custom_id)
+        seen_stems.add(stem)
+        image_b64 = results.get(custom_id)
         if image_b64 is None:
-            raise RuntimeError(f"image batch result missing for {entry['custom_id']}")
-        plans.append(_deserialize_generation_plan(entry["plan"]))
-        stems[index] = entry["stem"]
-        images[entry["stem"]] = image_b64
+            raise RuntimeError(f"image batch result missing for {custom_id}")
+        plan = _deserialize_generation_plan(entry["plan"])
+        if plan.story_document_path is not None and plan.story_document_path != config.story_document_path:
+            raise RuntimeError("image batch story document path does not match current configuration")
+        plans.append(plan)
+        stems[index] = stem
+        images[stem] = image_b64
     pending_path.unlink()
     print(f"Image batch completed: {payload['batch_id']}; processing {len(plans)} image(s).")
     return plans, stems, images
