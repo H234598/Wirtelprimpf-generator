@@ -41,6 +41,7 @@ the small manifest committed to the active publication archive.
 - `systemd-user/wirtelprimpf.service`: optional scheduled story-generation service template.
 - `systemd-user/wirtelprimpf-atelier.service`: optional manual classic/atelier-generation service template.
 - `systemd-user/wirtelprimpf.timer`: optional two-hour timer template.
+- `systemd-user/wirtelprimpf-atelier.timer`: optional two-hour atelier timer template.
 
 ## Requirements
 
@@ -75,6 +76,8 @@ install -Dm0644 Sourcecode/wirtelprimpf_story_prompt_config.md ~/.config/wirtelp
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf.service ~/.config/systemd/user/wirtelprimpf.service
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf-atelier.service ~/.config/systemd/user/wirtelprimpf-atelier.service
 install -Dm0644 Sourcecode/systemd-user/wirtelprimpf.timer ~/.config/systemd/user/wirtelprimpf.timer
+install -Dm0644 Sourcecode/systemd-user/wirtelprimpf-atelier.timer ~/.config/systemd/user/wirtelprimpf-atelier.timer
+systemctl --user daemon-reload
 ```
 
 The Cinnamon installation path can install the same shared helper together with
@@ -294,8 +297,8 @@ WIRTELPRIMPF_OUTPUT_RESOLUTION=2k
 `WIRTELPRIMPF_OUTPUT_RESOLUTION=2k` writes a final `2560x1440` PNG. Other
 supported aliases are `4k` (`3840x2160`), `qhd`, `1440p`, `uhd`, `2160p`,
 `original`, `source`, and `none`. Custom values like `1920x1080` are accepted.
-Flex Processing ist standardmäßig aktiv und wird als `service_tier: flex` an die
-OpenAI-Images-API-Anfrage angehängt.
+Flex Processing ist standardmäßig aktiv und wird als `service_tier: flex` nur an
+die Textgenerierung gesendet. Bildrequests erhalten keinen Flex-Service-Tier.
 
 Steuerung:
 
@@ -313,6 +316,16 @@ WIRTELPRIMPF_FLEX_PROCESSING=flex
 
 Wenn `WIRTELPRIMPF_FLEX_PROCESSING` nicht gesetzt ist, bleibt Flex Processing
 an.
+
+### Image Batch API
+
+Mit `WIRTELPRIMPF_IMAGE_BATCH_MODE=on` werden Bildrequests als asynchroner
+OpenAI-Batch über `/v1/images/generations` eingereicht. Der erste Lauf legt
+einen privaten Pending-Zustand im Working-Verzeichnis an; ein späterer Lauf
+holt das Ergebnis ab und veröffentlicht es. Der Standardwert `off` nutzt den
+direkten Images-Request. Der Batch-Modus hat das dokumentierte Abschlussfenster
+von bis zu 24 Stunden und darf deshalb nicht als sofortige Bildantwort behandelt
+werden.
 
 ## Manual Run
 

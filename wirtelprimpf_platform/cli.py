@@ -83,14 +83,21 @@ def _build_settings_only_parser() -> argparse.ArgumentParser:
 
 def build_settings_manager() -> SettingsManager:
     paths = SettingsPaths.for_home(Path.home())
-    return SettingsManager(paths, systemd=SystemdUserManager(paths.timer_dropin))
+    return SettingsManager(
+        paths,
+        systemd=SystemdUserManager(paths.timer_dropin, timer_unit="wirtelprimpf.timer"),
+        atelier_systemd=SystemdUserManager(
+            paths.atelier_timer_dropin,
+            timer_unit="wirtelprimpf-atelier.timer",
+        ),
+    )
 
 
 def build_status_collector(manager: SettingsManager) -> OperationalStatusCollector:
     return OperationalStatusCollector(
         paths=StatusPaths.from_settings_paths(manager.paths),
         snapshot_reader=manager.snapshot,
-        timer_reader=manager.systemd.observe_timer,
+        timer_reader=manager.effective_timer_observe,
     )
 
 

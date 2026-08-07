@@ -154,8 +154,24 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         web=True,
         applet=True,
     ),
+    "image_batch_mode": _string(
+        "WIRTELPRIMPF_IMAGE_BATCH_MODE",
+        "off",
+        choices=("off", "on"),
+        max_length=3,
+        web=True,
+        applet=True,
+    ),
     "generation_interval_minutes": _integer(
         "WIRTELPRIMPF_GENERATION_INTERVAL_MINUTES", 120, minimum=30, maximum=10_080, web=True, applet=True
+    ),
+    "atelier_generation_interval_minutes": _integer(
+        "WIRTELPRIMPF_ATELIER_GENERATION_INTERVAL_MINUTES",
+        120,
+        minimum=30,
+        maximum=10_080,
+        web=True,
+        applet=True,
     ),
     "publish_immediately": _boolean(
         "WIRTELPRIMPF_PUBLISH_IMMEDIATELY", True, web=True, applet=True
@@ -323,6 +339,7 @@ def invariants_payload() -> dict[str, object]:
         key: {"minimum": SETTING_SPECS[key].minimum, "maximum": SETTING_SPECS[key].maximum}
         for key in (
             "generation_interval_minutes",
+            "atelier_generation_interval_minutes",
             "story_finish_parts_min",
             "story_finish_parts_max",
         )

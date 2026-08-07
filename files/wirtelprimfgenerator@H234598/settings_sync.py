@@ -38,7 +38,9 @@ APPLET_SETTING_KINDS = {
     "story_model": "string",
     "image_size": "string",
     "output_resolution": "string",
+    "image_batch_mode": "string",
     "generation_interval_minutes": "integer",
+    "atelier_generation_interval_minutes": "integer",
     "publish_immediately": "boolean",
     "story_finish_parts_min": "integer",
     "story_finish_parts_max": "integer",
@@ -78,12 +80,14 @@ _APPLET_CHOICE_KEYS = frozenset(
         "story_model",
         "image_size",
         "output_resolution",
+        "image_batch_mode",
         "media_mode",
         "flex_processing",
     }
 )
 _APPLET_NUMERIC_KEYS = (
     "generation_interval_minutes",
+    "atelier_generation_interval_minutes",
     "story_finish_parts_min",
     "story_finish_parts_max",
 )

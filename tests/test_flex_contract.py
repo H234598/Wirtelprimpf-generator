@@ -40,6 +40,15 @@ class FakeClient:
         self.images = FakeImages(failures)
 
 
+class FakeResponses:
+    def __init__(self) -> None:
+        self.requests: list[dict[str, object]] = []
+
+    def create(self, **request: object):
+        self.requests.append(request)
+        return SimpleNamespace(output_text="x" * 600)
+
+
 class FlexContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -55,18 +64,7 @@ class FlexContractTests(unittest.TestCase):
                 self.assertEqual(self.generator.parse_flex_processing(), "flex")
 
     def test_only_explicit_service_tier_unsupported_error_drops_flex_once(self) -> None:
-        request = {"model": "gpt-image-2", "extra_body": {"service_tier": "flex"}}
-        client = FakeClient([RuntimeError("invalid_request_error: service_tier is not supported")])
-
-        result = self.generator.generate_image_with_retries(client, request)
-
-        self.assertEqual(result, "image-data")
-        self.assertEqual(len(client.images.requests), 2)
-        self.assertEqual(client.images.requests[0]["extra_body"], {"service_tier": "flex"})
-        self.assertNotIn("extra_body", client.images.requests[1])
-
-    def test_normal_retries_keep_flex(self) -> None:
-        request = {"model": "gpt-image-2", "extra_body": {"service_tier": "flex"}}
+        request = {"model": "gpt-image-2", "prompt": "cat"}
         client = FakeClient([RuntimeError("temporary timeout")])
 
         with patch.object(self.generator.time, "sleep"):
@@ -74,7 +72,22 @@ class FlexContractTests(unittest.TestCase):
 
         self.assertEqual(result, "image-data")
         self.assertEqual(len(client.images.requests), 2)
-        self.assertTrue(all(self.generator.request_uses_flex_service_tier(item) for item in client.images.requests))
+        self.assertTrue(all("extra_body" not in item for item in client.images.requests))
+
+    def test_story_text_receives_flex_service_tier(self) -> None:
+        client = FakeClient([])
+        client.responses = FakeResponses()
+
+        result = self.generator.generate_story_part(
+            client,
+            model="gpt-5-mini",
+            story_config="rules",
+            recent_entries=["history"],
+            service_tier="flex",
+        )
+
+        self.assertEqual(len(result), 600)
+        self.assertEqual(client.responses.requests[0]["service_tier"], "flex")
 
 
 if __name__ == "__main__":

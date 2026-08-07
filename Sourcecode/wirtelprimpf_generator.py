@@ -19,7 +19,7 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final
@@ -77,6 +77,11 @@ FLEX_PROCESSING_MODES = frozenset({FLEX_PROCESSING_DEFAULT})
 FLEX_PROCESSING_ENABLED_VALUES = {"1", "true", "yes", "on", "enabled", "enable"}
 FLEX_PROCESSING_LEGACY_ENABLED_VALUES = {"high", "low"}
 FLEX_PROCESSING_DISABLED_VALUES = {"0", "false", "no", "off", "disabled", "disable", "default", "standard"}
+IMAGE_BATCH_MODE_DEFAULT: Final = "off"
+IMAGE_BATCH_MODE_ON: Final = "on"
+IMAGE_BATCH_MODES = frozenset({IMAGE_BATCH_MODE_DEFAULT, IMAGE_BATCH_MODE_ON})
+IMAGE_BATCH_PENDING_NAME: Final = ".image-batch-pending.json"
+IMAGE_BATCH_STATE_MAX_BYTES: Final = 4 * 1024 * 1024
 IMAGE_SIZE_PATTERN: Final = r"^\d+x\d+$"
 IMAGE_SIZE_PATTERN_RE: Final = re.compile(IMAGE_SIZE_PATTERN)
 OUTPUT_RESOLUTION_ALIASES: Final = {
@@ -168,6 +173,10 @@ class GenerationPlan:
     story_document_path: Path | None = None
     story_state_after_success: StoryState | None = None
     story_title_after_success: bool = False
+
+
+class ImageBatchPending(RuntimeError):
+    """A batch was submitted and will be resumed by a later generator run."""
 
 
 @dataclass(frozen=True)
@@ -1046,6 +1055,7 @@ class Config:
     cloudflare_zone_id: str | None = None
     settings_path: Path | None = None
     hub_dispatch_state_path: Path | None = None
+    image_batch_mode: str = IMAGE_BATCH_MODE_DEFAULT
 
 
 def load_config() -> Config:
@@ -1092,6 +1102,7 @@ def load_config() -> Config:
         image_size=parse_image_size(env("WIRTELPRIMPF_IMAGE_SIZE", "1536x1024") or "1536x1024"),
         output_resolution=parse_output_resolution(env("WIRTELPRIMPF_OUTPUT_RESOLUTION", "2k") or "2k"),
         flex_processing_mode=parse_flex_processing(),
+        image_batch_mode=parse_image_batch_mode(),
         operandi=parse_operandi(env("WIRTELPRIMPF_OPERANDI", OPERANDI_CLASSIC)),
         prompt_config_path=Path(
             env("WIRTELPRIMPF_PROMPT_CONFIG", str(default_prompt_config)) or str(default_prompt_config)
@@ -1830,6 +1841,15 @@ def parse_flex_processing() -> str | None:
     )
 
 
+def parse_image_batch_mode() -> str:
+    raw = (env("WIRTELPRIMPF_IMAGE_BATCH_MODE") or IMAGE_BATCH_MODE_DEFAULT).strip().lower()
+    if raw in {"", "off", "0", "false", "no", "disabled"}:
+        return IMAGE_BATCH_MODE_DEFAULT
+    if raw in {"on", "1", "true", "yes", "enabled", "batch"}:
+        return IMAGE_BATCH_MODE_ON
+    raise ValueError("Invalid WIRTELPRIMPF_IMAGE_BATCH_MODE value. Use off or on.")
+
+
 def bullet_list(values: list[str]) -> str:
     return "\n".join(f"- {value}" for value in values)
 
@@ -2168,11 +2188,15 @@ def generate_story_part(
     story_config: str,
     recent_entries: list[str],
     closing_instruction: str = "",
+    service_tier: str | None = None,
 ) -> str:
-    response = client.responses.create(
-        model=model,
-        input=build_story_text_prompt(story_config, recent_entries, closing_instruction),
-    )
+    request: dict[str, object] = {
+        "model": model,
+        "input": build_story_text_prompt(story_config, recent_entries, closing_instruction),
+    }
+    if service_tier:
+        request["service_tier"] = service_tier
+    response = client.responses.create(**request)
     story = _extract_text_response(response)
     if len(story) < 500:
         raise ValueError("Generated story part is unexpectedly short")
@@ -2200,24 +2224,44 @@ def clean_story_title(value: str) -> str:
     return title
 
 
-def generate_story_title(client: OpenAI, *, model: str, story_document: str) -> str:
+def generate_story_title(
+    client: OpenAI,
+    *,
+    model: str,
+    story_document: str,
+    service_tier: str | None = None,
+) -> str:
     excerpt = story_document[-12000:] if len(story_document) > 12000 else story_document
-    response = client.responses.create(
-        model=model,
-        input=(
+    request: dict[str, object] = {
+        "model": model,
+        "input": (
             "Denk dir einen kurzen, literarischen deutschen Titel fuer diese abgeschlossene "
             "Wirtelprimpf-Geschichte aus. Gib nur den Titel aus, ohne Markdown, ohne Anfuehrungszeichen, "
             "ohne Erklaerung. Der Titel soll neugierig machen und zur fertigen Geschichte passen.\n\n"
             f"Geschichte:\n{excerpt}"
         ),
-    )
+    }
+    if service_tier:
+        request["service_tier"] = service_tier
+    response = client.responses.create(**request)
     return clean_story_title(_extract_text_response(response))
 
 
-def add_story_title_if_missing(client: OpenAI, *, model: str, story_document: str) -> str:
+def add_story_title_if_missing(
+    client: OpenAI,
+    *,
+    model: str,
+    story_document: str,
+    service_tier: str | None = None,
+) -> str:
     if story_document_has_title(story_document):
         return story_document
-    title = generate_story_title(client, model=model, story_document=story_document)
+    title = generate_story_title(
+        client,
+        model=model,
+        story_document=story_document,
+        service_tier=service_tier,
+    )
     return f"# {title}\n\n{story_document.lstrip()}"
 
 
@@ -2256,6 +2300,7 @@ def build_story_plans(config: Config, now: datetime, client: OpenAI | None, *, d
             story_config=story_config,
             recent_entries=recent_entries,
             closing_instruction=closing_instruction,
+            service_tier=config.flex_processing_mode,
         )
     timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
     story_entry = f"## {timestamp}\n\n{story_part.strip()}\n"
@@ -2301,7 +2346,6 @@ def is_retryable_generation_error(exc: Exception) -> bool:
 
 def generate_image_with_retries(client: OpenAI, request: dict[str, object]) -> str:
     last_error: Exception | None = None
-    flex_fallback_used = False
     for attempt in range(1, GENERATION_RETRIES + 1):
         try:
             response = client.images.generate(**request)
@@ -2310,13 +2354,8 @@ def generate_image_with_retries(client: OpenAI, request: dict[str, object]) -> s
             if image_b64 is None:
                 raise RuntimeError("OpenAI response did not include base64 image data")
             return image_b64
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             last_error = exc
-            if not flex_fallback_used and request_uses_flex_service_tier(request) and is_service_tier_unsupported_error(exc):
-                print("Flex service_tier was not accepted for this image request; retrying without Flex.", file=sys.stderr)
-                request = request_without_service_tier(request)
-                flex_fallback_used = True
-                continue
             if not is_retryable_generation_error(exc) or attempt == GENERATION_RETRIES:
                 break
             delay = GENERATION_RETRY_BASE_SECONDS * attempt
@@ -2325,32 +2364,221 @@ def generate_image_with_retries(client: OpenAI, request: dict[str, object]) -> s
     raise last_error
 
 
-def request_uses_flex_service_tier(request: dict[str, object]) -> bool:
-    extra_body = request.get("extra_body")
-    return isinstance(extra_body, dict) and extra_body.get("service_tier") == "flex"
+def _batch_pending_path(config: Config) -> Path:
+    return config.working_dir / IMAGE_BATCH_PENDING_NAME
 
 
-def request_without_service_tier(request: dict[str, object]) -> dict[str, object]:
-    cleaned = dict(request)
-    extra_body = cleaned.get("extra_body")
-    if isinstance(extra_body, dict):
-        cleaned_extra_body = dict(extra_body)
-        cleaned_extra_body.pop("service_tier", None)
-        if cleaned_extra_body:
-            cleaned["extra_body"] = cleaned_extra_body
-        else:
-            cleaned.pop("extra_body", None)
-    return cleaned
+def _output_stems(plans: list[GenerationPlan]) -> list[str]:
+    timestamp = build_timestamp()
+    per_kind_counts: dict[str, int] = {}
+    stems: list[str] = []
+    for plan in plans:
+        per_kind_counts[plan.kind] = per_kind_counts.get(plan.kind, 0) + 1
+        kind_index = per_kind_counts[plan.kind]
+        suffix = (
+            f"_testbild-{kind_index:02d}"
+            if plan.kind == MEDIA_KIND_UNKNOWN
+            else f"_{plan.kind}-{kind_index:02d}" if len(plans) > 1 else ""
+        )
+        stems.append(f"wirtelprimpf_{timestamp}{suffix}")
+    return stems
 
 
-def is_service_tier_unsupported_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    return "service_tier" in message and (
-        "unknown parameter" in message
-        or "unsupported" in message
-        or "not supported" in message
-        or "invalid_request_error" in message
+def _serialize_generation_plan(plan: GenerationPlan) -> dict[str, object]:
+    return {
+        "prompt": plan.prompt,
+        "kind": plan.kind,
+        "story_part": plan.story_part,
+        "story_entry_markdown": plan.story_entry_markdown,
+        "story_document_append": plan.story_document_append,
+        "story_document_path": str(plan.story_document_path) if plan.story_document_path else None,
+        "story_state_after_success": (
+            asdict(plan.story_state_after_success) if plan.story_state_after_success is not None else None
+        ),
+        "story_title_after_success": plan.story_title_after_success,
+    }
+
+
+def _deserialize_generation_plan(payload: object) -> GenerationPlan:
+    if not isinstance(payload, dict) or not isinstance(payload.get("prompt"), str):
+        raise ValueError("image batch contains an invalid generation plan")
+    state_payload = payload.get("story_state_after_success")
+    state = None
+    if state_payload is not None:
+        if not isinstance(state_payload, dict):
+            raise ValueError("image batch contains an invalid story state")
+        state = StoryState(
+            current_volume=int(state_payload["current_volume"]),
+            closing_remaining=int(state_payload["closing_remaining"]),
+            closing_total=int(state_payload["closing_total"]),
+            pending_new_volume=bool(state_payload["pending_new_volume"]),
+            close_request_seen=bool(state_payload["close_request_seen"]),
+        )
+    document_path = payload.get("story_document_path")
+    if document_path is not None and not isinstance(document_path, str):
+        raise ValueError("image batch contains an invalid story document path")
+    return GenerationPlan(
+        prompt=validate_prompt(payload["prompt"]),
+        kind=str(payload.get("kind", OPERANDI_CLASSIC)),
+        story_part=payload.get("story_part") if isinstance(payload.get("story_part"), str) else None,
+        story_entry_markdown=(
+            payload.get("story_entry_markdown")
+            if isinstance(payload.get("story_entry_markdown"), str)
+            else None
+        ),
+        story_document_append=(
+            payload.get("story_document_append")
+            if isinstance(payload.get("story_document_append"), str)
+            else None
+        ),
+        story_document_path=Path(document_path) if document_path else None,
+        story_state_after_success=state,
+        story_title_after_success=bool(payload.get("story_title_after_success", False)),
     )
+
+
+def _batch_response_text(content: object) -> str:
+    for attribute in ("text", "content"):
+        value = getattr(content, attribute, None)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bytes):
+            return value.decode("utf-8")
+    reader = getattr(content, "read", None)
+    if callable(reader):
+        value = reader()
+        if isinstance(value, bytes):
+            return value.decode("utf-8")
+        if isinstance(value, str):
+            return value
+    raise ValueError("OpenAI batch output could not be read")
+
+
+def _read_image_batch_results(client: OpenAI, output_file_id: str) -> dict[str, str]:
+    results: dict[str, str] = {}
+    raw = _batch_response_text(client.files.content(output_file_id))
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        custom_id = record.get("custom_id")
+        response = record.get("response")
+        if not isinstance(custom_id, str) or not isinstance(response, dict):
+            continue
+        body = response.get("body")
+        if not isinstance(body, dict):
+            continue
+        data = body.get("data")
+        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+            continue
+        image_b64 = data[0].get("b64_json")
+        if isinstance(image_b64, str) and image_b64:
+            results[custom_id] = image_b64
+    if not results:
+        raise RuntimeError("completed image batch contained no base64 image data")
+    return results
+
+
+def _submit_image_batch(config: Config, client: OpenAI, plans: list[GenerationPlan]) -> None:
+    stems = _output_stems(plans)
+    requests = []
+    entries = []
+    for index, (plan, stem) in enumerate(zip(plans, stems, strict=True), start=1):
+        custom_id = f"wirtelprimpf-{index:04d}"
+        requests.append(
+            json.dumps(
+                {
+                    "custom_id": custom_id,
+                    "method": "POST",
+                    "url": "/v1/images/generations",
+                    "body": {
+                        "model": config.image_model,
+                        "prompt": plan.prompt,
+                        "size": config.image_size,
+                        "quality": "high",
+                        "n": 1,
+                        "response_format": "b64_json",
+                    },
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+        entries.append(
+            {
+                "custom_id": custom_id,
+                "stem": stem,
+                "plan": _serialize_generation_plan(plan),
+            }
+        )
+    uploaded = client.files.create(
+        file=("wirtelprimpf-images.jsonl", ("\n".join(requests) + "\n").encode("utf-8"), "application/jsonl"),
+        purpose="batch",
+    )
+    batch = client.batches.create(
+        input_file_id=uploaded.id,
+        endpoint="/v1/images/generations",
+        completion_window="24h",
+        metadata={"project": "wirtelprimpf", "kind": "images"},
+    )
+    pending = {
+        "version": 1,
+        "batch_id": batch.id,
+        "input_file_id": uploaded.id,
+        "entries": entries,
+    }
+    write_text_atomically(
+        _batch_pending_path(config),
+        json.dumps(pending, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+    )
+    print(f"Image batch submitted: {batch.id}; it will be resumed by the next generator run.")
+
+
+def _resume_image_batch(
+    config: Config,
+    client: OpenAI,
+) -> tuple[list[GenerationPlan], dict[int, str], dict[str, str]] | None:
+    pending_path = _batch_pending_path(config)
+    if pending_path.is_symlink():
+        raise RuntimeError("image batch state must not be a symlink")
+    if not pending_path.exists():
+        return None
+    if not pending_path.is_file() or pending_path.stat().st_size > IMAGE_BATCH_STATE_MAX_BYTES:
+        raise RuntimeError("image batch state must be a regular file within the size limit")
+    payload = json.loads(pending_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("batch_id"), str):
+        raise RuntimeError("image batch state is invalid")
+    batch = client.batches.retrieve(payload["batch_id"])
+    status = str(getattr(batch, "status", "unknown"))
+    if status not in {"completed", "failed", "expired", "cancelled"}:
+        raise ImageBatchPending(f"Image batch {payload['batch_id']} is {status}.")
+    if status != "completed":
+        pending_path.unlink()
+        raise RuntimeError(f"Image batch {payload['batch_id']} ended with status {status}.")
+    output_file_id = getattr(batch, "output_file_id", None)
+    if not isinstance(output_file_id, str) or not output_file_id:
+        raise RuntimeError("completed image batch has no output file")
+    results = _read_image_batch_results(client, output_file_id)
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        raise RuntimeError("image batch state has no entries")
+    plans: list[GenerationPlan] = []
+    stems: dict[int, str] = {}
+    images: dict[str, str] = {}
+    for index, entry in enumerate(entries, start=1):
+        if not isinstance(entry, dict) or not isinstance(entry.get("custom_id"), str):
+            raise RuntimeError("image batch state has an invalid entry")
+        if not isinstance(entry.get("stem"), str) or not isinstance(entry.get("plan"), dict):
+            raise RuntimeError("image batch state has an invalid entry payload")
+        image_b64 = results.get(entry["custom_id"])
+        if image_b64 is None:
+            raise RuntimeError(f"image batch result missing for {entry['custom_id']}")
+        plans.append(_deserialize_generation_plan(entry["plan"]))
+        stems[index] = entry["stem"]
+        images[entry["stem"]] = image_b64
+    pending_path.unlink()
+    print(f"Image batch completed: {payload['batch_id']}; processing {len(plans)} image(s).")
+    return plans, stems, images
 
 
 def parse_args() -> argparse.Namespace:
@@ -2981,36 +3209,65 @@ def main() -> None:
             return
 
         client = OpenAI()
-        if not args.test_image and operandi_includes(config, OPERANDI_STORY):
+        batch_images: dict[str, str] = {}
+        batch_stems: dict[int, str] = {}
+        if config.image_batch_mode == IMAGE_BATCH_MODE_ON:
+            try:
+                pending = _resume_image_batch(config, client)
+                if pending is not None:
+                    plans, batch_stems, batch_images = pending
+                else:
+                    if not args.test_image and operandi_includes(config, OPERANDI_STORY):
+                        plans = build_generation_plans(config, datetime.now(), client, dry_run=False)
+                    _submit_image_batch(config, client, plans)
+                    summary.total = len(plans)
+                    summary.skipped = len(plans)
+                    summary.prompts = len(plans)
+                    emit_summary(summary, args, compact=True, details={"image_batch": "submitted"})
+                    return
+            except ImageBatchPending as exc:
+                print(str(exc))
+                summary.total = len(plans)
+                summary.skipped = len(plans)
+                summary.prompts = len(plans)
+                emit_summary(summary, args, compact=True, details={"image_batch": "pending"})
+                return
+            total_prompts = len(plans)
+            summary.total = len(plans)
+        elif not args.test_image and operandi_includes(config, OPERANDI_STORY):
             plans = build_generation_plans(config, datetime.now(), client, dry_run=False)
             total_prompts = len(plans)
             summary.total = len(plans)
 
         per_kind_counts: dict[str, int] = {}
         for index, plan in enumerate(plans, start=1):
-            timestamp = build_timestamp()
-            per_kind_counts[plan.kind] = per_kind_counts.get(plan.kind, 0) + 1
-            kind_index = per_kind_counts[plan.kind]
-            suffix = (
-                f"_testbild-{kind_index:02d}"
-                if plan.kind == MEDIA_KIND_UNKNOWN
-                else f"_{plan.kind}-{kind_index:02d}" if len(plans) > 1 else ""
-            )
-            stem = f"wirtelprimpf_{timestamp}{suffix}"
+            stem = batch_stems.get(index)
+            if stem is None:
+                timestamp = build_timestamp()
+                per_kind_counts[plan.kind] = per_kind_counts.get(plan.kind, 0) + 1
+                kind_index = per_kind_counts[plan.kind]
+                suffix = (
+                    f"_testbild-{kind_index:02d}"
+                    if plan.kind == MEDIA_KIND_UNKNOWN
+                    else f"_{plan.kind}-{kind_index:02d}" if len(plans) > 1 else ""
+                )
+                stem = f"wirtelprimpf_{timestamp}{suffix}"
             local_png = config.local_outdir / f"{stem}.png"
             local_prompt = config.local_outdir / f"{stem}.txt"
             local_story = config.local_outdir / f"{stem}.md" if plan.story_entry_markdown else None
 
-            request: dict[str, object] = {
-                "model": config.image_model,
-                "prompt": plan.prompt,
-                "size": config.image_size,
-            }
-            if config.flex_processing_mode:
-                request["extra_body"] = {"service_tier": config.flex_processing_mode}
-
             try:
-                image_b64 = generate_image_with_retries(client, request)
+                image_b64 = batch_images.get(stem)
+                if image_b64 is None:
+                    request: dict[str, object] = {
+                        "model": config.image_model,
+                        "prompt": plan.prompt,
+                        "size": config.image_size,
+                        "quality": "high",
+                        "n": 1,
+                        "response_format": "b64_json",
+                    }
+                    image_b64 = generate_image_with_retries(client, request)
             except Exception as exc:
                 print(f"Generation failed for {stem}: {exc}", file=sys.stderr)
                 summary.failed += 1
@@ -3046,6 +3303,7 @@ def main() -> None:
                             client,
                             model=config.story_model,
                             story_document=updated_story_document,
+                            service_tier=config.flex_processing_mode,
                         )
                     write_text_atomically(story_document_path, updated_story_document)
                     if (

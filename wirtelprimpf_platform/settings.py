@@ -36,6 +36,8 @@ _VALIDATOR_TIMEOUT_SECONDS = 30.0
 _TIMER_KEYS = frozenset(
     {
         "generation_interval_minutes",
+        "atelier_generation_interval_minutes",
+        "operandi",
         "timer_enabled",
         "timer_randomized_delay_seconds",
         "timer_persistent",
@@ -74,6 +76,7 @@ class SettingsPaths:
     env_file: Path
     cloudflare_token_file: Path
     timer_dropin: Path
+    atelier_timer_dropin: Path
     lock_file: Path
     state_file: Path
     generator_root: Path
@@ -88,6 +91,7 @@ class SettingsPaths:
             env_file=home / ".config/wirtelprimpf/openai.env",
             cloudflare_token_file=home / ".config/cloudflare/api-token.env",
             timer_dropin=home / ".config/systemd/user/wirtelprimpf.timer.d/override.conf",
+            atelier_timer_dropin=home / ".config/systemd/user/wirtelprimpf-atelier.timer.d/override.conf",
             lock_file=home / ".config/wirtelprimpf/settings.lock",
             state_file=home / ".config/wirtelprimpf/settings-state.json",
             generator_root=home / ".local/share/wirtelprimpf-generator",
@@ -205,6 +209,7 @@ class _Backups:
     environment: FileBackup
     cloudflare_token: FileBackup
     timer_dropin: FileBackup
+    atelier_timer_dropin: FileBackup
     state_signal: FileBackup
 
 
@@ -307,11 +312,13 @@ class SettingsManager:
         paths: SettingsPaths,
         *,
         systemd: SystemdUserManager,
+        atelier_systemd: SystemdUserManager | None = None,
         validator: Validator | None = None,
         lock_timeout_seconds: float = 2.0,
     ) -> None:
         self.paths = paths
         self.systemd = systemd
+        self.atelier_systemd = atelier_systemd
         self.validator = validator or (
             lambda environment: validate_generator_environment(self.paths.generator_root, environment)
         )
@@ -319,6 +326,7 @@ class SettingsManager:
         self._environment_file = SecureFile(paths.env_file, private=True)
         self._cloudflare_store = SingleSecretStore(paths.cloudflare_token_file, "CLOUDFLARE_API_TOKEN")
         self._timer_file = SecureFile(paths.timer_dropin, private=False)
+        self._atelier_timer_file = SecureFile(paths.atelier_timer_dropin, private=False)
         self._state_file = SecureFile(paths.state_file, private=True)
         self._home = paths.env_file.parents[2]
 
@@ -387,6 +395,16 @@ class SettingsManager:
         except SettingsIOError as exc:
             raise SettingsError("settings snapshot unavailable") from exc
 
+    def effective_timer_observe(self) -> TimerObservation:
+        """Return the timer belonging to the currently selected generation mode."""
+        if self.atelier_systemd is None:
+            return self.systemd.observe_timer()
+        values = self._environment_document().values
+        operandi = values.get("WIRTELPRIMPF_OPERANDI", "story").strip().lower()
+        if operandi == "classic":
+            return self.atelier_systemd.observe_timer()
+        return self.systemd.observe_timer()
+
     def _environment_document(self) -> EnvironmentDocument:
         content = self._environment_file.read_bytes()
         try:
@@ -398,6 +416,7 @@ class SettingsManager:
         self,
         values: Mapping[str, str],
         timer: TimerObservation,
+        atelier_timer: TimerObservation | None = None,
     ) -> tuple[dict[str, object], list[str]]:
         normalized: dict[str, object] = {}
         warnings: list[str] = []
@@ -440,22 +459,36 @@ class SettingsManager:
             for key in ("story_finish_parts_min", "story_finish_parts_max"):
                 normalized[key] = SETTING_SPECS[key].default
                 warnings.append(f"invalid_persisted_setting:{key}")
+        effective_timer = timer
+        operandi = normalized.get("operandi", "story")
+        if atelier_timer is not None and operandi == "classic":
+            effective_timer = atelier_timer
         normalized.update(
             {
-                "timer_enabled": timer.enabled,
-                "timer_randomized_delay_seconds": timer.randomized_delay_seconds,
-                "timer_persistent": timer.persistent,
+                "timer_enabled": effective_timer.enabled,
+                "timer_randomized_delay_seconds": effective_timer.randomized_delay_seconds,
+                "timer_persistent": effective_timer.persistent,
             }
         )
         if normalized["generation_interval_minutes"] != timer.interval_minutes:
             warnings.append("timer_interval_drift")
+        if atelier_timer is not None:
+            if normalized["atelier_generation_interval_minutes"] != atelier_timer.interval_minutes:
+                warnings.append("atelier_timer_interval_drift")
+            if operandi == "both" and (
+                timer.enabled != atelier_timer.enabled
+                or timer.randomized_delay_seconds != atelier_timer.randomized_delay_seconds
+                or timer.persistent != atelier_timer.persistent
+            ):
+                warnings.append("story_atelier_timer_drift")
         return normalized, warnings
 
     def _read_snapshot_unlocked(self) -> SettingsSnapshot:
         document = self._environment_document()
         values = document.values
         timer = self.systemd.observe_timer()
-        normalized, warnings = self._normalized_settings(values, timer)
+        atelier_timer = self.atelier_systemd.observe_timer() if self.atelier_systemd is not None else None
+        normalized, warnings = self._normalized_settings(values, timer, atelier_timer)
         if "CLOUDFLARE_API_TOKEN" in values:
             warnings.append("legacy_cloudflare_token_in_wirtel_env")
         persisted_secret_presence = {
@@ -475,6 +508,8 @@ class SettingsManager:
             "cloudflare_token": self.paths.cloudflare_token_file,
             "timer_dropin": self.paths.timer_dropin,
         }
+        if self.atelier_systemd is not None:
+            paths["atelier_timer_dropin"] = self.paths.atelier_timer_dropin
         fingerprints = {name: _fingerprint(path) for name, path in paths.items()}
         revision_source = {
             "settings": normalized,
@@ -495,6 +530,13 @@ class SettingsManager:
                 "persistent": timer.persistent,
             },
         }
+        if atelier_timer is not None:
+            revision_source["atelier_timer"] = {
+                "enabled": atelier_timer.enabled,
+                "interval_minutes": atelier_timer.interval_minutes,
+                "randomized_delay_seconds": atelier_timer.randomized_delay_seconds,
+                "persistent": atelier_timer.persistent,
+            }
         revision = hashlib.sha256(
             json.dumps(
                 revision_source,
@@ -527,6 +569,7 @@ class SettingsManager:
             environment=self._environment_file.capture(),
             cloudflare_token=self._cloudflare_store.capture(),
             timer_dropin=self._timer_file.capture(),
+            atelier_timer_dropin=self._atelier_timer_file.capture(),
             state_signal=self._state_file.capture(),
         )
 
@@ -577,6 +620,29 @@ class SettingsManager:
         )
 
     @staticmethod
+    def _timer_configurations(
+        proposed: Mapping[str, object],
+    ) -> tuple[TimerConfiguration, TimerConfiguration]:
+        operandi = str(proposed["operandi"])
+        enabled = bool(proposed["timer_enabled"])
+        shared_delay = int(proposed["timer_randomized_delay_seconds"])
+        persistent = bool(proposed["timer_persistent"])
+        return (
+            TimerConfiguration(
+                enabled=enabled and operandi in {"story", "both"},
+                interval_minutes=int(proposed["generation_interval_minutes"]),
+                randomized_delay_seconds=shared_delay,
+                persistent=persistent,
+            ),
+            TimerConfiguration(
+                enabled=enabled and operandi in {"classic", "both"},
+                interval_minutes=int(proposed["atelier_generation_interval_minutes"]),
+                randomized_delay_seconds=shared_delay,
+                persistent=persistent,
+            ),
+        )
+
+    @staticmethod
     def _require_effective_timer(requested: TimerConfiguration, effective: TimerObservation) -> None:
         if effective.configuration() != requested or effective.active != requested.enabled:
             raise RuntimeError("effective timer verification failed")
@@ -594,11 +660,13 @@ class SettingsManager:
         self,
         backups: _Backups,
         old_timer: TimerObservation,
+        old_atelier_timer: TimerObservation | None,
         *,
         environment_touched: bool,
         cloudflare_touched: bool,
         state_signal_touched: bool,
         timer_touched: bool,
+        atelier_timer_touched: bool,
     ) -> bool:
         succeeded = True
         restore_targets = []
@@ -619,6 +687,15 @@ class SettingsManager:
                     old_timer.configuration(),
                     old_timer.active,
                     backups.timer_dropin,
+                )
+            except Exception:
+                succeeded = False
+        if atelier_timer_touched and self.atelier_systemd is not None and old_atelier_timer is not None:
+            try:
+                self.atelier_systemd.restore_timer(
+                    old_atelier_timer.configuration(),
+                    old_atelier_timer.active,
+                    backups.atelier_timer_dropin,
                 )
             except Exception:
                 succeeded = False
@@ -653,21 +730,34 @@ class SettingsManager:
                 return before
             backups = self._capture_backups()
             old_timer = self.systemd.observe_timer()
+            old_atelier_timer = (
+                self.atelier_systemd.observe_timer() if self.atelier_systemd is not None else None
+            )
             environment_touched = any(SETTING_SPECS[key].env_name is not None for key in validated) or (
                 "openai_api_key" in request.secret_actions
             )
             cloudflare_touched = "cloudflare_api_token" in request.secret_actions
             state_signal_touched = False
             timer_touched = False
+            atelier_timer_touched = False
             try:
                 self._write_environment(validated, request.secret_actions)
                 self._write_cloudflare_secret(request.secret_actions)
                 self.validator(self._generator_environment())
                 if _TIMER_KEYS.intersection(validated):
-                    requested_timer = self._timer_configuration(proposed)
-                    timer_touched = True
-                    effective_timer = self.systemd.apply_timer(requested_timer)
-                    self._require_effective_timer(requested_timer, effective_timer)
+                    if self.atelier_systemd is None:
+                        requested_timer = self._timer_configuration(proposed)
+                        timer_touched = True
+                        effective_timer = self.systemd.apply_timer(requested_timer)
+                        self._require_effective_timer(requested_timer, effective_timer)
+                    else:
+                        requested_story, requested_atelier = self._timer_configurations(proposed)
+                        timer_touched = True
+                        effective_story = self.systemd.apply_timer(requested_story)
+                        self._require_effective_timer(requested_story, effective_story)
+                        atelier_timer_touched = True
+                        effective_atelier = self.atelier_systemd.apply_timer(requested_atelier)
+                        self._require_effective_timer(requested_atelier, effective_atelier)
                 result = self._read_snapshot_unlocked()
                 state_signal_touched = True
                 self._write_revision_signal(result.revision)
@@ -678,10 +768,12 @@ class SettingsManager:
                 rollback_succeeded = self._rollback(
                     backups,
                     old_timer,
+                    old_atelier_timer,
                     environment_touched=environment_touched,
                     cloudflare_touched=cloudflare_touched,
                     state_signal_touched=state_signal_touched,
                     timer_touched=timer_touched,
+                    atelier_timer_touched=atelier_timer_touched,
                 )
                 raise SettingsApplyFailure(
                     "settings transaction failed",

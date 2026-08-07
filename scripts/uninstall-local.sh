@@ -10,5 +10,6 @@ printf '  %s\n' \
   "${HOME}/.config/wirtelprimpf/openai.env" \
   "${HOME}/.config/cloudflare/api-token.env" \
   "${HOME}/.config/wirtelprimpf/settings-state.json" \
-  "${HOME}/.config/systemd/user/wirtelprimpf.timer.d/override.conf"
+  "${HOME}/.config/systemd/user/wirtelprimpf.timer.d/override.conf" \
+  "${HOME}/.config/systemd/user/wirtelprimpf-atelier.timer.d/override.conf"
 printf 'Shared ~/.local/bin/wirtelprimpf-story-directives is preserved.\n'

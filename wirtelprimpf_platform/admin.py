@@ -283,7 +283,10 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
         if self.command != "HEAD":
-            self.wfile.write(encoded)
+            try:
+                self.wfile.write(encoded)
+            except (BrokenPipeError, ConnectionResetError):
+                return
 
     def _dispatch(self) -> None:
         raw_length = self.headers.get("Content-Length")

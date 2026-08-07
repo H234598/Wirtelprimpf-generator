@@ -49,7 +49,9 @@ function completeAdminSnapshot() {
       story_model: "gpt-5.5",
       image_size: "1536x1024",
       output_resolution: "2k",
+      image_batch_mode: "off",
       generation_interval_minutes: 120,
+      atelier_generation_interval_minutes: 120,
       story_finish_parts_min: 3,
       story_finish_parts_max: 5,
       publish_immediately: true,
@@ -62,6 +64,7 @@ function completeAdminSnapshot() {
       story_model: ["gpt-5.5"],
       image_size: ["1536x1024"],
       output_resolution: ["source", "2k", "4k"],
+      image_batch_mode: ["off", "on"],
     },
     secrets: {
       openai_api_key_present: false,
@@ -71,6 +74,7 @@ function completeAdminSnapshot() {
     invariants: {
       numeric_bounds: {
         generation_interval_minutes: { minimum: 30, maximum: 10_080 },
+        atelier_generation_interval_minutes: { minimum: 30, maximum: 10_080 },
         story_finish_parts_min: { minimum: 1, maximum: 12 },
         story_finish_parts_max: { minimum: 1, maximum: 12 },
       },

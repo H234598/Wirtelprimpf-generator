@@ -4,9 +4,14 @@ import json
 import os
 import random
 import subprocess
+import sys
 import threading
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 
 import settings_sync
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk
@@ -760,22 +765,32 @@ class GeneratorConfigEditor(SettingsWidget):
 
     field_sections = (
         (
-            "Generierung",
+            "Story und Zeitplan",
             (
                 ("operandi", "Modus", "choice", "operandi"),
-                ("image_model", "Bildmodell", "model", "image_model"),
                 ("story_model", "Storymodell", "model", "story_model"),
+                ("generation_interval_minutes", "Story-Intervall (Minuten)", "integer", None),
+                ("story_finish_parts_min", "Finish-Teile min", "integer", None),
+                ("story_finish_parts_max", "Finish-Teile max", "integer", None),
+                ("publish_immediately", "Sofort publizieren", "boolean", None),
+                ("timer_enabled", "Story-Zeitplan aktiv", "boolean", None),
+                ("timer_randomized_delay_seconds", "Story RandomizedDelaySec", "integer", None),
+                ("timer_persistent", "Story Persistent", "boolean", None),
+            ),
+        ),
+        (
+            "Atelier & Zeitplan",
+            (
+                ("image_model", "Bildmodell", "model", "image_model"),
                 ("image_size", "Bildgröße", "choice", "image_size"),
                 ("output_resolution", "Ausgabe-Auflösung", "choice", "output_resolution"),
+                ("image_batch_mode", "Bild-Batch-API", "choice", "image_batch_mode"),
                 (
-                    "generation_interval_minutes",
-                    "Generator-Intervall (Minuten)",
+                    "atelier_generation_interval_minutes",
+                    "Atelier-Intervall (Minuten)",
                     "integer",
                     None,
                 ),
-                ("publish_immediately", "Sofort publizieren", "boolean", None),
-                ("story_finish_parts_min", "Finish-Teile min", "integer", None),
-                ("story_finish_parts_max", "Finish-Teile max", "integer", None),
             ),
         ),
         (
@@ -805,7 +820,7 @@ class GeneratorConfigEditor(SettingsWidget):
                 ("cloudflare_zone_id", "Cloudflare-Zonen-ID", "string", None),
                 ("git_author_name", "Git Autor Name", "string", None),
                 ("git_author_email", "Git Autor Mail", "string", None),
-                ("flex_processing", "Flex Processing", "choice", "flex_processing"),
+                ("flex_processing", "Text-Flex-Tier", "choice", "flex_processing"),
                 ("prompt_config", "Bildregeln", "string", None),
                 ("story_prompt_config", "Storyregeln", "string", None),
                 ("story_document", "Story-Dokument", "string", None),
@@ -813,23 +828,11 @@ class GeneratorConfigEditor(SettingsWidget):
                 ("story_finish", "Story abschließen", "boolean", None),
             ),
         ),
-        (
-            "systemd User-Timer",
-            (
-                ("timer_enabled", "Generator-Timer aktiv", "boolean", None),
-                (
-                    "timer_randomized_delay_seconds",
-                    "RandomizedDelaySec",
-                    "integer",
-                    None,
-                ),
-                ("timer_persistent", "Persistent", "boolean", None),
-            ),
-        ),
     )
 
     integer_ranges = {  # noqa: RUF012 - immutable class-level schema contract
         "generation_interval_minutes": (30, 10080),
+        "atelier_generation_interval_minutes": (30, 10080),
         "story_finish_parts_min": (1, 12),
         "story_finish_parts_max": (1, 12),
         "timer_randomized_delay_seconds": (0, 86400),

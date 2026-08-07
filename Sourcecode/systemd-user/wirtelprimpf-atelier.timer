@@ -1,0 +1,12 @@
+[Unit]
+Description=Generate a Wirtelprimpf atelier image every two hours
+
+[Timer]
+OnBootSec=120min
+OnUnitActiveSec=120min
+Persistent=true
+RandomizedDelaySec=120
+Unit=wirtelprimpf-atelier.service
+
+[Install]
+WantedBy=timers.target

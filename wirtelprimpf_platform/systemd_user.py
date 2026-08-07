@@ -129,7 +129,7 @@ def _boolean(value: str) -> bool:
 
 def _monotonic_deadline(value: str) -> str | None:
     """Convert systemd's absolute monotonic deadline into local wall time."""
-    if not value.strip():
+    if value.strip().lower() in {"", "0", "infinity", "n/a", "-"}:
         return None
     deadline = _duration_seconds(value)
     seconds_until = deadline - time.monotonic()
@@ -144,10 +144,14 @@ class SystemdUserManager:
         self,
         dropin_path: Path,
         *,
+        timer_unit: str = _TIMER_UNIT,
         runner: Runner = _default_runner,
         command_timeout_seconds: float = 10.0,
     ) -> None:
         self.dropin_path = Path(dropin_path)
+        if not re.fullmatch(r"[A-Za-z0-9_.@:-]+\.timer", timer_unit):
+            raise ValueError("invalid systemd timer unit")
+        self.timer_unit = timer_unit
         self.runner = runner
         self.command_timeout_seconds = command_timeout_seconds
 
@@ -181,7 +185,7 @@ class SystemdUserManager:
         )
 
     def observe_timer(self) -> TimerObservation:
-        enabled_result = self._run(["is-enabled", _TIMER_UNIT], allow_disabled=True)
+        enabled_result = self._run(["is-enabled", self.timer_unit], allow_disabled=True)
         enabled = enabled_result.returncode == 0 and enabled_result.stdout.strip() in {
             "enabled",
             "enabled-runtime",
@@ -199,7 +203,7 @@ class SystemdUserManager:
             "NextElapseUSecRealtime",
             "NextElapseUSecMonotonic",
         )
-        arguments = ["show", _TIMER_UNIT]
+        arguments = ["show", self.timer_unit]
         for name in properties:
             arguments.extend(["--property", name])
         result = self._run(arguments)
@@ -267,10 +271,10 @@ class SystemdUserManager:
         SecureFile(self.dropin_path, private=False).replace_bytes(self.render_dropin(configuration).encode("utf-8"))
         self._run(["daemon-reload"])
         if configuration.enabled:
-            self._run(["enable", "--now", _TIMER_UNIT])
-            self._run(["restart", _TIMER_UNIT])
+            self._run(["enable", "--now", self.timer_unit])
+            self._run(["restart", self.timer_unit])
         else:
-            self._run(["disable", "--now", _TIMER_UNIT])
+            self._run(["disable", "--now", self.timer_unit])
         observation = self.observe_timer()
         self._require(configuration, observation, active=configuration.enabled)
         return observation
@@ -284,8 +288,8 @@ class SystemdUserManager:
         if dropin_backup is not None:
             SecureFile(self.dropin_path, private=False).restore(dropin_backup)
         self._run(["daemon-reload"])
-        self._run(["enable" if configuration.enabled else "disable", _TIMER_UNIT])
-        self._run(["start" if was_active else "stop", _TIMER_UNIT])
+        self._run(["enable" if configuration.enabled else "disable", self.timer_unit])
+        self._run(["start" if was_active else "stop", self.timer_unit])
         observation = self.observe_timer()
         self._require(configuration, observation, active=was_active)
         return observation

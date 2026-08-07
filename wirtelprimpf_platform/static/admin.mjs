@@ -244,7 +244,9 @@ const FORM_SETTING_KINDS = Object.freeze({
   story_model: "string",
   image_size: "string",
   output_resolution: "string",
+  image_batch_mode: "string",
   generation_interval_minutes: "integer",
+  atelier_generation_interval_minutes: "integer",
   story_finish_parts_min: "integer",
   story_finish_parts_max: "integer",
   publish_immediately: "boolean",
@@ -257,9 +259,11 @@ const FORM_CHOICE_KEYS = Object.freeze([
   "story_model",
   "image_size",
   "output_resolution",
+  "image_batch_mode",
 ]);
 const FORM_NUMERIC_KEYS = Object.freeze([
   "generation_interval_minutes",
+  "atelier_generation_interval_minutes",
   "story_finish_parts_min",
   "story_finish_parts_max",
 ]);
@@ -630,13 +634,14 @@ async function bootstrap(documentRef) {
   }
 
   function renderSettingsSnapshot(snapshot, visible) {
-    for (const name of ["operandi", "image_size", "output_resolution"]) {
+    for (const name of ["operandi", "image_size", "output_resolution", "image_batch_mode"]) {
       populateSelect(name, snapshot.choices[name] ?? [], visible[name]);
     }
     populateSelect("image_model", snapshot.choices.image_model ?? [], visible.image_model, true);
     populateSelect("story_model", snapshot.choices.story_model ?? [], visible.story_model, true);
     for (const name of [
       "generation_interval_minutes",
+      "atelier_generation_interval_minutes",
       "story_finish_parts_min",
       "story_finish_parts_max",
     ]) {
