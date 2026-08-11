@@ -41,6 +41,9 @@ _TIMER_KEYS = frozenset(
         "timer_enabled",
         "timer_randomized_delay_seconds",
         "timer_persistent",
+        "atelier_timer_enabled",
+        "atelier_timer_randomized_delay_seconds",
+        "atelier_timer_persistent",
     }
 )
 
@@ -459,28 +462,44 @@ class SettingsManager:
             for key in ("story_finish_parts_min", "story_finish_parts_max"):
                 normalized[key] = SETTING_SPECS[key].default
                 warnings.append(f"invalid_persisted_setting:{key}")
-        effective_timer = timer
         operandi = normalized.get("operandi", "story")
-        if atelier_timer is not None and operandi == "classic":
-            effective_timer = atelier_timer
+        story_enabled_fallback = timer.enabled if operandi in {"story", "both"} else True
+        atelier_enabled_fallback = (
+            (atelier_timer or timer).enabled if operandi in {"classic", "both"} else True
+        )
+
+        def persisted_or_fallback(key: str, fallback: object) -> object:
+            spec = SETTING_SPECS[key]
+            if spec.env_name is not None and spec.env_name in values:
+                return normalized[key]
+            return fallback
+
+        atelier_effective_timer = atelier_timer or timer
         normalized.update(
             {
-                "timer_enabled": effective_timer.enabled,
-                "timer_randomized_delay_seconds": effective_timer.randomized_delay_seconds,
-                "timer_persistent": effective_timer.persistent,
+                "timer_enabled": persisted_or_fallback("timer_enabled", story_enabled_fallback),
+                "timer_randomized_delay_seconds": persisted_or_fallback(
+                    "timer_randomized_delay_seconds", timer.randomized_delay_seconds
+                ),
+                "timer_persistent": persisted_or_fallback("timer_persistent", timer.persistent),
+                "atelier_timer_enabled": persisted_or_fallback(
+                    "atelier_timer_enabled", atelier_enabled_fallback
+                ),
+                "atelier_timer_randomized_delay_seconds": persisted_or_fallback(
+                    "atelier_timer_randomized_delay_seconds", atelier_effective_timer.randomized_delay_seconds
+                ),
+                "atelier_timer_persistent": persisted_or_fallback(
+                    "atelier_timer_persistent", atelier_effective_timer.persistent
+                ),
             }
         )
         if normalized["generation_interval_minutes"] != timer.interval_minutes:
             warnings.append("timer_interval_drift")
-        if atelier_timer is not None:
-            if normalized["atelier_generation_interval_minutes"] != atelier_timer.interval_minutes:
-                warnings.append("atelier_timer_interval_drift")
-            if operandi == "both" and (
-                timer.enabled != atelier_timer.enabled
-                or timer.randomized_delay_seconds != atelier_timer.randomized_delay_seconds
-                or timer.persistent != atelier_timer.persistent
-            ):
-                warnings.append("story_atelier_timer_drift")
+        if (
+            atelier_timer is not None
+            and normalized["atelier_generation_interval_minutes"] != atelier_timer.interval_minutes
+        ):
+            warnings.append("atelier_timer_interval_drift")
         return normalized, warnings
 
     def _read_snapshot_unlocked(self) -> SettingsSnapshot:
@@ -624,21 +643,20 @@ class SettingsManager:
         proposed: Mapping[str, object],
     ) -> tuple[TimerConfiguration, TimerConfiguration]:
         operandi = str(proposed["operandi"])
-        enabled = bool(proposed["timer_enabled"])
-        shared_delay = int(proposed["timer_randomized_delay_seconds"])
-        persistent = bool(proposed["timer_persistent"])
+        story_enabled = bool(proposed["timer_enabled"])
+        atelier_enabled = bool(proposed["atelier_timer_enabled"])
         return (
             TimerConfiguration(
-                enabled=enabled and operandi in {"story", "both"},
+                enabled=story_enabled and operandi in {"story", "both"},
                 interval_minutes=int(proposed["generation_interval_minutes"]),
-                randomized_delay_seconds=shared_delay,
-                persistent=persistent,
+                randomized_delay_seconds=int(proposed["timer_randomized_delay_seconds"]),
+                persistent=bool(proposed["timer_persistent"]),
             ),
             TimerConfiguration(
-                enabled=enabled and operandi in {"classic", "both"},
+                enabled=atelier_enabled and operandi in {"classic", "both"},
                 interval_minutes=int(proposed["atelier_generation_interval_minutes"]),
-                randomized_delay_seconds=shared_delay,
-                persistent=persistent,
+                randomized_delay_seconds=int(proposed["atelier_timer_randomized_delay_seconds"]),
+                persistent=bool(proposed["atelier_timer_persistent"]),
             ),
         )
 

@@ -2516,6 +2516,8 @@ def _read_image_batch_results(client: OpenAI, output_file_id: str) -> dict[str, 
 
 
 def _submit_image_batch(config: Config, client: OpenAI, plans: list[GenerationPlan]) -> None:
+    if not 0 < len(plans) <= IMAGE_BATCH_MAX_ENTRIES:
+        raise RuntimeError("image batch plan count is outside the supported limit")
     stems = _output_stems(plans)
     requests = []
     entries = []

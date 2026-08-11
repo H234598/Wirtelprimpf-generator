@@ -787,6 +787,9 @@ class GeneratorConfigEditor(SettingsWidget):
     timer_dropin_path = os.path.expanduser(
         "~/.config/systemd/user/wirtelprimpf.timer.d/override.conf"
     )
+    atelier_timer_dropin_path = os.path.expanduser(
+        "~/.config/systemd/user/wirtelprimpf-atelier.timer.d/override.conf"
+    )
     revision_state_path = os.path.expanduser(
         "~/.config/wirtelprimpf/settings-state.json"
     )
@@ -823,6 +826,14 @@ class GeneratorConfigEditor(SettingsWidget):
                     "integer",
                     None,
                 ),
+                ("atelier_timer_enabled", "Atelier-Zeitplan aktiv", "boolean", None),
+                (
+                    "atelier_timer_randomized_delay_seconds",
+                    "Atelier RandomizedDelaySec",
+                    "integer",
+                    None,
+                ),
+                ("atelier_timer_persistent", "Atelier Persistent", "boolean", None),
             ),
         ),
         (
@@ -868,6 +879,7 @@ class GeneratorConfigEditor(SettingsWidget):
         "story_finish_parts_min": (1, 12),
         "story_finish_parts_max": (1, 12),
         "timer_randomized_delay_seconds": (0, 86400),
+        "atelier_timer_randomized_delay_seconds": (0, 86400),
     }
 
     secret_specs = (
@@ -983,6 +995,7 @@ class GeneratorConfigEditor(SettingsWidget):
                 (
                     self.env_path,
                     self.timer_dropin_path,
+                    self.atelier_timer_dropin_path,
                     self.revision_state_path,
                 )
             )
@@ -1504,7 +1517,8 @@ class GeneratorConfigEditor(SettingsWidget):
         self._run_operation(
             (
                 ["systemctl", "--user", "daemon-reload"],
-                ["systemctl", "--user", "restart", "wirtelprimpf.timer"],
+                ["systemctl", "--user", "try-restart", "wirtelprimpf.timer"],
+                ["systemctl", "--user", "try-restart", "wirtelprimpf-atelier.timer"],
             ),
             "Timer neu gestartet.",
             "Timer-Restart fehlgeschlagen",

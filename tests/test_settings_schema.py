@@ -209,6 +209,35 @@ class SettingsSchemaTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertIn(key, field_keys | secret_keys)
 
+        sections = dict(editor_literal("field_sections"))
+        self.assertEqual(
+            {field[0] for field in sections["Story und Zeitplan"][0:]},
+            {
+                "operandi",
+                "story_model",
+                "generation_interval_minutes",
+                "story_finish_parts_min",
+                "story_finish_parts_max",
+                "publish_immediately",
+                "timer_enabled",
+                "timer_randomized_delay_seconds",
+                "timer_persistent",
+            },
+        )
+        self.assertEqual(
+            {field[0] for field in sections["Atelier & Zeitplan"]},
+            {
+                "image_model",
+                "image_size",
+                "output_resolution",
+                "image_batch_mode",
+                "atelier_generation_interval_minutes",
+                "atelier_timer_enabled",
+                "atelier_timer_randomized_delay_seconds",
+                "atelier_timer_persistent",
+            },
+        )
+
     def test_applet_has_no_independent_configuration_writer_methods(self) -> None:
         tree = ast.parse(SETTINGS_LOGO_PATH.read_text(encoding="utf-8"), filename=str(SETTINGS_LOGO_PATH))
         defined = {

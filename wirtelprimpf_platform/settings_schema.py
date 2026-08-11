@@ -282,9 +282,16 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         "WIRTELPRIMPF_STORY_STATE", "", max_length=4096, allow_empty=True, applet=True
     ),
     "story_finish": _boolean("WIRTELPRIMPF_STORY_FINISH", False, applet=True),
-    "timer_enabled": _boolean(None, True, applet=True),
-    "timer_randomized_delay_seconds": _integer(None, 120, minimum=0, maximum=86_400, applet=True),
-    "timer_persistent": _boolean(None, True, applet=True),
+    "timer_enabled": _boolean("WIRTELPRIMPF_TIMER_ENABLED", True, applet=True),
+    "timer_randomized_delay_seconds": _integer(
+        "WIRTELPRIMPF_TIMER_RANDOMIZED_DELAY_SECONDS", 120, minimum=0, maximum=86_400, applet=True
+    ),
+    "timer_persistent": _boolean("WIRTELPRIMPF_TIMER_PERSISTENT", True, applet=True),
+    "atelier_timer_enabled": _boolean("WIRTELPRIMPF_ATELIER_TIMER_ENABLED", True, applet=True),
+    "atelier_timer_randomized_delay_seconds": _integer(
+        "WIRTELPRIMPF_ATELIER_TIMER_RANDOMIZED_DELAY_SECONDS", 120, minimum=0, maximum=86_400, applet=True
+    ),
+    "atelier_timer_persistent": _boolean("WIRTELPRIMPF_ATELIER_TIMER_PERSISTENT", True, applet=True),
 }
 
 
@@ -342,6 +349,8 @@ def invariants_payload() -> dict[str, object]:
             "atelier_generation_interval_minutes",
             "story_finish_parts_min",
             "story_finish_parts_max",
+            "timer_randomized_delay_seconds",
+            "atelier_timer_randomized_delay_seconds",
         )
     }
     return {

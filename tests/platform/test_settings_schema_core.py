@@ -88,8 +88,11 @@ class SettingsSchemaTests(unittest.TestCase):
                 "story_order_on_landing_page": "newest-first",
                 "numeric_bounds": {
                     "generation_interval_minutes": {"minimum": 30, "maximum": 10_080},
+                    "atelier_generation_interval_minutes": {"minimum": 30, "maximum": 10_080},
                     "story_finish_parts_min": {"minimum": 1, "maximum": 12},
                     "story_finish_parts_max": {"minimum": 1, "maximum": 12},
+                    "timer_randomized_delay_seconds": {"minimum": 0, "maximum": 86_400},
+                    "atelier_timer_randomized_delay_seconds": {"minimum": 0, "maximum": 86_400},
                 },
             },
         )

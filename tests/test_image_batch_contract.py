@@ -99,6 +99,18 @@ class ImageBatchContractTests(unittest.TestCase):
             self.assertEqual(client.batches.create_calls[0]["endpoint"], "/v1/images/generations")
             self.assertTrue((root / self.generator.IMAGE_BATCH_PENDING_NAME).is_file())
 
+    def test_submit_rejects_an_oversized_plan_set_before_upload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = FakeClient()
+            plan = self.generator.GenerationPlan(prompt="A cat in an atelier", kind=self.generator.OPERANDI_CLASSIC)
+
+            with self.assertRaisesRegex(RuntimeError, "plan count"):
+                self.generator._submit_image_batch(
+                    self._config(root), client, [plan] * (self.generator.IMAGE_BATCH_MAX_ENTRIES + 1)
+                )
+            self.assertEqual(client.files.create_calls, [])
+
     def test_resume_completed_batch_rehydrates_plan_and_removes_state(self) -> None:
         output = json.dumps(
             {

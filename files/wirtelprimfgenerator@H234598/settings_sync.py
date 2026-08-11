@@ -72,6 +72,9 @@ APPLET_SETTING_KINDS = {
     "timer_enabled": "boolean",
     "timer_randomized_delay_seconds": "integer",
     "timer_persistent": "boolean",
+    "atelier_timer_enabled": "boolean",
+    "atelier_timer_randomized_delay_seconds": "integer",
+    "atelier_timer_persistent": "boolean",
 }
 _APPLET_CHOICE_KEYS = frozenset(
     {
@@ -90,6 +93,8 @@ _APPLET_NUMERIC_KEYS = (
     "atelier_generation_interval_minutes",
     "story_finish_parts_min",
     "story_finish_parts_max",
+    "timer_randomized_delay_seconds",
+    "atelier_timer_randomized_delay_seconds",
 )
 
 

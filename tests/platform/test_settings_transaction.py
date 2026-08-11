@@ -257,13 +257,58 @@ class SettingsTransactionTests(unittest.TestCase):
         self.assertEqual(json.loads(signal)["revision"], result.revision)
         self.assertNotIn("original-openai-secret", signal)
 
+    def test_story_and_atelier_timer_controls_are_applied_independently(self) -> None:
+        atelier = FakeSystemd()
+        manager = SettingsManager(
+            self.paths,
+            systemd=self.systemd,
+            atelier_systemd=atelier,
+            validator=lambda values: None,
+        )
+        base = manager.snapshot()
+        self.assertTrue(base.settings["timer_enabled"])
+        self.assertTrue(base.settings["atelier_timer_enabled"])
+
+        result = manager.apply(
+            self.request(
+                base.revision,
+                {
+                    "operandi": "both",
+                    "timer_randomized_delay_seconds": 30,
+                    "atelier_timer_enabled": False,
+                    "atelier_timer_randomized_delay_seconds": 900,
+                    "atelier_timer_persistent": False,
+                },
+                {
+                    "operandi": "story",
+                    "timer_randomized_delay_seconds": 120,
+                    "atelier_timer_enabled": True,
+                    "atelier_timer_randomized_delay_seconds": 120,
+                    "atelier_timer_persistent": True,
+                },
+            )
+        )
+
+        self.assertEqual(
+            self.systemd.configuration,
+            TimerConfiguration(True, 120, 30, True),
+        )
+        self.assertEqual(
+            atelier.configuration,
+            TimerConfiguration(False, 120, 900, False),
+        )
+        self.assertEqual(result.settings["timer_randomized_delay_seconds"], 30)
+        self.assertFalse(result.settings["atelier_timer_enabled"])
+        self.assertEqual(result.settings["atelier_timer_randomized_delay_seconds"], 900)
+        self.assertFalse(result.settings["atelier_timer_persistent"])
+
     def test_success_reuses_the_result_snapshot_after_writing_the_signal(self) -> None:
         base = self.manager.snapshot()
         self.systemd.observe_calls = 0
         self.manager.apply(
             self.request(base.revision, {"operandi": "classic"}, {"operandi": "story"})
         )
-        self.assertEqual(self.systemd.observe_calls, 3)
+        self.assertEqual(self.systemd.observe_calls, 4)
 
     def test_initial_read_errors_are_wrapped_at_the_manager_boundary(self) -> None:
         secret = "OPENAI_API_KEY=must-never-escape"

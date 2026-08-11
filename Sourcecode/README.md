@@ -327,6 +327,13 @@ direkten Images-Request. Der Batch-Modus hat das dokumentierte Abschlussfenster
 von bis zu 24 Stunden und darf deshalb nicht als sofortige Bildantwort behandelt
 werden.
 
+### Getrennte Zeitpläne
+
+`Story und Zeitplan` steuert ausschließlich den Story-Timer. `Atelier & Zeitplan`
+steuert ausschließlich den Classic-/Atelier-Timer. Beide Bereiche besitzen eigene
+Aktivierung, Verzögerung und Persistent-Einstellungen; `Operandi` entscheidet nur,
+welcher der beiden Timer aktuell laufen darf.
+
 ## Manual Run
 
 For story mode, apply the active directive before a direct generator run, just
